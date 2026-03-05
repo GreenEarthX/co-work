@@ -1,0 +1,204 @@
+"""
+GreenEarthX Platform - Main FastAPI Application
+"""
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+
+from app.api.v1 import capacity_sqlite as capacity
+from app.api.v1 import audit
+from app.api.v1 import trader_rfqs
+from app.api.v1 import marketplace_analytics
+from app.api.v1 import onboarding
+from app.api.v1 import decision_twin
+from app.api.endpoints import finance
+from app.core.config import settings
+
+
+
+####
+
+# Import optional modules (may not exist yet)
+try:
+    from app.api.v1 import tokens_sqlite as tokenisation
+    HAS_TOKENS = True
+except ImportError:
+    HAS_TOKENS = False
+    print("⚠️  tokens_sqlite not found - skipping")
+
+try:
+    from app.api.v1 import marketplace_sqlite as marketplace
+    HAS_MARKETPLACE = True
+except ImportError:
+    HAS_MARKETPLACE = False
+    print("⚠️  marketplace_sqlite not found - skipping")
+
+try:
+    from app.api.v1 import matching_sqlite as matching
+    HAS_MATCHING = True
+except ImportError:
+    HAS_MATCHING = False
+    print("⚠️  matching_sqlite not found - skipping")
+
+try:
+    from app.api.v1 import contracts_sqlite as contracts
+    HAS_CONTRACTS = True
+except ImportError:
+    HAS_CONTRACTS = False
+    print("⚠️  contracts_sqlite not found - skipping")
+
+try:
+    from app.api.v1 import greenmesh
+    HAS_GREENMESH = True
+except ImportError:
+    HAS_GREENMESH = False
+    print("⚠️  greenmesh not found - skipping")
+
+try:
+    from app.api.v1 import routes_bankability
+    HAS_BANKABILITY = True
+except ImportError:
+    HAS_BANKABILITY = False
+    print("⚠️  routes_bankability not found - skipping")
+
+try:
+    from app.api.v1 import routes_bankability_proxy
+    HAS_BANKABILITY_PROXY = True
+except ImportError:
+    HAS_BANKABILITY_PROXY = False
+
+
+
+
+# ═══════════════════════════════════════════════════════════════
+# CREATE APP
+# ═══════════════════════════════════════════════════════════════
+
+app = FastAPI(
+    title="GreenEarthX Platform API",
+    description="Green fuels orchestration platform for H2, NH3, SAF, and eMeOH",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+# Health check
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "environment": settings.ENVIRONMENT,
+        "version": "1.0.0"
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# API ROUTES
+# ═══════════════════════════════════════════════════════════════
+
+app.include_router(
+    capacity.router,
+    prefix="/api/v1/capacities",
+    tags=["Capacity Management"]
+)
+
+if HAS_TOKENS:
+    app.include_router(
+        tokenisation.router,
+        prefix="/api/v1/tokens",
+        tags=["Tokenisation"]
+    )
+
+if HAS_MARKETPLACE:
+    app.include_router(
+        marketplace.router,
+        prefix="/api/v1/marketplace",
+        tags=["Marketplace"]
+    )
+    app.include_router(
+        marketplace_analytics.router,
+        prefix="/api/v1/marketplace",
+        tags=["Marketplace Analytics"]
+    )
+
+if HAS_MATCHING:
+    app.include_router(
+        matching.router,
+        prefix="/api/v1/matching",
+        tags=["Matching Engine"]
+    )
+
+if HAS_CONTRACTS:
+    app.include_router(
+        contracts.router,
+        prefix="/api/v1/contracts",
+        tags=["Contracts & Commitments"]
+    )
+
+app.include_router(
+    audit.router,
+    prefix="/api/v1/audit",
+    tags=["Audit & Compliance"]
+)
+
+app.include_router(
+    trader_rfqs.router,
+    prefix="/api/v1/trader/rfqs",
+    tags=["Trader - RFQ Management"]
+)
+
+app.include_router(
+    onboarding.router,
+    prefix="/api/v1/onboarding",
+    tags=["Onboarding Wizard"]
+)
+
+app.include_router(
+    decision_twin.router,
+    prefix="/api/v1/decision-twin",
+    tags=["Decision Twin - Certification Engine"]
+)
+
+app.include_router(
+    finance.router,
+    prefix="/api/v1/finance",
+    tags=["Finance & Risk Management"]
+)
+
+if HAS_BANKABILITY:
+    app.include_router(
+        routes_bankability.router,
+        prefix="/api/v1/bankability",
+        tags=["Bankability Evidence System"]
+    )
+
+if HAS_BANKABILITY_PROXY:
+    app.include_router(
+        routes_bankability_proxy.router,
+        prefix="/api/v1/bankability",
+        tags=["Bankability Proxy"]
+    )
+
+# ═══════════════════════════════════════════════════════════════
+# BANKABILITY (proxies to gex_pf_engine on port 8001)
+# NOTE: routes_bankability.py belongs in gex_pf_engine, NOT here.
+# The platform calls the engine via HTTP through bankability_client.py.
+# If you need a platform-side proxy endpoint, add it to
+# app/api/endpoints/bankability.py (not app/api/routes_bankability.py).
+# ═══════════════════════════════════════════════════════════════
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

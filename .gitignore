@@ -1,0 +1,16 @@
+venv/
+.venv/
+micro_service/
+__pycache__/
+*.py[cod]
+*.egg-info/
+node_modules/
+*.db
+*.sqlite
+.env
+.env.local
+.DS_Store
+*.pages
+*.pdf
+.idea/
+.vscode/
