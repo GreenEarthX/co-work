@@ -35,6 +35,8 @@ class ActorType(str, Enum):
     LOGISTICS_OPERATOR = "LOGISTICS_OPERATOR"
     TECHNOLOGY_PROVIDER = "TECHNOLOGY_PROVIDER"
     EXECUTIVE = "EXECUTIVE"
+    # Unauthenticated / unvetted prospect — PUBLIC data only, no gate access
+    GUEST = "GUEST"
 
 
 class Sensitivity(str, Enum):
@@ -170,12 +172,52 @@ GATE_VISIBILITY: dict[ActorType, list[str]] = {
         "G7_INSURANCE", "G8_MODEL_AUDIT", "G9_PERMITS",
         "G10_FINANCIAL_CLOSE", "G11_COD",
     ],
+    # GUEST: no gate access — PUBLIC sensitivity resources only
+    ActorType.GUEST: [],
 }
 
 
 # ═══════════════════════════════════════════════════════════════
 # POLICY RULES
 # ═══════════════════════════════════════════════════════════════
+
+def _rule_0_guest_gate(
+    user: UserAttributes, resource: ResourceAttributes, context: ContextAttributes
+) -> Optional[AccessDecision]:
+    """R0: GUEST actors may only access PUBLIC resources.
+    Evaluated before all other rules so unauthenticated prospects
+    cannot reach any project data, evidence, or financial models.
+    """
+    actor_type = user.actor_type_per_project.get(resource.project_id, ActorType.GUEST)
+    if actor_type != ActorType.GUEST:
+        return None  # Not a guest — pass to later rules
+
+    if resource.sensitivity == Sensitivity.PUBLIC:
+        return None  # Guests can read public resources
+
+    return AccessDecision(
+        decision=Decision.DENY,
+        rules_evaluated=["R0"],
+        denial_reason="Guest users may only access PUBLIC resources. "
+                      "Complete KYC verification to access project data.",
+    )
+
+
+# GUEST_POLICY — CISO-configurable set of PUBLIC resources a guest may see.
+# Keys are feature slugs; True = visible to guests. CISO writes this at runtime.
+DEFAULT_GUEST_POLICY: dict[str, bool] = {
+    "onboarding_wizard": True,       # Always open — lead capture
+    "market_demand_overview": True,  # Aggregated, no project names
+    "gate_definitions": True,        # Public knowledge
+    "pricing_curves": False,         # Indicative only — CISO opt-in
+    "project_data": False,
+    "evidence": False,
+    "bankability_scores": False,
+    "contracts": False,
+    "data_room": False,
+    "capital_stack": False,
+}
+
 
 def _rule_1_stakeholder_gate(
     user: UserAttributes, resource: ResourceAttributes, context: ContextAttributes
@@ -370,6 +412,13 @@ def evaluate_access(
         AccessDecision with ALLOW or DENY + reasoning
     """
     rules_evaluated = []
+
+    # R0 — Guest gate (always first, regardless of phase)
+    r0 = _rule_0_guest_gate(user, resource, context)
+    rules_evaluated.append("R0")
+    if r0 and r0.decision == Decision.DENY:
+        r0.attributes_snapshot = _snapshot(user, resource, action, context)
+        return r0
 
     # Phase 1: R1 — Stakeholder gate
     r1 = _rule_1_stakeholder_gate(user, resource, context)

@@ -2,7 +2,10 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ProjectProvider } from '@/contexts/ProjectContext'
+import { useUserRole } from '@/contexts/UserRoleContext'
 import { Layout } from '@/components/Layout'
+import { LoginPage } from '@/features/auth/LoginPage'
+import { GuestLandingPage } from '@/features/auth/GuestLandingPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { FinanceDashboardPage } from '@/features/finance/FinanceDashboardPage'
 import { StageGatesPage } from '@/features/finance/StageGatesPage'
@@ -75,18 +78,30 @@ const PlaceholderPage = ({ title, workspace }: { title: string; workspace?: stri
   </div>
 )
 
+// Guard: redirect unauthenticated users away from protected routes
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { sessionTier } = useUserRole();
+  if (sessionTier !== 'authenticated') {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ProjectProvider>
         <BrowserRouter>
           <Routes>
+            {/* ── Public routes (no auth required) ── */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={<GuestLandingPage />} />
             <Route path="/onboarding" element={<OnboardingWizard />} />
             <Route path="/get-started" element={<OnboardingWizard />} />
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              
-              <Route path="dashboard" element={<DashboardPage />} />
+
+            {/* ── Protected routes — pathless layout so existing paths (/dashboard, /finance/*) stay intact ── */}
+            <Route element={<RequireAuth><Layout /></RequireAuth>}>
+              <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="projects" element={<ProjectsPage />} />
               <Route path="production" element={<ProductionPage />} />
               <Route path="capacity" element={<CapacityPage />} />

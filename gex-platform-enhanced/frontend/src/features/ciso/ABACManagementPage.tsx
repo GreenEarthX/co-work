@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Users, Shield, ChevronRight, Save, X, CheckCircle,
-  AlertTriangle, Lock, Info,
+  AlertTriangle, Lock, Info, Globe, Eye, EyeOff,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -434,6 +434,241 @@ export function ABACManagementPage() {
         />
       )}
 
+      {/* ── Guest & Prospect Policy ── */}
+      <GuestPolicyPanel />
+
+    </div>
+  );
+}
+
+// ─── Guest Policy Panel ───────────────────────────────────────────────────────
+
+interface GuestPolicyItem {
+  key: string;
+  label: string;
+  description: string;
+  locked?: boolean;   // always-on; cannot be disabled by CISO
+  category: 'always_open' | 'opt_in' | 'blocked';
+}
+
+const GUEST_POLICY_ITEMS: GuestPolicyItem[] = [
+  {
+    key: 'onboarding_wizard',
+    label: 'Project Viability Wizard',
+    description: 'Free 4-step bankability assessment — lead capture. Always open.',
+    locked: true,
+    category: 'always_open',
+  },
+  {
+    key: 'market_demand_overview',
+    label: 'Market Demand Overview',
+    description: 'Aggregated regional demand data — no project names or counterparties.',
+    locked: true,
+    category: 'always_open',
+  },
+  {
+    key: 'gate_definitions',
+    label: 'Gate Definitions',
+    description: 'Public descriptions of the 12 bankability gates (no scores).',
+    locked: true,
+    category: 'always_open',
+  },
+  {
+    key: 'pricing_curves',
+    label: 'Indicative Pricing Curves',
+    description: 'Delayed (T-5 days) regional price curves. CISO opt-in.',
+    category: 'opt_in',
+  },
+  {
+    key: 'project_data',
+    label: 'Project Data',
+    description: 'Project names, locations, and status — requires sign-in.',
+    category: 'blocked',
+  },
+  {
+    key: 'evidence',
+    label: 'Evidence & Documents',
+    description: 'Gate evidence, submissions, and supporting documents.',
+    category: 'blocked',
+  },
+  {
+    key: 'bankability_scores',
+    label: 'Bankability Scores',
+    description: 'Gate scores, state machine position, and verification status.',
+    category: 'blocked',
+  },
+  {
+    key: 'contracts',
+    label: 'Contracts & Offtake Terms',
+    description: 'Term sheets, signed contracts, and commitment records.',
+    category: 'blocked',
+  },
+  {
+    key: 'data_room',
+    label: 'Virtual Data Room',
+    description: 'Restricted documents shared with mandated lenders/insurers.',
+    category: 'blocked',
+  },
+  {
+    key: 'capital_stack',
+    label: 'Capital Stack & Waterfall',
+    description: 'Debt structure, DSCR model, and tranche distribution.',
+    category: 'blocked',
+  },
+];
+
+const STORAGE_KEY_GUEST_POLICY = 'gex_ciso_guest_policy';
+
+function GuestPolicyPanel() {
+  const [policy, setPolicy] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_GUEST_POLICY);
+      if (saved) return JSON.parse(saved);
+    } catch { /* fall through */ }
+    // defaults
+    return {
+      onboarding_wizard:      true,
+      market_demand_overview: true,
+      gate_definitions:       true,
+      pricing_curves:         false,
+      project_data:           false,
+      evidence:               false,
+      bankability_scores:     false,
+      contracts:              false,
+      data_room:              false,
+      capital_stack:          false,
+    };
+  });
+  const [saved, setSaved] = useState(false);
+
+  const toggle = (key: string) => {
+    setPolicy(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleSave = () => {
+    localStorage.setItem(STORAGE_KEY_GUEST_POLICY, JSON.stringify(policy));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const categories: { id: GuestPolicyItem['category']; label: string; color: string }[] = [
+    { id: 'always_open', label: 'Always Open (lead capture)',    color: 'text-teal-400' },
+    { id: 'opt_in',      label: 'CISO Opt-in (disabled by default)', color: 'text-amber-400' },
+    { id: 'blocked',     label: 'Blocked (requires sign-in)',    color: 'text-red-400' },
+  ];
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3.5">
+        <div className="flex items-center gap-2">
+          <Globe className="w-4 h-4 text-teal-500" />
+          <h2 className="text-sm font-bold text-[var(--text-primary)]">
+            Guest & Prospect Visibility Policy
+          </h2>
+        </div>
+        <span className="text-xs text-[var(--text-muted)] bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+          ACTOR_TYPE = GUEST
+        </span>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Info */}
+        <div className="flex items-start gap-3 rounded-xl border border-teal-200 bg-teal-50 dark:border-teal-800 dark:bg-teal-900/20 px-4 py-3">
+          <Info className="mt-0.5 w-4 h-4 flex-shrink-0 text-teal-600 dark:text-teal-400" />
+          <p className="text-sm text-teal-800 dark:text-teal-200">
+            Controls what unauthenticated visitors (ACTOR_TYPE = GUEST) can see on the
+            public landing page. These rules feed the ABAC R0 gate — guests can never
+            access anything above PUBLIC sensitivity, regardless of these settings.
+          </p>
+        </div>
+
+        {/* Policy items grouped by category */}
+        {categories.map(({ id, label, color }) => {
+          const items = GUEST_POLICY_ITEMS.filter(i => i.category === id);
+          return (
+            <div key={id}>
+              <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${color}`}>
+                {label}
+              </p>
+              <div className="space-y-2">
+                {items.map((item) => {
+                  const isOn = policy[item.key] ?? false;
+                  const isLocked = !!item.locked;
+                  return (
+                    <div
+                      key={item.key}
+                      className={`flex items-center gap-4 rounded-lg border px-4 py-3 transition-colors
+                        ${isOn
+                          ? 'border-teal-700/40 bg-teal-900/10'
+                          : 'border-[var(--border)] bg-[var(--surface-hover)]'
+                        }`}
+                    >
+                      {/* Toggle */}
+                      <button
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() => !isLocked && toggle(item.key)}
+                        className={`relative flex-shrink-0 w-10 h-5 rounded-full transition-colors
+                          ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}
+                          ${isOn ? 'bg-teal-600' : 'bg-gray-600'}`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+                            ${isOn ? 'translate-x-5' : 'translate-x-0'}`}
+                        />
+                      </button>
+
+                      {/* Label + description */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-[var(--text-primary)]">
+                            {item.label}
+                          </span>
+                          {isLocked && (
+                            <Lock className="w-3 h-3 text-gray-500 flex-shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                          {item.description}
+                        </p>
+                      </div>
+
+                      {/* State badge */}
+                      <div className="flex-shrink-0">
+                        {isOn ? (
+                          <span className="flex items-center gap-1 text-xs text-teal-400">
+                            <Eye className="w-3.5 h-3.5" /> Visible
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-gray-500">
+                            <EyeOff className="w-3.5 h-3.5" /> Hidden
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Save */}
+        <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
+          <p className="text-xs text-[var(--text-muted)]">
+            Changes take effect immediately for new guest sessions. Active sessions are unaffected.
+          </p>
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-2 rounded-lg bg-teal-600 hover:bg-teal-500
+                       px-4 py-2 text-sm font-semibold text-white transition-colors"
+          >
+            {saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            {saved ? 'Saved' : 'Save Guest Policy'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
