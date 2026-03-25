@@ -3,8 +3,7 @@ GEX Bankability Engine — Core Logic
 =====================================
 12 stage gates, 9 bankability states, 8 capital unlock types.
 Stateless evaluator: receives evidence + previous_state, returns snapshot.
-
-Install in: gex_pf_engine/backend/app/core/bankability_engine.py
+in: gex_pf_engine/backend/app/core/bankability_engine.py
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ GATES = [
             "zoning_compatibility_memo",
             "stakeholder_map_v1",
         ],
+        "deal_killers": ["land_option_or_lease_executed"],
         "unlocks_capital": ["GRANTS_TA"],
         "unlocks_state": "TECHNICALLY_PLAUSIBLE",
     },
@@ -40,6 +40,7 @@ GATES = [
             "water_source_plan",
             "water_permit_pathway_memo",
         ],
+        "deal_killers": ["grid_interconnection_study", "water_source_plan"],
         "unlocks_capital": ["SEED_VC_ANGEL"],
         "unlocks_state": "TECHNICALLY_PLAUSIBLE",
     },
@@ -52,6 +53,7 @@ GATES = [
             "additionality_evidence",
             "ghg_methodology_memo",
         ],
+        "deal_killers": ["certification_scheme_selection", "additionality_evidence"],
         "unlocks_capital": [],
         "unlocks_state": "COMMERCIALLY_PLAUSIBLE",
     },
@@ -64,6 +66,7 @@ GATES = [
             "transport_logistics_study",
             "storage_plan",
         ],
+        "deal_killers": ["feedstock_supply_loi"],
         "unlocks_capital": ["STRATEGIC_EQUITY"],
         "unlocks_state": "COMMERCIALLY_PLAUSIBLE",
     },
@@ -76,6 +79,7 @@ GATES = [
             "offtake_credit_assessment",
             "price_review_mechanism_memo",
         ],
+        "deal_killers": ["binding_offtake_term_sheet", "offtake_credit_assessment"],
         "unlocks_capital": ["PROJECT_EQUITY"],
         "unlocks_state": "BUILDABLE",
     },
@@ -88,6 +92,7 @@ GATES = [
             "performance_guarantees_draft",
             "epc_contractor_dd",
         ],
+        "deal_killers": ["epc_contract_heads_of_terms", "performance_guarantees_draft"],
         "unlocks_capital": [],
         "unlocks_state": "BUILDABLE",
     },
@@ -100,6 +105,7 @@ GATES = [
             "ie_technical_model_review",
             "ie_site_visit_report",
         ],
+        "deal_killers": ["ie_technical_model_review", "ie_site_visit_report"],
         "unlocks_capital": ["DFI_MEZZ_GUARANTEES"],
         "unlocks_state": "STRUCTURALLY_BANKABLE",
     },
@@ -112,6 +118,7 @@ GATES = [
             "insurance_market_report",
             "insurance_term_sheet",
         ],
+        "deal_killers": ["insurance_term_sheet"],
         "unlocks_capital": [],
         "unlocks_state": "STRUCTURALLY_BANKABLE",
     },
@@ -124,6 +131,7 @@ GATES = [
             "model_audit_engagement",
             "sensitivity_analysis",
         ],
+        "deal_killers": ["financial_model_v1", "model_audit_engagement"],
         "unlocks_capital": ["SENIOR_DEBT_COMMITMENT"],
         "unlocks_state": "CREDIT_APPROVED",
     },
@@ -136,6 +144,7 @@ GATES = [
             "construction_permit_application",
             "operating_permit_pathway",
         ],
+        "deal_killers": ["eia_submission", "construction_permit_application"],
         "unlocks_capital": [],
         "unlocks_state": "FINANCEABLE",
     },
@@ -148,6 +157,7 @@ GATES = [
             "legal_opinions_draft",
             "security_package_structure",
         ],
+        "deal_killers": ["cp_checklist_draft", "legal_opinions_draft", "security_package_structure"],
         "unlocks_capital": ["DEBT_DRAWDOWN"],
         "unlocks_state": "FINANCEABLE",
     },
@@ -160,6 +170,7 @@ GATES = [
             "performance_test_protocol",
             "handover_documentation_plan",
         ],
+        "deal_killers": ["commissioning_plan", "performance_test_protocol"],
         "unlocks_capital": ["REFINANCE_BONDS_INFRA"],
         "unlocks_state": "OPERATIONAL",
     },
@@ -200,7 +211,7 @@ PERSONA_GATES: dict[str, list[str]] = {
                  "G5_EPC", "G9_PERMITS", "G11_COD"],
     "FINANCE": ["G4_OFFTAKE", "G6_IE_SIGNOFF", "G7_INSURANCE",
                 "G8_MODEL_AUDIT", "G10_FINANCIAL_CLOSE"],
-    "REGULATOR": ["G2_CERTIFICATION", "G6_IE_SIGNOFF", "G7_INSURANCE", "G9_PERMITS"],
+    "REGULATOR": ["G2_CERTIFICATION", "G6_IE_SIGNOFF", "G9_PERMITS"],
     "EXECUTIVE": list({g["gate_id"] for g in GATES}),  # all gates
 }
 
@@ -238,6 +249,12 @@ def _evaluate_gate(gate: dict, evidence: list[dict]) -> dict:
     total = len(gate["required_evidence"])
     pct = (verified / total * 100) if total > 0 else 0.0
 
+    deal_killers = gate.get("deal_killers", [])
+    deal_killers_blocked = [
+        dk for dk in deal_killers
+        if evidence_map.get(dk, {}).get("status") != "VERIFIED"
+    ]
+
     return {
         "gate_id": gate["gate_id"],
         "gate_name": gate["gate_name"],
@@ -250,6 +267,9 @@ def _evaluate_gate(gate: dict, evidence: list[dict]) -> dict:
         "unlocks_capital": gate["unlocks_capital"],
         "unlocks_state": gate.get("unlocks_state"),
         "blocking_items": [d["key"] for d in detail if d["status"] != "VERIFIED"],
+        "deal_killers": deal_killers,
+        "deal_killers_blocked": deal_killers_blocked,
+        "has_deal_killer_block": len(deal_killers_blocked) > 0,
     }
 
 
@@ -366,6 +386,16 @@ def evaluate(project_id: str, evidence: list[dict],
     total_verified = sum(g["verified_count"] for g in gate_evals)
     overall_pct = (total_verified / total_evidence * 100) if total_evidence > 0 else 0.0
 
+    # Three-band risk classification derived from current state
+    _BANKABLE_STATES = {"CREDIT_APPROVED", "FINANCEABLE", "OPERATIONAL", "REFINANCING_ELIGIBLE"}
+    _DEVELOPABLE_STATES = {"BUILDABLE", "STRUCTURALLY_BANKABLE"}
+    if current_state in _BANKABLE_STATES:
+        risk_classification = "BANKABLE"
+    elif current_state in _DEVELOPABLE_STATES:
+        risk_classification = "DEVELOPABLE"
+    else:
+        risk_classification = "SPECULATIVE"
+
     return {
         "project_id": project_id,
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
@@ -377,6 +407,7 @@ def evaluate(project_id: str, evidence: list[dict],
         "total_evidence": total_evidence,
         "total_verified": total_verified,
         "overall_completion_pct": round(overall_pct, 1),
+        "risk_classification": risk_classification,
         "next_state": _find_next_state(current_state),
         "gates_blocking_next_state": _find_blocking_gates(current_state, gate_evals),
     }

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Shield, AlertTriangle, CheckCircle2, XCircle, ArrowRight, TrendingUp, TrendingDown } from 'lucide-react'
-import { bankabilityAPI } from '@/lib/api'
+import { InfoTooltip } from '@/components/ui/InfoTooltip'
+import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
+import { bankabilityAPI, financeModelAPI } from '@/lib/api'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -29,7 +31,7 @@ interface RegressionRule {
 // COVENANT DEFINITIONS (derived from bankability engine gates)
 // ═══════════════════════════════════════════════════════════════
 
-function deriveCovenants(snapshot: any, rules: any): Covenant[] {
+function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant[] {
   if (!snapshot) return []
 
   const gates = snapshot.gate_evaluations || []
@@ -40,14 +42,20 @@ function deriveCovenants(snapshot: any, rules: any): Covenant[] {
 
   // DSCR covenant — tied to G8 (Audit-Grade Model)
   const g8 = gateMap.get('G8_AUDIT_GRADE_MODEL')
+  const dscrValue = cfadsResult?.cfads?.dscr
+    ? `${cfadsResult.cfads.dscr.toFixed(2)}x`
+    : g8?.is_complete ? 'Computed (engine)' : 'Pending model audit'
+  const dscrStatus = cfadsResult?.cfads?.dscr
+    ? (cfadsResult.cfads.dscr >= 1.3 ? 'compliant' : cfadsResult.cfads.dscr >= 1.1 ? 'warning' : 'breach')
+    : g8?.is_complete ? 'compliant' : 'not_applicable'
   covenants.push({
     id: 'cov_dscr',
     name: 'Debt Service Coverage Ratio',
     type: 'financial',
     metric: 'DSCR',
     threshold: '≥ 1.30x',
-    current_value: g8?.is_complete ? '1.45x' : 'Pending model audit',
-    status: g8?.is_complete ? 'compliant' : 'not_applicable',
+    current_value: dscrValue,
+    status: dscrStatus,
     linked_gate: 'G8_AUDIT_GRADE_MODEL',
     frequency: 'Quarterly',
   })
@@ -188,7 +196,11 @@ function CovenantCard({ covenant }: { covenant: Covenant }) {
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
-          <div className="text-xs text-gray-500 font-medium">Metric</div>
+          <div className="text-xs text-gray-500 font-medium flex items-center gap-1">
+            Metric
+            {covenant.id === 'cov_dscr' && <InfoTooltip text={HELP.DSCR_COVENANT} />}
+            {covenant.id === 'cov_dsra' && <InfoTooltip text={HELP.DSRA_COVENANT} />}
+          </div>
           <div className="text-gray-800">{covenant.metric}</div>
         </div>
         <div>
@@ -239,6 +251,7 @@ function RegressionRuleCard({ rule }: { rule: RegressionRule }) {
 export function CovenantsPage() {
   const [snapshot, setSnapshot] = useState<any>(null)
   const [rules, setRules] = useState<any>(null)
+  const [cfadsResult, setCfadsResult] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -253,6 +266,17 @@ export function CovenantsPage() {
       if (snap.status === 'fulfilled') setSnapshot(snap.value)
       if (rls.status === 'fulfilled') setRules(rls.value)
       if (snap.status === 'rejected') throw new Error(snap.reason?.message || 'Failed to load')
+
+      // Fetch real CFADS/DSCR from gex_pf_engine using representative project parameters
+      // These defaults represent a 50 MTPD green H2 project; real params would come from project DB
+      const cfads = await financeModelAPI.calculateCfads({
+        production_mtpd: 50,
+        offtake_price_eur_kg: 6.0,
+        opex_eur_kg: 2.0,
+        subsidies: { '45V': 3.0 },
+        period_days: 365,
+      }).catch(() => null)
+      if (cfads) setCfadsResult(cfads)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -262,7 +286,7 @@ export function CovenantsPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const covenants = deriveCovenants(snapshot, rules)
+  const covenants = deriveCovenants(snapshot, rules, cfadsResult)
   const regressionRules = rules?.regression_rules || []
 
   // Summary counts
@@ -297,7 +321,7 @@ export function CovenantsPage() {
         <div>
           <h1 className="text-2xl font-black text-gray-900">Covenants & Compliance</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Gate-linked covenant monitoring — derived from bankability engine
+            {TAB_DESCRIPTIONS.COVENANTS}
           </p>
         </div>
         <button onClick={loadData} disabled={loading} className="p-2 hover:bg-gray-100 rounded-lg">

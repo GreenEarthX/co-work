@@ -2,18 +2,11 @@
 Decision Twin API - Expose certification evaluation endpoints
 This is the PUBLIC API for the Decision Twin
 """
-from tkinter.messagebox import IGNORE
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, List, Optional
+from app.core.decision_twin import DecisionTwin, CertificationKnowledgeBase
 
-''' -- IGNORE ---
-from app.core.decision_twin import (
-    DecisionTwin,
-    CertificationScheme,
-    Molecule
-)
-'''
 router = APIRouter()
 
 
@@ -247,8 +240,6 @@ async def explain_certification_scheme(
     Get detailed explanation of a certification scheme
     Human-readable explanation of rules, requirements, and calculations
     """
-    from app.core.decision_twin import CertificationKnowledgeBase
-    
     kb = CertificationKnowledgeBase()
     
     if scheme.upper() == "RED_III":

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { 
-  CheckCircle, AlertCircle, TrendingUp, DollarSign, Award, 
-  FileText, ArrowRight, ArrowLeft, Download, Sparkles 
+import {
+  CheckCircle, AlertCircle, TrendingUp, DollarSign, Award,
+  FileText, ArrowRight, ArrowLeft, Download, Sparkles
 } from 'lucide-react';
+import { RoleSelector } from '@/components/RoleSelector';
+import { useUserRole } from '@/contexts/UserRoleContext';
 
 interface WizardStep {
   number: number;
@@ -18,7 +20,23 @@ const steps: WizardStep[] = [
 ];
 
 const OnboardingWizard: React.FC = () => {
+  const { isRoleSet } = useUserRole();
   const [currentStep, setCurrentStep] = useState(1);
+
+  // Step 0: role selection (shown before wizard if role not yet set)
+  if (!isRoleSet) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-8">
+        <div className="w-full max-w-lg">
+          <h1 className="text-2xl font-bold text-white mb-2">Welcome to GreenEarthX</h1>
+          <p className="text-sm text-gray-400 mb-8">
+            Tell us about your role so we can show you the right tools.
+          </p>
+          <RoleSelector onComplete={() => { /* role saved — component re-renders with isRoleSet=true */ }} />
+        </div>
+      </div>
+    );
+  }
   const [loading, setLoading] = useState(false);
   
   // Form data

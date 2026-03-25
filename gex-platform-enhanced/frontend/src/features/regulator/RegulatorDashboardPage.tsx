@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, CheckCircle, AlertCircle, FileCheck, Eye, Search, Filter } from 'lucide-react';
+import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
 
 interface Project {
   id: string;
@@ -297,6 +298,11 @@ export function RegulatorDashboardPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* ── Production Roadmap Gantt ─────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mt-2">
+        <ProductionRoadmapGantt workspaceId="regulator" compact />
       </div>
     </div>
   );

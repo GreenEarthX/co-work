@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Box, Save, Trash2 } from 'lucide-react'
 import { capacitiesAPI } from '@/lib/api'
+import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
 
 export function CapacityPage() {
   const [capacities, setCapacities] = useState<any[]>([])
@@ -21,9 +22,37 @@ export function CapacityPage() {
   const loadCapacities = async () => {
     try {
       const response = await capacitiesAPI.list()
-      setCapacities(response.capacities || [])
+      const api = response.capacities || []
+      // Only show canonical customer projects — filter API list to known IDs,
+      // then fill any gaps from the static registry so count is always 5.
+      const canonical = CUSTOMER_PROJECTS.map(cp => {
+        const fromApi = api.find((c: any) => c.id === cp.id)
+        return fromApi ?? {
+          id: cp.id,
+          project_name: cp.name,
+          molecule: cp.molecule,
+          capacity_mtpd: cp.capacity_mtpd,
+          location: cp.location,
+          capex_eur: cp.capex_eur,
+          status: cp.status,
+          production_start: cp.completion_date,
+          created_at: new Date().toISOString(),
+        }
+      })
+      setCapacities(canonical)
     } catch (error) {
       console.error('Failed to load capacities:', error)
+      setCapacities(CUSTOMER_PROJECTS.map(cp => ({
+        id: cp.id,
+        project_name: cp.name,
+        molecule: cp.molecule,
+        capacity_mtpd: cp.capacity_mtpd,
+        location: cp.location,
+        capex_eur: cp.capex_eur,
+        status: cp.status,
+        production_start: cp.completion_date,
+        created_at: new Date().toISOString(),
+      })))
     }
   }
 

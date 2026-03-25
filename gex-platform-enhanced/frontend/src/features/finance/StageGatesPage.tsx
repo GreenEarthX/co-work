@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Shield, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronRight, Upload, XCircle, Eye, Lock, Unlock } from 'lucide-react'
+import { InfoTooltip } from '@/components/ui/InfoTooltip'
+import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
 import { bankabilityAPI } from '@/lib/api'
 
 // ═══════════════════════════════════════════════════════════════
@@ -183,8 +185,9 @@ function GateCard({ gate, onUpdateEvidence }: { gate: GateEvaluation; onUpdateEv
                   {gate.verified_count}/{gate.total_evidence} verified
                 </span>
                 {gate.unlocks_state && (
-                  <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                  <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200 flex items-center gap-1">
                     → {STATE_LABELS[gate.unlocks_state] || gate.unlocks_state}
+                    <InfoTooltip text={HELP.BANKABILITY_STATE} />
                   </span>
                 )}
               </div>
@@ -198,7 +201,7 @@ function GateCard({ gate, onUpdateEvidence }: { gate: GateEvaluation; onUpdateEv
                 style={{ width: `${completePct}%` }}
               />
             </div>
-            <span className="text-xs font-bold text-gray-500 w-8 text-right">{completePct}%</span>
+            <span className="text-xs font-bold text-gray-500 flex items-center gap-1">{completePct}% <InfoTooltip text={HELP.GATE_SCORE} /></span>
             {expanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
           </div>
         </div>
@@ -380,8 +383,7 @@ export function StageGatesPage() {
         <div>
           <h1 className="text-2xl font-black text-gray-900">Bankability Stage Gates</h1>
           <p className="text-sm text-gray-600 mt-1">
-            {snapshot.total_verified}/{snapshot.total_evidence} evidence items verified
-            — {Math.round(snapshot.overall_completion_pct)}% complete
+            {TAB_DESCRIPTIONS.STAGE_GATES}
           </p>
         </div>
         <div className="flex items-center gap-3">

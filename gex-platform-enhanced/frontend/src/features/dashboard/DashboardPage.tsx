@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
 import { RefreshCw, Plus, Filter, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { capacitiesAPI, offersAPI, tokensAPI, matchingAPI } from '@/lib/api'
+import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
 
 interface ProjectFlow {
   name: string
@@ -101,7 +103,21 @@ export function DashboardPage() {
       }
     })
 
-    const projectsArray = Array.from(projectMap.values())
+    // Always align to the canonical 5 projects — merge API flow data in where
+    // it matches by name, fill gaps from static registry so count is always 5.
+    const projectsArray = CUSTOMER_PROJECTS.map(cp => {
+      const fromMap = projectMap.get(cp.name)
+      return fromMap ?? {
+        name: cp.name,
+        molecule: cp.molecule,
+        stage1_capacity: cp.capacity_mtpd,
+        stage2_tokenised: Math.round(cp.capacity_mtpd * 0.6),
+        stage3_market: Math.round(cp.capacity_mtpd * 0.35),
+        stage3_matched: Math.round(cp.capacity_mtpd * 0.2),
+        capacityIds: [cp.id],
+      }
+    })
+
     setProjects(projectsArray)
     setErrors(errs)
 
@@ -324,6 +340,11 @@ export function DashboardPage() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ── Production Roadmap Gantt ─────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mt-2">
+        <ProductionRoadmapGantt workspaceId="producer" compact />
       </div>
     </div>
   )

@@ -1,0 +1,272 @@
+/**
+ * GEX v6.1 — Universal Menu Architecture
+ * File: src/config/menuArchitecture.ts
+ *
+ * Single source of truth for all navigation items.
+ * Every item carries visibility rules: who sees it, based on
+ * company_type + business_function + service_type.
+ *
+ * The TopBar reads this config and filters per UserRole context.
+ */
+
+// ── Role Types ──
+
+export type CompanyType = 'PRODUCER' | 'OFFTAKER' | 'THIRD_PARTY';
+
+export type ServiceType =
+  | 'BANK' | 'INSURER' | 'CERTIFIER' | 'LOGISTICS'
+  | 'ENGINEER' | 'EQUIPMENT' | 'LEGAL' | null;
+
+export type BusinessFunction =
+  | 'ENGINEERING' | 'FINANCE_TREASURY' | 'COMMERCIAL'
+  | 'COMPLIANCE_LEGAL' | 'OPERATIONS' | 'EXECUTIVE';
+
+export interface UserRole {
+  company_type: CompanyType;
+  service_type: ServiceType;
+  business_function: BusinessFunction;
+  company_name: string;
+  user_name: string;
+}
+
+// ── Menu Item ──
+
+export interface MenuItem {
+  id: string;
+  path: string;
+  label: string;
+  section: string;        // group header within dropdown
+  visible_to: VisibilityRule[];
+  is_new?: boolean;
+  icon?: string;          // lucide icon name
+  tooltip?: string;       // from helpText.ts key
+}
+
+export interface VisibilityRule {
+  company_type: CompanyType | 'ALL';
+  function?: BusinessFunction | 'ALL';
+  service_type?: ServiceType | 'ALL';
+}
+
+export interface MenuTab {
+  id: string;
+  label: string;
+  items: MenuItem[];
+}
+
+// ── Visibility helper ──
+
+export function isVisible(item: MenuItem, role: UserRole): boolean {
+  return item.visible_to.some(rule => {
+    const ctMatch = rule.company_type === 'ALL' || rule.company_type === role.company_type;
+    const fnMatch = !rule.function || rule.function === 'ALL' || rule.function === role.business_function;
+    const stMatch = !rule.service_type || rule.service_type === 'ALL' ||
+      (role.company_type === 'THIRD_PARTY' && rule.service_type === role.service_type);
+    return ctMatch && fnMatch && stMatch;
+  });
+}
+
+// ── Shorthand visibility constructors ──
+
+const ALL: VisibilityRule = { company_type: 'ALL', function: 'ALL' };
+const PROD = (fn?: BusinessFunction): VisibilityRule => ({ company_type: 'PRODUCER', function: fn || 'ALL' });
+const OFT = (fn?: BusinessFunction): VisibilityRule => ({ company_type: 'OFFTAKER', function: fn || 'ALL' });
+const TP = (svc: ServiceType, fn?: BusinessFunction): VisibilityRule => ({ company_type: 'THIRD_PARTY', service_type: svc, function: fn || 'ALL' });
+
+// ────────────────────────────────────────────
+// MENU DEFINITIONS
+// ────────────────────────────────────────────
+
+export const MENU_TABS: MenuTab[] = [
+
+  // ───────────────────────────────────
+  // 1. PROJECTS
+  // ───────────────────────────────────
+  {
+    id: 'projects',
+    label: 'Projects',
+    items: [
+      { id: 'my-projects', path: '/projects', label: 'My Projects', section: '',
+        visible_to: [ALL] },
+      { id: 'project-overview', path: '/dashboard', label: 'Project Overview', section: '',
+        visible_to: [ALL] },
+      { id: 'task-flow', path: '/finance-dashboard', label: 'Task Flow', section: '',
+        visible_to: [ALL] },
+      { id: 'deal-killers', path: '/bankability-scores', label: 'Status & Blockers', section: '',
+        visible_to: [ALL] },
+
+      { id: 'plant-builder', path: '/finance-plant-builder', label: 'Plant Builder', section: 'ENGINEERING',
+        visible_to: [PROD('ENGINEERING'), PROD('EXECUTIVE'), TP('ENGINEER'), TP('EQUIPMENT')] },
+      { id: 'plant-telemetry', path: '/plant-data', label: 'Plant Telemetry', section: 'ENGINEERING',
+        visible_to: [PROD('ENGINEERING'), PROD('OPERATIONS'), TP('ENGINEER')] },
+      { id: 'production-roadmap', path: '/producer-bankability', label: 'Production Roadmap', section: 'ENGINEERING',
+        visible_to: [PROD('ENGINEERING'), PROD('OPERATIONS'), TP('ENGINEER')] },
+      { id: 'evidence-upload', path: '/reports', label: 'Evidence Upload', section: 'ENGINEERING',
+        visible_to: [PROD(), TP('CERTIFIER')] },
+    ],
+  },
+
+  // ───────────────────────────────────
+  // 2. COMMERCIAL
+  // ───────────────────────────────────
+  {
+    id: 'commercial',
+    label: 'Commercial',
+    items: [
+      { id: 'market-discovery', path: '/marketplace', label: 'Market Discovery', section: '',
+        visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('EXECUTIVE')] },
+      { id: 'supply-offers', path: '/offtaker-supply', label: 'Supply Offers', section: '',
+        visible_to: [OFT()] },
+      { id: 'demand-pipeline', path: '/finance-demand', label: 'Demand Pipeline', section: '',
+        visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), TP('BANK')],
+        is_new: true },
+      { id: 'offtake-quality', path: '/offtake-quality', label: 'Offtake Quality', section: '',
+        visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT('COMMERCIAL'), TP('BANK')] },
+
+      { id: 'matching-engine', path: '/matching', label: 'Matching Engine', section: 'NEGOTIATION',
+        visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL')] },
+      { id: 'rfq-management', path: '/trader-dashboard', label: 'RFQ Management', section: 'NEGOTIATION',
+        visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
+      { id: 'contracts', path: '/contracts', label: 'Contracts', section: 'NEGOTIATION',
+        visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT(), TP('BANK'), TP('LEGAL')] },
+      { id: 'term-sheet', path: '/term-sheet', label: 'Term Sheet Tracker', section: 'NEGOTIATION',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), TP('BANK'), TP('LEGAL')] },
+
+      { id: 'pricing-curves', path: '/dscr-sensitivity', label: 'Pricing Curves', section: 'MARKET DATA',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), TP('BANK')] },
+      { id: 'counterparties', path: '/settlement', label: 'Counterparties', section: 'MARKET DATA',
+        visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL')] },
+      { id: 'greenmesh-netting', path: '/capacity', label: 'GreenMesh Netting', section: 'MARKET DATA',
+        visible_to: [PROD('COMMERCIAL'), PROD('OPERATIONS'), TP('LOGISTICS')] },
+    ],
+  },
+
+  // ───────────────────────────────────
+  // 3. FINANCE
+  // ───────────────────────────────────
+  {
+    id: 'finance',
+    label: 'Finance',
+    items: [
+      { id: 'bankability-status', path: '/bankability-scores', label: 'Bankability Status', section: '',
+        visible_to: [ALL] },
+      { id: 'dscr-sensitivity', path: '/dscr-sensitivity', label: 'DSCR & Sensitivity', section: '',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
+      { id: 'capital-stack', path: '/capital-stack', label: 'Capital Stack', section: '',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
+      { id: 'covenants', path: '/covenants', label: 'Covenants', section: '',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
+
+      { id: 'gap-analysis', path: '/finance-gaps', label: 'Gap Analysis', section: 'STRUCTURING',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')], is_new: true },
+      { id: 'instrument-catalog', path: '/finance-instruments', label: 'Instrument Catalog', section: 'STRUCTURING',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')], is_new: true },
+      { id: 'package-builder', path: '/finance-package', label: 'Package Builder', section: 'STRUCTURING',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')], is_new: true },
+      { id: 'risk-allocation', path: '/finance-risk-matrix', label: 'Risk Allocation', section: 'STRUCTURING',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK'), TP('INSURER')], is_new: true },
+      { id: 'structuring-timeline', path: '/finance-structuring-timeline', label: 'Structuring Timeline', section: 'STRUCTURING',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')], is_new: true },
+
+      { id: 'banker-snapshot', path: '/bankability-snapshot', label: "Banker's Snapshot", section: 'EXPORT',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
+      { id: 'ic-pack', path: '/ic-pack', label: 'IC Pack Builder', section: 'EXPORT',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
+      { id: 'cfo-report', path: '/cfo-report', label: 'CFO Report', section: 'EXPORT',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE')] },
+      { id: 'insurance-schedule', path: '/insurance-schedule', label: 'Insurance Schedule', section: 'EXPORT',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK'), TP('INSURER')] },
+      { id: 'transfer-readiness', path: '/transfer-readiness', label: 'Transfer Readiness', section: 'EXPORT',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
+      { id: 'data-room', path: '/data-room', label: 'Data Room', section: 'EXPORT',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMPLIANCE_LEGAL'), OFT('COMMERCIAL'), TP('BANK'), TP('INSURER'), TP('LEGAL'), TP('CERTIFIER')] },
+
+      { id: 'approval-queue', path: '/approval-queue', label: 'Approval Queue', section: 'DEAL ROOM',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
+      { id: 'commitment-signing', path: '/commitment-signing', label: 'Commitment Signing', section: 'DEAL ROOM',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY'), TP('BANK')] },
+      { id: 'commitment-verifier', path: '/commitment-verifier', label: 'Commitment Verifier', section: 'DEAL ROOM',
+        visible_to: [ALL] },
+    ],
+  },
+
+  // ───────────────────────────────────
+  // 4. COMPLIANCE
+  // ───────────────────────────────────
+  {
+    id: 'compliance',
+    label: 'Compliance',
+    items: [
+      { id: 'cert-readiness', path: '/cert-readiness', label: 'Certification Readiness', section: '',
+        visible_to: [PROD('COMPLIANCE_LEGAL'), PROD('ENGINEERING'), TP('CERTIFIER'), OFT('COMPLIANCE_LEGAL')] },
+      { id: 'cert-distance', path: '/cert-readiness', label: 'Certification Distance', section: '',
+        visible_to: [PROD('COMPLIANCE_LEGAL'), OFT('COMPLIANCE_LEGAL'), OFT('COMMERCIAL')] },
+      { id: 'evidence-hierarchy', path: '/evidence-hierarchy', label: 'Evidence Hierarchy', section: '',
+        visible_to: [ALL] },
+      { id: 'verification-status', path: '/stage-gates', label: 'Verification Status', section: '',
+        visible_to: [TP('CERTIFIER'), TP('BANK'), PROD('COMPLIANCE_LEGAL')] },
+
+      { id: 'regulatory-registry', path: '/regulator-dashboard', label: 'Regulatory Registry', section: 'REGULATORY',
+        visible_to: [PROD('COMPLIANCE_LEGAL'), { company_type: 'THIRD_PARTY', service_type: 'LEGAL' }] },
+      { id: 'decision-twin', path: '/reports', label: 'Decision Twin (RFNBO/RED III)', section: 'REGULATORY',
+        visible_to: [PROD('COMPLIANCE_LEGAL'), PROD('ENGINEERING'), TP('CERTIFIER')] },
+      { id: 'audit-trail', path: '/reports', label: 'Audit Trail', section: 'REGULATORY',
+        visible_to: [ALL] },
+      { id: 'esg', path: '/reports', label: 'Environmental & ESG', section: 'REGULATORY',
+        visible_to: [PROD('COMPLIANCE_LEGAL'), { company_type: 'THIRD_PARTY', service_type: 'LEGAL' }] },
+    ],
+  },
+
+  // ───────────────────────────────────
+  // 5. OPERATIONS
+  // ───────────────────────────────────
+  {
+    id: 'operations',
+    label: 'Operations',
+    items: [
+      { id: 'project-timeline', path: '/finance-timeline', label: 'Project Timeline', section: '',
+        visible_to: [ALL] },
+      { id: 'construction-progress', path: '/producer-bankability', label: 'Construction Progress', section: '',
+        visible_to: [PROD('ENGINEERING'), PROD('OPERATIONS'), TP('ENGINEER')] },
+      { id: 'milestones-drawdown', path: '/finance-timeline', label: 'Milestones & Drawdown', section: '',
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
+
+      { id: 'ops-plant-telemetry', path: '/plant-data', label: 'Plant Telemetry', section: 'PLANT',
+        visible_to: [PROD('OPERATIONS'), PROD('ENGINEERING'), TP('ENGINEER')] },
+      { id: 'logistics-shipping', path: '/capacity', label: 'Logistics & Shipping', section: 'PLANT',
+        visible_to: [TP('LOGISTICS'), OFT('OPERATIONS'), PROD('OPERATIONS')] },
+      { id: 'performance-matrix', path: '/reports', label: 'Performance Matrix', section: 'PLANT',
+        visible_to: [PROD('OPERATIONS'), PROD('ENGINEERING'), TP('ENGINEER'), TP('BANK')] },
+      { id: 'ot-gateways', path: '/ciso-gateways', label: 'OT Gateway Status', section: 'PLANT',
+        visible_to: [PROD('OPERATIONS')] },
+    ],
+  },
+];
+
+// ───────────────────────────────────
+// CISO ADMIN (separate, password-gated)
+// ───────────────────────────────────
+
+export const CISO_ITEMS: MenuItem[] = [
+  { id: 'ciso-overview', path: '/ciso-dashboard', label: 'Security Overview', section: '', visible_to: [ALL] },
+  { id: 'ciso-access', path: '/ciso-access-monitor', label: 'Access Monitor', section: '', visible_to: [ALL] },
+  { id: 'ciso-identity', path: '/ciso-identity', label: 'Identity & Access', section: '', visible_to: [ALL] },
+  { id: 'ciso-barriers', path: '/ciso-barriers', label: 'Information Barriers', section: '', visible_to: [ALL] },
+  { id: 'ciso-residency', path: '/ciso-residency', label: 'Data Residency', section: '', visible_to: [ALL] },
+  { id: 'ciso-gateways', path: '/ciso-gateways', label: 'OT Gateways', section: '', visible_to: [ALL] },
+  { id: 'ciso-comms', path: '/ciso-communications', label: 'Communications Monitor', section: '', visible_to: [ALL] },
+  { id: 'ciso-gantt', path: '/ciso-gantt-config', label: 'Gantt Visibility', section: '', visible_to: [ALL] },
+  { id: 'ciso-policy', path: '/ciso-policy', label: 'Policy Matrix', section: '', visible_to: [ALL] },
+  { id: 'ciso-compliance', path: '/ciso-compliance', label: 'Compliance (ISO 27001)', section: '', visible_to: [ALL] },
+  { id: 'ciso-events', path: '/ciso-dashboard', label: 'Event Bus Monitor', section: '', visible_to: [ALL] },
+];
+
+// ── Count helper (for dev) ──
+
+export function countVisibleItems(role: UserRole): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const tab of MENU_TABS) {
+    counts[tab.id] = tab.items.filter(item => isVisible(item, role)).length;
+  }
+  return counts;
+}

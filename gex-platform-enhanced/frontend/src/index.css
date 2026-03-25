@@ -1,25 +1,68 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* ─── Font imports (Plus Jakarta Sans · Inter · JetBrains Mono) ───────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ─── CSS Custom Properties ─────────────────────────────────── */
+/* ─── Semantic design tokens — light mode ────────────────────────────────── */
 :root {
-  --brand:         #0ea5a0;
-  --brand-dark:    #0d9488;
-  --brand-light:   #f0fdf9;
-  --bg:            #f5f6f8;
-  --surface:       #ffffff;
-  --border:        #e2e8f0;
-  --text-primary:  #0f172a;
-  --text-secondary:#64748b;
-  --text-muted:    #94a3b8;
-  --sidebar-w:     72px;
-  --header-h:      56px;
+  /* Brand */
+  --brand:          #0ea5a0;
+  --brand-dark:     #0d9488;
+  --brand-light:    #f0fdf9;
+  --brand-ring:     rgba(14, 165, 160, 0.18);
+
+  /* Surfaces */
+  --bg:             #f5f6f8;
+  --surface:        #ffffff;
+  --surface-muted:  #f8fafc;
+  --surface-hover:  #f1f5f9;
+
+  /* Borders */
+  --border:         #e2e8f0;
+  --border-strong:  #cbd5e1;
+
+  /* Typography */
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #94a3b8;
+
+  /* Status */
+  --success:        #16a34a;
+  --warning:        #d97706;
+  --danger:         #dc2626;
+  --info:           #0ea5e9;
+
+  /* Rating bands */
+  --rating-investment:  #16a34a;
+  --rating-crossover:   #d97706;
+  --rating-speculative: #dc2626;
+
+  /* Layout */
+  --sidebar-w:      72px;
+  --header-h:       56px;
 }
 
-/* ─── Base Reset ─────────────────────────────────────────────── */
+/* ─── Dark mode overrides ─────────────────────────────────────────────────── */
+.dark {
+  --bg:             #0b0f1a;
+  --surface:        #111827;
+  --surface-muted:  #1f2937;
+  --surface-hover:  #1e293b;
+
+  --border:         #1e293b;
+  --border-strong:  #334155;
+
+  --text-primary:   #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted:     #475569;
+
+  --brand-light:    rgba(14, 165, 160, 0.12);
+  --brand-ring:     rgba(14, 165, 160, 0.25);
+}
+
+/* ─── Base reset ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
@@ -27,36 +70,51 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 0.875rem;
   font-weight: 400;
+  line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ─── Typography utilities ───────────────────────────────────── */
+/* Display font applied to h1–h3 automatically */
+h1, h2, h3, .font-display {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+/* Mono font for numbers / code */
+.font-mono, code, pre,
+[class*="tabular-"],
+.metric-value {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ─── Typography utilities ────────────────────────────────────────────────── */
 .label-caps {
-  font-size: 0.65rem;
+  font-size: 0.625rem;          /* 10px */
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 .section-title {
-  font-size: 0.75rem;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-size: 0.8125rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-primary);
 }
 
-/* ─── Scrollbar ──────────────────────────────────────────────── */
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: #cbd5e1; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
 
-/* ─── Table base ─────────────────────────────────────────────── */
+/* ─── Table base ──────────────────────────────────────────────────────────── */
 .gex-table {
   width: 100%;
   border-collapse: collapse;
@@ -65,12 +123,12 @@ body {
 .gex-table th {
   padding: 8px 12px;
   text-align: left;
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-secondary);
-  background: #f8fafc;
+  color: var(--text-muted);
+  background: var(--surface-muted);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
@@ -79,36 +137,18 @@ body {
   border-bottom: 1px solid var(--border);
   color: var(--text-primary);
 }
-.gex-table tbody tr:hover td {
-  background: #f8fafc;
-}
-.gex-table tbody tr.sub-row td {
-  background: #f8fafc;
-  font-size: 0.8125rem;
-}
-.gex-table tbody tr.sub-row-2 td {
-  background: #f1f5f9;
-  font-size: 0.8rem;
-}
+.gex-table tbody tr:hover td { background: var(--surface-hover); }
+.gex-table tbody tr.sub-row td   { background: var(--surface-muted); }
+.gex-table tbody tr.sub-row-2 td { background: var(--surface-hover); font-size: 0.8rem; }
 
-/* ─── Progress bar ───────────────────────────────────────────── */
-.gex-progress {
-  height: 6px;
-  background: #e2e8f0;
-  border-radius: 99px;
-  overflow: hidden;
-}
-.gex-progress-bar {
-  height: 100%;
-  background: var(--brand);
-  border-radius: 99px;
-  transition: width 0.4s ease;
-}
+/* ─── Progress bar ────────────────────────────────────────────────────────── */
+.gex-progress     { height: 5px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.gex-progress-bar { height: 100%; background: var(--brand); border-radius: 99px; transition: width 0.4s ease; }
 
-/* ─── Dropdown / Select ─────────────────────────────────────── */
+/* ─── Select / dropdown ───────────────────────────────────────────────────── */
 .gex-select {
   appearance: none;
-  background: #ffffff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%2364748b' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E") no-repeat right 10px center;
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%2364748b' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E") no-repeat right 10px center;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 28px 6px 10px;
@@ -118,20 +158,12 @@ body {
   cursor: pointer;
   transition: border-color 0.15s;
 }
-.gex-select:focus {
-  outline: none;
-  border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(14,165,160,0.12);
-}
+.gex-select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-ring); }
 
-/* ─── Focus ring ─────────────────────────────────────────────── */
-.gex-focus:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(14,165,160,0.2);
-  border-color: var(--brand);
-}
+/* ─── Focus ring ──────────────────────────────────────────────────────────── */
+.gex-focus:focus { outline: none; box-shadow: 0 0 0 3px var(--brand-ring); border-color: var(--brand); }
 
-/* ─── Tab underline ─────────────────────────────────────────── */
+/* ─── Tab underline ───────────────────────────────────────────────────────── */
 .gex-tab {
   padding: 8px 0;
   margin-right: 24px;
@@ -143,14 +175,48 @@ body {
   transition: color 0.15s, border-color 0.15s;
   text-decoration: none;
 }
-.gex-tab.active, .gex-tab:hover {
-  color: var(--brand);
-  border-bottom-color: var(--brand);
+.gex-tab.active, .gex-tab:hover { color: var(--brand); border-bottom-color: var(--brand); }
+
+/* ─── Card shell ──────────────────────────────────────────────────────────── */
+.gex-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.07), 0 1px 2px -1px rgba(0,0,0,0.05);
 }
 
-/* ─── Animations ─────────────────────────────────────────────── */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* ─── Badge ───────────────────────────────────────────────────────────────── */
+.gex-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.animate-fade-in { animation: fadeIn 0.2s ease; }
+.gex-badge-green   { background: #dcfce7; color: #15803d; }
+.gex-badge-amber   { background: #fef9c3; color: #a16207; }
+.gex-badge-red     { background: #fee2e2; color: #b91c1c; }
+.gex-badge-blue    { background: #dbeafe; color: #1d4ed8; }
+.gex-badge-default { background: var(--surface-muted); color: var(--text-secondary); }
+
+.dark .gex-badge-green   { background: rgba(22,163,74,0.15);  color: #4ade80; }
+.dark .gex-badge-amber   { background: rgba(217,119,6,0.15);  color: #fbbf24; }
+.dark .gex-badge-red     { background: rgba(220,38,38,0.15);  color: #f87171; }
+.dark .gex-badge-blue    { background: rgba(29,78,216,0.15);  color: #60a5fa; }
+.dark .gex-badge-default { background: var(--surface-muted);  color: var(--text-secondary); }
+
+/* ─── Rating letter badge ─────────────────────────────────────────────────── */
+.rating-aaa, .rating-aa, .rating-a   { color: var(--rating-investment); }
+.rating-bbb, .rating-bb              { color: var(--rating-crossover); }
+.rating-b, .rating-ccc, .rating-cc,
+.rating-c, .rating-d                 { color: var(--rating-speculative); }
+
+/* ─── Animations ──────────────────────────────────────────────────────────── */
+@keyframes fadeIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+.animate-fade-in  { animation: fadeIn  0.2s ease; }
+.animate-slide-in { animation: slideIn 0.18s ease; }

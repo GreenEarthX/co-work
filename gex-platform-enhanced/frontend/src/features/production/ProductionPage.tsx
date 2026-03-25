@@ -1,226 +1,211 @@
-import React, { useState, useEffect } from 'react';
-import { Filter, Search, Plus, Trash2, Edit, Eye } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Filter, Search, Eye, Edit, Trash2 } from 'lucide-react';
+import { CUSTOMER_PROJECTS } from '@/data/customerProjects';
+import { useSelectedProject } from '@/contexts/ProjectContext';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ProductionBatch {
   id: string;
+  project_id: string;
   project_name: string;
   molecule: string;
   batch_number: string;
   volume_mt: number;
   production_date: string;
-  quality_status: 'pending' | 'approved' | 'rejected';
+  quality_status: 'approved' | 'pending' | 'rejected';
   ghg_intensity: number;
   purity_pct: number;
 }
 
-export function ProductionPage() {
-  const [batches, setBatches] = useState<ProductionBatch[]>([]);
-  const [projects, setProjects] = useState<string[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string>('all');
-  const [loading, setLoading] = useState(true);
+// ─── Derive realistic batches from canonical projects ─────────────────────────
 
-  useEffect(() => {
-    loadProductionData();
-  }, []);
+function makeBatchPrefix(id: string): string {
+  if (id.includes('bremen'))        return 'BRH2';
+  if (id.includes('rotterdam'))     return 'RTNH3';
+  if (id.includes('sansebastian'))  return 'HLIO';
+  if (id.includes('wales'))         return 'CSAF';
+  if (id.includes('lehavre'))       return 'LHENG';
+  return 'PROJ';
+}
 
-  const loadProductionData = async () => {
-    setLoading(true);
-    try {
-      // Get projects from capacity API
-      const capResponse = await fetch('/api/v1/capacities/list');
-      if (capResponse.ok) {
-        const capData = await capResponse.json();
-        const projectNames = [...new Set(capData.capacities?.map((c: any) => c.project_name) || [])];
-        setProjects(projectNames);
-      }
+const GHG_BY_MOLECULE: Record<string, number> = {
+  H2: 0.35, NH3: 0.41, 'e-Methanol': 0.52, SAF: 0.28, 'e-NG': 0.44,
+};
+const PURITY_BY_MOLECULE: Record<string, number> = {
+  H2: 99.8, NH3: 99.9, 'e-Methanol': 99.5, SAF: 99.6, 'e-NG': 97.2,
+};
 
-      // Mock production batches (in real app, this would come from production API)
-      setBatches([
-        {
-          id: 'batch_001',
-          project_name: 'Hamburg H2 Plant',
-          molecule: 'H2',
-          batch_number: 'HH2-2026-001',
-          volume_mt: 25.5,
-          production_date: '2026-02-25',
-          quality_status: 'approved',
-          ghg_intensity: 0.35,
-          purity_pct: 99.8
-        },
-        {
-          id: 'batch_002', 
-          project_name: 'Hamburg H2 Plant',
-          molecule: 'H2',
-          batch_number: 'HH2-2026-002',
-          volume_mt: 24.8,
-          production_date: '2026-02-26',
-          quality_status: 'pending',
-          ghg_intensity: 0.38,
-          purity_pct: 99.7
-        },
-        {
-          id: 'batch_003',
-          project_name: 'Rotterdam NH3 Terminal',
-          molecule: 'NH3',
-          batch_number: 'RNH3-2026-001',
-          volume_mt: 45.2,
-          production_date: '2026-02-24',
-          quality_status: 'approved',
-          ghg_intensity: 0.42,
-          purity_pct: 99.9
-        }
-      ]);
-    } catch (error) {
-      console.error('Failed to load production data:', error);
+// Only operating or construction projects have batches
+function deriveBatches(): ProductionBatch[] {
+  const batches: ProductionBatch[] = [];
+  let seq = 1;
+  for (const p of CUSTOMER_PROJECTS) {
+    if (p.status === 'development') continue; // not yet producing
+    const prefix = makeBatchPrefix(p.id);
+    const ghg    = GHG_BY_MOLECULE[p.molecule] ?? 0.45;
+    const purity = PURITY_BY_MOLECULE[p.molecule] ?? 99.5;
+    // Produce 2-3 batches per producing project, offset dates by project
+    const batchCount = p.status === 'operating' ? 4 : 2;
+    for (let i = 0; i < batchCount; i++) {
+      const dayOffset = i * 3;
+      const date = new Date('2026-02-20');
+      date.setDate(date.getDate() + dayOffset);
+      const dailyVol = p.capacity_mtpd * (0.85 + Math.sin(seq) * 0.05);
+      batches.push({
+        id:             `batch_${String(seq).padStart(3, '0')}`,
+        project_id:     p.id,
+        project_name:   p.name,
+        molecule:       p.molecule,
+        batch_number:   `${prefix}-2026-${String(i + 1).padStart(3, '0')}`,
+        volume_mt:      +dailyVol.toFixed(1),
+        production_date: date.toISOString().slice(0, 10),
+        quality_status: i === 1 ? 'pending' : 'approved',
+        ghg_intensity:  +(ghg + (i === 0 ? 0 : 0.03)).toFixed(2),
+        purity_pct:     +(purity - (i === 1 ? 0.1 : 0)).toFixed(1),
+      });
+      seq++;
     }
-    setLoading(false);
-  };
+  }
+  return batches;
+}
 
-  const filteredBatches = batches.filter(batch => 
-    selectedProject === 'all' || batch.project_name === selectedProject
+const ALL_BATCHES = deriveBatches();
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const STATUS_BADGE: Record<string, string> = {
+  approved: 'gex-badge gex-badge-green',
+  pending:  'gex-badge gex-badge-amber',
+  rejected: 'gex-badge gex-badge-red',
+};
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export function ProductionPage() {
+  const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
+  const [search, setSearch]   = useState('');
+  const [batches, setBatches] = useState<ProductionBatch[]>(ALL_BATCHES);
+
+  const filtered = useMemo(() =>
+    batches.filter(b => {
+      const matchProject = selectedProjectId === 'all' || b.project_id === selectedProjectId;
+      const matchSearch  = search === '' ||
+        b.batch_number.toLowerCase().includes(search.toLowerCase()) ||
+        b.project_name.toLowerCase().includes(search.toLowerCase());
+      return matchProject && matchSearch;
+    }),
+    [batches, selectedProjectId, search]
   );
 
-  const getQualityStatusColor = (status: string) => {
-    switch (status) {
-      case 'approved': return 'bg-green-100 text-green-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'rejected': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const handleDeleteBatch = (batchId: string) => {
-    if (confirm('Are you sure you want to delete this batch?')) {
-      setBatches(batches.filter(b => b.id !== batchId));
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  const totalVol     = filtered.reduce((s, b) => s + b.volume_mt, 0);
+  const approvedCnt  = filtered.filter(b => b.quality_status === 'approved').length;
+  const pendingCnt   = filtered.filter(b => b.quality_status === 'pending').length;
+  const avgGhg       = filtered.length
+    ? (filtered.reduce((s, b) => s + b.ghg_intensity, 0) / filtered.length).toFixed(2)
+    : '—';
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-5 animate-fade-in">
+
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-gray-900">Production Management</h1>
-          <p className="text-sm text-gray-600 mt-1">Monitor production batches and quality control</p>
-        </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          New Batch
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-500" />
-          <select 
-            value={selectedProject} 
-            onChange={(e) => setSelectedProject(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg"
-          >
-            <option value="all">All Projects</option>
-            {projects.map(project => (
-              <option key={project} value={project}>{project}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex-1 max-w-md">
-          <div className="relative">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-            <input type="text" placeholder="Search batches..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg" />
-          </div>
+          <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">Production Management</h1>
+          <p className="mt-0.5 text-sm text-[var(--text-secondary)]">Monitor production batches and quality control</p>
         </div>
       </div>
 
-      {/* Production Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="text-2xl font-black text-blue-600">{filteredBatches.length}</div>
-          <div className="text-sm text-gray-600">Total Batches</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="text-2xl font-black text-green-600">
-            {filteredBatches.reduce((sum, b) => sum + b.volume_mt, 0).toFixed(1)}
-          </div>
-          <div className="text-sm text-gray-600">Total Volume (MT)</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="text-2xl font-black text-green-600">
-            {filteredBatches.filter(b => b.quality_status === 'approved').length}
-          </div>
-          <div className="text-sm text-gray-600">Approved Batches</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="text-2xl font-black text-yellow-600">
-            {filteredBatches.filter(b => b.quality_status === 'pending').length}
-          </div>
-          <div className="text-sm text-gray-600">Pending Review</div>
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={selectedProjectId}
+          onChange={e => setSelectedProjectId(e.target.value)}
+          className="gex-select text-sm"
+          aria-label="Filter by project"
+        >
+          <option value="all">All projects</option>
+          {CUSTOMER_PROJECTS.filter(p => p.status !== 'development').map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <div className="relative flex-1" style={{ maxWidth: '320px' }}>
+          <Search className="absolute left-3 top-1/2 w-3.5 h-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search batches…"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] py-[7px] pl-9 pr-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--brand)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-ring)]"
+          />
         </div>
       </div>
 
-      {/* Batches Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-bold text-gray-900">Production Batches</h2>
+      {/* ── KPI strip ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: 'Batches',          value: String(filtered.length),       accent: 'text-[var(--text-primary)]' },
+          { label: 'Total Volume (MT)', value: totalVol.toFixed(1),          accent: 'text-[var(--brand)]' },
+          { label: 'Approved',         value: String(approvedCnt),           accent: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Pending Review',   value: String(pendingCnt),            accent: 'text-amber-600 dark:text-amber-400' },
+        ].map(({ label, value, accent }) => (
+          <div key={label} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-card">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">{label}</div>
+            <div className={`mt-1 font-display text-2xl font-extrabold leading-none ${accent}`}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Table ── */}
+      <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
+        <div className="border-b border-[var(--border)] px-5 py-3.5">
+          <h2 className="text-sm font-bold text-[var(--text-primary)]">Production Batches</h2>
         </div>
-        
-        {filteredBatches.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            No production batches found for the selected project.
+
+        {filtered.length === 0 ? (
+          <div className="px-6 py-12 text-center text-sm text-[var(--text-muted)]">
+            No batches found for the selected filters.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
+            <table className="gex-table">
+              <thead>
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Batch</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Project</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Volume</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Quality</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">GHG</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Purity</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                  {['Batch', 'Project', 'Volume', 'Quality', 'GHG kg/kg', 'Purity', 'Date', ''].map(h => (
+                    <th key={h}>{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredBatches.map(batch => (
-                  <tr key={batch.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{batch.batch_number}</div>
-                      <div className="text-sm text-gray-500">{batch.molecule}</div>
+              <tbody>
+                {filtered.map(batch => (
+                  <tr key={batch.id}>
+                    <td>
+                      <div className="font-mono font-semibold text-[var(--text-primary)]">{batch.batch_number}</div>
+                      <div className="text-xs text-[var(--text-muted)]">{batch.molecule}</div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{batch.project_name}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{batch.volume_mt} MT</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getQualityStatusColor(batch.quality_status)}`}>
-                        {batch.quality_status.charAt(0).toUpperCase() + batch.quality_status.slice(1)}
+                    <td className="text-[var(--text-secondary)]">{batch.project_name}</td>
+                    <td className="font-mono font-semibold text-[var(--text-primary)]">{batch.volume_mt} MT</td>
+                    <td>
+                      <span className={STATUS_BADGE[batch.quality_status] ?? 'gex-badge gex-badge-default'}>
+                        {batch.quality_status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{batch.ghg_intensity} kg/kg</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{batch.purity_pct}%</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{batch.production_date}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <button className="p-1 text-gray-400 hover:text-blue-600">
-                          <Eye className="w-4 h-4" />
+                    <td className="font-mono text-[var(--text-secondary)]">{batch.ghg_intensity}</td>
+                    <td className="font-mono text-[var(--text-secondary)]">{batch.purity_pct}%</td>
+                    <td className="text-[var(--text-muted)]">{batch.production_date}</td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <button className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--brand)] hover:bg-[var(--surface-hover)] transition-colors">
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button className="p-1 text-gray-400 hover:text-green-600">
-                          <Edit className="w-4 h-4" />
+                        <button className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--brand)] hover:bg-[var(--surface-hover)] transition-colors">
+                          <Edit className="w-3.5 h-3.5" />
                         </button>
-                        <button 
-                          onClick={() => handleDeleteBatch(batch.id)}
-                          className="p-1 text-gray-400 hover:text-red-600"
+                        <button
+                          onClick={() => setBatches(bs => bs.filter(b => b.id !== batch.id))}
+                          className="p-1.5 rounded text-[var(--text-muted)] hover:text-red-500 hover:bg-[var(--surface-hover)] transition-colors"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>

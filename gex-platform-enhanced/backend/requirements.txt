@@ -48,3 +48,9 @@ flake8==7.0.0
 # Utilities
 python-dateutil==2.8.2
 pytz==2023.3
+
+# Matrix / Secure Communications (GEX actor-to-actor encrypted rooms)
+# matrix-nio[e2e] requires olm (libolm) system library
+# Install system dep first: apt-get install libolm-dev (Linux) / brew install libolm (macOS)
+matrix-nio[e2e]==0.21.2
+aiofiles==23.2.1

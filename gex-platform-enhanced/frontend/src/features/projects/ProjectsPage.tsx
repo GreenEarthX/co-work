@@ -1,220 +1,261 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Filter, Search, Eye, Edit, MapPin, DollarSign, Calendar } from 'lucide-react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  MapPin, DollarSign, Zap, ChevronRight, BarChart2, X, ExternalLink,
+} from 'lucide-react';
+import { CUSTOMER_PROJECTS, type CustomerProject } from '@/data/customerProjects';
+import { useSelectedProject } from '@/contexts/ProjectContext';
 
-interface Project {
-  id: string;
-  name: string;
-  molecule: string;
-  location: string;
-  capacity_mtpd: number;
-  capex_eur: number;
-  status: string;
-  completion_date: string;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const MOLECULE_META: Record<string, { bg: string; text: string; label: string }> = {
+  'H2':        { bg: 'bg-sky-50 dark:bg-sky-900/25',      text: 'text-sky-700 dark:text-sky-300',     label: 'Hydrogen'    },
+  'NH3':       { bg: 'bg-violet-50 dark:bg-violet-900/25', text: 'text-violet-700 dark:text-violet-300', label: 'Ammonia'   },
+  'e-Methanol':{ bg: 'bg-emerald-50 dark:bg-emerald-900/25',text: 'text-emerald-700 dark:text-emerald-300', label: 'e-Methanol' },
+  'SAF':       { bg: 'bg-amber-50 dark:bg-amber-900/25',   text: 'text-amber-700 dark:text-amber-300', label: 'SAF'         },
+  'e-NG':      { bg: 'bg-teal-50 dark:bg-teal-900/25',     text: 'text-teal-700 dark:text-teal-300',   label: 'e-Gas'       },
+};
+
+const STATUS_META: Record<string, { badge: string; label: string }> = {
+  development:    { badge: 'gex-badge gex-badge-amber',   label: 'Development' },
+  construction:   { badge: 'gex-badge gex-badge-blue',    label: 'Construction' },
+  commissioning:  { badge: 'gex-badge gex-badge-default', label: 'Commissioning' },
+  operating:      { badge: 'gex-badge gex-badge-green',   label: 'Operating' },
+};
+
+function progressColor(pct: number) {
+  if (pct >= 85) return 'bg-emerald-500';
+  if (pct >= 55) return 'bg-amber-400';
+  return 'bg-brand-500';
 }
 
-export function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [filter, setFilter] = useState('all');
-  const [loading, setLoading] = useState(true);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+// ─── Detail panel ─────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    loadProjects();
-  }, []);
-
-  const loadProjects = async () => {
-    setLoading(true);
-    try {
-      // Try multiple API endpoints to get project data
-      const [capResponse, projResponse] = await Promise.all([
-        fetch('/api/v1/capacities/list').catch(() => ({ json: () => ({ capacities: [] }) })),
-        fetch('/api/v1/projects/list').catch(() => ({ json: () => ({ projects: [] }) }))
-      ]);
-
-      const capData = await capResponse.json();
-      const projData = await projResponse.json();
-      
-      // Use capacity data as primary source if available
-      if (capData.capacities && capData.capacities.length > 0) {
-        const projectsFromCapacity = capData.capacities.map((cap: any) => ({
-          id: cap.id || `cap_${Math.random()}`,
-          name: cap.project_name || cap.name,
-          molecule: cap.molecule || 'H2',
-          location: cap.location || 'Unknown',
-          capacity_mtpd: cap.capacity_mtpd || 0,
-          capex_eur: cap.capex_eur || 0,
-          status: cap.status || 'development',
-          completion_date: cap.completion_date || '2027-12-31'
-        }));
-        setProjects(projectsFromCapacity);
-      } else if (projData.projects && projData.projects.length > 0) {
-        setProjects(projData.projects);
-      } else {
-        // Fallback demo data
-        setProjects([
-          {
-            id: '1',
-            name: 'Hamburg H2 Plant', 
-            molecule: 'H2',
-            location: 'Hamburg, Germany',
-            capacity_mtpd: 100,
-            capex_eur: 200000000,
-            status: 'operating',
-            completion_date: '2026-05-01'
-          },
-          {
-            id: '2',
-            name: 'Rotterdam NH3 Terminal',
-            molecule: 'NH3', 
-            location: 'Rotterdam, Netherlands',
-            capacity_mtpd: 150,
-            capex_eur: 350000000,
-            status: 'construction',
-            completion_date: '2026-12-01'
-          }
-        ]);
-      }
-    } catch (error) {
-      console.error('Failed to load projects:', error);
-    }
-    setLoading(false);
-  };
-
-  const filteredProjects = projects.filter(project => 
-    filter === 'all' || project.molecule === filter
-  );
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+function ProjectDetail({ project, onClose, onSelectBankability }: {
+  project: CustomerProject;
+  onClose: () => void;
+  onSelectBankability: () => void;
+}) {
+  const mol = MOLECULE_META[project.molecule] ?? MOLECULE_META['H2'];
+  const st  = STATUS_META[project.status] ?? STATUS_META['development'];
+  const bankPct = project.bankability.overall_completion;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900">Projects & Assets</h1>
-          <p className="text-sm text-gray-600 mt-1">Manage your green fuel projects</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-fade-in"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-dropdown overflow-hidden">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-[var(--border)] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold ${mol.bg} ${mol.text}`}>
+              {project.molecule}
+            </div>
+            <div>
+              <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">{project.name}</h2>
+              <div className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                <MapPin className="w-3 h-3" />
+                {project.location}
+                <span className="ml-1 font-mono">({project.lat.toFixed(4)}°N, {Math.abs(project.lng).toFixed(4)}°{project.lng >= 0 ? 'E' : 'W'})</span>
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          New Project
-        </button>
-      </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-500" />
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg">
-            <option value="all">All Molecules</option>
-            <option value="H2">Hydrogen</option>
-            <option value="NH3">Ammonia</option>
-            <option value="SAF">SAF</option>
-          </select>
-        </div>
-        <div className="flex-1 max-w-md">
-          <div className="relative">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-            <input type="text" placeholder="Search projects..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg" />
+        {/* Body */}
+        <div className="px-6 py-5 space-y-5">
+          <p className="text-sm text-[var(--text-secondary)]">{project.description}</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Molecule', value: mol.label },
+              { label: 'Status',   value: <span className={st.badge}>{st.label}</span> },
+              { label: 'Capacity', value: `${project.capacity_mtpd} MTPD` },
+              { label: 'CAPEX',    value: `€${(project.capex_eur / 1_000_000).toFixed(0)}M` },
+              { label: 'Phase',    value: project.phase },
+              { label: 'Target COD', value: new Date(project.completion_date).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
+                <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">{label}</div>
+                <div className="mt-0.5 text-sm font-semibold text-[var(--text-primary)]">{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bankability mini-bar */}
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">Bankability</span>
+              <span className="font-mono text-sm font-bold text-[var(--text-primary)]">{bankPct}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--border)]">
+              <div className={`h-full rounded-full transition-all duration-700 ${progressColor(bankPct)}`} style={{ width: `${bankPct}%` }} />
+            </div>
           </div>
         </div>
+
+        {/* Footer */}
+        <div className="flex gap-3 border-t border-[var(--border)] px-6 py-4">
+          <button
+            onClick={onSelectBankability}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            <BarChart2 className="w-4 h-4" />
+            View Bankability
+          </button>
+          <button onClick={onClose} className="rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+export function ProjectsPage() {
+  const navigate = useNavigate();
+  const { setSelectedProjectId } = useSelectedProject();
+  const [filter, setFilter]       = useState<string>('all');
+  const [search, setSearch]       = useState('');
+  const [detail, setDetail]       = useState<CustomerProject | null>(null);
+
+  const filtered = CUSTOMER_PROJECTS.filter(p => {
+    const matchMol = filter === 'all' || p.molecule === filter;
+    const matchStr = search === '' || p.name.toLowerCase().includes(search.toLowerCase()) || p.location.toLowerCase().includes(search.toLowerCase());
+    return matchMol && matchStr;
+  });
+
+  const handleBankability = (project: CustomerProject) => {
+    setSelectedProjectId(project.id);
+    setDetail(null);
+    navigate('/producer-bankability');
+  };
+
+  return (
+    <div className="space-y-5 animate-fade-in">
+
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">Projects & Assets</h1>
+          <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
+            {CUSTOMER_PROJECTS.length} active projects across 5 sites
+          </p>
+        </div>
       </div>
 
-      {/* Projects Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredProjects.map(project => (
-          <div key={project.id} className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-shadow">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-                  <span className="text-lg font-bold text-blue-600">{project.molecule}</span>
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900">{project.name}</h3>
-                  <div className="flex items-center gap-1 text-sm text-gray-500">
-                    <MapPin className="w-3 h-3" />
-                    {project.location}
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          className="gex-select text-sm"
+        >
+          <option value="all">All molecules</option>
+          <option value="H2">Hydrogen</option>
+          <option value="NH3">Ammonia</option>
+          <option value="e-Methanol">e-Methanol</option>
+          <option value="SAF">SAF</option>
+          <option value="e-NG">e-Gas (e-NG)</option>
+        </select>
+        <div className="relative flex-1" style={{ maxWidth: '320px' }}>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search projects or locations…"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] py-[7px] pl-4 pr-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--brand)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-ring)]"
+          />
+        </div>
+      </div>
+
+      {/* ── Project cards ── */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {filtered.map(project => {
+          const mol   = MOLECULE_META[project.molecule] ?? MOLECULE_META['H2'];
+          const st    = STATUS_META[project.status] ?? STATUS_META['development'];
+          const bPct  = project.bankability.overall_completion;
+          return (
+            <div
+              key={project.id}
+              className="gex-card flex flex-col rounded-2xl p-5 transition-shadow hover:shadow-card-md"
+            >
+              {/* Card header */}
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold ${mol.bg} ${mol.text}`}>
+                    {project.molecule === 'e-Methanol' ? 'MeOH' : project.molecule}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-display font-bold text-[var(--text-primary)] truncate leading-tight">{project.name}</h3>
+                    <div className="flex items-center gap-1 mt-0.5 text-xs text-[var(--text-muted)]">
+                      <MapPin className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{project.location}</span>
+                    </div>
                   </div>
                 </div>
+                <span className={`${st.badge} shrink-0`}>{st.label}</span>
               </div>
-              <div className="flex gap-1">
-                <button onClick={() => setSelectedProject(project)} className="p-1 text-gray-400 hover:text-blue-600">
-                  <Eye className="w-4 h-4" />
-                </button>
-                <button className="p-1 text-gray-400 hover:text-blue-600">
-                  <Edit className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
 
-            <div className="space-y-3 mb-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Capacity</span>
-                <span className="font-semibold">{project.capacity_mtpd} MTPD</span>
+              {/* Key stats */}
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                {[
+                  { icon: <Zap className="w-3 h-3" />,        label: 'Capacity', value: `${project.capacity_mtpd} MTPD` },
+                  { icon: <DollarSign className="w-3 h-3" />, label: 'CAPEX',    value: `€${(project.capex_eur / 1_000_000).toFixed(0)}M` },
+                ].map(({ icon, label, value }) => (
+                  <div key={label} className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2">
+                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--text-muted)]">
+                      {icon}{label}
+                    </div>
+                    <div className="mt-0.5 font-mono text-sm font-bold text-[var(--text-primary)]">{value}</div>
+                  </div>
+                ))}
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">CAPEX</span>
-                <span className="font-semibold">€{(project.capex_eur / 1000000).toFixed(0)}M</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Status</span>
-                <span className="font-semibold capitalize">{project.status}</span>
-              </div>
-            </div>
 
-            <div className="flex gap-2">
-              <button onClick={() => setSelectedProject(project)} className="flex-1 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100">
-                View Details
-              </button>
-              <button className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50">
-                Manage
-              </button>
+              {/* Bankability strip */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--text-muted)]">Bankability</span>
+                  <span className="font-mono text-xs font-bold text-[var(--text-primary)]">{bPct}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--border)]">
+                  <div className={`h-full rounded-full transition-all duration-700 ${progressColor(bPct)}`} style={{ width: `${bPct}%` }} />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 mt-auto">
+                <button
+                  onClick={() => setDetail(project)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] py-2 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] transition-colors"
+                >
+                  Details
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => handleBankability(project)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--brand)] py-2 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+                >
+                  <BarChart2 className="w-3.5 h-3.5" />
+                  Bankability
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Project Detail Modal */}
-      {selectedProject && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-2xl w-full">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900">{selectedProject.name}</h2>
-                <button onClick={() => setSelectedProject(null)} className="text-gray-400 hover:text-gray-600">✕</button>
-              </div>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-gray-600 text-sm">Molecule:</span>
-                  <div className="font-medium">{selectedProject.molecule}</div>
-                </div>
-                <div>
-                  <span className="text-gray-600 text-sm">Location:</span>
-                  <div className="font-medium">{selectedProject.location}</div>
-                </div>
-                <div>
-                  <span className="text-gray-600 text-sm">Capacity:</span>
-                  <div className="font-medium">{selectedProject.capacity_mtpd} MTPD</div>
-                </div>
-                <div>
-                  <span className="text-gray-600 text-sm">CAPEX:</span>
-                  <div className="font-medium">€{(selectedProject.capex_eur / 1000000).toFixed(0)}M</div>
-                </div>
-              </div>
-              <div className="flex gap-3 pt-4 border-t">
-                <button className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Manage Project</button>
-                <button onClick={() => setSelectedProject(null)} className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50">Close</button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* ── Detail panel ── */}
+      {detail && (
+        <ProjectDetail
+          project={detail}
+          onClose={() => setDetail(null)}
+          onSelectBankability={() => handleBankability(detail)}
+        />
       )}
     </div>
   );

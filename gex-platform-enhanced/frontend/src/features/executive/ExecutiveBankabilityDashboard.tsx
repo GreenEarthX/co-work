@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, AlertTriangle, CheckCircle, DollarSign, Users, Activity, Target, Eye } from 'lucide-react';
+import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
 
 interface ProjectBankabilityKPI {
   project_id: string;
@@ -47,74 +48,58 @@ export function ExecutiveBankabilityDashboard() {
   const loadExecutiveData = async () => {
     setLoading(true);
     try {
-      // In real implementation, this would fetch from /api/v1/bankability/executive/portfolio
-      // For now, using demo data
-      setPortfolioData({
-        total_projects: 8,
-        total_portfolio_value: '€1.2B',
-        total_unlocked: '€342M',
-        average_completion: 67,
-        projects_with_regressions: 1,
-        capital_pipeline: [
-          { stage: 'Grants & TA', amount: '€15M', projects: 8 },
-          { stage: 'Seed/Angel', amount: '€45M', projects: 6 },
-          { stage: 'Project Equity', amount: '€280M', projects: 4 },
-          { stage: 'Senior Debt', amount: '€650M', projects: 2 },
-          { stage: 'Debt Drawdown', amount: '€850M', projects: 1 }
-        ]
-      });
+      const response = await fetch('/api/v1/bankability/executive/portfolio');
+      if (response.ok) {
+        const raw = await response.json();
+        setPortfolioData(raw.portfolioSummary);
 
-      setProjectKPIs([
-        {
-          project_id: 'proj_hamburg_h2',
-          project_name: 'Hamburg H2 Plant',
-          current_state: 'STRUCTURALLY_BANKABLE',
-          overall_completion_pct: 82,
-          total_evidence: 48,
-          total_verified: 39,
-          regression_detected: false,
-          total_unlocked_capital: '€85M',
-          next_milestone: 'Complete G10 for Financial Close',
-          persona_progress: {
-            PRODUCER: { gates_complete: 4, total_gates: 6, completion_pct: 67, blocking_items: 2 },
-            FINANCE: { gates_complete: 3, total_gates: 5, completion_pct: 60, blocking_items: 3 },
-            REGULATOR: { gates_complete: 3, total_gates: 4, completion_pct: 75, blocking_items: 1 },
-          }
-        },
-        {
-          project_id: 'proj_rotterdam_nh3',
-          project_name: 'Rotterdam NH3 Terminal',
-          current_state: 'BUILDABLE',
-          overall_completion_pct: 65,
-          total_evidence: 48,
-          total_verified: 31,
-          regression_detected: true,
-          total_unlocked_capital: '€42M',
-          next_milestone: 'Resolve insurance coverage gap',
-          persona_progress: {
-            PRODUCER: { gates_complete: 3, total_gates: 6, completion_pct: 50, blocking_items: 3 },
-            FINANCE: { gates_complete: 2, total_gates: 5, completion_pct: 40, blocking_items: 5 },
-            REGULATOR: { gates_complete: 2, total_gates: 4, completion_pct: 50, blocking_items: 2 },
-          }
-        },
-        {
-          project_id: 'proj_marseille_saf',
-          project_name: 'Marseille SAF Plant',
-          current_state: 'COMMERCIALLY_PLAUSIBLE',
-          overall_completion_pct: 45,
-          total_evidence: 48,
-          total_verified: 22,
-          regression_detected: false,
-          total_unlocked_capital: '€12M',
-          next_milestone: 'Complete G4 off-take agreements',
-          persona_progress: {
-            PRODUCER: { gates_complete: 2, total_gates: 6, completion_pct: 33, blocking_items: 4 },
-            FINANCE: { gates_complete: 1, total_gates: 5, completion_pct: 20, blocking_items: 7 },
-            REGULATOR: { gates_complete: 1, total_gates: 4, completion_pct: 25, blocking_items: 3 },
-          }
-        }
-      ]);
+        const kpis: ProjectBankabilityKPI[] = (raw.projects || []).map((p: any) => {
+          const gates: any[] = p.gate_evaluations || [];
+          const totalEvidence = gates.reduce((sum: number, g: any) => sum + (g.total_evidence || 0), 0);
+          const totalVerified = gates.reduce((sum: number, g: any) => sum + (g.verified_count || 0), 0);
 
+          // Compute per-persona progress from gate owners field
+          const personas = ['PRODUCER', 'FINANCE', 'REGULATOR'];
+          const personaProgress: ProjectBankabilityKPI['persona_progress'] = {};
+          for (const persona of personas) {
+            const personaGates = gates.filter((g: any) => (g.owners || []).includes(persona));
+            if (personaGates.length > 0) {
+              const complete = personaGates.filter((g: any) => g.is_complete).length;
+              const avgPct = Math.round(
+                personaGates.reduce((sum: number, g: any) => sum + (g.completion_pct || 0), 0) / personaGates.length
+              );
+              const blocking = personaGates.reduce(
+                (sum: number, g: any) => sum + (g.blocking_items?.length || 0), 0
+              );
+              personaProgress[persona] = {
+                gates_complete: complete,
+                total_gates: personaGates.length,
+                completion_pct: avgPct,
+                blocking_items: blocking,
+              };
+            }
+          }
+
+          const unlockedCount = p.unlocked_count || 0;
+          const nextMilestone = p.gate_evaluations?.find((g: any) => !g.is_complete)?.gate_name
+            ? `Complete: ${p.gate_evaluations.find((g: any) => !g.is_complete).gate_name}`
+            : 'All gates complete';
+
+          return {
+            project_id: p.project_id,
+            project_name: p.project_id.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+            current_state: p.current_state,
+            overall_completion_pct: p.overall_completion,
+            total_evidence: totalEvidence,
+            total_verified: totalVerified,
+            regression_detected: !!p.regression,
+            total_unlocked_capital: `${unlockedCount} type${unlockedCount !== 1 ? 's' : ''} unlocked`,
+            next_milestone: nextMilestone,
+            persona_progress: personaProgress,
+          };
+        });
+        setProjectKPIs(kpis);
+      }
     } catch (error) {
       console.error('Failed to load executive data:', error);
     }
@@ -380,6 +365,11 @@ export function ExecutiveBankabilityDashboard() {
           </div>
         </div>
       )}
+
+      {/* ── Production Roadmap Gantt ─────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mt-4">
+        <ProductionRoadmapGantt workspaceId="executive" compact />
+      </div>
     </div>
   );
 }

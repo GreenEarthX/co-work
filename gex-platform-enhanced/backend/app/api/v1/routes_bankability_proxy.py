@@ -107,11 +107,10 @@ def _get_project_state(project_id="default"):
 def _store_snapshot(project_id, state, snapshot_json):
     conn = _get_db()
     _ensure_tables(conn)
+    conn.execute("DELETE FROM bankability_snapshots WHERE project_id = ?", (project_id,))
     conn.execute("""
         INSERT INTO bankability_snapshots (project_id, current_state, snapshot_json, evaluated_at)
         VALUES (?, ?, ?, datetime('now'))
-        ON CONFLICT(project_id) DO UPDATE SET current_state=excluded.current_state,
-            snapshot_json=excluded.snapshot_json, evaluated_at=datetime('now')
     """, (project_id, state, snapshot_json))
     conn.commit()
     conn.close()
@@ -152,6 +151,75 @@ async def evaluate_for_persona(
     return await _call_engine("/evaluate/persona", method="POST", json_data={
         "project_id": project_id, "evidence": evidence, "persona": persona, "previous_state": previous_state,
     })
+
+
+@router.get("/projects/{project_id}/bankability/{persona}")
+async def get_project_bankability_for_persona(project_id: str, persona: str):
+    evidence = _load_evidence(project_id)
+    previous_state = _get_project_state(project_id)
+    return await _call_engine("/evaluate/persona", method="POST", json_data={
+        "project_id": project_id, "evidence": evidence,
+        "persona": persona.upper(), "previous_state": previous_state,
+    })
+
+
+@router.get("/executive/portfolio")
+async def get_executive_portfolio():
+    conn = _get_db()
+    _ensure_tables(conn)
+    rows = conn.execute(
+        "SELECT project_id, current_state, snapshot_json FROM bankability_snapshots"
+    ).fetchall()
+    conn.close()
+
+    projects = []
+    total_completion = 0.0
+    projects_with_regressions = 0
+
+    for row in rows:
+        project_id = row["project_id"]
+        evidence = _load_evidence(project_id)
+        try:
+            persona_view = await _call_engine("/evaluate/persona", method="POST", json_data={
+                "project_id": project_id, "evidence": evidence,
+                "persona": "EXECUTIVE", "previous_state": row["current_state"],
+            })
+        except Exception:
+            persona_view = json.loads(row["snapshot_json"]) if row["snapshot_json"] else {}
+
+        completion = persona_view.get("overall_completion_pct", 0)
+        total_completion += completion
+        if persona_view.get("regression"):
+            projects_with_regressions += 1
+
+        capital_unlocks = persona_view.get("capital_unlocks", [])
+        unlocked_count = sum(1 for c in capital_unlocks if c.get("is_unlocked"))
+
+        projects.append({
+            "project_id": project_id,
+            "current_state": row["current_state"],
+            "overall_completion": round(completion, 1),
+            "capital_unlocks": capital_unlocks,
+            "unlocked_count": unlocked_count,
+            "gate_evaluations": persona_view.get("gate_evaluations", []),
+            "regression": persona_view.get("regression"),
+        })
+
+    count = len(projects)
+    avg_completion = round(total_completion / count, 1) if count > 0 else 0.0
+    total_unlocked = sum(p["unlocked_count"] for p in projects)
+
+    return {
+        "portfolioSummary": {
+            "total_projects": count,
+            "total_portfolio_value": "N/A",
+            "total_unlocked": f"{total_unlocked} capital types unlocked",
+            "average_completion": avg_completion,
+            "projects_with_regressions": projects_with_regressions,
+            "capital_pipeline": [],
+        },
+        "projects": projects,
+    }
 
 
 @router.get("/gates")

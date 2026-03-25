@@ -40,6 +40,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: dev_secret_key_change_in_production
       ENVIRONMENT: development
+      MATRIX_HOMESERVER_URL: http://synapse:8008
+      MATRIX_AS_TOKEN: gex_as_token_change_in_production
+      MATRIX_HS_TOKEN: gex_hs_token_change_in_production
+      MATRIX_BOT_USER_ID: "@gex_platform:gex.internal"
+      PF_ENGINE_URL: http://pf_engine:8001
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +53,8 @@ services:
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - gex_net
 
   frontend:
     build:
@@ -92,6 +99,52 @@ services:
       - ./backend:/app
     command: celery -A app.tasks.celery_app beat --loglevel=info
 
+  # ── Matrix Synapse ─────────────────────────────────────────────────────────
+  # Self-hosted homeserver for GEX secure actor-to-actor communications.
+  # ABAC engine governs room membership (PDP). Synapse enforces it (PEP 2).
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: gex_synapse
+    restart: unless-stopped
+    environment:
+      SYNAPSE_SERVER_NAME: gex.internal
+      SYNAPSE_REPORT_STATS: "no"
+      SYNAPSE_CONFIG_DIR: /data
+      SYNAPSE_DATA_DIR: /data
+    volumes:
+      - synapse_data:/data
+    ports:
+      - "8008:8008"   # Client-Server API (federation disabled in dev)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Hardened container: non-root, read-only root FS, no extra capabilities
+    user: "991:991"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - gex_net
+
+  # ── pf_engine ──────────────────────────────────────────────────────────────
+  pf_engine:
+    build:
+      context: ../gex_pf_engine/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      ENVIRONMENT: development
+    networks:
+      - gex_net
+
+networks:
+  gex_net:
+    driver: bridge
+
 volumes:
   postgres_data:
   redis_data:
+  synapse_data:

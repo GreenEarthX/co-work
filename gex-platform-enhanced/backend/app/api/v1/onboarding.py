@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 from datetime import datetime
 import httpx
 import json
+from app.core.decision_twin import DecisionTwin
 
 router = APIRouter()
 
@@ -282,199 +283,133 @@ async def check_certification_eligibility(
     certification: Step3Certification
 ):
     """
-    Step 3: Check certification eligibility
-    THIS IS THE DECISION TWIN IN ACTION!
-    Returns: Which certifications qualify, subsidy amounts, requirements
+    Step 3: Check certification eligibility via Decision Twin.
+    RED III and 45V evaluation is delegated to the Decision Twin core engine.
+    RFNBO is evaluated inline (not yet in DecisionTwin).
     """
     try:
-        results = {
-            "eligible_certifications": [],
-            "ineligible_certifications": [],
-            "subsidy_value": {},
-            "total_annual_subsidy": 0,
-            "requirements": {}
-        }
-        
         annual_production_kg = basics.capacity_mtpd * 365
-        
-        # ====================================================================
-        # RED III (EU Renewable Energy Directive)
-        # ====================================================================
-        if "RED_III" in certification.target_certifications:
-            red_iii_eligible = True
-            red_iii_reasons = []
-            
-            # Check GHG intensity (must be <70% of fossil comparator)
-            fossil_comparator = {
-                "H2": 94.0,  # kg CO2e/kg H2 from natural gas
-                "NH3": 2.6,  # kg CO2e/kg NH3 from natural gas
-                "SAF": 3.0,  # kg CO2e/L SAF from fossil
-                "CH3OH": 0.69  # kg CO2e/kg MeOH from natural gas
+        eligible: List[Dict] = []
+        ineligible: List[Dict] = []
+        subsidy_value: Dict[str, float] = {}
+        total_annual_subsidy = 0.0
+
+        # ----------------------------------------------------------------
+        # RED III + 45V — delegated to Decision Twin
+        # ----------------------------------------------------------------
+        dt_schemes = [s for s in certification.target_certifications if s in ("RED_III", "45V")]
+        if dt_schemes:
+            project_data = {
+                "molecule": basics.molecule,
+                "country": basics.country,
+                "ghg_intensity": certification.ghg_intensity_target or 0.45,
+                "renewable_electricity_pct": certification.electricity_renewable_percentage,
+                "electricity_source": economics.electricity_source,
+                "electricity_age_months": 12,
+                "temporal_matching": "monthly",
+                "geographical_correlation": True,
+                "prevailing_wage": False,
             }
-            
-            comparator = fossil_comparator.get(basics.molecule, 100)
-            max_ghg = comparator * 0.70  # 70% threshold
-            
-            if certification.ghg_intensity_target and certification.ghg_intensity_target > max_ghg:
-                red_iii_eligible = False
-                red_iii_reasons.append(f"GHG intensity {certification.ghg_intensity_target:.1f} exceeds {max_ghg:.1f} kg CO2e/kg threshold")
-            
-            # Check renewable electricity
-            if certification.electricity_renewable_percentage < 90:
-                red_iii_eligible = False
-                red_iii_reasons.append(f"Renewable electricity {certification.electricity_renewable_percentage}% below 90% requirement")
-            
-            if red_iii_eligible:
-                results["eligible_certifications"].append({
-                    "name": "RED III",
-                    "status": "eligible",
-                    "subsidy_value_eur_kg": 0.5,
-                    "annual_value": annual_production_kg * 0.5,
-                    "requirements_met": [
-                        f"GHG intensity below {max_ghg:.1f} kg CO2e/kg",
-                        f"Renewable electricity >= 90%"
-                    ]
-                })
-                results["subsidy_value"]["RED_III"] = 0.5
-                results["total_annual_subsidy"] += annual_production_kg * 0.5
-            else:
-                results["ineligible_certifications"].append({
-                    "name": "RED III",
-                    "status": "not_eligible",
-                    "reasons": red_iii_reasons,
-                    "how_to_qualify": [
-                        "Increase renewable electricity to >90%",
-                        f"Reduce GHG intensity below {max_ghg:.1f} kg CO2e/kg"
-                    ]
-                })
-        
-        # ====================================================================
-        # 45V (US Production Tax Credit)
-        # ====================================================================
-        if "45V" in certification.target_certifications:
-            credit_45v = 0
-            tier = None
-            eligible_45v = True
-            reasons_45v = []
-            
-            # Only for H2
-            if basics.molecule != "H2":
-                eligible_45v = False
-                reasons_45v.append("45V only applies to hydrogen production")
-            
-            # Only in US
-            if basics.country not in ["United States", "USA", "US"]:
-                eligible_45v = False
-                reasons_45v.append("45V only available in United States")
-            
-            if eligible_45v and certification.ghg_intensity_target:
-                ghg = certification.ghg_intensity_target
-                
-                # Tier system
-                if ghg <= 0.45:  # 0.45 kg CO2e/kg H2
-                    credit_45v = 3.0  # $3/kg (max credit)
-                    tier = "Tier 4 (Best)"
-                elif ghg <= 1.5:
-                    credit_45v = 1.0  # $1/kg
-                    tier = "Tier 3"
-                elif ghg <= 2.5:
-                    credit_45v = 0.75  # $0.75/kg
-                    tier = "Tier 2"
-                elif ghg <= 4.0:
-                    credit_45v = 0.60  # $0.60/kg
-                    tier = "Tier 1"
+            twin = DecisionTwin()
+            dt_result = twin.evaluate_all_schemes(project_data)
+
+            for scheme_code in dt_result.get("schemes_evaluated", []):
+                if scheme_code not in certification.target_certifications:
+                    continue
+                sr = dt_result.get(scheme_code, {})
+                status = sr.get("status", "ineligible")
+
+                if status == "eligible":
+                    value_per_kg = 0.0
+                    if scheme_code == "RED_III" and sr.get("subsidy_value"):
+                        value_per_kg = sr["subsidy_value"]["amount_eur_kg"]
+                    elif scheme_code == "45V" and sr.get("credit_value"):
+                        value_per_kg = sr["credit_value"]["final_credit_usd_kg"]
+                    eligible.append({
+                        "name": scheme_code,
+                        "status": "eligible",
+                        "subsidy_value_eur_kg": value_per_kg,
+                        "annual_value": annual_production_kg * value_per_kg,
+                        "requirements_met": [
+                            c["check"] for c in sr.get("checks", []) if c.get("passed")
+                        ],
+                    })
+                    subsidy_value[scheme_code] = value_per_kg
+                    total_annual_subsidy += annual_production_kg * value_per_kg
                 else:
-                    eligible_45v = False
-                    reasons_45v.append(f"GHG intensity {ghg:.2f} exceeds 4.0 kg CO2e/kg maximum")
-            
-            if eligible_45v and credit_45v > 0:
-                results["eligible_certifications"].append({
-                    "name": "45V",
-                    "status": "eligible",
-                    "tier": tier,
-                    "subsidy_value_eur_kg": credit_45v,  # Using EUR/kg for consistency
-                    "annual_value": annual_production_kg * credit_45v,
-                    "requirements_met": [
-                        f"Hydrogen production in US",
-                        f"GHG intensity {certification.ghg_intensity_target:.2f} qualifies for {tier}"
-                    ]
-                })
-                results["subsidy_value"]["45V"] = credit_45v
-                results["total_annual_subsidy"] += annual_production_kg * credit_45v
-            else:
-                results["ineligible_certifications"].append({
-                    "name": "45V",
-                    "status": "not_eligible",
-                    "reasons": reasons_45v,
-                    "how_to_qualify": [
-                        "Produce in United States",
-                        "Reduce GHG intensity to qualify for higher tiers",
-                        "Target <0.45 kg CO2e/kg H2 for maximum $3/kg credit"
-                    ]
-                })
-        
-        # ====================================================================
-        # RFNBO (Renewable Fuels of Non-Biological Origin - EU)
-        # ====================================================================
+                    ineligible.append({
+                        "name": scheme_code,
+                        "status": "not_eligible",
+                        "reasons": [f["reason"] for f in sr.get("failures", [])],
+                        "how_to_qualify": [
+                            opt
+                            for rec in sr.get("recommendations", [])
+                            for opt in (rec.get("options") or [rec.get("action", "")])
+                        ],
+                    })
+
+        # ----------------------------------------------------------------
+        # RFNBO
+        # ----------------------------------------------------------------
         if "RFNBO" in certification.target_certifications:
-            rfnbo_eligible = True
+            rfnbo_ok = True
             rfnbo_reasons = []
-            
-            # Must use renewable electricity
             if certification.electricity_renewable_percentage < 95:
-                rfnbo_eligible = False
-                rfnbo_reasons.append(f"Renewable electricity {certification.electricity_renewable_percentage}% below 95% requirement")
-            
-            # Temporal and geographical correlation (simplified check)
+                rfnbo_ok = False
+                rfnbo_reasons.append(
+                    f"Renewable electricity {certification.electricity_renewable_percentage}% "
+                    f"below 95% requirement"
+                )
             if economics.electricity_source not in ["renewable", "wind", "solar", "hydro"]:
-                rfnbo_eligible = False
+                rfnbo_ok = False
                 rfnbo_reasons.append("Must use dedicated renewable electricity")
-            
-            if rfnbo_eligible:
-                results["eligible_certifications"].append({
+
+            if rfnbo_ok:
+                eligible.append({
                     "name": "RFNBO",
                     "status": "eligible",
-                    "subsidy_value_eur_kg": 0.3,  # Example value
+                    "subsidy_value_eur_kg": 0.3,
                     "annual_value": annual_production_kg * 0.3,
                     "requirements_met": [
                         "Renewable electricity >= 95%",
                         "Dedicated renewable source",
-                        "Temporal correlation with renewable generation"
-                    ]
+                        "Temporal correlation with renewable generation",
+                    ],
                 })
-                results["subsidy_value"]["RFNBO"] = 0.3
-                results["total_annual_subsidy"] += annual_production_kg * 0.3
+                subsidy_value["RFNBO"] = 0.3
+                total_annual_subsidy += annual_production_kg * 0.3
             else:
-                results["ineligible_certifications"].append({
+                ineligible.append({
                     "name": "RFNBO",
                     "status": "not_eligible",
                     "reasons": rfnbo_reasons,
                     "how_to_qualify": [
                         "Use 100% renewable electricity",
                         "Install dedicated renewable generation (wind/solar)",
-                        "Ensure temporal and geographical correlation"
-                    ]
+                        "Ensure temporal and geographical correlation",
+                    ],
                 })
-        
-        # ====================================================================
+
+        # ----------------------------------------------------------------
         # Summary
-        # ====================================================================
-        results["summary"] = {
-            "total_eligible": len(results["eligible_certifications"]),
-            "total_ineligible": len(results["ineligible_certifications"]),
-            "annual_subsidy_value": results["total_annual_subsidy"],
-            "subsidy_percentage_of_revenue": 0  # Calculated below
-        }
-        
-        # Calculate subsidy as % of revenue
+        # ----------------------------------------------------------------
         annual_revenue = annual_production_kg * economics.target_offtake_price_eur_kg
-        if annual_revenue > 0:
-            results["summary"]["subsidy_percentage_of_revenue"] = (
-                results["total_annual_subsidy"] / annual_revenue * 100
-            )
-        
-        return results
-        
+        subsidy_pct = (total_annual_subsidy / annual_revenue * 100) if annual_revenue > 0 else 0.0
+
+        return {
+            "eligible_certifications": eligible,
+            "ineligible_certifications": ineligible,
+            "subsidy_value": subsidy_value,
+            "total_annual_subsidy": total_annual_subsidy,
+            "requirements": {},
+            "summary": {
+                "total_eligible": len(eligible),
+                "total_ineligible": len(ineligible),
+                "annual_subsidy_value": total_annual_subsidy,
+                "subsidy_percentage_of_revenue": subsidy_pct,
+            },
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Certification check failed: {str(e)}")
 
@@ -605,6 +540,111 @@ async def complete_onboarding(submission: CompleteOnboarding):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+
+# ============================================================================
+# TRUST SCORE
+# ============================================================================
+
+class TrustScoreWeights(BaseModel):
+    """Configurable weights for Trust Score factors (must sum to 1.0)"""
+    market: float = 0.30
+    bankability: float = 0.40
+    certification: float = 0.30
+
+
+class TrustScoreRequest(BaseModel):
+    step1: Step1ProjectBasics
+    step2: Step2Economics
+    step3: Step3Certification
+    weights: Optional[TrustScoreWeights] = None
+
+
+@router.post("/trust-score")
+async def compute_trust_score(submission: TrustScoreRequest):
+    """
+    Compute Trust Score (0–100) for a project.
+
+    Composite of three factors:
+      - market      : demand level for the molecule/region  (default 30 pts)
+      - bankability : DSCR quality                          (default 40 pts)
+      - certification: eligible certification count         (default 30 pts)
+
+    Weights are configurable via the `weights` field.
+    Pass actor-specific weight profiles to reflect lender vs. regulator vs. producer perspective.
+    """
+    try:
+        w = submission.weights or TrustScoreWeights()
+
+        demand_check = await check_market_demand(submission.step1)
+        bankability_check = await check_bankability(submission.step1, submission.step2)
+        certification_check = await check_certification_eligibility(
+            submission.step1, submission.step2, submission.step3
+        )
+
+        # --- market factor (normalised 0-1) ---
+        level = demand_check["market_demand"]["level"]
+        market_score = {"very_high": 1.0, "high": 0.85, "medium": 0.5, "low": 0.25}.get(level, 0.0)
+
+        # --- bankability factor (normalised 0-1) ---
+        dscr = bankability_check["financial_metrics"].get("dscr", 0)
+        if dscr >= 1.4:
+            bankability_score = 1.0
+        elif dscr >= 1.3:
+            bankability_score = 0.875
+        elif dscr >= 1.2:
+            bankability_score = 0.625
+        elif dscr >= 1.0:
+            bankability_score = 0.375
+        else:
+            bankability_score = 0.0
+
+        # --- certification factor (normalised 0-1, max 3 certifications) ---
+        n_eligible = certification_check["summary"]["total_eligible"]
+        cert_score = min(n_eligible / 3.0, 1.0)
+
+        # --- weighted composite (scaled to 100) ---
+        raw = (
+            w.market * market_score
+            + w.bankability * bankability_score
+            + w.certification * cert_score
+        )
+        trust_score = round(raw * 100, 1)
+
+        if trust_score >= 80:
+            band = "STRONG"
+        elif trust_score >= 60:
+            band = "DEVELOPING"
+        elif trust_score >= 40:
+            band = "EARLY"
+        else:
+            band = "SPECULATIVE"
+
+        return {
+            "trust_score": trust_score,
+            "band": band,
+            "weights_used": {"market": w.market, "bankability": w.bankability, "certification": w.certification},
+            "factors": {
+                "market": {
+                    "normalised": market_score,
+                    "weighted_pts": round(w.market * market_score * 100, 1),
+                    "demand_level": level,
+                },
+                "bankability": {
+                    "normalised": bankability_score,
+                    "weighted_pts": round(w.bankability * bankability_score * 100, 1),
+                    "dscr": dscr,
+                },
+                "certification": {
+                    "normalised": cert_score,
+                    "weighted_pts": round(w.certification * cert_score * 100, 1),
+                    "eligible_count": n_eligible,
+                },
+            },
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Trust Score computation failed: {str(e)}")
 
 
 # ============================================================================

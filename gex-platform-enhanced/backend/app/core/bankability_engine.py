@@ -28,6 +28,9 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+# R2: Import verification weights — gate scores are weighted by evidence state
+from app.core.verification import VerificationState, VERIFICATION_WEIGHTS
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DOMAIN TYPES
@@ -312,6 +315,10 @@ class EvidenceItem(BaseModel):
     verified_at: Optional[datetime] = None
     document_hash: Optional[str] = None
     notes: Optional[str] = None
+    # R2: Verification state for weighted gate scoring
+    verification_state: VerificationState = VerificationState.UNVERIFIED
+    verifier_firm: Optional[str] = None
+    verifier_reference: Optional[str] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -324,7 +331,9 @@ class GateEvaluation(BaseModel):
     owners: list[Department]
     total_evidence: int
     verified_count: int
-    completion_pct: float
+    completion_pct: float          # raw score — evidence present / total
+    effective_completion_pct: float = 0.0  # R2: verification-weighted score
+    verification_summary: dict[str, int] = Field(default_factory=dict)  # R2: count per state
     is_complete: bool
     evidence_detail: list[EvidenceItem]
     unlocks_capital: list[CapitalType]
@@ -362,6 +371,10 @@ class ProjectBankabilitySnapshot(BaseModel):
     total_evidence: int
     total_verified: int
     overall_completion_pct: float
+    # R2: Verification-weighted scores (these govern state machine transitions)
+    gate_scores_raw: dict[str, float] = Field(default_factory=dict)
+    gate_scores_effective: dict[str, float] = Field(default_factory=dict)
+    verification_summary: dict[str, dict[str, int]] = Field(default_factory=dict)
     next_state: Optional[BankabilityState] = None
     gates_blocking_next_state: list[str] = Field(default_factory=list)
     snapshot_hash: str = ""
@@ -409,21 +422,41 @@ class BankabilityEngine:
     def evaluate_gate(
         self, gate: GateDefinition, evidence_map: dict[str, EvidenceItem]
     ) -> GateEvaluation:
-        """Evaluate a single gate against current evidence state."""
+        """
+        Evaluate a single gate against current evidence state.
+
+        R2: Gate score is now reported as both raw (evidence present / total)
+        and effective (raw × mean verification weight). The state machine uses
+        the effective score. Raw scores remain visible in the analytics panel.
+        """
         detail = []
         verified = 0
         blocking = []
+        v_states: list[VerificationState] = []
 
         for key in gate.required_evidence:
             item = evidence_map.get(key, EvidenceItem(key=key))
             detail.append(item)
+            v_states.append(item.verification_state)
             if item.status == EvidenceStatus.VERIFIED:
                 verified += 1
             else:
                 blocking.append(key)
 
         total = len(gate.required_evidence)
-        pct = round((verified / total) * 100, 1) if total > 0 else 0.0
+        raw_pct = round((verified / total) * 100, 1) if total > 0 else 0.0
+
+        # R2: Effective score = raw × mean(verification_weights)
+        if v_states:
+            avg_weight = sum(VERIFICATION_WEIGHTS[s] for s in v_states) / len(v_states)
+        else:
+            avg_weight = VERIFICATION_WEIGHTS[VerificationState.UNVERIFIED]
+        effective_pct = round(raw_pct * avg_weight, 2)
+
+        # R2: Verification state summary for this gate
+        v_summary: dict[str, int] = {s.value: 0 for s in VerificationState}
+        for s in v_states:
+            v_summary[s.value] += 1
 
         return GateEvaluation(
             gate_id=gate.id,
@@ -431,7 +464,9 @@ class BankabilityEngine:
             owners=gate.owners,
             total_evidence=total,
             verified_count=verified,
-            completion_pct=pct,
+            completion_pct=raw_pct,
+            effective_completion_pct=effective_pct,
+            verification_summary=v_summary,
             is_complete=(verified == total),
             evidence_detail=detail,
             unlocks_capital=gate.unlocks_capital,
