@@ -67,17 +67,26 @@ export function TopBar() {
     <>
       <div
         data-topbar
-        className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-0 sticky top-0 z-40"
+        className="h-14 border-b flex items-center px-5 gap-0 sticky top-0 z-40 backdrop-blur"
+        style={{
+          background: 'rgba(243, 244, 242, 0.94)',
+          borderColor: 'var(--border)',
+        }}
       >
         {/* GEX platform logo */}
         <button
           onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 mr-6 flex-shrink-0"
+          className="flex items-center gap-3 mr-8 flex-shrink-0"
         >
-          <div className="w-7 h-7 rounded-md bg-teal-600 flex items-center justify-center">
-            <Leaf className="w-3.5 h-3.5 text-white" />
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center border"
+            style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
+          >
+            <Leaf className="w-4 h-4" style={{ color: 'var(--brand)' }} />
           </div>
-          <span className="text-sm font-bold text-gray-200 tracking-wide">GEX</span>
+          <span className="text-sm font-semibold tracking-[0.16em]" style={{ color: 'var(--text-primary)' }}>
+            GEX
+          </span>
         </button>
 
         {/* Business-line tabs */}
@@ -94,14 +103,13 @@ export function TopBar() {
             >
               <button
                 onClick={() => setOpenTab(isOpen ? null : tab.id)}
-                className={`px-3 py-2 text-sm font-medium transition-colors rounded-md
-                  ${isOpen
-                    ? 'text-white bg-gray-800'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
-                  }`}
+                className="px-3 py-2 text-sm font-medium transition-colors rounded-lg"
+                style={isOpen
+                  ? { color: 'var(--text-primary)', background: 'var(--surface)' }
+                  : { color: 'var(--text-secondary)' }}
               >
                 {tab.label}
-                <span className="ml-1 text-[10px] text-gray-600">▾</span>
+                <span className="ml-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>▾</span>
               </button>
               {isOpen && (
                 <TopBarDropdown
@@ -120,17 +128,17 @@ export function TopBar() {
 
         {/* Role indicator */}
         <div className="flex items-center gap-2 mr-4">
-          <span className="text-[10px] text-gray-500 uppercase tracking-wider">
+          <span className="text-[10px] uppercase tracking-[0.14em]" style={{ color: 'var(--text-muted)' }}>
             {companyLabel}
           </span>
-          <span className="text-[10px] text-gray-600">·</span>
-          <span className="text-[10px] text-gray-500">
+          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>·</span>
+          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
             {functionLabel}
           </span>
         </div>
 
         {/* User name */}
-        <span className="text-xs text-gray-400 mr-3">{role.user_name}</span>
+        <span className="text-xs mr-3" style={{ color: 'var(--text-secondary)' }}>{role.user_name}</span>
 
         {/* Company logo / initial — top-right, before CISO gear */}
         <div className="mr-2 flex-shrink-0">
@@ -139,32 +147,47 @@ export function TopBar() {
               src={role.company_logo_url}
               alt={role.company_name}
               onError={() => setLogoError(true)}
-              className="w-7 h-7 rounded-md object-contain bg-gray-800 border border-gray-700"
+              className="w-8 h-8 rounded-lg object-contain border"
+              style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
             />
           ) : (
             <div
               title={role.company_name}
-              className="w-7 h-7 rounded-md bg-gray-700 border border-gray-600
+              className="w-8 h-8 rounded-lg border
                          flex items-center justify-center
-                         text-xs font-bold text-gray-300"
+                         text-xs font-semibold"
+              style={{
+                background: 'var(--surface)',
+                borderColor: 'var(--border)',
+                color: 'var(--text-secondary)',
+              }}
             >
               {companyInitial}
             </div>
           )}
         </div>
 
-        {/* CISO admin gear */}
+        {/* CISO admin — always visible, amber when locked, indigo when authed */}
         <div className="relative mr-1">
           <button
             onClick={handleCISOClick}
-            className={`p-2 rounded-lg transition-colors ${
-              cisoAuthed
-                ? 'text-indigo-400 hover:bg-indigo-900/30'
-                : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800'
-            }`}
-            title="CISO Administration"
+            title={cisoAuthed ? 'CISO Admin — authenticated' : 'CISO Administration (password required)'}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors"
+            style={cisoAuthed
+              ? {
+                  borderColor: '#b8c9d4',
+                  background: '#eef4f6',
+                  color: '#395566',
+                }
+              : {
+                  borderColor: '#d8cfbf',
+                  background: '#f5f0e7',
+                  color: '#7a6340',
+                }}
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">CISO</span>
+            {cisoAuthed && <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />}
           </button>
 
           {/* CISO dropdown when authed */}
@@ -185,7 +208,8 @@ export function TopBar() {
           <button
             onClick={handleLogout}
             title="Sign out"
-            className="p-2 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-900/20 transition-colors"
+            className="p-2 rounded-lg transition-colors"
+            style={{ color: 'var(--text-muted)' }}
           >
             <LogOut className="w-4 h-4" />
           </button>

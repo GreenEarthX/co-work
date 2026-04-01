@@ -327,6 +327,17 @@ export const commitmentsAPI = {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Project Activity API — prefix: /api/v1/project-activity
+// Cross-functional handoff and trust feed
+// ═══════════════════════════════════════════════════════════════
+export const projectActivityAPI = {
+  listForProject: (projectId: string, params?: { limit?: number }) => {
+    const query = new URLSearchParams(params as any).toString()
+    return fetchAPI(`/project-activity/${projectId}${query ? `?${query}` : ''}`)
+  },
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Plant Data API — prefix: /api/v1/plant-data
 // OT/IT Boundary — inbound telemetry from registered gateways
 // ═══════════════════════════════════════════════════════════════

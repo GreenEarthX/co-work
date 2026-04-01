@@ -144,54 +144,77 @@ def build_banker_rm_flow(project_id: str, project_data: dict) -> ActorFlow:
 
 
 def build_offtaker_flow(project_id: str, project_data: dict) -> ActorFlow:
-    """4-step flow: Requirement → Browse → Assess → RFQ."""
+    """4-step flow: Mandate → Aggregate supply → Justify price → RFQ."""
     requirement_set  = project_data.get("requirement_defined", False)
     offers_available = project_data.get("qualified_offers_count", 0)
-    shortlist_ready  = project_data.get("shortlist_count", 0) > 0
+    pricing_ready    = project_data.get("pricing_reference_ready", False)
 
     steps = [
         FlowStep(
             number=1,
-            title="Define Your Requirement",
-            description="Specify molecule type, volume, delivery point, and timeline.",
-            page="/trader/requirements",
+            title="Define Demand Mandate",
+            description="Set molecule, monthly volume, delivery window, certifications, and target start date.",
+            page="/onboarding",
             status=StepStatus.DONE if requirement_set else StepStatus.IN_PROGRESS,
             status_detail="Defined" if requirement_set else "Not yet defined",
         ),
         FlowStep(
             number=2,
-            title="Browse Qualified Supply",
-            description="View offers filtered to OPERATING or CONSTRUCTION plants with confirmed certification.",
-            page="/trader/market",
+            title="Aggregate Qualified Supply",
+            description="Pool producer offers into a contractable supply stack using GreenMesh / FlowFusion logic.",
+            page="/marketplace",
             status=StepStatus.IN_PROGRESS if requirement_set else StepStatus.NOT_STARTED,
-            status_detail=f"{offers_available} qualified offer(s) available" if offers_available else "No qualified offers yet",
+            status_detail=(
+                f"{offers_available} qualified producer offer(s) available"
+                if offers_available else
+                "No qualified producer offers yet"
+            ),
         ),
         FlowStep(
             number=3,
-            title="Assess Shortlist",
-            description="Review delivery firmness, certification state, logistics, and commitment level for each offer.",
-            page="/trader/offtaker-table",
-            status=StepStatus.DONE if shortlist_ready else StepStatus.NOT_STARTED,
-            status_detail=f"{project_data.get('shortlist_count', 0)} offer(s) shortlisted",
+            title="Establish Reference Price",
+            description="Publish clean token spot reference plus Gabillon forward curve to justify internal and external pricing.",
+            page="/pricing-curves",
+            status=(
+                StepStatus.BLOCKED if offers_available == 0 else
+                StepStatus.DONE if pricing_ready else
+                StepStatus.IN_PROGRESS
+            ),
+            status_detail=(
+                "Spot reference + forward curve published"
+                if pricing_ready else
+                "Spot reference / forward curve still missing"
+            ),
+            blocked_by=[] if offers_available > 0 else ["No qualified supply pool yet — complete step 2 first"],
         ),
         FlowStep(
             number=4,
-            title="Send RFQ",
-            description="Submit a request for quote only against BINDING or HEADS_OF_TERMS offers.",
-            page="/trader/rfqs",
-            status=StepStatus.BLOCKED if not shortlist_ready else StepStatus.NOT_STARTED,
-            blocked_by=[] if shortlist_ready else ["No shortlisted offers — complete step 3 first"],
+            title="Launch RFQ / Term Sheet",
+            description="Approach counterparties with a priced, evidence-backed contract package for Q1 2027 delivery.",
+            page="/rfqs",
+            status=StepStatus.BLOCKED if not pricing_ready else StepStatus.NOT_STARTED,
+            blocked_by=[] if pricing_ready else ["Reference price not yet defensible — complete step 3 first"],
         ),
     ]
 
     return ActorFlow(
         actor_type=ActorType.OFFTAKER,
         project_id=project_id,
-        objective="Source compliant e-fuel supply with confirmed delivery and certification",
+        objective="Close a defensible offtake contract with trusted price reference and Q1 2027 delivery visibility",
         overall_status="IN_PROGRESS",
         steps=steps,
-        next_action="Define your requirement" if not requirement_set else "Browse qualified supply",
-        next_action_page="/trader/requirements" if not requirement_set else "/trader/market",
+        next_action=(
+            "Define demand mandate" if not requirement_set else
+            "Aggregate qualified supply" if offers_available == 0 else
+            "Establish reference price" if not pricing_ready else
+            "Launch RFQ / term sheet"
+        ),
+        next_action_page=(
+            "/onboarding" if not requirement_set else
+            "/marketplace" if offers_available == 0 else
+            "/pricing-curves" if not pricing_ready else
+            "/rfqs"
+        ),
     )
 
 

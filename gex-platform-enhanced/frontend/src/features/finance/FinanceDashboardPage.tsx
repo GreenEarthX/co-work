@@ -13,6 +13,7 @@ import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGant
 import { TaskRouter } from '@/components/TaskRouter'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { getProjectById, CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { CooperationHandoffFeed } from '@/components/CooperationHandoffFeed'
 
 // ─── StatusCard ───────────────────────────────────────────────────────────────
 
@@ -309,6 +310,17 @@ export function FinanceDashboardPage() {
       {/* Production Roadmap Gantt */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <ProductionRoadmapGantt workspaceId="finance" compact />
+      </div>
+
+      {/* Cooperation Handoff Feed */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+          <h3 className="text-xs font-black uppercase tracking-widest text-gray-600">Cross-Functional Handoff Feed</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Insurance sign-offs · Offtaker decisions · HAZOP events · Commitment signings</p>
+        </div>
+        <div className="p-5">
+          <CooperationHandoffFeed projectId={project.id} maxItems={5} compact />
+        </div>
       </div>
     </div>
   )

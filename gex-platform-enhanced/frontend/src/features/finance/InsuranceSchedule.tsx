@@ -564,7 +564,14 @@ export function InsuranceSchedule() {
           </div>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.name} · Playbook §12A · G7 Gate Evidence</p>
         </div>
-        <WorkflowActions state="COMPUTED" objectType="Insurance Schedule" userRole="analyst" />
+        <WorkflowActions
+          state="COMPUTED"
+          objectType="Insurance Schedule"
+          userRole="analyst"
+          projectId={project.id}
+          workflowObjectType="InsuranceSchedule"
+          workflowObjectId={`insurance-schedule-${project.id}`}
+        />
       </div>
 
       {/* ── Program Summary strip ── */}

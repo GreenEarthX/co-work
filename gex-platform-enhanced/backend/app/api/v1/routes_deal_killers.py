@@ -16,6 +16,7 @@ from app.core.deal_killers import (
     KillerStatus,
     DEAL_KILLERS_BY_ID,
 )
+from app.core.project_truth import build_deal_killer_project_data
 from app.core.workflow import can_export_ic_pack, WorkflowState
 
 router = APIRouter(prefix="/deal-killers", tags=["deal-killers"])
@@ -50,37 +51,6 @@ class ICPackExportCheckOut(BaseModel):
     error_code:   str | None
 
 
-# ─── Demo project data builder ────────────────────────────────────────────────
-
-def _demo_project_data(project_id: str) -> dict:
-    """
-    Demo project states. In production: fetch from DB.
-    """
-    # Differentiate slightly by project for demo realism
-    if "lehavre" in project_id:
-        return {
-            "offtake_binding_pct":     85,
-            "epc_contract_executed":   True,
-            "ie_appointed":            True,
-            "financial_model_status":  "AUDIT_GRADE",
-            "insurance_fully_placed":  True,
-            "rfnbo_pathway_viable":    True,
-            "dscr_p90":                1.35,
-            "grid_connection_firm":    True,
-        }
-    # Default: project has 2 fatal killers (no EPC, no audit model)
-    return {
-        "offtake_binding_pct":     72,
-        "epc_contract_executed":   False,    # DK_G5_NO_EPC ACTIVE
-        "ie_appointed":            True,
-        "financial_model_status":  "IE_REVIEWED",  # DK_G8_NO_AUDIT_MODEL ACTIVE
-        "insurance_fully_placed":  False,
-        "rfnbo_pathway_viable":    True,
-        "dscr_p90":                1.28,
-        "grid_connection_firm":    True,
-    }
-
-
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get(
@@ -99,7 +69,7 @@ async def get_deal_killers(project_id: str) -> DealKillerStatusOut:
     - BankabilityScorePage.tsx (committee readiness)
     - IC Pack export gate check
     """
-    project_data = _demo_project_data(project_id)
+    project_data = build_deal_killer_project_data(project_id)
     active = engine.get_active_killers(project_data)
     readiness = engine.committee_ready(project_data)
 
@@ -151,7 +121,7 @@ async def check_ic_pack_export(
 
     Used by ICPackBuilder.tsx export button to show/block the export action.
     """
-    project_data  = _demo_project_data(project_id)
+    project_data  = build_deal_killer_project_data(project_id)
     has_fatal     = engine.has_fatal(project_data)
 
     try:

@@ -58,12 +58,17 @@ import { InsuranceSchedule } from '@/features/finance/InsuranceSchedule'
 import { TraderDashboardPage } from '@/features/trader/TraderDashboardPage'
 import { GanttVisibilityConfig } from '@/features/ciso/GanttVisibilityConfig'
 import { GapAnalysis } from '@/features/finance/GapAnalysis'
+import { GabillonAdminPage } from '@/features/pricing/GabillonAdminPage'
+import { MoleculePriceCurve } from '@/features/pricing/MoleculePriceCurve'
 import { InstrumentCatalog } from '@/features/finance/InstrumentCatalog'
 import { PackageBuilder } from '@/features/finance/PackageBuilder'
 import { RiskAllocationMatrix } from '@/features/finance/RiskAllocationMatrix'
 import { StructuringTimeline } from '@/features/finance/StructuringTimeline'
 import { DemandPipeline } from '@/features/finance/DemandPipeline'
 import { PlantBuilder } from '@/features/finance/PlantBuilder'
+import { AdversarialReviewPage } from '@/features/reviews/AdversarialReviewPage'
+import { InsuranceCoverageBuilder } from '@/features/insurance/InsuranceCoverageBuilder'
+import { InsuranceAssetRegister } from '@/features/insurance/InsuranceAssetRegister'
 
 // This fixes the QueryClient error
 const queryClient = new QueryClient()
@@ -103,6 +108,7 @@ function App() {
             <Route element={<RequireAuth><Layout /></RequireAuth>}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="projects" element={<ProjectsPage />} />
+              <Route path="adversarial-review" element={<AdversarialReviewPage />} />
               <Route path="production" element={<ProductionPage />} />
               <Route path="capacity" element={<CapacityPage />} />
               <Route path="tokenisation" element={<TokenisationPage />} />
@@ -221,6 +227,30 @@ function App() {
 
               {/* ── Gantt Visibility Config (CISO) ── */}
               <Route path="ciso-gantt-config"    element={<GanttVisibilityConfig />} />
+
+              {/* ── Gabillon / Pricing (CISO Webmaster + project view) ── */}
+              <Route path="ciso-pricing"         element={<GabillonAdminPage />} />
+              <Route path="pricing-curves"       element={
+                <div className="space-y-6">
+                  <div>
+                    <h1 className="font-display text-2xl font-bold text-[var(--text-primary)] mb-1">
+                      Green Fuel Forward Curves
+                    </h1>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Gabillon two-factor model — published by GEX webmaster. Updated on calibration.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    {['H2','NH3','E_METHANOL','E_NG','SAF','HVO'].map(mol => (
+                      <MoleculePriceCurve key={mol} molecule={mol} showTable />
+                    ))}
+                  </div>
+                </div>
+              } />
+
+              {/* ── Insurance Workspace (Insurer + Producer Finance) ── */}
+              <Route path="insurance-coverage" element={<InsuranceCoverageBuilder />} />
+              <Route path="insurance-assets"   element={<InsuranceAssetRegister />} />
 
               {/* ── CISO Workspace ── */}
               <Route path="ciso/client/:companyId" element={<ClientCISODashboard />} />

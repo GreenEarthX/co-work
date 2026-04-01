@@ -228,11 +228,12 @@ function GateCard({ gate, onUpdateEvidence }: { gate: GateEvaluation; onUpdateEv
               const cfg = STATUS_CONFIG[ev.status] || STATUS_CONFIG.NOT_STARTED
               const StatusIcon = cfg.icon
               return (
-                <div key={ev.key} className={`flex items-center justify-between p-2.5 rounded-lg border ${cfg.bg}`}>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <StatusIcon className={`w-4 h-4 flex-shrink-0 ${cfg.color}`} />
-                    <span className="text-sm text-gray-800 truncate">{formatEvidenceKey(ev.key)}</span>
-                  </div>
+                <div key={ev.key} className={`p-2.5 rounded-lg border ${cfg.bg}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <StatusIcon className={`w-4 h-4 flex-shrink-0 ${cfg.color}`} />
+                      <span className="text-sm text-gray-800 truncate">{formatEvidenceKey(ev.key)}</span>
+                    </div>
                   <div className="flex items-center gap-2 ml-3">
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded ${cfg.color}`}>{cfg.label}</span>
                     {/* Status progression buttons */}
@@ -273,6 +274,21 @@ function GateCard({ gate, onUpdateEvidence }: { gate: GateEvaluation; onUpdateEv
                       >Rework</button>
                     )}
                   </div>
+                  </div>
+                  {/* Attribution row */}
+                  {(ev.submitted_by || ev.verified_by || ev.notes) && (
+                    <div className="flex items-center gap-3 mt-1.5 pl-6 text-xs text-gray-500">
+                      {ev.submitted_by && (
+                        <span>Submitted by: <span className="font-semibold text-gray-700">{ev.submitted_by}</span></span>
+                      )}
+                      {ev.verified_by && (
+                        <span>Verified by: <span className="font-semibold text-gray-700">{ev.verified_by}</span></span>
+                      )}
+                      {ev.notes && (
+                        <span className="italic text-gray-400 truncate">{ev.notes}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}

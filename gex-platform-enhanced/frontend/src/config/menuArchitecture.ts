@@ -94,6 +94,8 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [ALL] },
       { id: 'deal-killers', path: '/bankability-scores', label: 'Status & Blockers', section: '',
         visible_to: [ALL] },
+      { id: 'adversarial-review', path: '/adversarial-review', label: 'Challenge Review', section: '',
+        visible_to: [ALL], is_new: true },
 
       { id: 'plant-builder', path: '/finance-plant-builder', label: 'Plant Builder', section: 'ENGINEERING',
         visible_to: [PROD('ENGINEERING'), PROD('EXECUTIVE'), TP('ENGINEER'), TP('EQUIPMENT')] },
@@ -130,7 +132,7 @@ export const MENU_TABS: MenuTab[] = [
       { id: 'contracts', path: '/contracts', label: 'Contracts', section: 'NEGOTIATION',
         visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT(), TP('BANK'), TP('LEGAL')] },
       { id: 'term-sheet', path: '/term-sheet', label: 'Term Sheet Tracker', section: 'NEGOTIATION',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), TP('BANK'), TP('LEGAL')] },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('EXECUTIVE'), OFT('FINANCE_TREASURY'), TP('BANK'), TP('LEGAL')] },
 
       { id: 'pricing-curves', path: '/dscr-sensitivity', label: 'Pricing Curves', section: 'MARKET DATA',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), TP('BANK')] },
@@ -174,17 +176,21 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
       { id: 'cfo-report', path: '/cfo-report', label: 'CFO Report', section: 'EXPORT',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE')] },
-      { id: 'insurance-schedule', path: '/insurance-schedule', label: 'Insurance Schedule', section: 'EXPORT',
+      { id: 'insurance-schedule', path: '/insurance-schedule', label: 'Insurance Schedule', section: 'GATING',
         visible_to: [PROD('FINANCE_TREASURY'), TP('BANK'), TP('INSURER')] },
+      { id: 'insurer-coverage-lines', path: '/insurance-coverage', label: 'Coverage Lines (CAR/EAR/DSU/BI)', section: 'GATING',
+        visible_to: [TP('INSURER'), PROD('FINANCE_TREASURY')] },
+      { id: 'insurer-asset-register', path: '/insurance-assets', label: 'Asset & Exposure Register', section: 'GATING',
+        visible_to: [TP('INSURER'), PROD('FINANCE_TREASURY')] },
       { id: 'transfer-readiness', path: '/transfer-readiness', label: 'Transfer Readiness', section: 'EXPORT',
         visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
       { id: 'data-room', path: '/data-room', label: 'Data Room', section: 'EXPORT',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('COMPLIANCE_LEGAL'), OFT('COMMERCIAL'), TP('BANK'), TP('INSURER'), TP('LEGAL'), TP('CERTIFIER')] },
 
       { id: 'approval-queue', path: '/approval-queue', label: 'Approval Queue', section: 'DEAL ROOM',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), OFT('EXECUTIVE'), TP('BANK')] },
       { id: 'commitment-signing', path: '/commitment-signing', label: 'Commitment Signing', section: 'DEAL ROOM',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY'), TP('BANK')] },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY'), OFT('EXECUTIVE'), TP('BANK')] },
       { id: 'commitment-verifier', path: '/commitment-verifier', label: 'Commitment Verifier', section: 'DEAL ROOM',
         visible_to: [ALL] },
     ],
@@ -248,17 +254,21 @@ export const MENU_TABS: MenuTab[] = [
 // ───────────────────────────────────
 
 export const CISO_ITEMS: MenuItem[] = [
-  { id: 'ciso-overview', path: '/ciso-dashboard', label: 'Security Overview', section: '', visible_to: [ALL] },
-  { id: 'ciso-access', path: '/ciso-access-monitor', label: 'Access Monitor', section: '', visible_to: [ALL] },
-  { id: 'ciso-identity', path: '/ciso-identity', label: 'Identity & Access', section: '', visible_to: [ALL] },
-  { id: 'ciso-barriers', path: '/ciso-barriers', label: 'Information Barriers', section: '', visible_to: [ALL] },
-  { id: 'ciso-residency', path: '/ciso-residency', label: 'Data Residency', section: '', visible_to: [ALL] },
-  { id: 'ciso-gateways', path: '/ciso-gateways', label: 'OT Gateways', section: '', visible_to: [ALL] },
-  { id: 'ciso-comms', path: '/ciso-communications', label: 'Communications Monitor', section: '', visible_to: [ALL] },
-  { id: 'ciso-gantt', path: '/ciso-gantt-config', label: 'Gantt Visibility', section: '', visible_to: [ALL] },
-  { id: 'ciso-policy', path: '/ciso-policy', label: 'Policy Matrix', section: '', visible_to: [ALL] },
-  { id: 'ciso-compliance', path: '/ciso-compliance', label: 'Compliance (ISO 27001)', section: '', visible_to: [ALL] },
-  { id: 'ciso-events', path: '/ciso-dashboard', label: 'Event Bus Monitor', section: '', visible_to: [ALL] },
+  // ── Security & Access ──
+  { id: 'ciso-overview',  path: '/ciso-dashboard',      label: 'Security Overview',      section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-access',    path: '/ciso-access-monitor',  label: 'Access Monitor',         section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-identity',  path: '/ciso-identity',        label: 'Identity & Access (ABAC)',section: 'SECURITY', visible_to: [ALL] },
+  { id: 'ciso-barriers',  path: '/ciso-barriers',        label: 'Information Barriers',   section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-residency', path: '/ciso-residency',       label: 'Data Residency',         section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-gateways',  path: '/ciso-gateways',        label: 'OT Gateways',            section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-comms',     path: '/ciso-communications',  label: 'Communications Monitor', section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-gantt',     path: '/ciso-gantt-config',    label: 'Gantt Visibility',       section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-policy',    path: '/ciso-policy',          label: 'Policy Matrix',          section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-compliance',path: '/ciso-compliance',      label: 'Compliance (ISO 27001)', section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-events',    path: '/ciso-dashboard',       label: 'Event Bus Monitor',      section: 'SECURITY',  visible_to: [ALL] },
+  // ── Webmaster / Orchestrator ──
+  { id: 'pricing-admin',  path: '/ciso-pricing',         label: 'Pricing Curves (Gabillon)', section: 'WEBMASTER', visible_to: [ALL] },
+  { id: 'pricing-curves-view', path: '/pricing-curves',  label: 'Forward Curves (Project view)', section: 'WEBMASTER', visible_to: [ALL] },
 ];
 
 // ── Count helper (for dev) ──

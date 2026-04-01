@@ -271,7 +271,14 @@ export function DataRoom() {
           </div>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.name} · Playbook Annex E</p>
         </div>
-        <WorkflowActions state="REVIEWED" objectType="Data Room" userRole="analyst" />
+        <WorkflowActions
+          state="REVIEWED"
+          objectType="Data Room"
+          userRole="analyst"
+          projectId={project.id}
+          workflowObjectType="DataRoom"
+          workflowObjectId={`data-room-${project.id}`}
+        />
       </div>
 
       {/* ── Overall completeness bar ── */}

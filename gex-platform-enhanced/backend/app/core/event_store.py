@@ -1,390 +1,359 @@
 """
-GreenEarthX Event Store
-Immutable, cryptographically-chained event log for full audit trail
+Durable append-only event store for workflow and security events.
+
+Redis Streams are useful for fan-out, but they are not the durable source of
+truth for institutional auditability. This module provides a SQLite-backed,
+hash-chained append-only event ledger.
 """
-import sqlite3
+
+from __future__ import annotations
+
 import json
-import hashlib
-import uuid
-from datetime import datetime
-from typing import Dict, Any, Optional, List
-from contextlib import contextmanager
-
-# Database path
 import os
-DB_PATH = os.path.join(os.path.dirname(__file__), '../../gex_platform.db')
+import sqlite3
+from datetime import datetime, timezone
+from hashlib import sha256
+from typing import Any
+from uuid import uuid4
+
+DB_PATH = os.getenv("GEX_PLATFORM_DB_PATH", "gex_platform.db")
 
 
-class EventStore:
-    """
-    Immutable event store with cryptographic chaining (blockchain-like)
-    """
-    
-    @staticmethod
-    @contextmanager
-    def get_connection():
-        """Get database connection"""
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-        finally:
-            conn.close()
-    
-    @staticmethod
-    def initialize_schema():
-        """Create event_store table if it doesn't exist"""
-        with EventStore.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS event_store (
-                    id TEXT PRIMARY KEY,
-                    event_number INTEGER,
-                    event_type TEXT NOT NULL,
-                    aggregate_type TEXT NOT NULL,
-                    aggregate_id TEXT NOT NULL,
-                    data TEXT NOT NULL,
-                    metadata TEXT NOT NULL,
-                    previous_event_hash TEXT,
-                    event_hash TEXT NOT NULL,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    causation_id TEXT,
-                    correlation_id TEXT
-                )
-            """)
-            
-            # Indexes for fast queries
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_aggregate ON event_store(aggregate_type, aggregate_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_event_type ON event_store(event_type)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_correlation ON event_store(correlation_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON event_store(timestamp)")
-            
-            conn.commit()
-    
-    @staticmethod
-    def _calculate_hash(event_data: Dict[str, Any]) -> str:
-        """
-        Calculate SHA-256 hash of event
-        Includes: id, event_type, aggregate_id, data, previous_hash
-        """
-        hash_input = (
-            str(event_data['id']) +
-            event_data['event_type'] +
-            event_data['aggregate_type'] +
-            event_data['aggregate_id'] +
-            event_data['data'] +
-            str(event_data['previous_event_hash'])
+def _get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_event_store() -> None:
+    conn = _get_conn()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS platform_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL UNIQUE,
+                stream TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                object_type TEXT,
+                object_id TEXT,
+                project_id TEXT,
+                company_id TEXT,
+                actor_user_id TEXT,
+                previous_state TEXT,
+                new_state TEXT,
+                payload_json TEXT NOT NULL,
+                previous_hash TEXT,
+                event_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
         )
-        
-        return hashlib.sha256(hash_input.encode()).hexdigest()
-    
-    @staticmethod
-    def _get_last_event() -> Optional[Dict]:
-        """Get the most recent event for chain linking"""
-        with EventStore.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT event_hash, event_number 
-                FROM event_store 
-                ORDER BY event_number DESC 
-                LIMIT 1
-            """)
-            row = cursor.fetchone()
-            
-            if row:
-                return {
-                    'event_hash': row['event_hash'],
-                    'event_number': row['event_number']
-                }
-            return None
-    
-    @staticmethod
-    def append_event(
-        event_type: str,
-        aggregate_type: str,
-        aggregate_id: str,
-        data: Dict[str, Any],
-        user_id: Optional[str] = None,
-        causation_id: Optional[str] = None,
-        correlation_id: Optional[str] = None,
-        metadata: Optional[Dict] = None
-    ) -> str:
-        """
-        Append event to immutable log with cryptographic chaining
-        
-        Args:
-            event_type: Type of event (e.g., 'capacity.created')
-            aggregate_type: Entity type (e.g., 'capacity')
-            aggregate_id: Entity ID
-            data: Event payload
-            user_id: User who triggered event
-            causation_id: Event that caused this event
-            correlation_id: Business transaction ID
-            metadata: Additional metadata
-        
-        Returns:
-            event_id: UUID of created event
-        """
-        with EventStore.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get previous event for chaining
-            last_event = EventStore._get_last_event()
-            previous_hash = last_event['event_hash'] if last_event else "GENESIS"
-            event_number = (last_event['event_number'] + 1) if last_event else 1
-            
-            # Generate event ID
-            event_id = str(uuid.uuid4())
-            
-            # Build metadata
-            event_metadata = {
-                "user_id": user_id,
-                "timestamp": datetime.utcnow().isoformat(),
-                "ip_address": None,  # Would come from request context
-            }
-            if metadata:
-                event_metadata.update(metadata)
-            
-            # Prepare event
-            event = {
-                "id": event_id,
-                "event_number": event_number,
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_platform_events_project ON platform_events(project_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_platform_events_stream ON platform_events(stream)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_platform_events_object ON platform_events(object_type, object_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_platform_events_created_at ON platform_events(created_at)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def append_platform_event(
+    *,
+    stream: str,
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+    project_id: str | None = None,
+    company_id: str | None = None,
+    actor_user_id: str | None = None,
+    object_type: str | None = None,
+    object_id: str | None = None,
+    previous_state: str | None = None,
+    new_state: str | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    init_event_store()
+    payload = payload or {}
+    created_at = created_at or datetime.now(timezone.utc).isoformat()
+    event_id = str(uuid4())
+
+    conn = _get_conn()
+    try:
+        last_row = conn.execute(
+            "SELECT event_hash FROM platform_events ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        previous_hash = last_row["event_hash"] if last_row else None
+        content = json.dumps(
+            {
+                "event_id": event_id,
+                "stream": stream,
                 "event_type": event_type,
-                "aggregate_type": aggregate_type,
-                "aggregate_id": aggregate_id,
-                "data": json.dumps(data, default=str),
-                "metadata": json.dumps(event_metadata),
-                "previous_event_hash": previous_hash,
-                "causation_id": causation_id,
-                "correlation_id": correlation_id or event_id,  # Default to event_id
-            }
-            
-            # Calculate hash
-            event["event_hash"] = EventStore._calculate_hash(event)
-            
-            # Append to event store (immutable)
-            cursor.execute("""
-                INSERT INTO event_store (
-                    id, event_number, event_type, aggregate_type, aggregate_id,
-                    data, metadata, previous_event_hash, event_hash,
-                    causation_id, correlation_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                event["id"],
-                event["event_number"],
-                event["event_type"],
-                event["aggregate_type"],
-                event["aggregate_id"],
-                event["data"],
-                event["metadata"],
-                event["previous_event_hash"],
-                event["event_hash"],
-                event["causation_id"],
-                event["correlation_id"]
-            ))
-            
-            conn.commit()
-            
-            print(f"✅ Event {event_number}: {event_type} for {aggregate_type}:{aggregate_id}")
-            
-            return event_id
-    
-    @staticmethod
-    def get_events(
-        aggregate_type: Optional[str] = None,
-        aggregate_id: Optional[str] = None,
-        event_type: Optional[str] = None,
-        correlation_id: Optional[str] = None,
-        limit: Optional[int] = None
-    ) -> List[Dict]:
-        """
-        Query events with filters
-        """
-        with EventStore.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            query = "SELECT * FROM event_store WHERE 1=1"
-            params = []
-            
-            if aggregate_type:
-                query += " AND aggregate_type = ?"
-                params.append(aggregate_type)
-            
-            if aggregate_id:
-                query += " AND aggregate_id = ?"
-                params.append(aggregate_id)
-            
-            if event_type:
-                query += " AND event_type = ?"
-                params.append(event_type)
-            
-            if correlation_id:
-                query += " AND correlation_id = ?"
-                params.append(correlation_id)
-            
-            query += " ORDER BY event_number ASC"
-            
-            if limit:
-                query += f" LIMIT {limit}"
-            
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            
-            events = []
-            for row in rows:
-                events.append({
-                    "id": row['id'],
-                    "event_number": row['event_number'],
-                    "event_type": row['event_type'],
-                    "aggregate_type": row['aggregate_type'],
-                    "aggregate_id": row['aggregate_id'],
-                    "data": json.loads(row['data']),
-                    "metadata": json.loads(row['metadata']),
-                    "previous_event_hash": row['previous_event_hash'],
-                    "event_hash": row['event_hash'],
-                    "timestamp": row['timestamp'],
-                    "causation_id": row['causation_id'],
-                    "correlation_id": row['correlation_id'],
-                })
-            
-            return events
-    
-    @staticmethod
-    def verify_chain_integrity() -> bool:
-        """
-        Verify cryptographic chain integrity (detect tampering)
-        Returns True if chain is valid, raises Exception if tampered
-        """
-        with EventStore.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM event_store ORDER BY event_number ASC")
-            events = cursor.fetchall()
-            
-            if not events:
-                return True  # Empty chain is valid
-            
-            previous_hash = None
-            
-            for event in events:
-                # Recalculate hash
-                event_dict = {
-                    "id": event['id'],
-                    "event_type": event['event_type'],
-                    "aggregate_type": event['aggregate_type'],
-                    "aggregate_id": event['aggregate_id'],
-                    "data": event['data'],
-                    "previous_event_hash": event['previous_event_hash'],
-                }
-                
-                calculated_hash = EventStore._calculate_hash(event_dict)
-                
-                # Verify hash
-                if calculated_hash != event['event_hash']:
-                    raise Exception(f"❌ TAMPER DETECTED! Event {event['event_number']} hash mismatch")
-                
-                # Verify chain
-                if previous_hash and event['previous_event_hash'] != previous_hash:
-                    raise Exception(f"❌ CHAIN BROKEN! Event {event['event_number']} previous_hash mismatch")
-                
-                previous_hash = event['event_hash']
-            
-            print(f"✅ Chain integrity verified: {len(events)} events")
-            return True
-    
-    @staticmethod
-    def get_chain_of_custody(correlation_id: str) -> List[Dict]:
-        """
-        Get complete chain of custody for a business transaction
-        Example: Track molecule from certification to delivery
-        """
-        events = EventStore.get_events(correlation_id=correlation_id)
-        
-        return [{
-            "event_number": e['event_number'],
-            "timestamp": e['timestamp'],
-            "event_type": e['event_type'],
-            "entity": f"{e['aggregate_type']}:{e['aggregate_id']}",
-            "data": e['data'],
-            "user": e['metadata'].get('user_id'),
-        } for e in events]
-    
-    @staticmethod
-    def rebuild_projection(aggregate_type: str, aggregate_id: str) -> Dict:
-        """
-        Rebuild current state from events (Event Sourcing)
-        """
-        events = EventStore.get_events(
-            aggregate_type=aggregate_type,
-            aggregate_id=aggregate_id
+                "object_type": object_type,
+                "object_id": object_id,
+                "project_id": project_id,
+                "company_id": company_id,
+                "actor_user_id": actor_user_id,
+                "previous_state": previous_state,
+                "new_state": new_state,
+                "payload": payload,
+                "created_at": created_at,
+                "previous_hash": previous_hash,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
         )
-        
-        # Start with empty state
-        state = {
-            "id": aggregate_id,
-            "type": aggregate_type,
-            "created_at": None,
-            "updated_at": None,
-            "status": None,
-            "history": []
+        event_hash = sha256(content.encode()).hexdigest()
+
+        conn.execute(
+            """
+            INSERT INTO platform_events (
+                event_id, stream, event_type, object_type, object_id, project_id,
+                company_id, actor_user_id, previous_state, new_state, payload_json,
+                previous_hash, event_hash, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_id,
+                stream,
+                event_type,
+                object_type,
+                object_id,
+                project_id,
+                company_id,
+                actor_user_id,
+                previous_state,
+                new_state,
+                json.dumps(payload, sort_keys=True),
+                previous_hash,
+                event_hash,
+                created_at,
+            ),
+        )
+        conn.commit()
+        return {
+            "event_id": event_id,
+            "event_hash": event_hash,
+            "previous_hash": previous_hash,
+            "created_at": created_at,
         }
-        
-        # Apply each event
-        for event in events:
-            if event['event_type'] == f"{aggregate_type}.created":
-                state.update(event['data'])
-                state['created_at'] = event['timestamp']
-                state['status'] = 'created'
-            
-            elif event['event_type'] == f"{aggregate_type}.updated":
-                state.update(event['data'])
-                state['updated_at'] = event['timestamp']
-            
-            elif 'status_changed' in event['event_type']:
-                state['status'] = event['data'].get('new_status')
-                state['updated_at'] = event['timestamp']
-            
-            # Track history
-            state['history'].append({
-                "event": event['event_type'],
-                "timestamp": event['timestamp'],
-                "data": event['data']
-            })
-        
-        return state
+    finally:
+        conn.close()
 
 
-# Convenience functions
-def log_event(event_type: str, aggregate_type: str, aggregate_id: str, 
-              data: Dict, user_id: str = None, correlation_id: str = None) -> str:
-    """Convenience function to log event"""
-    return EventStore.append_event(
-        event_type=event_type,
-        aggregate_type=aggregate_type,
-        aggregate_id=aggregate_id,
-        data=data,
-        user_id=user_id,
-        correlation_id=correlation_id
+def get_latest_workflow_event(object_type: str, object_id: str) -> sqlite3.Row | None:
+    init_event_store()
+    conn = _get_conn()
+    try:
+        return conn.execute(
+            """
+            SELECT *
+            FROM platform_events
+            WHERE stream = 'workflow'
+              AND object_type = ?
+              AND object_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (object_type, object_id),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def list_latest_workflow_events_by_state(state: str) -> list[sqlite3.Row]:
+    init_event_store()
+    conn = _get_conn()
+    try:
+        return conn.execute(
+            """
+            SELECT e.*
+            FROM platform_events e
+            JOIN (
+                SELECT object_type, object_id, MAX(id) AS max_id
+                FROM platform_events
+                WHERE stream = 'workflow'
+                GROUP BY object_type, object_id
+            ) latest
+              ON e.id = latest.max_id
+            WHERE e.stream = 'workflow'
+              AND e.new_state = ?
+            ORDER BY datetime(e.created_at) ASC
+            """,
+            (state,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def list_recent_project_events(project_id: str, limit: int = 50) -> list[sqlite3.Row]:
+    init_event_store()
+    conn = _get_conn()
+    try:
+        return conn.execute(
+            """
+            SELECT *
+            FROM platform_events
+            WHERE project_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (project_id, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def append_workflow_transition(
+    *,
+    object_type: str,
+    object_id: str,
+    project_id: str | None,
+    previous_state: str,
+    new_state: str,
+    actor_role: str,
+    actor_user_id: str,
+    payload: dict[str, Any] | None = None,
+    company_id: str | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    transition_payload = {
+        "actor_role": actor_role,
+        **(payload or {}),
+    }
+    return append_platform_event(
+        stream="workflow",
+        event_type="workflow.state_advanced",
+        project_id=project_id,
+        company_id=company_id,
+        actor_user_id=actor_user_id,
+        object_type=object_type,
+        object_id=object_id,
+        previous_state=previous_state,
+        new_state=new_state,
+        payload=transition_payload,
+        created_at=created_at,
     )
 
 
-def get_entity_history(aggregate_type: str, aggregate_id: str) -> List[Dict]:
-    """Get full event history for an entity"""
-    return EventStore.get_events(
-        aggregate_type=aggregate_type,
-        aggregate_id=aggregate_id
+def log_access_decision(
+    *,
+    project_id: str | None,
+    company_id: str,
+    actor_user_id: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return append_platform_event(
+        stream="access",
+        event_type="access.decision",
+        project_id=project_id,
+        company_id=company_id,
+        actor_user_id=actor_user_id,
+        payload=payload,
     )
 
 
-def verify_integrity() -> bool:
-    """Verify event chain integrity"""
-    return EventStore.verify_chain_integrity()
+def seed_demo_workflow_events() -> None:
+    init_event_store()
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS count FROM platform_events WHERE stream = 'workflow'"
+        ).fetchone()
+        if row and row["count"] > 0:
+            return
+    finally:
+        conn.close()
+
+    seeds = [
+        {
+            "object_type": "BankabilitySnapshot",
+            "object_id": "snap-le-havre-001",
+            "project_id": "proj_lehavre_eng",
+            "previous_state": "DRAFT",
+            "new_state": "COMPUTED",
+            "actor_role": "system",
+            "actor_user_id": "system",
+            "company_id": "greenearthx_admin",
+            "created_at": "2026-03-27T06:00:00+00:00",
+            "payload": {
+                "project_name": "Le Havre e-NG",
+                "submitted_by": "system",
+            },
+        },
+        {
+            "object_type": "SensitivityRun",
+            "object_id": "sens-bremen-001",
+            "project_id": "proj_bremen_h2",
+            "previous_state": "DRAFT",
+            "new_state": "COMPUTED",
+            "actor_role": "system",
+            "actor_user_id": "system",
+            "company_id": "greenearthx_admin",
+            "created_at": "2026-03-26T15:00:00+00:00",
+            "payload": {
+                "project_name": "Bremen Green Hydrogen Plant",
+                "submitted_by": "system",
+            },
+        },
+        {
+            "object_type": "OfftakeAssessment",
+            "object_id": "offtake-helios-001",
+            "project_id": "proj_sansebastian_emethanol",
+            "previous_state": "DRAFT",
+            "new_state": "COMPUTED",
+            "actor_role": "system",
+            "actor_user_id": "system",
+            "company_id": "greenearthx_admin",
+            "created_at": "2026-03-26T02:00:00+00:00",
+            "payload": {
+                "project_name": "Project Helios e-Methanol",
+                "submitted_by": "system",
+            },
+        },
+        {
+            "object_type": "CapitalStackScenario",
+            "object_id": "capstack-le-havre-001",
+            "project_id": "proj_lehavre_eng",
+            "previous_state": "COMPUTED",
+            "new_state": "REVIEWED",
+            "actor_role": "analyst",
+            "actor_user_id": "j.dupont@gex.io",
+            "company_id": "greenearthx_admin",
+            "created_at": "2026-03-27T03:00:00+00:00",
+            "payload": {
+                "project_name": "Le Havre e-NG",
+                "submitted_by": "j.dupont@gex.io",
+                "reviewer_user_id": "j.dupont@gex.io",
+                "reviewer_name": "Jean Dupont",
+                "reviewer_title": "Senior Analyst",
+                "review_scope": "Capital stack readiness",
+            },
+        },
+        {
+            "object_type": "ICPack",
+            "object_id": "icpack-le-havre-001",
+            "project_id": "proj_lehavre_eng",
+            "previous_state": "COMPUTED",
+            "new_state": "REVIEWED",
+            "actor_role": "analyst",
+            "actor_user_id": "j.dupont@gex.io",
+            "company_id": "greenearthx_admin",
+            "created_at": "2026-03-26T21:00:00+00:00",
+            "payload": {
+                "project_name": "Le Havre e-NG",
+                "submitted_by": "j.dupont@gex.io",
+                "reviewer_user_id": "j.dupont@gex.io",
+                "reviewer_name": "Jean Dupont",
+                "reviewer_title": "Senior Analyst",
+                "review_scope": "IC pack review",
+            },
+        },
+    ]
+
+    for seed in seeds:
+        append_workflow_transition(**seed)
 
 
-def get_compliance_thread(correlation_id: str) -> List[Dict]:
-    """Get compliance chain of custody"""
-    return EventStore.get_chain_of_custody(correlation_id)
+init_event_store()
 
-
-# Initialize on import
-EventStore.initialize_schema()

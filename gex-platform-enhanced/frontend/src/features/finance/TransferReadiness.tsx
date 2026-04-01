@@ -447,7 +447,14 @@ export function TransferReadiness() {
           </div>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.name} · Secondary Market Exit Evaluation</p>
         </div>
-        <WorkflowActions state="COMPUTED" objectType="Transfer Readiness" userRole="analyst" />
+        <WorkflowActions
+          state="COMPUTED"
+          objectType="Transfer Readiness"
+          userRole="analyst"
+          projectId={project.id}
+          workflowObjectType="TransferReadiness"
+          workflowObjectId={`transfer-readiness-${project.id}`}
+        />
       </div>
 
       {/* ── TRI Score card ── */}

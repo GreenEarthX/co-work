@@ -1,5 +1,5 @@
-/* ─── Font imports (Plus Jakarta Sans · Inter · JetBrains Mono) ───────────── */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* ─── Font imports (Manrope · Inter · JetBrains Mono) ─────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -8,25 +8,25 @@
 /* ─── Semantic design tokens — light mode ────────────────────────────────── */
 :root {
   /* Brand */
-  --brand:          #0ea5a0;
-  --brand-dark:     #0d9488;
-  --brand-light:    #f0fdf9;
-  --brand-ring:     rgba(14, 165, 160, 0.18);
+  --brand:          #0f766e;
+  --brand-dark:     #115e59;
+  --brand-light:    #edf4f2;
+  --brand-ring:     rgba(15, 118, 110, 0.14);
 
   /* Surfaces */
-  --bg:             #f5f6f8;
+  --bg:             #f3f4f2;
   --surface:        #ffffff;
-  --surface-muted:  #f8fafc;
-  --surface-hover:  #f1f5f9;
+  --surface-muted:  #f7f7f4;
+  --surface-hover:  #eff1ee;
 
   /* Borders */
-  --border:         #e2e8f0;
-  --border-strong:  #cbd5e1;
+  --border:         #dde2dd;
+  --border-strong:  #c5ccc6;
 
   /* Typography */
-  --text-primary:   #0f172a;
-  --text-secondary: #475569;
-  --text-muted:     #94a3b8;
+  --text-primary:   #16211d;
+  --text-secondary: #55615d;
+  --text-muted:     #87918c;
 
   /* Status */
   --success:        #16a34a;
@@ -68,7 +68,7 @@
 body {
   margin: 0;
   font-family: 'Inter', system-ui, sans-serif;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   font-weight: 400;
   line-height: 1.5;
   color: var(--text-primary);
@@ -79,7 +79,7 @@ body {
 
 /* Display font applied to h1–h3 automatically */
 h1, h2, h3, .font-display {
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-family: 'Manrope', system-ui, sans-serif;
 }
 
 /* Mono font for numbers / code */
@@ -99,7 +99,7 @@ h1, h2, h3, .font-display {
 }
 
 .section-title {
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-family: 'Manrope', system-ui, sans-serif;
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -181,8 +181,8 @@ h1, h2, h3, .font-display {
 .gex-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.07), 0 1px 2px -1px rgba(0,0,0,0.05);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(22, 33, 29, 0.05), 0 10px 24px rgba(22, 33, 29, 0.04);
 }
 
 /* ─── Badge ───────────────────────────────────────────────────────────────── */

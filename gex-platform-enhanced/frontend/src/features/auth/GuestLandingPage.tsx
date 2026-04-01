@@ -25,10 +25,10 @@ const GATES = [
 ];
 
 const MOLECULES = [
-  { label: 'Green Hydrogen',       formula: 'H₂',    color: 'from-sky-600 to-sky-800' },
-  { label: 'Green Ammonia',        formula: 'NH₃',   color: 'from-violet-600 to-violet-800' },
-  { label: 'Sustainable Aviation', formula: 'SAF',   color: 'from-amber-600 to-amber-800' },
-  { label: 'e-Methanol',           formula: 'e-MeOH', color: 'from-teal-600 to-teal-800' },
+  { label: 'Green Hydrogen', formula: 'H₂' },
+  { label: 'Green Ammonia', formula: 'NH₃' },
+  { label: 'Sustainable Aviation', formula: 'SAF' },
+  { label: 'e-Methanol', formula: 'e-MeOH' },
 ];
 
 const BENEFITS = [
@@ -44,25 +44,34 @@ export function GuestLandingPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--text-primary)' }}>
 
       {/* ── Top nav (guest version) ───────────────────────────── */}
-      <header className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-6 sticky top-0 z-40">
+      <header
+        className="h-14 border-b flex items-center px-6 sticky top-0 z-40 backdrop-blur"
+        style={{ background: 'rgba(243, 244, 242, 0.94)', borderColor: 'var(--border)' }}
+      >
         <div className="flex items-center gap-2 flex-1">
-          <div className="w-7 h-7 rounded-md bg-teal-600 flex items-center justify-center">
-            <Leaf className="w-4 h-4 text-white" />
+          <div
+            className="w-8 h-8 rounded-lg border flex items-center justify-center"
+            style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
+          >
+            <Leaf className="w-4 h-4" style={{ color: 'var(--brand)' }} />
           </div>
-          <span className="text-sm font-bold text-gray-200 tracking-wide">GreenEarthX</span>
+          <span className="text-sm font-semibold tracking-[0.16em]">GreenEarthX</span>
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
+          <span
+            className="text-xs px-3 py-1.5 rounded-full border"
+            style={{ color: 'var(--text-secondary)', background: 'var(--surface)', borderColor: 'var(--border)' }}
+          >
             Guest — limited view
           </span>
           <button
             onClick={() => navigate('/login')}
-            className="flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300
-                       border border-teal-800 hover:border-teal-600 rounded-lg px-3 py-1.5 transition-colors"
+            className="flex items-center gap-1.5 text-xs rounded-lg px-3 py-2 transition-colors border"
+            style={{ color: 'var(--text-primary)', background: 'var(--surface)', borderColor: 'var(--border)' }}
           >
             <LogIn className="w-3.5 h-3.5" />
             Sign in
@@ -72,37 +81,48 @@ export function GuestLandingPage() {
 
       {/* ── Hero ─────────────────────────────────────────────── */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-teal-950/60 via-gray-950 to-gray-950 pointer-events-none" />
-        <div className="relative max-w-5xl mx-auto px-6 pt-20 pb-16 text-center">
-          <div className="inline-flex items-center gap-2 bg-teal-900/30 border border-teal-800/50
-                          rounded-full px-4 py-1.5 text-xs text-teal-300 mb-6">
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(circle at top, rgba(15, 118, 110, 0.08), transparent 42%)' }}
+        />
+        <div className="relative max-w-6xl mx-auto px-6 pt-24 pb-18 text-center">
+          <div
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] mb-7 border"
+            style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+          >
             <Zap className="w-3.5 h-3.5" />
             Green Fuel Project Finance Platform
           </div>
 
-          <h1 className="text-5xl font-bold leading-tight mb-6 max-w-3xl mx-auto">
+          <h1 className="text-5xl sm:text-6xl font-semibold leading-[1.02] mb-6 max-w-4xl mx-auto">
             Is your green fuel project
-            <span className="text-teal-400"> bankable?</span>
+            <span style={{ color: 'var(--brand)' }}> bankable?</span>
           </h1>
-          <p className="text-lg text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+          <p className="text-lg max-w-2xl mx-auto mb-12 leading-8" style={{ color: 'var(--text-secondary)' }}>
             GreenEarthX evaluates H₂, NH₃, SAF and e-MeOH projects against
             12 bankability gates — giving producers, banks, and regulators a
             shared language from speculative to financial close.
           </p>
 
           {/* ── PRIMARY CTA — Project Viability Teaser ── */}
-          <div className="bg-gray-900 border border-teal-800/50 rounded-2xl p-8 max-w-2xl mx-auto
-                          shadow-[0_0_40px_rgba(20,184,166,0.08)]">
+          <div
+            className="rounded-[28px] p-8 sm:p-10 max-w-3xl mx-auto border text-left"
+            style={{
+              background: 'var(--surface)',
+              borderColor: 'var(--border)',
+              boxShadow: '0 24px 60px rgba(22, 33, 29, 0.06)',
+            }}
+          >
             <div className="flex items-center gap-2 mb-2">
-              <Globe className="w-5 h-5 text-teal-400" />
-              <span className="text-sm font-semibold text-teal-300 uppercase tracking-wider">
+              <Globe className="w-5 h-5" style={{ color: 'var(--brand)' }} />
+              <span className="text-sm font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-secondary)' }}>
                 Free Assessment
               </span>
             </div>
-            <h2 className="text-2xl font-bold text-white mb-3">
+            <h2 className="text-3xl font-semibold mb-3">
               Planning a New Project?
             </h2>
-            <p className="text-gray-400 text-sm leading-relaxed mb-6">
+            <p className="text-sm leading-7 mb-7" style={{ color: 'var(--text-secondary)' }}>
               Answer 4 sets of questions — molecule, economics, certification pathway —
               and receive an instant bankability viability report. No account required.
             </p>
@@ -111,8 +131,8 @@ export function GuestLandingPage() {
               <button
                 onClick={() => navigate('/onboarding')}
                 className="flex-1 flex items-center justify-center gap-2
-                           bg-teal-600 hover:bg-teal-500 text-white font-semibold
-                           rounded-xl py-3 px-6 transition-colors text-sm"
+                           text-white font-semibold rounded-xl py-3.5 px-6 transition-colors text-sm"
+                style={{ background: '#16211d' }}
               >
                 Start Project Viability Check
                 <ArrowRight className="w-4 h-4" />
@@ -120,9 +140,8 @@ export function GuestLandingPage() {
               <button
                 onClick={() => navigate('/login')}
                 className="flex items-center justify-center gap-2
-                           border border-gray-700 hover:border-gray-500
-                           text-gray-300 hover:text-white font-medium
-                           rounded-xl py-3 px-5 transition-colors text-sm"
+                           border font-medium rounded-xl py-3.5 px-5 transition-colors text-sm"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
               >
                 <LogIn className="w-4 h-4" />
                 Sign in for full access
@@ -134,13 +153,15 @@ export function GuestLandingPage() {
               {['Molecule & Site', 'Economics', 'Certification', 'Report'].map((step, i) => (
                 <React.Fragment key={step}>
                   <div className="flex flex-col items-center gap-1">
-                    <div className="w-6 h-6 rounded-full bg-teal-900 border border-teal-700
-                                    flex items-center justify-center text-xs text-teal-400 font-bold">
+                    <div
+                      className="w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold"
+                      style={{ background: 'var(--surface-muted)', borderColor: 'var(--border)', color: 'var(--brand)' }}
+                    >
                       {i + 1}
                     </div>
-                    <span className="text-[10px] text-gray-500 hidden sm:block">{step}</span>
+                    <span className="text-[10px] hidden sm:block" style={{ color: 'var(--text-muted)' }}>{step}</span>
                   </div>
-                  {i < 3 && <div className="w-6 h-px bg-gray-700 mb-3" />}
+                  {i < 3 && <div className="w-8 h-px mb-3" style={{ background: 'var(--border)' }} />}
                 </React.Fragment>
               ))}
             </div>
@@ -150,15 +171,18 @@ export function GuestLandingPage() {
 
       {/* ── Molecule pills ────────────────────────────────────── */}
       <section className="max-w-5xl mx-auto px-6 py-10">
-        <p className="text-center text-xs text-gray-500 uppercase tracking-widest mb-6">
+        <p className="text-center text-xs uppercase tracking-[0.18em] mb-6" style={{ color: 'var(--text-muted)' }}>
           Supported molecules
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {MOLECULES.map(({ label, formula, color }) => (
-            <div key={formula}
-                 className={`bg-gradient-to-br ${color} rounded-xl p-5 text-center`}>
-              <div className="text-2xl font-bold text-white mb-1">{formula}</div>
-              <div className="text-xs text-white/70">{label}</div>
+          {MOLECULES.map(({ label, formula }) => (
+            <div
+              key={formula}
+              className="rounded-2xl border p-5 text-center"
+              style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
+            >
+              <div className="text-2xl font-semibold mb-1">{formula}</div>
+              <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</div>
             </div>
           ))}
         </div>
@@ -168,12 +192,12 @@ export function GuestLandingPage() {
       <section className="max-w-5xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-lg font-bold text-white">12 Bankability Gates</h3>
-            <p className="text-xs text-gray-500 mt-1">
+            <h3 className="text-lg font-semibold">12 Bankability Gates</h3>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               Sign in to see your project's gate scores and evidence requirements.
             </p>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
             <Lock className="w-3.5 h-3.5" />
             Scores visible after sign-in
           </div>
@@ -182,23 +206,26 @@ export function GuestLandingPage() {
           {GATES.map(({ id, label, visible }) => (
             <div
               key={id}
-              className={`flex items-center gap-3 rounded-lg border px-4 py-3
-                          ${visible
-                            ? 'bg-gray-900 border-gray-800'
-                            : 'bg-gray-900/40 border-gray-800/40'}`}
+              className="flex items-center gap-3 rounded-xl border px-4 py-3"
+              style={{
+                background: visible ? 'var(--surface)' : 'var(--surface-muted)',
+                borderColor: 'var(--border)',
+              }}
             >
-              <span className={`text-xs font-mono font-bold w-7
-                               ${visible ? 'text-teal-400' : 'text-gray-600'}`}>
+              <span
+                className="text-xs font-mono font-bold w-7"
+                style={{ color: visible ? 'var(--brand)' : 'var(--text-muted)' }}
+              >
                 {id}
               </span>
               {visible ? (
-                <span className="text-sm text-gray-300 flex-1">{label}</span>
+                <span className="text-sm flex-1" style={{ color: 'var(--text-primary)' }}>{label}</span>
               ) : (
-                <span className="text-sm text-gray-600 flex-1 blur-[3px] select-none">{label}</span>
+                <span className="text-sm flex-1 blur-[2px] select-none" style={{ color: 'var(--text-muted)' }}>{label}</span>
               )}
               {visible
-                ? <CheckCircle className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                : <Lock className="w-3.5 h-3.5 text-gray-700 flex-shrink-0" />
+                ? <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--brand)' }} />
+                : <Lock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
               }
             </div>
           ))}
@@ -207,21 +234,24 @@ export function GuestLandingPage() {
 
       {/* ── Platform benefits ─────────────────────────────────── */}
       <section className="max-w-5xl mx-auto px-6 py-10">
-        <h3 className="text-lg font-bold text-white mb-6 text-center">
+        <h3 className="text-lg font-semibold mb-6 text-center">
           Full platform — available after sign-in
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {BENEFITS.map(({ icon, title, body }) => (
             <div key={title}
-                 className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                 className="rounded-2xl border p-5"
+                 style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-teal-900/50 border border-teal-800/50
-                                flex items-center justify-center text-teal-400">
+                <div
+                  className="w-8 h-8 rounded-lg border flex items-center justify-center"
+                  style={{ background: 'var(--surface-muted)', borderColor: 'var(--border)', color: 'var(--brand)' }}
+                >
                   {icon}
                 </div>
-                <span className="font-semibold text-sm text-white">{title}</span>
+                <span className="font-semibold text-sm">{title}</span>
               </div>
-              <p className="text-xs text-gray-400 leading-relaxed">{body}</p>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{body}</p>
             </div>
           ))}
         </div>
@@ -229,16 +259,16 @@ export function GuestLandingPage() {
 
       {/* ── Bottom CTA ────────────────────────────────────────── */}
       <section className="max-w-5xl mx-auto px-6 py-16 text-center">
-        <h3 className="text-2xl font-bold text-white mb-3">Ready to assess your project?</h3>
-        <p className="text-gray-400 text-sm mb-8">
+        <h3 className="text-2xl font-semibold mb-3">Ready to assess your project?</h3>
+        <p className="text-sm mb-8" style={{ color: 'var(--text-secondary)' }}>
           No commitment required — run a free viability check in under 5 minutes.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             onClick={() => navigate('/onboarding')}
             className="flex items-center justify-center gap-2
-                       bg-teal-600 hover:bg-teal-500 text-white font-semibold
-                       rounded-xl py-3 px-8 transition-colors"
+                       text-white font-semibold rounded-xl py-3 px-8 transition-colors"
+            style={{ background: '#16211d' }}
           >
             Start Project Viability Check
             <ArrowRight className="w-4 h-4" />
@@ -246,9 +276,8 @@ export function GuestLandingPage() {
           <button
             onClick={() => navigate('/login')}
             className="flex items-center justify-center gap-2
-                       border border-gray-700 hover:border-gray-500
-                       text-gray-300 hover:text-white font-medium
-                       rounded-xl py-3 px-6 transition-colors"
+                       border font-medium rounded-xl py-3 px-6 transition-colors"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
           >
             <LogIn className="w-4 h-4" />
             Sign in to existing account
@@ -257,7 +286,7 @@ export function GuestLandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800 py-6 text-center text-xs text-gray-600">
+      <footer className="border-t py-6 text-center text-xs" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
         © {new Date().getFullYear()} GreenEarthX · Proprietary · All rights reserved
       </footer>
     </div>

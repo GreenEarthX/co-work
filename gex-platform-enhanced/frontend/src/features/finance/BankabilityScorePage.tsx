@@ -23,6 +23,7 @@ import { useSelectedProject } from '@/contexts/ProjectContext'
 import { CUSTOMER_PROJECTS, getProjectById } from '@/data/customerProjects'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { useNavigate } from 'react-router-dom'
+import { MoleculeGatingAlert } from '@/components/finance/MoleculeGatingAlert'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,9 @@ export default function BankabilityScorePage() {
           Re-evaluate
         </button>
       </div>
+
+      {/* ── 0. Molecule-specific hazmat gating (NH3 / SAF only) ── */}
+      <MoleculeGatingAlert project={project} />
 
       {/* ── 1. Deal-Killer Banner (always first) ── */}
       <DealKillerBanner killers={killers} projectName={project.name} />

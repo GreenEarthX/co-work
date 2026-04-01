@@ -2,6 +2,8 @@
 
 Production-grade orchestration platform for green fuels (H₂, NH₃, SAF, e-MeOH) — covering production, commercial, finance, compliance, and operations. Architecture as of **March 2026**.
 
+Strategic direction: see [docs/OBJECTIVE_LED_PRODUCT_PATHWAY.md](docs/OBJECTIVE_LED_PRODUCT_PATHWAY.md) for the short objective-led product pathway and [docs/MOLECULE_TO_ASSET_KILLER_PROMPT.md](docs/MOLECULE_TO_ASSET_KILLER_PROMPT.md) for the investor-side molecule-to-asset thesis and reusable prompt.
+
 ---
 
 ## Architecture

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
-import { RefreshCw, Plus, Filter, ChevronRight, AlertTriangle } from 'lucide-react'
+import { RefreshCw, Filter, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { capacitiesAPI, offersAPI, tokensAPI, matchingAPI } from '@/lib/api'
 import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
+import { DecisionFirstEntry } from '@/components/DecisionFirstEntry'
 
 interface ProjectFlow {
   name: string
@@ -17,6 +19,7 @@ interface ProjectFlow {
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const visibleProjects = useVisibleProjects()
   const [projects, setProjects] = useState<ProjectFlow[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('all')
   const [loading, setLoading] = useState(true)
@@ -103,9 +106,9 @@ export function DashboardPage() {
       }
     })
 
-    // Always align to the canonical 5 projects — merge API flow data in where
-    // it matches by name, fill gaps from static registry so count is always 5.
-    const projectsArray = CUSTOMER_PROJECTS.map(cp => {
+    // Align to the user's visible projects — merge API flow data where available,
+    // fall back to static registry values so the list is always complete.
+    const projectsArray = visibleProjects.map(cp => {
       const fromMap = projectMap.get(cp.name)
       return fromMap ?? {
         name: cp.name,
@@ -141,25 +144,8 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* ONBOARDING BANNER */}
-      <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Planning a New Project?</h2>
-            <p className="text-gray-700 mb-3 max-w-2xl">
-              Get instant viability assessment including market demand,
-              financing feasibility, and subsidy eligibility in 5 minutes!
-            </p>
-            <button
-              onClick={() => navigate('/onboarding')}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Start Project Viability Check
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* DECISION-FIRST ENTRY */}
+      <DecisionFirstEntry />
 
       {/* HEADER WITH FILTERS */}
       <div className="flex items-center justify-between">

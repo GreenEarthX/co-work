@@ -198,6 +198,13 @@ except ImportError:
     print("⚠️  routes_commitments not found - skipping")
 
 try:
+    from app.api.v1 import routes_project_activity
+    HAS_PROJECT_ACTIVITY = True
+except ImportError:
+    HAS_PROJECT_ACTIVITY = False
+    print("⚠️  routes_project_activity not found - skipping")
+
+try:
     from app.api.v1 import routes_workflow
     HAS_WORKFLOW = True
 except ImportError:
@@ -245,6 +252,13 @@ try:
 except ImportError:
     HAS_TERMS = False
     print("⚠️  routes_terms not found - skipping")
+
+try:
+    from app.api.v1 import routes_adversarial_reviews
+    HAS_ADVERSARIAL_REVIEWS = True
+except ImportError:
+    HAS_ADVERSARIAL_REVIEWS = False
+    print("⚠️  routes_adversarial_reviews not found - skipping")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -382,6 +396,9 @@ if HAS_PLANT_DATA:
 if HAS_COMMITMENTS:
     app.include_router(routes_commitments.router, prefix="/api/v1/commitments", tags=["CSS — Commitment Signature Service"])
 
+if HAS_PROJECT_ACTIVITY:
+    app.include_router(routes_project_activity.router, prefix="/api/v1", tags=["Project Activity Ledger"])
+
 # ── Bankability Cockpit v2.0 ──
 if HAS_WORKFLOW:
     app.include_router(routes_workflow.router, prefix="/api/v1/workflow", tags=["Bankability — Workflow State Management"])
@@ -403,6 +420,9 @@ if HAS_DATA_ROOM:
 
 if HAS_TERMS:
     app.include_router(routes_terms.router, prefix="/api/v1/terms", tags=["Bankability — Term Sheet Tracker"])
+
+if HAS_ADVERSARIAL_REVIEWS:
+    app.include_router(routes_adversarial_reviews.router, prefix="/api/v1", tags=["Adversarial Reviews"])
 
 # ── Event Bus ──
 if HAS_EVENTS_ROUTER:

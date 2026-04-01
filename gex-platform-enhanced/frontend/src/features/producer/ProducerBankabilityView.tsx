@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getProjectById, CUSTOMER_PROJECTS } from '@/data/customerProjects';
 import { useSelectedProject } from '@/contexts/ProjectContext';
+import { AdversarialReviewEntryCard } from '@/components/AdversarialReviewEntryCard';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -284,6 +285,12 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
         <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--brand)]">Next milestone · </span>
         <span className="text-xs text-[var(--text-secondary)]">{data.next_milestone}</span>
       </div>
+
+      <AdversarialReviewEntryCard
+        projectId={projectId}
+        actorType="PRODUCER"
+        title="Producer challenge review"
+      />
 
       {/* ── Financial Gates ── */}
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">

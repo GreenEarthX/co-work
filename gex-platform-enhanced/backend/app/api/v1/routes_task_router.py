@@ -12,8 +12,11 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.core.task_router import ActorType, FlowStep, ActorFlow, task_router_engine, StepStatus
+from app.core.deal_killers import DealKillerEngine, KillerSeverity
+from app.core.project_truth import build_deal_killer_project_data, build_task_router_project_data
 
 router = APIRouter(prefix="/task-flow", tags=["task-router"])
+deal_killer_engine = DealKillerEngine()
 
 
 # ─── Response schemas ─────────────────────────────────────────────────────────
@@ -77,8 +80,8 @@ async def get_flow(actor_type: str, project_id: str) -> ActorFlowOut:
 
     actor_type: COMMERCIAL_BANKER | OFFTAKER | CREDIT_COMMITTEE_CHAIR | PRODUCER
 
-    In production: project_data is fetched from DB + engine.
-    Demo mode uses representative data.
+    Project data is resolved from the project truth layer and merged with
+    runtime evidence counts where available.
     """
     try:
         at = ActorType(actor_type.upper())
@@ -88,23 +91,13 @@ async def get_flow(actor_type: str, project_id: str) -> ActorFlowOut:
             detail=f"Unknown actor_type: {actor_type}. Valid values: {[a.value for a in ActorType]}",
         )
 
-    # Demo project data — replace with DB query in production
-    demo_data: dict = {
-        "active_fatal_killers":         2,
-        "g8_is_audit_grade":            False,
-        "snapshot_viewed_within_7_days": False,
-        "evidence_confirmed_pct":       42.0,
-        "capital_stack_committed":      False,
-        "requirement_defined":          False,
-        "qualified_offers_count":       3,
-        "shortlist_count":              0,
-        "evidence_audited_count":       6,
-        "evidence_total_count":         47,
-        "plant_configured":             True,
-        "next_gate_missing_items":      4,
-    }
+    project_data = build_task_router_project_data(project_id)
+    active_killers = deal_killer_engine.get_active_killers(build_deal_killer_project_data(project_id))
+    project_data["active_fatal_killers"] = len(
+        [killer for killer in active_killers if killer.severity == KillerSeverity.FATAL]
+    )
 
-    flow = task_router_engine.get_flow(at, project_id, demo_data)
+    flow = task_router_engine.get_flow(at, project_id, project_data)
     return _serialize_flow(flow)
 
 
@@ -130,15 +123,13 @@ async def complete_step(
             detail=f"Unknown actor_type: {actor_type}",
         )
 
-    demo_data: dict = {
-        "active_fatal_killers": 2,
-        "g8_is_audit_grade": False,
-        "snapshot_viewed_within_7_days": True,
-        "evidence_confirmed_pct": 42.0,
-        "capital_stack_committed": False,
-    }
+    project_data = build_task_router_project_data(project_id)
+    active_killers = deal_killer_engine.get_active_killers(build_deal_killer_project_data(project_id))
+    project_data["active_fatal_killers"] = len(
+        [killer for killer in active_killers if killer.severity == KillerSeverity.FATAL]
+    )
 
-    step = task_router_engine.complete_step(at, project_id, step_number, demo_data)
+    step = task_router_engine.complete_step(at, project_id, step_number, project_data)
     return FlowStepOut(
         number=step.number,
         title=step.title,

@@ -177,7 +177,49 @@ SEED_PARAMS: dict[str, GabillonParams] = {
         capex_floor_eur_t=450,
         regulatory_premium_base=80,
         n_observations=0,
-        last_calibrated="2026-03-22",
+        last_calibrated="2026-03-25",
+    ),
+    # e-Natural Gas (synthetic methane / power-to-gas)
+    "E_NG": GabillonParams(
+        molecule="E_NG",
+        # Tightly coupled to TTF gas futures + green premium
+        alpha=0.80,
+        mu_base=math.log(120),       # €120/MWh synthetic methane long-term
+        sigma_s=0.45,                # high vol — reflects TTF dynamics
+        kappa=0.55,
+        theta_0=0.10,
+        sigma_delta=0.18,
+        rho=-0.30,
+        # Seasonality: strong Q4/Q1 (winter heating demand)
+        season_a1=0.12,
+        season_a2=-0.09,
+        learning_rate=-0.18,
+        reference_capacity_gw=1.5,
+        capex_floor_eur_t=95,        # €/MWh LCOE floor
+        regulatory_premium_base=25,  # EU biomethane mandate premium
+        n_observations=0,
+        last_calibrated="2026-03-25",
+    ),
+    # HVO (Hydrotreated Vegetable Oil / renewable diesel)
+    "HVO": GabillonParams(
+        molecule="HVO",
+        # Linked to FAME diesel + feedstock (UCO, tallow) + RED III mandate
+        alpha=0.45,
+        mu_base=math.log(1_800),     # €1,800/t long-term (premium to fossil diesel)
+        sigma_s=0.28,
+        kappa=0.38,
+        theta_0=0.07,
+        sigma_delta=0.13,
+        rho=-0.22,
+        # Seasonality: moderate — feedstock (UCO) supply peaks Q1-Q2
+        season_a1=-0.04,
+        season_a2=0.06,
+        learning_rate=-0.12,
+        reference_capacity_gw=8.0,   # large existing capacity base
+        capex_floor_eur_t=1_400,
+        regulatory_premium_base=200, # ISCC PLUS / RSB premium
+        n_observations=0,
+        last_calibrated="2026-03-25",
     ),
 }
 

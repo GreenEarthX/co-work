@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   MapPin, DollarSign, Zap, ChevronRight, BarChart2, X, ExternalLink,
 } from 'lucide-react';
-import { CUSTOMER_PROJECTS, type CustomerProject } from '@/data/customerProjects';
+import { type CustomerProject } from '@/data/customerProjects';
 import { useSelectedProject } from '@/contexts/ProjectContext';
+import { useVisibleProjects } from '@/hooks/useVisibleProjects';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,11 +120,12 @@ function ProjectDetail({ project, onClose, onSelectBankability }: {
 export function ProjectsPage() {
   const navigate = useNavigate();
   const { setSelectedProjectId } = useSelectedProject();
+  const visibleProjects = useVisibleProjects();
   const [filter, setFilter]       = useState<string>('all');
   const [search, setSearch]       = useState('');
   const [detail, setDetail]       = useState<CustomerProject | null>(null);
 
-  const filtered = CUSTOMER_PROJECTS.filter(p => {
+  const filtered = visibleProjects.filter(p => {
     const matchMol = filter === 'all' || p.molecule === filter;
     const matchStr = search === '' || p.name.toLowerCase().includes(search.toLowerCase()) || p.location.toLowerCase().includes(search.toLowerCase());
     return matchMol && matchStr;
@@ -143,7 +145,7 @@ export function ProjectsPage() {
         <div>
           <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">Projects & Assets</h1>
           <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
-            {CUSTOMER_PROJECTS.length} active projects across 5 sites
+            {visibleProjects.length} project{visibleProjects.length !== 1 ? 's' : ''} in your portfolio
           </p>
         </div>
       </div>

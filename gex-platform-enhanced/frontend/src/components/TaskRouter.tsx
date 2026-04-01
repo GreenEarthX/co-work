@@ -14,13 +14,14 @@
  * The DealKillerBanner renders above this component when killers are active.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ElementType } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  CheckCircle, Circle, Lock, Zap, ArrowRight, ChevronDown, ChevronUp,
+  CheckCircle, Circle, Lock, Zap, ArrowRight, ChevronDown,
   Target,
 } from 'lucide-react'
 import { DealKillerBanner, useActiveKillers } from './DealKillerBanner'
+import { AdversarialReviewEntryCard } from './AdversarialReviewEntryCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ interface TaskRouterProps {
 // ─── Step icon & styles ───────────────────────────────────────────────────────
 
 const STEP_CONFIG: Record<StepStatus, {
-  Icon: React.ElementType
+  Icon: ElementType
   containerClass: string
   titleClass: string
   iconClass: string
@@ -122,13 +123,17 @@ export function TaskRouter({ actorType, projectId, projectName, onShowSidebar }:
     return <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Loading…</div>
   }
 
-  const currentStep = flow.steps.find(s => s.status === 'IN_PROGRESS')
-    ?? flow.steps.find(s => s.status === 'NOT_STARTED')
-
   return (
     <div className="space-y-4 max-w-2xl">
       {/* Deal-Killer Banner — always first */}
       <DealKillerBanner killers={killers} projectName={projectName} />
+
+      <AdversarialReviewEntryCard
+        projectId={projectId}
+        actorType={actorType}
+        title="Challenge Review"
+        compact
+      />
 
       {/* Objective header */}
       <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">

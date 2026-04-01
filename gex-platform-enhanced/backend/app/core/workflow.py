@@ -9,9 +9,12 @@ advancing state. Every transition is logged.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from enum import Enum
+
+logger = logging.getLogger("gex.workflow")
 
 
 class WorkflowState(str, Enum):
@@ -53,6 +56,16 @@ GOVERNED_OBJECTS = {
     "CapitalStackScenario",
     "ICPack",
     "EvidencePack",
+    "DataRoom",
+    "TermSheetTracker",
+    "TransferReadiness",
+    "InsuranceSchedule",
+}
+PROMOTION_TARGET_STATES = {
+    WorkflowState.REVIEWED,
+    WorkflowState.APPROVED,
+    WorkflowState.EXPORTED,
+    WorkflowState.SHARED_EXTERNAL,
 }
 
 
@@ -63,12 +76,49 @@ class WorkflowResult:
         new_state: Optional[WorkflowState] = None,
         error: Optional[str] = None,
         previous_state: Optional[WorkflowState] = None,
+        gate_blocked: bool = False,
+        gate_details: Optional[dict] = None,
     ):
         self.success = success
         self.new_state = new_state
         self.error = error
         self.previous_state = previous_state
+        self.gate_blocked = gate_blocked
+        self.gate_details = gate_details
         self.transitioned_at = datetime.now(timezone.utc).isoformat()
+
+
+def get_adversarial_promotion_gate(
+    project_id: Optional[str],
+) -> dict:
+    if not project_id:
+        return {
+            "project_id": None,
+            "blocked": False,
+            "blocking_findings": 0,
+            "blocking_reviews": 0,
+            "critical_findings": 0,
+            "summary": None,
+            "blocking_titles": [],
+            "blockers": [],
+        }
+
+    try:
+        from app.core.adversarial_reviews import get_project_promotion_gate
+
+        return get_project_promotion_gate(project_id=project_id)
+    except Exception as exc:
+        logger.debug("Workflow adversarial promotion gate unavailable: %s", exc)
+        return {
+            "project_id": project_id,
+            "blocked": False,
+            "blocking_findings": 0,
+            "blocking_reviews": 0,
+            "critical_findings": 0,
+            "summary": None,
+            "blocking_titles": [],
+            "blockers": [],
+        }
 
 
 def advance_state(
@@ -76,6 +126,7 @@ def advance_state(
     target_state: WorkflowState,
     actor_role: str,
     object_type: str,
+    project_id: Optional[str] = None,
     rejection_reason: Optional[str] = None,
     # R3: Named reviewer fields — required for REVIEWED / EXPORTED
     reviewer_user_id: Optional[str] = None,
@@ -136,6 +187,18 @@ def advance_state(
                     "The reviewer must be identified by name and title for accountability."
                 ),
                 previous_state=current_state,
+            )
+
+    if target_state in PROMOTION_TARGET_STATES:
+        gate = get_adversarial_promotion_gate(project_id)
+        if gate.get("blocked"):
+            return WorkflowResult(
+                success=False,
+                error=gate.get("summary")
+                or f"Cannot advance to {target_state.value} while blocking adversarial findings remain open.",
+                previous_state=current_state,
+                gate_blocked=True,
+                gate_details=gate,
             )
 
     return WorkflowResult(

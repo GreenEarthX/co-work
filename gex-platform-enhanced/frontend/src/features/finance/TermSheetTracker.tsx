@@ -159,7 +159,14 @@ export function TermSheetTracker() {
           </div>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.name} · Playbook Annex B Checklist</p>
         </div>
-        <WorkflowActions state="DRAFT" objectType="Term Sheet" userRole="analyst" />
+        <WorkflowActions
+          state="DRAFT"
+          objectType="Term Sheet"
+          userRole="analyst"
+          projectId={project.id}
+          workflowObjectType="TermSheetTracker"
+          workflowObjectId={`term-sheet-${project.id}`}
+        />
       </div>
 
       {/* ── Summary bar ── */}

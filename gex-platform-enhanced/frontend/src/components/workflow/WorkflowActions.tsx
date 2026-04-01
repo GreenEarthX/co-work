@@ -6,9 +6,10 @@
  * and review scope. Transition to REVIEWED is blocked until all fields
  * are populated. This enforces named accountability for reviewed outputs.
  */
-import { useState } from 'react'
-import { ChevronRight, FileText, FileJson, FileType, Lock, XCircle, UserCheck } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, ChevronRight, FileText, FileJson, FileType, Lock, XCircle, UserCheck } from 'lucide-react'
 import type { WorkflowState } from './WorkflowBadge'
+import { workflowAPI, type WorkflowPromotionGate } from '@/lib/workflowApi'
 
 // ─────────────────────────────── Types ───────────────────────────────────────
 
@@ -25,6 +26,9 @@ interface WorkflowActionsProps {
   onExport?: (format: 'pdf' | 'json' | 'word') => void
   onReject?: (reason: string) => void
   userRole?: 'analyst' | 'cfo' | 'viewer'
+  projectId?: string
+  workflowObjectType?: string
+  workflowObjectId?: string
 }
 
 // ─────────────────────────────── Helpers ─────────────────────────────────────
@@ -60,9 +64,14 @@ export function WorkflowActions({
   onExport,
   onReject,
   userRole = 'viewer',
+  projectId,
+  workflowObjectType,
+  workflowObjectId,
 }: WorkflowActionsProps) {
   const [showRejectBox, setShowRejectBox] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [workflowGate, setWorkflowGate] = useState<WorkflowPromotionGate | null>(null)
+  const [gateLoading, setGateLoading] = useState(false)
 
   // R3: Reviewer modal state
   const [showReviewerModal, setShowReviewerModal] = useState(false)
@@ -70,11 +79,52 @@ export function WorkflowActions({
   const [reviewerTitle, setReviewerTitle] = useState('')
   const [reviewScope, setReviewScope]     = useState<ReviewerDetails['reviewScope']>('FULL_REVIEW')
 
+  useEffect(() => {
+    if (!projectId || !workflowObjectType || !workflowObjectId) {
+      setWorkflowGate(null)
+      setGateLoading(false)
+      return
+    }
+
+    let active = true
+    setGateLoading(true)
+
+    workflowAPI.getState(workflowObjectType, workflowObjectId, projectId)
+      .then((data) => {
+        if (!active) return
+        setWorkflowGate({
+          project_id: data.project_id,
+          blocked: data.promotion_blocked,
+          blocking_findings: data.blocking_findings,
+          blocking_reviews: data.blocking_reviews,
+          critical_findings: data.critical_findings,
+          summary: data.promotion_gate_summary,
+          blocking_titles: data.blocking_titles,
+          blockers: data.blockers,
+        })
+      })
+      .catch(() => {
+        if (!active) return
+        setWorkflowGate(null)
+      })
+      .finally(() => {
+        if (!active) return
+        setGateLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [projectId, workflowObjectId, workflowObjectType])
+
   const canWriteOrReview = userRole === 'analyst' || userRole === 'cfo'
   const isCfo = userRole === 'cfo'
   const isApproved = state === 'APPROVED' || state === 'EXPORTED' || state === 'SHARED_EXTERNAL'
+  const promotionBlocked = workflowGate?.blocked ?? false
+  const disablePromotions = gateLoading || promotionBlocked
 
   function handleAdvance(toState: WorkflowState, reviewer?: ReviewerDetails) {
+    if (disablePromotions) return
     window.alert(`Demo: advancing ${objectType} state to ${toState}`)
     onAdvance?.(toState, reviewer)
   }
@@ -94,6 +144,7 @@ export function WorkflowActions({
   }
 
   function handleExport(format: 'pdf' | 'json' | 'word') {
+    if (disablePromotions) return
     window.alert(`Demo: exporting ${objectType} as ${format.toUpperCase()}`)
     onExport?.(format)
   }
@@ -113,7 +164,8 @@ export function WorkflowActions({
         {state === 'COMPUTED' && canWriteOrReview && (
           <button
             onClick={() => setShowReviewerModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors"
+            disabled={disablePromotions}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UserCheck className="w-3.5 h-3.5" />
             Mark Reviewed
@@ -125,7 +177,8 @@ export function WorkflowActions({
           <>
             <button
               onClick={() => handleAdvance('APPROVED')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 text-xs font-semibold hover:bg-green-100 transition-colors"
+              disabled={disablePromotions}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 text-xs font-semibold hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-3.5 h-3.5" />
               Approve
@@ -141,7 +194,7 @@ export function WorkflowActions({
         )}
 
         {/* ── Export buttons ── */}
-        {isApproved ? (
+        {isApproved && !disablePromotions ? (
           <>
             <button
               onClick={() => handleExport('pdf')}
@@ -173,6 +226,27 @@ export function WorkflowActions({
           </>
         )}
       </div>
+
+      {promotionBlocked && workflowGate && (
+        <div className="max-w-2xl rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-xs text-red-800">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <div className="space-y-1">
+              <p className="font-semibold">
+                {workflowGate.summary || 'Promotion is blocked by open adversarial findings.'}
+              </p>
+              <p>
+                Resolve or waive the blocking review items before promoting this workflow artifact.
+              </p>
+              {workflowGate.blocking_titles.slice(0, 3).map((title) => (
+                <p key={title} className="text-red-700">
+                  - {title}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Inline rejection textarea ── */}
       {showRejectBox && state === 'REVIEWED' && isCfo && (

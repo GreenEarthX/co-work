@@ -6,11 +6,12 @@
 import { useState } from 'react'
 import { Layers, TrendingUp, AlertTriangle, ChevronDown, ChevronUp, Leaf, Shield, BarChart3 } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
-import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
+import { HELP } from '@/config/helpText'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
+import { CommitmentStatusBadge } from '@/components/finance/CommitmentStatusBadge'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -929,7 +930,14 @@ export function CapitalStack() {
           </div>
           <div className="flex flex-col items-end gap-2 mt-1">
             <WorkflowBadge state="COMPUTED" computedAt="2026-03-10" showStale />
-            <WorkflowActions state="COMPUTED" objectType="Capital Stack" userRole="analyst" />
+            <WorkflowActions
+              state="COMPUTED"
+              objectType="Capital Stack"
+              userRole="analyst"
+              projectId={project?.id}
+              workflowObjectType="CapitalStackScenario"
+              workflowObjectId={`capital-stack-${project?.id ?? 'default'}`}
+            />
           </div>
         </div>
       </div>
@@ -1097,6 +1105,28 @@ export function CapitalStack() {
               </p>
             )}
           </div>
+
+          {/* Commitment Pipeline — from live project data */}
+          {project?.capital_status && project.capital_status.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-black uppercase tracking-widest text-gray-600 mb-3">
+                Commitment Pipeline
+              </div>
+              <div className="space-y-2.5">
+                {project.capital_status.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-gray-700 truncate max-w-[110px]" title={item.name}>
+                      {item.name}
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-xs tabular-nums text-gray-500">{item.amount}</span>
+                      <CommitmentStatusBadge status={item.commitment_status} size="sm" showProgress />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

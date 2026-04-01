@@ -1,8 +1,55 @@
-import { useState } from 'react'
-import { TrendingUp, Zap, FileText, Package, BarChart3, AlertTriangle } from 'lucide-react'
+import { TrendingUp, Zap, FileText, Package, BarChart3, AlertTriangle, ArrowRight, LineChart, Layers3, FileCheck2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
+import { useSelectedProject } from '@/contexts/ProjectContext'
+import { getProjectById, CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { AdversarialReviewEntryCard } from '@/components/AdversarialReviewEntryCard'
 
 export function TraderDashboardPage() {
+  const navigate = useNavigate()
+  const { selectedProjectId } = useSelectedProject()
+  const project = getProjectById(selectedProjectId) ?? CUSTOMER_PROJECTS[0]
+  const riskAlerts = project.bankability.risk_alerts ?? []
+  const hasPricingTrustGap = riskAlerts.some(alert =>
+    /gabillon|spot reference|pricing reference/i.test(alert),
+  )
+  const hasOfftakeGap = project.bankability.gates.some(g => g.id === 'G4_OFFTAKE_BANKABLE' && !g.is_complete)
+
+  const closePath = [
+    {
+      title: 'Define mandate',
+      detail: 'Target molecule, 10,000 MT/month, certifications, first delivery window',
+      cta: 'Set demand',
+      route: '/onboarding',
+      Icon: FileText,
+      tone: 'bg-blue-50 text-blue-700 border-blue-200',
+    },
+    {
+      title: 'Pool supply',
+      detail: 'Aggregate at least 4 producer offers through GreenMesh / FlowFusion',
+      cta: 'Open marketplace',
+      route: '/marketplace',
+      Icon: Layers3,
+      tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    },
+    {
+      title: 'Justify price',
+      detail: 'Use clean token lead spot reference plus Gabillon forward curve',
+      cta: 'Open pricing',
+      route: '/pricing-curves',
+      Icon: LineChart,
+      tone: 'bg-amber-50 text-amber-700 border-amber-200',
+    },
+    {
+      title: 'Close contract',
+      detail: 'Issue RFQ and move to term sheet with LC-ready price rationale',
+      cta: 'Run matching',
+      route: '/matching',
+      Icon: FileCheck2,
+      tone: 'bg-violet-50 text-violet-700 border-violet-200',
+    },
+  ]
+
   const kpis = [
     { label: 'Active Positions',   value: '3',        sub: '2 H₂ · 1 NH₃',         icon: Package,     color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'Open RFQs',          value: '7',        sub: '3 closing this week',    icon: FileText,    color: 'text-blue-600',   bg: 'bg-blue-50'   },
@@ -18,12 +65,76 @@ export function TraderDashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black text-gray-900">Trader Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">Market pulse · open positions · commercial milestones</p>
+          <p className="text-sm text-gray-500 mt-1">Market pulse · contract close path · commercial milestones</p>
         </div>
         <span className="px-3 py-1 bg-purple-100 text-purple-700 text-xs font-bold rounded-full uppercase tracking-wide">
           Trader Workspace
         </span>
       </div>
+
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <div className="text-xs font-black uppercase tracking-widest text-gray-500">Objective</div>
+            <h2 className="text-lg font-bold text-gray-900 mt-1">Close a defensible Q1 2027 contract path</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Turn pooled producer volume into a buyer-ready contract with reference pricing that treasury, banks, and ratings teams can defend.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/matching')}
+            className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800"
+          >
+            Continue path <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          {closePath.map(step => (
+            <button
+              key={step.title}
+              type="button"
+              onClick={() => navigate(step.route)}
+              className="rounded-xl border border-gray-200 p-4 text-left hover:shadow-sm transition-shadow bg-gray-50"
+            >
+              <div className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-bold ${step.tone}`}>
+                <step.Icon className="w-3.5 h-3.5" />
+                {step.title}
+              </div>
+              <p className="mt-3 text-sm font-semibold text-gray-900">{step.cta}</p>
+              <p className="mt-1 text-xs leading-relaxed text-gray-500">{step.detail}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {(hasPricingTrustGap || hasOfftakeGap) && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-amber-900">Current blocker to contract close</h3>
+              <p className="mt-1 text-sm text-amber-800">
+                Counterparties do not yet have a defensible price backbone. GEX must show a clean spot reference and Gabillon-based forward curve before RotterdamOfftake4 can justify LOIs, LC-backed pricing, or credit committee discussion.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => navigate('/pricing-curves')}
+                  className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700"
+                >
+                  Open price reference <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => navigate('/marketplace')}
+                  className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                >
+                  Aggregate supply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -38,6 +149,12 @@ export function TraderDashboardPage() {
           </div>
         ))}
       </div>
+
+      <AdversarialReviewEntryCard
+        projectId={project.id}
+        actorType="OFFTAKER"
+        title="Offtaker challenge review"
+      />
 
       {/* Market Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

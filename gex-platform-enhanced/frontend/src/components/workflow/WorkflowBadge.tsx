@@ -2,7 +2,7 @@
  * WorkflowBadge — small reusable state badge for governed bankability objects.
  * Shows the current workflow state with colour coding and an optional staleness warning.
  */
-import { Pencil, Zap, Eye, CheckCircle, Download, Share2, AlertTriangle } from 'lucide-react'
+import { Pencil, Zap, Eye, CheckCircle, Download, Share2, AlertTriangle, ShieldCheck } from 'lucide-react'
 
 // ─────────────────────────────── Types ───────────────────────────────────────
 
@@ -10,6 +10,7 @@ export type WorkflowState =
   | 'DRAFT'
   | 'COMPUTED'
   | 'REVIEWED'
+  | 'INSURANCE_REVIEWED'
   | 'APPROVED'
   | 'EXPORTED'
   | 'SHARED_EXTERNAL'
@@ -47,6 +48,13 @@ const STATE_STYLES: Record<
     border: 'border-amber-300',
     label: 'Reviewed',
     Icon: Eye,
+  },
+  INSURANCE_REVIEWED: {
+    bg: 'bg-sky-100',
+    text: 'text-sky-700',
+    border: 'border-sky-300',
+    label: 'Insurance Reviewed',
+    Icon: ShieldCheck,
   },
   APPROVED: {
     bg: 'bg-green-100',
