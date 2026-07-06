@@ -1,3 +1,4 @@
+// Screen: Revenue & offtake screen (/revenue, /finance/revenue)
 import { useState, useEffect } from 'react'
 import { DollarSign, TrendingUp, Calendar, Users, AlertCircle, RefreshCw } from 'lucide-react'
 import { financeAPI } from '@/lib/api'
@@ -253,7 +254,7 @@ export function RevenueOfftakePage() {
           {contracts
             .filter(c => c.status === 'active')
             .sort((a, b) => b.volume_mtpd - a.volume_mtpd)
-            .map((contract, idx) => {
+            .map((contract, _idx) => {
               const concentrationPct = (contract.volume_mtpd / contractedVolume) * 100
               
               return (

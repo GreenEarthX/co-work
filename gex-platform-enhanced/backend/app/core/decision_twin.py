@@ -22,6 +22,8 @@ class CertificationScheme(Enum):
     CORSIA = "CORSIA"
     LCFS = "LCFS"
     RTFO = "RTFO"
+    SOVEREIGN_ESG = "SOVEREIGN_ESG"       # Sovereign-backed ESG pathway
+    CERTIFHY = "CERTIFHY"                 # EU hydrogen certification
 
 
 class EligibilityStatus(Enum):
@@ -496,6 +498,144 @@ class DecisionTwin:
         
         return result
     
+    def evaluate_sovereign_esg(
+        self,
+        molecule: str,
+        country: str,
+        ghg_intensity: float,
+        renewable_electricity_pct: float,
+        host_country_ndc_target: float = 0.0,
+        carbon_attribution_split: Dict = None,
+        debt_for_nature_instrument_id: Optional[str] = None,
+        sovereign_credit_rating: Optional[str] = None,
+    ) -> Dict:
+        """
+        Evaluate SOVEREIGN_ESG pathway — distinct from commercial certification.
+        Used for projects with sovereign-backed instruments (debt-for-nature swaps,
+        sovereign green bonds, NDC-linked carbon attribution).
+
+        Checks:
+        - Host country NDC alignment
+        - Carbon attribution split (host/buyer share)
+        - Debt-for-nature instrument linkage
+        - Sovereign credit risk assessment
+        - GHG reduction vs national baseline
+        """
+        result = {
+            "scheme": "SOVEREIGN_ESG",
+            "status": EligibilityStatus.ELIGIBLE.value,
+            "timestamp": datetime.now().isoformat(),
+            "correlation_id": self.correlation_id,
+            "checks": [],
+            "failures": [],
+            "warnings": [],
+            "recommendations": [],
+            "sovereign_details": {},
+        }
+
+        # Check 1: Host country NDC alignment
+        ndc_check = {
+            "check": "NDC Alignment",
+            "required": "Project contributes to host country NDC target",
+            "actual": f"NDC target: {host_country_ndc_target}% reduction",
+            "passed": host_country_ndc_target > 0,
+        }
+        result["checks"].append(ndc_check)
+        if not ndc_check["passed"]:
+            result["warnings"].append({
+                "check": "NDC Alignment",
+                "message": "No NDC target specified — sovereign pathway weakened",
+                "severity": "medium",
+            })
+
+        # Check 2: Carbon attribution split
+        attribution = carbon_attribution_split or {"host_share": 0.5, "buyer_share": 0.5}
+        host_share = attribution.get("host_share", 0.5)
+        buyer_share = attribution.get("buyer_share", 0.5)
+        split_valid = abs(host_share + buyer_share - 1.0) < 0.01
+
+        attr_check = {
+            "check": "Carbon Attribution Split",
+            "required": "Host + Buyer shares = 100%",
+            "actual": f"Host {host_share*100:.0f}% / Buyer {buyer_share*100:.0f}%",
+            "passed": split_valid,
+        }
+        result["checks"].append(attr_check)
+        if not split_valid:
+            result["status"] = EligibilityStatus.INELIGIBLE.value
+            result["failures"].append({
+                "check": "Carbon Attribution Split",
+                "reason": f"Shares sum to {(host_share+buyer_share)*100:.0f}% (must be 100%)",
+                "severity": "critical",
+            })
+
+        # Check 3: GHG intensity (minimum threshold for sovereign pathway)
+        sovereign_ghg_max = 5.0  # More lenient than commercial schemes
+        ghg_check = {
+            "check": "GHG Intensity (Sovereign)",
+            "required": f"<= {sovereign_ghg_max} kgCO2e/kg",
+            "actual": f"{ghg_intensity} kgCO2e/kg",
+            "passed": ghg_intensity <= sovereign_ghg_max,
+        }
+        result["checks"].append(ghg_check)
+        if not ghg_check["passed"]:
+            result["status"] = EligibilityStatus.INELIGIBLE.value
+            result["failures"].append({
+                "check": "GHG Intensity",
+                "reason": f"Exceeds sovereign threshold ({ghg_intensity} > {sovereign_ghg_max})",
+                "severity": "critical",
+            })
+
+        # Check 4: Debt-for-nature instrument linkage
+        dfn_check = {
+            "check": "Debt-for-Nature Linkage",
+            "required": "Optional — strengthens sovereign pathway",
+            "actual": f"Instrument: {debt_for_nature_instrument_id or 'None'}",
+            "passed": True,  # Optional, not blocking
+        }
+        result["checks"].append(dfn_check)
+        if debt_for_nature_instrument_id:
+            result["sovereign_details"]["debt_for_nature"] = {
+                "instrument_id": debt_for_nature_instrument_id,
+                "linked": True,
+                "benefit": "Sovereign debt reduction linked to environmental outcomes",
+            }
+        else:
+            result["recommendations"].append({
+                "action": "Link Debt-for-Nature Instrument",
+                "benefit": "Strengthens sovereign pathway, unlocks concessional capital",
+            })
+
+        # Check 5: Sovereign credit assessment
+        investment_grade = {"AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-"}
+        if sovereign_credit_rating:
+            is_ig = sovereign_credit_rating.upper() in investment_grade
+            credit_check = {
+                "check": "Sovereign Credit Rating",
+                "required": "Investment grade preferred",
+                "actual": sovereign_credit_rating,
+                "passed": True,  # Not blocking, just advisory
+            }
+            result["checks"].append(credit_check)
+            if not is_ig:
+                result["warnings"].append({
+                    "check": "Sovereign Credit Rating",
+                    "message": f"Sub-investment grade ({sovereign_credit_rating}) — DFI guarantee may be required",
+                    "severity": "medium",
+                })
+
+        # Sovereign details summary
+        result["sovereign_details"]["ndc_target"] = host_country_ndc_target
+        result["sovereign_details"]["carbon_attribution"] = attribution
+        result["sovereign_details"]["sovereign_rating"] = sovereign_credit_rating
+
+        if result["status"] == EligibilityStatus.ELIGIBLE.value:
+            result["summary"] = f"Eligible for SOVEREIGN_ESG pathway (Host {host_share*100:.0f}% / Buyer {buyer_share*100:.0f}%)"
+        else:
+            result["summary"] = f"Not eligible. {len(result['failures'])} failures."
+
+        return result
+
     def evaluate_all_schemes(self, project_data: Dict) -> Dict:
         """Evaluate against all relevant schemes"""
         results = {
@@ -551,7 +691,24 @@ class DecisionTwin:
                     results["total_subsidy_value"] += v45["credit_value"]["final_credit_usd_kg"]
             
             results["45V"] = v45
-        
+
+        # SOVEREIGN_ESG (any country with DFI backing)
+        if project_data.get("dfi_provider") or project_data.get("host_country_ndc_target"):
+            sov = self.evaluate_sovereign_esg(
+                molecule=molecule,
+                country=country,
+                ghg_intensity=project_data.get("ghg_intensity", 0.45),
+                renewable_electricity_pct=project_data.get("renewable_electricity_pct", 100),
+                host_country_ndc_target=project_data.get("host_country_ndc_target", 0),
+                carbon_attribution_split=project_data.get("carbon_attribution_split"),
+                debt_for_nature_instrument_id=project_data.get("debt_for_nature_instrument_id"),
+                sovereign_credit_rating=project_data.get("sovereign_credit_rating"),
+            )
+            results["schemes_evaluated"].append("SOVEREIGN_ESG")
+            if sov["status"] == EligibilityStatus.ELIGIBLE.value:
+                results["eligible_schemes"].append("SOVEREIGN_ESG")
+            results["SOVEREIGN_ESG"] = sov
+
         return results
 
 

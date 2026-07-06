@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance workflow screens
 /**
  * WorkflowHistory — collapsible audit trail of workflow state transitions.
  * Shows a timeline of events with state badges, actor names, timestamps, and optional notes.

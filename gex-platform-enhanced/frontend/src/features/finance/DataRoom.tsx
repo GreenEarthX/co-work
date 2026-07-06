@@ -1,15 +1,17 @@
+// Screen: Data room screen (/data-room, /finance/data-room)
 /**
  * DataRoom — Virtual data room with indexed Table of Contents following Playbook Annex E.
  * 11 categories with document completeness, SHA-256 hashes, and download links.
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   FolderOpen, FileText, Download, CheckCircle2, Clock, AlertCircle,
-  XCircle, ChevronRight, Hash,
+  XCircle, ChevronRight, Hash, ArrowLeft,
 } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
 
@@ -245,12 +247,33 @@ function computeCompleteness(docs: DataRoomDoc[]): number {
 
 export function DataRoom() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId) ?? CUSTOMER_PROJECTS[0]
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
   const [selectedCategoryId, setSelectedCategoryId] = useState(1)
   const [hoveredHash, setHoveredHash] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Deep-link from Bankability "Missing evidence" buttons:
+  //   ?gate=G0_SITE_RIGHTS&evidence=land_option_or_lease_executed
+  // Resolves the gate prefix (G0) and auto-selects the first category
+  // containing a matching document so the user lands on the right page.
+  const deepLinkGate     = searchParams.get('gate') ?? ''
+  const deepLinkEvidence = searchParams.get('evidence') ?? ''
+  const gatePrefix       = (deepLinkGate.match(/^G\d+/) ?? [''])[0]
+  const evidenceHuman    = deepLinkEvidence.replace(/_/g, ' ')
 
   const categories = buildCategories(project.id)
   const selectedCategory = categories.find(c => c.id === selectedCategoryId) ?? categories[0]
+
+  useEffect(() => {
+    if (!gatePrefix) return
+    const target = categories.find(c => c.docs.some(d => d.gateRef === gatePrefix))
+    if (target) setSelectedCategoryId(target.id)
+    // intentionally not depending on `categories` (recomputed each render)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gatePrefix, project.id])
+
+  const clearDeepLink = () => setSearchParams({})
 
   // Overall completeness across all docs
   const allDocs = categories.flatMap(c => c.docs)
@@ -280,6 +303,28 @@ export function DataRoom() {
           workflowObjectId={`data-room-${project.id}`}
         />
       </div>
+
+      {/* ── Deep-link context banner ── */}
+      {deepLinkGate && (
+        <div className="flex items-start gap-3 rounded-xl border border-[var(--brand)]/40 bg-[var(--brand-light)] px-4 py-3">
+          <FileText className="mt-0.5 w-4 h-4 shrink-0 text-[var(--brand)]" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-[var(--text-primary)]">
+              Looking for evidence: <span className="font-mono">{evidenceHuman || '(unspecified)'}</span>
+            </p>
+            <p className="mt-0.5 text-[11px] text-[var(--text-secondary)]">
+              Required by gate <span className="font-mono font-semibold">{deepLinkGate}</span>. The category
+              {gatePrefix ? ` containing ${gatePrefix} documents` : ''} has been auto-selected below.
+            </p>
+          </div>
+          <button
+            onClick={clearDeepLink}
+            className="flex items-center gap-1 text-[11px] text-[var(--brand)] hover:underline"
+          >
+            <ArrowLeft className="w-3 h-3" /> Clear filter
+          </button>
+        </div>
+      )}
 
       {/* ── Overall completeness bar ── */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4 shadow-card">

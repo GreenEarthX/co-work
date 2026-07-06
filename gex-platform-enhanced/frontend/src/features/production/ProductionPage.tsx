@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Filter, Search, Eye, Edit, Trash2 } from 'lucide-react';
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects';
+// Screen: Production screen (/production)
+import { useState, useMemo } from 'react';
+import { Search, Eye, Edit, Trash2 } from 'lucide-react';
+import { type CustomerProject } from '@/data/customerProjects';
 import { useSelectedProject } from '@/contexts/ProjectContext';
+import { useVisibleProjects } from '@/hooks/useVisibleProjects';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,10 +39,10 @@ const PURITY_BY_MOLECULE: Record<string, number> = {
 };
 
 // Only operating or construction projects have batches
-function deriveBatches(): ProductionBatch[] {
+function deriveBatches(projects: CustomerProject[]): ProductionBatch[] {
   const batches: ProductionBatch[] = [];
   let seq = 1;
-  for (const p of CUSTOMER_PROJECTS) {
+  for (const p of projects) {
     if (p.status === 'development') continue; // not yet producing
     const prefix = makeBatchPrefix(p.id);
     const ghg    = GHG_BY_MOLECULE[p.molecule] ?? 0.45;
@@ -70,8 +72,6 @@ function deriveBatches(): ProductionBatch[] {
   return batches;
 }
 
-const ALL_BATCHES = deriveBatches();
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_BADGE: Record<string, string> = {
@@ -84,8 +84,10 @@ const STATUS_BADGE: Record<string, string> = {
 
 export function ProductionPage() {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
+  const { projects: visibleProjects } = useVisibleProjects();
   const [search, setSearch]   = useState('');
-  const [batches, setBatches] = useState<ProductionBatch[]>(ALL_BATCHES);
+  const allBatches = useMemo(() => deriveBatches(visibleProjects), [visibleProjects]);
+  const [batches, setBatches] = useState<ProductionBatch[]>(allBatches);
 
   const filtered = useMemo(() =>
     batches.filter(b => {
@@ -101,9 +103,9 @@ export function ProductionPage() {
   const totalVol     = filtered.reduce((s, b) => s + b.volume_mt, 0);
   const approvedCnt  = filtered.filter(b => b.quality_status === 'approved').length;
   const pendingCnt   = filtered.filter(b => b.quality_status === 'pending').length;
-  const avgGhg       = filtered.length
-    ? (filtered.reduce((s, b) => s + b.ghg_intensity, 0) / filtered.length).toFixed(2)
-    : '—';
+  // const avgGhg       = filtered.length
+  //   ? (filtered.reduce((s, b) => s + b.ghg_intensity, 0) / filtered.length).toFixed(2)
+  //   : '—';
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -125,7 +127,7 @@ export function ProductionPage() {
           aria-label="Filter by project"
         >
           <option value="all">All projects</option>
-          {CUSTOMER_PROJECTS.filter(p => p.status !== 'development').map(p => (
+          {visibleProjects.filter(p => p.status !== 'development').map(p => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>

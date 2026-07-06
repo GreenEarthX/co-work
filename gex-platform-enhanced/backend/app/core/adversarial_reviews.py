@@ -19,11 +19,12 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from app.core.event_store import EventStore
+from app.core.event_store import append_event, init_event_store
+from app.core.config import settings
 
 logger = logging.getLogger("gex.adversarial_reviews")
 
-_DB_PATH = "gex_platform.db"
+_DB_PATH = settings.SQLITE_DB_PATH
 
 
 class ReviewStatus(str, Enum):
@@ -278,7 +279,7 @@ def init_adversarial_reviews_db(db_path: str = _DB_PATH) -> None:
     con.close()
 
     try:
-        EventStore.initialize_schema()
+        init_event_store()
     except Exception as exc:
         logger.debug("Event store init skipped for adversarial reviews: %s", exc)
 
@@ -299,7 +300,7 @@ def _append_event(
     data: dict,
 ) -> None:
     try:
-        EventStore.append_event(
+        append_event(
             event_type=event_type.value,
             aggregate_type="adversarial_review",
             aggregate_id=review_id,

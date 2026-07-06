@@ -1,9 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Info } from 'lucide-react';
+// Screen: UI primitive — used across all screens
+import { useState, useRef, useEffect } from "react";
+import { Info } from "lucide-react";
+import { createPortal } from "react-dom";
 
 interface InfoTooltipProps {
   text: string;
-  side?: 'top' | 'bottom' | 'left' | 'right';
+  side?: "top" | "bottom" | "left" | "right";
   maxWidth?: number;
 }
 
@@ -19,64 +21,105 @@ interface InfoTooltipProps {
  *     <InfoTooltip text="Cash Flow Available for Debt Service ÷ Debt Service. Lenders require P50 ≥ 1.30x." />
  *   </span>
  */
-export function InfoTooltip({ text, side = 'top', maxWidth = 280 }: InfoTooltipProps) {
+export function InfoTooltip({
+  text,
+  side = "top",
+  maxWidth = 280,
+}: InfoTooltipProps) {
   const [show, setShow] = useState(false);
   const [adjustedSide, setAdjustedSide] = useState(side);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLSpanElement>(null);
 
-  // Auto-adjust if tooltip would overflow viewport
+  // Resolve side and viewport-safe anchor.
   useEffect(() => {
     if (show && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      if (side === 'top' && rect.top < 80) setAdjustedSide('bottom');
-      else if (side === 'bottom' && rect.bottom > window.innerHeight - 80) setAdjustedSide('top');
-      else if (side === 'right' && rect.right > window.innerWidth - maxWidth - 20) setAdjustedSide('left');
-      else if (side === 'left' && rect.left < maxWidth + 20) setAdjustedSide('right');
-      else setAdjustedSide(side);
+
+      let nextSide = side;
+      if (side === "top" && rect.top < 80) nextSide = "bottom";
+      else if (side === "bottom" && rect.bottom > window.innerHeight - 80)
+        nextSide = "top";
+      else if (side === "right" && rect.right > window.innerWidth - maxWidth - 20)
+        nextSide = "left";
+      else if (side === "left" && rect.left < maxWidth + 20)
+        nextSide = "right";
+      setAdjustedSide(nextSide);
+
+      const gap = 12;
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const nextCoords = {
+        top:
+          nextSide === "top"
+            ? rect.top - gap
+            : nextSide === "bottom"
+              ? rect.bottom + gap
+              : centerY,
+        left:
+          nextSide === "left"
+            ? rect.left - gap
+            : nextSide === "right"
+              ? rect.right + gap
+              : centerX,
+      };
+      setCoords(nextCoords);
     }
   }, [show, side, maxWidth]);
 
   const positionClass = {
-    top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
-    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
-    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
-    right: 'left-full top-1/2 -translate-y-1/2 ml-2',
+    top: "-translate-x-1/2 -translate-y-full",
+    bottom: "-translate-x-1/2",
+    left: "-translate-x-full -translate-y-1/2",
+    right: "-translate-y-1/2",
   }[adjustedSide];
 
   // Arrow direction (points toward trigger)
   const arrowClass = {
-    top: 'top-full left-1/2 -translate-x-1/2 border-t-gray-900 border-l-transparent border-r-transparent border-b-transparent border-4',
-    bottom: 'bottom-full left-1/2 -translate-x-1/2 border-b-gray-900 border-l-transparent border-r-transparent border-t-transparent border-4',
-    left: 'left-full top-1/2 -translate-y-1/2 border-l-gray-900 border-t-transparent border-b-transparent border-r-transparent border-4',
-    right: 'right-full top-1/2 -translate-y-1/2 border-r-gray-900 border-t-transparent border-b-transparent border-l-transparent border-4',
+    top: "top-full left-1/2 -translate-x-1/2 border-t-white border-l-transparent border-r-transparent border-b-transparent border-4",
+    bottom:
+      "bottom-full left-1/2 -translate-x-1/2 border-b-white border-l-transparent border-r-transparent border-t-transparent border-4",
+    left: "left-full top-1/2 -translate-y-1/2 border-l-white border-t-transparent border-b-transparent border-r-transparent border-4",
+    right:
+      "right-full top-1/2 -translate-y-1/2 border-r-white border-t-transparent border-b-transparent border-l-transparent border-4",
   }[adjustedSide];
 
   return (
     <span className="relative inline-flex items-center">
-      <button
+      {/* Trigger is a focusable <span role="button"> rather than a real <button> so that
+          InfoTooltip can be placed inside other interactive elements (e.g. collapsible
+          header buttons) without a `validateDOMNesting: <button> in <button>` warning. */}
+      <span
         ref={triggerRef}
+        role="button"
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
         onFocus={() => setShow(true)}
         onBlur={() => setShow(false)}
-        className="text-gray-500 hover:text-gray-300 transition-colors cursor-help p-0.5 rounded-full hover:bg-gray-800/50"
+        className="inline-flex cursor-help rounded-full p-0.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
         aria-label="More information"
         tabIndex={0}
       >
         <Info className="w-3.5 h-3.5" />
-      </button>
-      {show && (
-        <span
-          className={`absolute z-50 ${positionClass} px-3 py-2 text-xs
-            leading-relaxed rounded-lg shadow-lg pointer-events-none
-            bg-gray-900 border border-gray-700 text-gray-200`}
-          style={{ width: `${maxWidth}px`, maxWidth: `${maxWidth}px` }}
-          role="tooltip"
-        >
-          {text}
-          <span className={`absolute ${arrowClass}`} />
-        </span>
-      )}
+      </span>
+      {show &&
+        createPortal(
+          <span
+            className={`fixed z-[120] ${positionClass} rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs
+              leading-relaxed text-black shadow-lg pointer-events-none normal-case`}
+            style={{
+              top: `${coords.top}px`,
+              left: `${coords.left}px`,
+              width: `${maxWidth}px`,
+              maxWidth: `${maxWidth}px`,
+            }}
+            role="tooltip"
+          >
+            {text}
+            <span className={`absolute ${arrowClass}`} />
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }

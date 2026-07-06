@@ -1,108 +1,155 @@
-import { FileText, BarChart3, Shield, Download, Clock } from 'lucide-react'
+// Screen: Reports & Evidence hub (/reports)
+//
+// One honest door. Replaces the five former menu entries that all dead-ended
+// here (Evidence Upload, Decision Twin, Audit Trail, ESG, Performance Matrix).
+// Each is now an in-page view, deep-linkable via ?view=<id>, and each report
+// carries an explicit build-state chip (LIVE / PLANNED) — no false promises.
+//
+// Doctrine: slate-only, square corners, mono labels, colour = state.
 
-const PLANNED_REPORTS = [
+import { useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
+
+type BuildState = 'LIVE' | 'PLANNED'
+
+interface ReportDef {
+  name: string
+  desc: string
+  state: BuildState
+}
+
+interface ReportView {
+  id: string
+  label: string
+  blurb: string
+  reports: ReportDef[]
+}
+
+// The five views correspond 1:1 to the former /reports menu doors.
+const VIEWS: ReportView[] = [
   {
-    category: 'Production',
-    icon: BarChart3,
-    color: 'bg-blue-50 text-blue-600 border-blue-200',
+    id: 'evidence-upload',
+    label: 'Evidence Upload',
+    blurb: 'Submit and track gate evidence items; routes to the evidence ledger for hashing and verification.',
     reports: [
-      { name: 'Production Summary', desc: 'Monthly/quarterly output per project, molecule, and facility', priority: 'HIGH' },
-      { name: 'Capacity Utilization', desc: 'Actual vs. nameplate capacity over time', priority: 'HIGH' },
-      { name: 'Quality & Purity Log', desc: 'Batch-level purity, certification compliance per delivery', priority: 'MEDIUM' },
+      { name: 'Evidence Submission Queue', desc: 'Items awaiting upload across open gates (G0–G11)', state: 'PLANNED' },
+      { name: 'Verification Status Log', desc: 'UNVERIFIED → SUBMITTED → CONFIRMED → AUDITED transitions per item', state: 'PLANNED' },
     ],
   },
   {
-    category: 'Commercial',
-    icon: FileText,
-    color: 'bg-green-50 text-green-600 border-green-200',
+    id: 'decision-twin',
+    label: 'Decision Twin (RFNBO / RED III)',
+    blurb: 'Certification-pathway decision model: tests a project against RFNBO temporal-correlation and RED III thresholds.',
     reports: [
-      { name: 'Offtake Pipeline', desc: 'All offers, RFQs, matches with status and conversion rates', priority: 'HIGH' },
-      { name: 'Contract Portfolio', desc: 'Active contracts, volumes, pricing, counterparty exposure', priority: 'HIGH' },
-      { name: 'Delivery Performance', desc: 'On-time delivery rate, shortfall tracking, penalty exposure', priority: 'MEDIUM' },
-      { name: 'Revenue Forecast', desc: 'Projected revenue from contracted volumes at current prices', priority: 'MEDIUM' },
+      { name: 'RFNBO Eligibility Twin', desc: 'Hourly vs annual matching, additionality, geographic correlation', state: 'PLANNED' },
+      { name: 'RED III Pathway Check', desc: 'GHG intensity vs threshold, feedstock eligibility', state: 'PLANNED' },
     ],
   },
   {
-    category: 'Finance & Banking',
-    icon: Download,
-    color: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+    id: 'audit-trail',
+    label: 'Audit Trail',
+    blurb: 'Immutable event log: evidence submissions, state changes, approvals, commitment signings. Backed by the event store.',
     reports: [
-      { name: 'Bankability Package', desc: 'Consolidated gate status, evidence completion, capital unlocks for lenders', priority: 'HIGH' },
-      { name: 'DSCR & Covenant Report', desc: 'Current DSCR, covenant compliance, breach alerts', priority: 'HIGH' },
-      { name: 'Capital Stack Status', desc: 'Equity, debt, grants — drawn vs committed vs available', priority: 'MEDIUM' },
-      { name: 'Financial Model Output', desc: 'Base case + stress test results from gex_pf_engine', priority: 'MEDIUM' },
+      { name: 'Full Event Log', desc: 'Chronological, hash-chained event stream per project', state: 'PLANNED' },
+      { name: 'Approval & Signing Trail', desc: 'WAE approvals, countersignatures, commitment hashes', state: 'PLANNED' },
     ],
   },
   {
-    category: 'Compliance & Certification',
-    icon: Shield,
-    color: 'bg-purple-50 text-purple-600 border-purple-200',
+    id: 'esg',
+    label: 'Environmental & ESG',
+    blurb: 'MRV and ESG disclosure reporting for regulators and capital providers.',
     reports: [
-      { name: 'Certification Status', desc: 'RFNBO/ISCC/GoO status per project and batch', priority: 'HIGH' },
-      { name: 'MRV Reporting', desc: 'Measurement, Reporting, Verification data for regulators', priority: 'MEDIUM' },
-      { name: 'Audit Trail', desc: 'Full event log: evidence submissions, state changes, approvals', priority: 'LOW' },
+      { name: 'MRV Reporting Pack', desc: 'Measurement, Reporting, Verification data for the regulator', state: 'PLANNED' },
+      { name: 'ESG Disclosure Summary', desc: 'Emissions, water, community, governance indicators', state: 'PLANNED' },
+    ],
+  },
+  {
+    id: 'performance-matrix',
+    label: 'Performance Matrix',
+    blurb: 'Operational performance: actual vs nameplate, availability, and delivery against contract.',
+    reports: [
+      { name: 'Capacity Utilization', desc: 'Actual vs nameplate capacity over time', state: 'PLANNED' },
+      { name: 'Delivery Performance', desc: 'On-time delivery rate, shortfall and penalty exposure', state: 'PLANNED' },
     ],
   },
 ]
 
-const PRIORITY_COLORS: Record<string, string> = {
-  HIGH: 'bg-red-50 text-red-600 border-red-200',
-  MEDIUM: 'bg-yellow-50 text-yellow-600 border-yellow-200',
-  LOW: 'bg-gray-50 text-gray-500 border-gray-200',
+function StateChip({ state }: { state: BuildState }) {
+  const cls = state === 'LIVE'
+    ? 'border-l-emerald-600 text-emerald-800 dark:text-emerald-300'
+    : 'border-l-slate-400 text-slate-500 dark:text-slate-400'
+  return (
+    <span className={`inline-flex h-[15px] items-center border border-l-2 border-slate-300 bg-white dark:bg-slate-950 px-1 font-mono text-[8px] font-bold uppercase tracking-[0.08em] leading-none whitespace-nowrap ${cls}`}>
+      {state}
+    </span>
+  )
 }
 
 export function ReportsPage() {
+  const [params, setParams] = useSearchParams()
+  const requested = params.get('view')
+  const activeId = requested && VIEWS.some(v => v.id === requested) ? requested : VIEWS[0].id
+  const active = useMemo(() => VIEWS.find(v => v.id === activeId) ?? VIEWS[0], [activeId])
+
+  const liveCount = VIEWS.flatMap(v => v.reports).filter(r => r.state === 'LIVE').length
+  const totalCount = VIEWS.flatMap(v => v.reports).length
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900">Reports</h1>
-          <p className="text-sm text-gray-600 mt-1">Reporting module — planned capabilities</p>
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
-          <Clock className="w-4 h-4 text-amber-600" />
-          <span className="text-xs font-bold text-amber-700">Under Development</span>
-        </div>
+    <div className="max-w-5xl mx-auto px-2 py-2 space-y-2">
+
+      {/* Status line */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-1">
+        <h1 className="font-mono text-[12px] font-bold uppercase tracking-[0.12em] text-slate-900 dark:text-slate-100">
+          Reports &amp; Evidence
+        </h1>
+        <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+          {liveCount}/{totalCount} reports live · {totalCount - liveCount} planned
+        </span>
       </div>
 
-      {/* Report Categories */}
-      {PLANNED_REPORTS.map(category => {
-        const Icon = category.icon
-        return (
-          <div key={category.category} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${category.color} border`}>
-                <Icon className="w-4 h-4" />
+      {/* View tabs — the five former menu doors, now one hub */}
+      <div className="flex flex-wrap gap-px bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-800">
+        {VIEWS.map(v => {
+          const on = v.id === active.id
+          return (
+            <button
+              key={v.id}
+              onClick={() => setParams(v.id === VIEWS[0].id ? {} : { view: v.id })}
+              className={`flex-1 min-w-[140px] px-2 py-1.5 text-left font-mono text-[11px] uppercase tracking-[0.06em] transition-colors ${
+                on
+                  ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 border-t-2 border-t-[var(--brand,#0ea5a0)]'
+                  : 'bg-white/60 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              {v.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Active view */}
+      <section className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+        <div className="border-b border-slate-200 dark:border-slate-800 px-3 py-2">
+          <p className="font-mono text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">{active.blurb}</p>
+        </div>
+        <ul className="divide-y divide-slate-100 dark:divide-slate-900">
+          {active.reports.map((r, i) => (
+            <li key={i} className="grid grid-cols-[minmax(0,1fr)_72px] items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900">
+              <div className="min-w-0">
+                <div className="font-mono text-[12px] font-semibold text-slate-900 dark:text-slate-100 truncate">{r.name}</div>
+                <div className="font-mono text-[10px] text-slate-500 dark:text-slate-400 leading-snug">{r.desc}</div>
               </div>
-              <h2 className="font-bold text-gray-900">{category.category}</h2>
-              <span className="text-xs text-gray-400 ml-auto">{category.reports.length} reports planned</span>
-            </div>
-            <div className="divide-y divide-gray-50">
-              {category.reports.map(report => (
-                <div key={report.name} className="px-6 py-3 flex items-center justify-between hover:bg-gray-50">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">{report.name}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{report.desc}</div>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${PRIORITY_COLORS[report.priority]}`}>{report.priority}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })}
-
-      {/* Implementation Note */}
-      <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
-        <h3 className="font-bold text-blue-900 mb-2">Implementation Plan</h3>
-        <div className="text-sm text-blue-800 space-y-1">
-          <p>Phase 1: Production Summary + Offtake Pipeline (data already available from existing APIs)</p>
-          <p>Phase 2: Bankability Package + DSCR Report (integrates with gex_pf_engine bankability module)</p>
-          <p>Phase 3: Certification + MRV + Audit Trail (requires regulator workspace completion)</p>
-          <p>Export formats: PDF (credit committee packages), Excel (financial data), CSV (raw data)</p>
+              <div className="justify-self-end"><StateChip state={r.state} /></div>
+            </li>
+          ))}
+        </ul>
+        <div className="border-t border-slate-200 dark:border-slate-800 px-3 py-1.5">
+          <p className="font-mono text-[9px] text-slate-500 dark:text-slate-400 leading-snug">
+            Reports marked PLANNED are not yet generated. This hub replaces five separate menu entries
+            that all resolved to this page — one door, honest build-state, no false promises.
+          </p>
         </div>
-      </div>
+      </section>
     </div>
   )
 }

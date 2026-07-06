@@ -1,3 +1,4 @@
+// Screen: API client (no screen)
 export type WorkflowStateValue =
   | 'DRAFT'
   | 'COMPUTED'

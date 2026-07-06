@@ -38,17 +38,25 @@ class EvaluateRequest(BaseModel):
     project_id: str = "default"
     evidence: list[dict] = []
     previous_state: Optional[str] = None
+    power_model: Optional[str] = None      # OFF_GRID_BTM | GRID_CONNECTED | HYBRID
+    project_phase: Optional[str] = None    # development | construction | commissioning | operating
+    financing_model: Optional[str] = None  # PROJECT_FINANCE | BALANCE_SHEET
 
 class PersonaEvaluateRequest(BaseModel):
     project_id: str = "default"
     evidence: list[dict] = []
     persona: str = "EXECUTIVE"
     previous_state: Optional[str] = None
+    power_model: Optional[str] = None
+    project_phase: Optional[str] = None
+    financing_model: Optional[str] = None
 
 class RegressionCheckRequest(BaseModel):
     project_id: str = "default"
     evidence: list[dict] = []
     previous_state: Optional[str] = None
+    power_model: Optional[str] = None
+    project_phase: Optional[str] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -62,6 +70,9 @@ async def evaluate_endpoint(request: EvaluateRequest):
         project_id=request.project_id,
         evidence=request.evidence,
         previous_state=request.previous_state,
+        power_model=request.power_model,
+        project_phase=request.project_phase,
+        financing_model=request.financing_model,
     )
 
 
@@ -73,6 +84,9 @@ async def evaluate_persona_endpoint(request: PersonaEvaluateRequest):
         evidence=request.evidence,
         persona=request.persona,
         previous_state=request.previous_state,
+        power_model=request.power_model,
+        project_phase=request.project_phase,
+        financing_model=request.financing_model,
     )
 
 
@@ -95,6 +109,8 @@ async def regression_check_endpoint(request: RegressionCheckRequest):
         project_id=request.project_id,
         evidence=request.evidence,
         previous_state=request.previous_state,
+        power_model=request.power_model,
+        project_phase=request.project_phase,
     )
     return {
         "project_id": request.project_id,

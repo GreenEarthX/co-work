@@ -1,4 +1,5 @@
-const API_BASE_URL = 'http://localhost:8000/api/v1'
+// Screen: Dashboard API client (no screen)
+const API_BASE_URL = '/api/v1'
 
 // Generic fetch wrapper
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {

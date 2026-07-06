@@ -10,7 +10,8 @@ import uuid
 import os
 from typing import Dict
 
-FINANCE_MODEL_API = "http://localhost:8001"
+FINANCE_MODEL_API = os.getenv("GEX_ENGINE_URL", "http://localhost:8001")
+from app.services.engine_auth import engine_auth_headers
 
 
 async def run_financial_model_for_match(match_id: str) -> Dict:
@@ -34,7 +35,8 @@ async def run_financial_model_for_match(match_id: str) -> Dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             f"{FINANCE_MODEL_API}/api/v1/model/stress-test",
-            json=request
+            json=request,
+            headers=engine_auth_headers(),
         )
         response.raise_for_status()
         result = response.json()
@@ -49,14 +51,16 @@ async def get_default_tranches():
     '''Fetch default funding stack from engine'''
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{FINANCE_MODEL_API}/api/v1/model/default-tranches"
+            f"{FINANCE_MODEL_API}/api/v1/model/default-tranches",
+            headers=engine_auth_headers(),
         )
         return response.json()
 
 
 def store_financial_model_result(match_id: str, result: Dict):
     '''Store result in database'''
-    DB_PATH = os.path.join(os.path.dirname(__file__), '../../gex_platform.db')
+from app.core.config import settings
+    DB_PATH = settings.SQLITE_DB_PATH
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -284,7 +288,7 @@ def run_financial_model_for_match(match_id: str) -> Dict:
 
 def store_financial_model_result(match_id: str, result: Dict):
     """Store financial model results in database"""
-    DB_PATH = os.path.join(os.path.dirname(__file__), '../../gex_platform.db')
+    DB_PATH = settings.SQLITE_DB_PATH
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()

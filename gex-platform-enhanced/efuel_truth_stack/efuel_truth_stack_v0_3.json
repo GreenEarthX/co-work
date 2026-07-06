@@ -1,0 +1,1321 @@
+{
+  "meta": {
+    "model": "efuel_greenfield_truth_stack",
+    "version": "0.3.0",
+    "supersedes": "0.2.0",
+    "architecture": "event-sourced / CQRS. The ledger is an append-only, bitemporal log of immutable rows. Claims, Nodes, CP states, account balances and 'releasable' are all PROJECTIONS folded from the ledger. Nothing carries mutable state except projections; a state change is a new appended row that supersedes a prior one.",
+    "principle": "A claim is 'true' only if (a) its current projected state is terminal_valid, (b) it is within valid-time, (c) the approving party accepted the exact evidence version, and (d) it reconciles across layers. Truth is bitemporal: we separate when a fact is true (valid-time) from when we recorded/believed it (transaction-time).",
+    "changes_from_v0_1": [
+      "EvidenceEntry -> CanonicalLedgerEntry (immutable, bitemporal, kind=fact|decision|derived).",
+      "'evidence' removed as an entry type; it is now a ROLE (evidence_link), not a type.",
+      "State removed from ledger rows; state lives only on projections (Claim, Node, CP).",
+      "Added Claim as the primary unit of truth; Node demoted to a rollup projection.",
+      "Added ApprovalRequirement + ApprovalDecision bound to evidence version/hash.",
+      "FundingCommitment subtyped into Debt/Grant/Equity with tranches and lifecycle amounts.",
+      "Reconciliation expanded; equality replaced by lag/retention/FX/VAT-aware operators; failures emit ReconciliationResult rows + events.",
+      "Added write_authority (who may append which entry type) and bitemporal fields."
+    ],
+    "spine": [
+      "molecule",
+      "engineering",
+      "certification",
+      "commercial",
+      "financial",
+      "cp_register",
+      "eligible_cost_matrix",
+      "drawdown",
+      "account_release",
+      "reporting_cure"
+    ],
+    "changes_from_v0_2": [
+      "Added actor 'migration_agent' (time-boxed, migration-version-scoped; write authority for backfill only; revoked post-cutover) per CanonicalProjectLedger_Migration_v0.3 §3.1/Decision 1.",
+      "Formalised biofuel-regime certification nodes (feedstock_sustainability, annex_ix, land_criteria, ghg_saving) from code-side BIOFUEL_NODES into the spec (§3.2). RFNBO nodes unchanged; regime fork (tea_engine/regimes.py) selects which set the certification gate requires.",
+      "No new entry types (§3.3): the 18 v0.2 entry types are confirmed sufficient for Phase-1 migration scope.",
+      "payload.to_state documented AND constrained (§3.4/§5.4): fact/derived entries may express non-terminal progression only; terminal-valid states (verified/satisfied/waived) require decision-kind entries from authorised actors. Enforced at append time.",
+      "Projector maps release_decision -> satisfied (§3.5): the legitimate path to SATISFIED, replacing the to_state backdoor.",
+      "Added evidence_links relation (§3.6): many-to-many hash-pinned claim<->entry links (one certificate may back N claims); fold_claims consumes and deduplicates them. Evidence remains a relationship, never a truth table.",
+      "Inferred fact-floor rule: a fact entry WITHOUT explicit to_state infers SUBMITTED as a FLOOR, never a demotion — later evidence appended to an already-verified claim (e.g. a validity-narrowing correction) leaves state intact. Explicit to_state keeps strict transition semantics. (Latent flaw exposed by the §3.4 lockdown: pre-v0.3 such corrections had to smuggle to_state=verified to avoid crashing the fold.)",
+      "Rule-challenge fixes (v0.3.1): certification_body_auditor admitted to approval_decision (authority inversion — certifier certifies GHG, not the IE); rejection write-gated (was open to any actor); demoting to_state restricted to decision-kind entries (fact-driven demotion was a griefing vector; temporal lapses model via valid_to narrowing)."
+    ]
+  },
+  "enums": {
+    "ledger_kind": {
+      "values": [
+        "fact",
+        "decision",
+        "derived"
+      ],
+      "doc": "fact = recorded from the outside world; decision = an authorised internal act (approval/waiver/release); derived = computed (reconciliation/projection snapshot)."
+    },
+    "entry_type": {
+      "fact": [
+        "measurement",
+        "contract",
+        "cost_invoice",
+        "cash_movement",
+        "certificate",
+        "permit",
+        "insurance_doc",
+        "offtake_proof"
+      ],
+      "decision": [
+        "approval_decision",
+        "waiver",
+        "rejection",
+        "release_decision",
+        "drawstop",
+        "clawback_notice"
+      ],
+      "derived": [
+        "reconciliation_result",
+        "validation_result",
+        "projection_snapshot",
+        "audit_event"
+      ],
+      "note": "There is no 'evidence' type. Any fact row MAY serve as evidence for a claim via evidence_link."
+    },
+    "claim_state": {
+      "values": [
+        "asserted",
+        "submitted",
+        "verified",
+        "satisfied",
+        "waived",
+        "expired",
+        "rejected",
+        "failed",
+        "superseded"
+      ],
+      "terminal_valid": [
+        "verified",
+        "satisfied",
+        "waived"
+      ],
+      "terminal_invalid": [
+        "expired",
+        "rejected",
+        "failed",
+        "superseded"
+      ],
+      "transitions": {
+        "asserted": [
+          "submitted",
+          "failed"
+        ],
+        "submitted": [
+          "verified",
+          "rejected"
+        ],
+        "verified": [
+          "satisfied",
+          "expired",
+          "superseded"
+        ],
+        "satisfied": [
+          "expired",
+          "failed",
+          "superseded"
+        ],
+        "waived": [
+          "expired",
+          "failed",
+          "superseded"
+        ],
+        "rejected": [
+          "submitted"
+        ],
+        "expired": [
+          "submitted"
+        ],
+        "failed": [
+          "submitted"
+        ]
+      }
+    },
+    "value_type": [
+      "numeric",
+      "boolean",
+      "categorical",
+      "doc_ref"
+    ],
+    "layer": [
+      "molecule",
+      "certification",
+      "engineering",
+      "commercial",
+      "financial",
+      "accounts",
+      "capital",
+      "public_controls"
+    ],
+    "cp_class": [
+      "initial",
+      "subsequent",
+      "ongoing"
+    ],
+    "funding_source_type": [
+      "equity",
+      "senior_debt",
+      "mezzanine",
+      "dfi_eca",
+      "grant"
+    ],
+    "commitment_subtype": [
+      "DebtCommitment",
+      "GrantCommitment",
+      "EquityCommitment"
+    ],
+    "account_type": [
+      "equity_proceeds",
+      "debt_proceeds",
+      "grant_designated",
+      "construction_disbursement",
+      "working_capital",
+      "revenue_collection",
+      "tax_reserve",
+      "operating",
+      "dsra",
+      "mmra",
+      "stack_replacement_reserve",
+      "ramp_up_reserve",
+      "insurance_proceeds",
+      "distribution_lockup"
+    ],
+    "event_type": [
+      "drawdown_request",
+      "drawstop",
+      "default",
+      "material_adverse_effect",
+      "certification_failure",
+      "retroactive_decertification",
+      "eligibility_breach",
+      "cost_overrun",
+      "delay",
+      "clawback",
+      "cure",
+      "waiver"
+    ],
+    "approval_outcome": [
+      "approve",
+      "approve_with_conditions",
+      "reject",
+      "abstain"
+    ],
+    "approval_threshold": [
+      "single",
+      "majority",
+      "super_majority",
+      "unanimous"
+    ],
+    "reconciliation_op": [
+      "exact",
+      "tolerance_pct",
+      "settlement_lag",
+      "accrual_aware",
+      "fx_normalised",
+      "net_of_retention",
+      "net_of_vat",
+      "threshold"
+    ]
+  },
+  "entities": {
+    "CanonicalLedgerEntry": {
+      "doc": "Append-only, immutable, bitemporal project-truth row. Every measurement, contract, cost, cash movement, certificate, approval, waiver, reconciliation result and release decision is one or more of these. NEVER mutated; corrections are new rows that supersede.",
+      "fields": {
+        "id": "string",
+        "project_id": "string",
+        "kind": "enum:ledger_kind",
+        "entry_type": "enum:entry_type",
+        "produced_by": "actor_id",
+        "verified_by": "actor_id|null",
+        "valid_from": "date            // valid-time: when the fact is true in the world",
+        "valid_to": "date|null         // valid-time end (null = open)",
+        "recorded_at": "datetime       // transaction-time: when WE recorded/believed it",
+        "regulatory_cliff": "date|null // basis may cease to be compliant after this date",
+        "payload": "object            // structured facts (volumes, g/MJ, costs, dates, amounts)",
+        "hash": "string               // content hash; tamper-evidence + approval binding",
+        "version": "int",
+        "supersedes": "ledger_entry_id|null",
+        "reconciliation_group_id": "string|null"
+      },
+      "invariants": [
+        "immutable after write",
+        "state is NOT stored here; it is projected onto Claim/Node",
+        "bitemporal query: as_of(transaction_time, valid_time) must be answerable"
+      ]
+    },
+    "evidence_link": {
+      "doc": "Evidence is a relationship, not a type. Binds a fact row (with its hash) as backing for a claim or an approval.",
+      "fields": {
+        "claim_id": "claim_id|null",
+        "approval_id": "approval_id|null",
+        "ledger_entry_id": "ledger_entry_id",
+        "evidence_hash": "string   // pins the exact version; re-issue invalidates dependents"
+      }
+    },
+    "Claim": {
+      "doc": "The primary unit of truth. A typed, period-scoped assertion about a subject, whose state is folded from the ledger.",
+      "fields": {
+        "id": "string",
+        "subject_node": "node_id",
+        "claim_type": "string                 // e.g. ppa_hourly_matched_mwh, ghg_intensity, epc_progress_value",
+        "value_type": "enum:value_type",
+        "value": "any                          // numeric+unit | bool | category | doc_ref",
+        "unit": "string|null",
+        "state": "enum:claim_state            // PROJECTION, folded from ledger rows",
+        "period": "string|null                // reporting period the claim is scoped to",
+        "valid_from": "date",
+        "valid_to": "date|null",
+        "evidence_refs": "array<evidence_link>",
+        "authority_rule": "string             // which source wins on conflict (e.g. 'registry > meter > contract')",
+        "superseded_by": "claim_id|null"
+      },
+      "example": {
+        "claim_type": "ppa_hourly_matched_mwh",
+        "value": 41200,
+        "unit": "MWh",
+        "period": "2030-03",
+        "state": "verified",
+        "authority_rule": "registry > meter_files > ppa_schedule"
+      }
+    },
+    "Node": {
+      "doc": "Demoted to a ROLLUP projection. A node is 'green' iff its required claim-set are all terminal_valid and time-valid.",
+      "fields": {
+        "id": "string",
+        "layer": "enum:layer",
+        "label": "string",
+        "depends_on": "array<node_id>",
+        "required_claims": "array<claim_type>",
+        "rolled_up_state": "derived          // worst-of required claim states"
+      }
+    },
+    "ApprovalRequirement": {
+      "doc": "Binds a release check to the party that must accept it. Without this, a check can be logically true yet not accepted by the correct party.",
+      "fields": {
+        "check_id": "string",
+        "required_actor": "actor_id",
+        "approval_threshold": "enum:approval_threshold",
+        "waivable": "bool                    // some CPs (permits, KYC, state aid) are legally NON-waivable",
+        "waiver_actor": "actor_id|null",
+        "waiver_scope": "one_off | standing | null",
+        "veto_right": "bool",
+        "drawstop_right": "bool              // distinct instrument from veto"
+      }
+    },
+    "ApprovalDecision": {
+      "doc": "An approval is itself a ledger row (kind=decision). Bound to the exact evidence version it accepted; superseding that evidence makes this stale.",
+      "fields": {
+        "id": "string",
+        "check_id": "string",
+        "actor": "actor_id",
+        "outcome": "enum:approval_outcome",
+        "conditions": "array<string>",
+        "approved_evidence_hashes": "array<string>",
+        "valid_until": "date|null",
+        "ledger_entry_id": "ledger_entry_id"
+      },
+      "staleness_rule": "decision is stale if any approved_evidence_hash no longer matches the current version of that fact row"
+    },
+    "FundingCommitment": {
+      "doc": "Base type. 'senior debt' is not a source - it is a commitment with limits, availability, fees, tranches, currency and rank. Subtype it.",
+      "subtypes": {
+        "DebtCommitment": [
+          "margin",
+          "step_ups",
+          "undrawn_fee",
+          "ticking_fee",
+          "security_rank",
+          "intercreditor_ref",
+          "final_maturity"
+        ],
+        "GrantCommitment": [
+          "reimbursement_basis (actual_cost|milestone)",
+          "clawback_conditions",
+          "state_aid_reference",
+          "disbursement_ratio"
+        ],
+        "EquityCommitment": [
+          "contingent_equity",
+          "completion_support",
+          "equity_first_flag"
+        ]
+      },
+      "base_fields": {
+        "id": "string",
+        "source_type": "enum:funding_source_type",
+        "currency": "string",
+        "committed_amount": "float",
+        "drawable_amount": "float",
+        "drawn_amount": "float",
+        "cancelled_amount": "float",
+        "repaid_amount": "float",
+        "availability_period": "{from, to}",
+        "tranches": "array<Tranche>",
+        "eligible_cost_categories": "array<cost_category_id>   // references eligible_cost_matrix taxonomy",
+        "conditions_precedent": "array<cp_id>                  // references cp_register, not embedded",
+        "draw_order_rule": "equity_first | pro_rata | pari_passu",
+        "pro_rata_group": "string|null",
+        "cancellation_events": "array<event_type>"
+      },
+      "Tranche": {
+        "fields": {
+          "tranche_id": "string",
+          "amount": "float",
+          "currency": "string",
+          "margin": "float|null",
+          "availability": "{from, to}",
+          "maturity": "date|null"
+        }
+      }
+    }
+  },
+  "molecule_chain": {
+    "doc": "Topology + quantitative spine. Quantities are now CLAIMS (typed, period-scoped), not loose fields.",
+    "nodes": [
+      {
+        "id": "power",
+        "layer": "molecule",
+        "required_claims": [
+          "ppa_signed",
+          "metering_verified",
+          "additionality_passed",
+          "hourly_matched_mwh",
+          "price_locked",
+          "curtailment_risk",
+          "eligible_mwh"
+        ]
+      },
+      {
+        "id": "grid_interconnection",
+        "layer": "molecule",
+        "required_claims": [
+          "interconnection_agreement_signed"
+        ]
+      },
+      {
+        "id": "water",
+        "layer": "molecule",
+        "required_claims": [
+          "water_permit",
+          "wastewater_permit"
+        ]
+      },
+      {
+        "id": "co2_source",
+        "layer": "molecule",
+        "required_claims": [
+          "co2_origin_evidenced",
+          "biogenicity"
+        ]
+      },
+      {
+        "id": "co2_supply_contract",
+        "layer": "molecule",
+        "required_claims": [
+          "co2_supply_signed",
+          "ets_treatment"
+        ]
+      },
+      {
+        "id": "electrolyser",
+        "layer": "molecule",
+        "required_claims": [
+          "h2_produced_t",
+          "stack_degradation_pct"
+        ]
+      },
+      {
+        "id": "h2_buffer",
+        "layer": "molecule",
+        "required_claims": [
+          "buffer_capacity"
+        ]
+      },
+      {
+        "id": "o2_byproduct",
+        "layer": "molecule",
+        "required_claims": [
+          "o2_offtake_or_vent"
+        ]
+      },
+      {
+        "id": "synthesis",
+        "layer": "molecule",
+        "required_claims": [
+          "product_t",
+          "conversion_yield"
+        ]
+      },
+      {
+        "id": "refining",
+        "layer": "molecule",
+        "required_claims": [
+          "upgrading_throughput"
+        ]
+      },
+      {
+        "id": "storage",
+        "layer": "molecule",
+        "required_claims": [
+          "storage_balance"
+        ]
+      },
+      {
+        "id": "product",
+        "layer": "molecule",
+        "depends_on": [
+          "storage",
+          "commissioning",
+          "first_cert_issuance"
+        ],
+        "required_claims": [
+          "certified_volume_t"
+        ]
+      },
+      {
+        "id": "offtaker",
+        "layer": "commercial",
+        "depends_on": [
+          "product"
+        ],
+        "required_claims": [
+          "delivery_accepted"
+        ]
+      }
+    ],
+    "mass_energy_balance_claims": [
+      "mwh_in",
+      "tco2_in",
+      "h2_t",
+      "product_t",
+      "yield",
+      "capacity_factor",
+      "nameplate_t_yr"
+    ]
+  },
+  "engineering": {
+    "fid_gate": {
+      "requires_claims": [
+        "fel_class",
+        "permits_core",
+        "epc_signed",
+        "offtake_min",
+        "model_base_case",
+        "funding_committed"
+      ]
+    },
+    "nodes": [
+      {
+        "id": "fel_class",
+        "layer": "engineering",
+        "required_claims": [
+          "aace_class"
+        ]
+      },
+      {
+        "id": "foak_trl",
+        "layer": "engineering",
+        "required_claims": [
+          "trl_level",
+          "reference_plants"
+        ]
+      },
+      {
+        "id": "permits_core",
+        "layer": "engineering",
+        "required_claims": [
+          "env_permit",
+          "construction_permit",
+          "operating_permit",
+          "seveso_h2_safety",
+          "grid_consent"
+        ]
+      },
+      {
+        "id": "epc_signed",
+        "layer": "engineering",
+        "required_claims": [
+          "epc_price",
+          "lds",
+          "warranties"
+        ]
+      },
+      {
+        "id": "interface_wrap",
+        "layer": "engineering",
+        "required_claims": [
+          "performance_wrap_owner"
+        ]
+      },
+      {
+        "id": "independent_engineer",
+        "layer": "engineering",
+        "required_claims": [
+          "ie_certificate"
+        ]
+      },
+      {
+        "id": "insurance",
+        "layer": "engineering",
+        "required_claims": [
+          "car_dsu_current"
+        ]
+      },
+      {
+        "id": "cost_to_complete",
+        "layer": "engineering",
+        "required_claims": [
+          "ctc_value",
+          "schedule_float"
+        ]
+      },
+      {
+        "id": "commissioning",
+        "layer": "engineering",
+        "required_claims": [
+          "performance_test_passed",
+          "first_production"
+        ]
+      },
+      {
+        "id": "om_operator",
+        "layer": "engineering",
+        "required_claims": [
+          "ltsa_signed"
+        ]
+      },
+      {
+        "id": "stack_replacement_plan",
+        "layer": "engineering",
+        "required_claims": [
+          "replacement_schedule"
+        ]
+      }
+    ]
+  },
+  "certification": {
+    "nodes": [
+      {
+        "id": "ghg_lca",
+        "layer": "certification",
+        "required_claims": [
+          "g_co2e_per_mj"
+        ],
+        "threshold_g_per_mj": 28.2,
+        "threshold_note": "RFNBO ~70% saving benchmark; confirm against current Delegated Act for fuel/vintage."
+      },
+      {
+        "id": "additionality",
+        "layer": "certification",
+        "required_claims": [
+          "additionality_passed",
+          "temporal_correlation",
+          "geo_correlation"
+        ],
+        "regulatory_cliff": "2030-01-01"
+      },
+      {
+        "id": "mass_balance",
+        "layer": "certification",
+        "required_claims": [
+          "chain_of_custody"
+        ]
+      },
+      {
+        "id": "scheme_audit",
+        "layer": "certification",
+        "required_claims": [
+          "scheme_audit_passed"
+        ],
+        "renewal_cycle_days": 365
+      },
+      {
+        "id": "goo_pos",
+        "layer": "certification",
+        "depends_on": [
+          "ghg_lca",
+          "additionality",
+          "mass_balance",
+          "scheme_audit"
+        ],
+        "required_claims": [
+          "rfnbo_issued"
+        ]
+      },
+      {
+        "id": "udb_record",
+        "layer": "certification",
+        "required_claims": [
+          "udb_logged"
+        ]
+      },
+      {
+        "id": "fuel_spec_cert",
+        "layer": "certification",
+        "required_claims": [
+          "astm_annex_qualified"
+        ]
+      },
+      {
+        "id": "first_cert_issuance",
+        "layer": "certification",
+        "depends_on": [
+          "commissioning",
+          "goo_pos"
+        ],
+        "required_claims": [
+          "first_certified_batch"
+        ]
+      },
+      {
+        "id": "mrv",
+        "layer": "certification",
+        "required_claims": [
+          "metered_data_audited"
+        ]
+      },
+      {
+        "id": "dnsh_taxonomy",
+        "layer": "certification",
+        "required_claims": [
+          "dnsh_passed"
+        ]
+      },
+      {
+        "id": "feedstock_sustainability",
+        "layer": "certification",
+        "required_claims": [
+          "feedstock_sustainability"
+        ],
+        "regime": "ADVANCED_BIOFUEL",
+        "note": "RED III Art.29-31 feedstock sustainability (voluntary scheme / ISCC PoS)."
+      },
+      {
+        "id": "annex_ix",
+        "layer": "certification",
+        "required_claims": [
+          "annex_ix_class"
+        ],
+        "regime": "ADVANCED_BIOFUEL",
+        "note": "RED III Annex IX Part A/B classification (Part B cap + double counting)."
+      },
+      {
+        "id": "land_criteria",
+        "layer": "certification",
+        "required_claims": [
+          "land_criteria"
+        ],
+        "regime": "ADVANCED_BIOFUEL",
+        "note": "No high-carbon-stock / high-biodiversity land-use change; ILUC for crops."
+      },
+      {
+        "id": "ghg_saving",
+        "layer": "certification",
+        "required_claims": [
+          "ghg_saving"
+        ],
+        "regime": "ADVANCED_BIOFUEL",
+        "note": "GHG saving vs fossil comparator; >=65% transport threshold (Annex V)."
+      }
+    ]
+  },
+  "commercial": {
+    "revenue_stack": [
+      "molecule_price",
+      "compliance_credit",
+      "support_contract_cfd",
+      "byproduct_revenue"
+    ],
+    "input_cost_risks": [
+      "power_cost",
+      "co2_cost"
+    ],
+    "nodes": [
+      {
+        "id": "offtake_matrix",
+        "layer": "commercial",
+        "depends_on": [
+          "offtaker",
+          "goo_pos"
+        ],
+        "required_claims": [
+          "volume",
+          "tenor",
+          "price_index",
+          "buyer_credit"
+        ]
+      },
+      {
+        "id": "merchant_tail",
+        "layer": "commercial",
+        "required_claims": [
+          "tail_cover"
+        ]
+      },
+      {
+        "id": "logistics_terms",
+        "layer": "commercial",
+        "required_claims": [
+          "transfer_readiness"
+        ]
+      }
+    ]
+  },
+  "financial_model": {
+    "metrics": [
+      "DSCR",
+      "LLCR",
+      "PLCR",
+      "breakeven",
+      "merchant_tail_cover"
+    ],
+    "killer_sensitivities": [
+      "power_price",
+      "capacity_factor",
+      "certified_premium"
+    ],
+    "facilities_and_reserves": [
+      "contingency",
+      "working_capital",
+      "grant_bridge",
+      "dsra",
+      "mmra",
+      "stack_replacement_reserve",
+      "ramp_up_reserve",
+      "hedging",
+      "tax_incentive"
+    ],
+    "nodes": [
+      {
+        "id": "financial_model",
+        "layer": "financial",
+        "required_claims": [
+          "model_base_case"
+        ]
+      },
+      {
+        "id": "no_default_cert",
+        "layer": "financial",
+        "required_claims": [
+          "no_default"
+        ]
+      }
+    ]
+  },
+  "public_controls": {
+    "doc": "Nodes referenced by cp_register (KYC/AML, State aid) that gate the initial draw. Added in review to make CP references resolve to defined nodes.",
+    "nodes": [
+      {
+        "id": "kyc_aml",
+        "layer": "public_controls",
+        "required_claims": [
+          "kyc_passed"
+        ]
+      },
+      {
+        "id": "state_aid_approval",
+        "layer": "public_controls",
+        "required_claims": [
+          "state_aid_cleared"
+        ]
+      }
+    ]
+  },
+  "cp_register": {
+    "classes": {
+      "initial": "pre-first-draw",
+      "subsequent": "timed post-close cure",
+      "ongoing": "re-tested every draw"
+    },
+    "items": [
+      {
+        "id": "cp_permits",
+        "class": "initial",
+        "node": "permits_core",
+        "waivable": false
+      },
+      {
+        "id": "cp_epc",
+        "class": "initial",
+        "node": "epc_signed",
+        "waivable": true
+      },
+      {
+        "id": "cp_offtake",
+        "class": "initial",
+        "node": "offtake_matrix",
+        "waivable": true
+      },
+      {
+        "id": "cp_model",
+        "class": "initial",
+        "node": "financial_model",
+        "waivable": true
+      },
+      {
+        "id": "cp_kyc",
+        "class": "initial",
+        "node": "kyc_aml",
+        "waivable": false
+      },
+      {
+        "id": "cp_state_aid",
+        "class": "initial",
+        "node": "state_aid_approval",
+        "waivable": false
+      },
+      {
+        "id": "cp_insurance_current",
+        "class": "ongoing",
+        "node": "insurance",
+        "waivable": true
+      },
+      {
+        "id": "cp_no_default",
+        "class": "ongoing",
+        "node": "no_default_cert",
+        "waivable": true
+      },
+      {
+        "id": "cp_cert_valid",
+        "class": "ongoing",
+        "node": "goo_pos",
+        "waivable": false
+      },
+      {
+        "id": "cp_ie_cert",
+        "class": "ongoing",
+        "node": "independent_engineer",
+        "waivable": true
+      },
+      {
+        "id": "cp_e_s_cure",
+        "class": "subsequent",
+        "node": "dnsh_taxonomy",
+        "cure_deadline": null,
+        "waivable": true
+      }
+    ]
+  },
+  "eligible_cost_matrix": {
+    "doc": "Cross-tab: cost line x funding source x eligibility. Sum of allocations per line == claimed amount.",
+    "schema": {
+      "cost_line_id": "string",
+      "cost_category_id": "string",
+      "total_amount": "float",
+      "currency": "string",
+      "retention_pct": "float",
+      "vat_treatment": "gross | net",
+      "allocations": [
+        {
+          "source": "enum:funding_source_type",
+          "amount": "float",
+          "eligible": "bool",
+          "eligibility_basis": "string"
+        }
+      ]
+    },
+    "constraint": "for each cost_line: sum(allocations.amount) == total_amount AND allocations with eligible=false are excluded from that source's claim"
+  },
+  "drawdown": {
+    "request_fields": [
+      "id",
+      "period",
+      "cost_lines",
+      "amount_by_source",
+      "evidence_refs"
+    ],
+    "funding_order_rule": {
+      "policy": "equity_first | pro_rata | pari_passu",
+      "ratios": {
+        "equity": null,
+        "senior_debt": null,
+        "dfi_eca": null,
+        "grant": null
+      }
+    },
+    "release_predicate": {
+      "doc": "Declarative AND-tree -> Python all([...]). Each check also resolves an ApprovalRequirement, so 'logically true' AND 'accepted by the correct party' are both required.",
+      "all_of": [
+        {
+          "check": "initial_cps_satisfied",
+          "expr": "every initial CP projection in terminal_valid",
+          "approver": "facility_agent"
+        },
+        {
+          "check": "ongoing_cps_satisfied",
+          "expr": "every ongoing CP terminal_valid AND time-valid",
+          "approver": "facility_agent"
+        },
+        {
+          "check": "approvals_fresh",
+          "expr": "no ApprovalDecision is stale (all approved_evidence_hashes still current)",
+          "approver": "system"
+        },
+        {
+          "check": "evidence_backed",
+          "expr": "each cost_line backed by >=1 verified, time-valid fact row of required type",
+          "approver": "independent_engineer"
+        },
+        {
+          "check": "eligible_cost_balanced",
+          "expr": "eligible_cost_matrix.constraint holds",
+          "approver": "dfi_eca | grant_authority"
+        },
+        {
+          "check": "funding_ratio_respected",
+          "expr": "amount_by_source matches funding_order_rule + commitment drawable_amount",
+          "approver": "facility_agent"
+        },
+        {
+          "check": "reconciles",
+          "expr": "all reconciliation_constraints pass (lag/retention/FX-aware)",
+          "approver": "system"
+        },
+        {
+          "check": "no_open_blocking_event",
+          "expr": "no open event in [drawstop, default, certification_failure, eligibility_breach, retroactive_decertification]",
+          "approver": "system"
+        },
+        {
+          "check": "account_release_authorised",
+          "expr": "release_decision row exists from account/security agent",
+          "approver": "account_bank | security_agent"
+        }
+      ]
+    }
+  },
+  "accounts_waterfall": {
+    "ordered_priorities": [
+      {
+        "rank": 1,
+        "account": "revenue_collection",
+        "action": "collect"
+      },
+      {
+        "rank": 2,
+        "account": "tax_reserve",
+        "action": "fund_tax"
+      },
+      {
+        "rank": 3,
+        "account": "operating",
+        "action": "pay_opex (power, CO2, O&M)"
+      },
+      {
+        "rank": 4,
+        "account": "dsra",
+        "action": "senior_debt_service + DSRA top-up"
+      },
+      {
+        "rank": 5,
+        "account": "mmra",
+        "action": "maintenance reserve"
+      },
+      {
+        "rank": 6,
+        "account": "stack_replacement_reserve",
+        "action": "fund stack replacement"
+      },
+      {
+        "rank": 7,
+        "account": "ramp_up_reserve",
+        "action": "fund shortfall reserve"
+      },
+      {
+        "rank": 8,
+        "account": "mezzanine",
+        "action": "junior debt service"
+      },
+      {
+        "rank": 9,
+        "account": "distribution_lockup",
+        "action": "test lock-up covenants; release distributions only if pass"
+      }
+    ],
+    "special_accounts": [
+      "insurance_proceeds (DSU/delay-LD)",
+      "construction_disbursement",
+      "working_capital",
+      "onshore_offshore_split"
+    ]
+  },
+  "event_taxonomy": {
+    "doc": "Typed events. A failed reconciliation or stale approval AUTO-RAISES the relevant event. Each event has its own money-flow and cure.",
+    "events": [
+      {
+        "type": "drawstop",
+        "trigger": "ongoing CP fails / stale approval / open blocking event",
+        "effect": "halt releases",
+        "cure": "remedy -> re-test release_predicate"
+      },
+      {
+        "type": "default",
+        "trigger": "covenant breach / payment fail",
+        "effect": "acceleration risk",
+        "cure": "cure period -> waiver or remedy"
+      },
+      {
+        "type": "certification_failure",
+        "trigger": "scheme audit fail / cert expired",
+        "effect": "product uncertified -> revenue invalid",
+        "cure": "re-audit -> reissue goo_pos"
+      },
+      {
+        "type": "retroactive_decertification",
+        "trigger": "additionality/correlation breach found AFTER sale (bitemporal: valid-time revised)",
+        "effect": "DUAL clawback (revenue + grant); de-certifies sold volume",
+        "cure": "reserve/insurance call + restated reporting"
+      },
+      {
+        "type": "eligibility_breach",
+        "trigger": "ineligible cost claimed",
+        "effect": "grant clawback risk",
+        "cure": "reclassify / repay"
+      },
+      {
+        "type": "cost_overrun",
+        "trigger": "ctc_value > available funds",
+        "effect": "draw contingency / contingent equity",
+        "cure": "fund overrun"
+      },
+      {
+        "type": "clawback",
+        "trigger": "state aid / grant condition breach",
+        "effect": "repay disbursed grant",
+        "cure": "remedy + repay"
+      }
+    ]
+  },
+  "reconciliation_constraints": {
+    "doc": "Cross-layer equalities make the stack true. Equality is the WRONG operator for cash - use lag/accrual/retention/FX/VAT-aware ops. Every evaluation writes a reconciliation_result row; a fail emits an event.",
+    "event_note": "Each constraint declares the event it raises on failure (baked from review; was an implementation-side map). ghg_pass now uses a dedicated 'threshold' op (its expr is <=, not ==).",
+    "constraints": [
+      {
+        "id": "volume_chain",
+        "op": "tolerance_pct",
+        "tol": 0.5,
+        "event": "certification_failure",
+        "expr": "mass_energy_balance.product_t == mrv.metered_product_t == sum(goo_pos.certified_t) == sum(invoice.volume_t)"
+      },
+      {
+        "id": "energy_to_cert",
+        "op": "tolerance_pct",
+        "tol": 1.0,
+        "event": "certification_failure",
+        "expr": "mwh_in == sum(ppa.hourly_matched_mwh used for additionality)"
+      },
+      {
+        "id": "cost_basis",
+        "op": "net_of_retention",
+        "event": "eligibility_breach",
+        "expr": "drawdown.amount_by_source == eligible_cost_matrix allocations(period) == epc_progress_cert.certified_value, net of retention"
+      },
+      {
+        "id": "cash_release",
+        "op": "settlement_lag",
+        "window_days": 5,
+        "event": "drawstop",
+        "expr": "drawdown.amount_by_source == account_bank.release == construction_account.debit == supplier_payment == invoice_settlement (CFO truth test, lag-tolerant)"
+      },
+      {
+        "id": "ghg_pass",
+        "op": "threshold",
+        "event": "certification_failure",
+        "expr": "ghg_lca.g_co2e_per_mj <= threshold"
+      },
+      {
+        "id": "certificate_to_invoice",
+        "op": "tolerance_pct",
+        "tol": 0.5,
+        "event": "certification_failure",
+        "expr": "sum(goo_pos.certified_t) == sum(invoice.certified_volume_t)"
+      },
+      {
+        "id": "revenue_to_cash",
+        "op": "accrual_aware",
+        "event": "default",
+        "expr": "invoice_settlement == revenue_collection_account.credit"
+      },
+      {
+        "id": "power_cost_to_opex",
+        "op": "accrual_aware",
+        "event": "default",
+        "expr": "ppa.power_cost == operating_account.power_debit"
+      },
+      {
+        "id": "debt_service_to_waterfall",
+        "op": "exact",
+        "event": "default",
+        "expr": "scheduled_debt_service == dsra.debit + revenue.debit at rank 4"
+      },
+      {
+        "id": "reserve_funding",
+        "op": "exact",
+        "event": "default",
+        "expr": "dsra.balance >= required_lookforward AND mmra/stack/ramp reserves >= targets"
+      },
+      {
+        "id": "fx_normalised",
+        "op": "fx_normalised",
+        "event": "drawstop",
+        "expr": "multi-currency draws vs payments reconcile at booking FX"
+      },
+      {
+        "id": "model_actuals",
+        "op": "tolerance_pct",
+        "tol": 1.0,
+        "event": "drawstop",
+        "expr": "financial_model.actuals == ledger.derived(period)"
+      }
+    ]
+  },
+  "write_authority": {
+    "doc": "Who may APPEND which entry_type. A truth ledger where anyone can write any row is not a truth ledger. v0.3: migration_agent is admitted to every gated entry_type for ledger backfill only; it is migration-run-scoped and revoked at cutover (Migration Spec Decision 1).",
+    "rules": [
+      {
+        "entry_type": "measurement",
+        "allowed_writers": [
+          "metering_mrv_actor",
+          "migration_agent"
+        ]
+      },
+      {
+        "entry_type": "certificate",
+        "allowed_writers": [
+          "certification_body_auditor",
+          "migration_agent"
+        ]
+      },
+      {
+        "entry_type": "cost_invoice",
+        "allowed_writers": [
+          "epc_contractor",
+          "migration_agent"
+        ]
+      },
+      {
+        "entry_type": "cash_movement",
+        "allowed_writers": [
+          "account_bank",
+          "migration_agent"
+        ]
+      },
+      {
+        "entry_type": "approval_decision",
+        "allowed_writers": [
+          "facility_agent",
+          "dfi_eca",
+          "grant_authority",
+          "independent_engineer",
+          "account_bank",
+          "security_agent",
+          "migration_agent",
+          "certification_body_auditor"
+        ]
+      },
+      {
+        "entry_type": "waiver",
+        "allowed_writers": [
+          "facility_agent",
+          "dfi_eca",
+          "grant_authority",
+          "migration_agent"
+        ]
+      },
+      {
+        "entry_type": "release_decision",
+        "allowed_writers": [
+          "account_bank",
+          "security_agent",
+          "migration_agent"
+        ]
+      },
+      {
+        "entry_type": "reconciliation_result",
+        "allowed_writers": [
+          "system",
+          "migration_agent"
+        ]
+      },
+      {
+        "entry_type": "rejection",
+        "allowed_writers": [
+          "independent_engineer",
+          "certification_body_auditor",
+          "senior_bank_agent",
+          "facility_agent",
+          "dfi_eca",
+          "grant_authority",
+          "model_auditor",
+          "migration_agent"
+        ]
+      }
+    ]
+  },
+  "actors": [
+    "projectco_cfo",
+    "epc_contractor",
+    "independent_engineer",
+    "technology_provider",
+    "certification_body_auditor",
+    "metering_mrv_actor",
+    "senior_bank_agent",
+    "facility_agent",
+    "security_agent",
+    "dfi_eca",
+    "grant_authority",
+    "account_bank",
+    "offtaker",
+    "model_auditor",
+    "insurer",
+    "lenders_market_adviser",
+    "system",
+    "migration_agent"
+  ],
+  "sequences_required": [
+    "draw_cycle",
+    "certification_issuance",
+    "revenue_collection",
+    "exception_cure",
+    "operations_reporting_cycle"
+  ],
+  "payload_conventions": {
+    "to_state": {
+      "doc": "Optional explicit claim-state target on a ledger entry's payload, consumed by the claim projector.",
+      "constraint": "On kind=fact and kind=derived entries, to_state may express NON-TERMINAL progression only (asserted, submitted). Terminal-valid states (verified, satisfied, waived) require decision-kind entries from authorised actors: verified via approval_decision(outcome=approve), waived via waiver, satisfied via release_decision. Violations are rejected at append time. v0.3.1: DEMOTING targets (expired/rejected/failed/superseded) are likewise restricted to decision-kind entries — facts express lapse via valid_to narrowing, not state demotion.",
+      "enforced_by": "ledger.append (ToStateViolation)",
+      "fact_floor": "A fact entry with NO to_state infers SUBMITTED as a floor only: if the claim is already at or beyond SUBMITTED on the happy path, the entry attaches evidence/validity without moving state."
+    },
+    "supersedes_claim": {
+      "doc": "On the successor claim's first entry; projector derives SUPERSEDED + superseded_by on the predecessor. Superseded state is never written directly."
+    },
+    "claim_id": {
+      "doc": "Groups entries into a claim projection (fold_claims). One-entry-one-claim; for many-to-many evidence use evidence_links."
+    }
+  },
+  "evidence_links": {
+    "doc": "Many-to-many hash-pinned relationship between claims and ledger entries. Authoritative for the LINK only; carries no state. evidence_hash_at_link freezes the entry's content hash at link time so tampering is detectable. fold_claims merges these with payload.claim_id-derived links, deduplicated.",
+    "fields": [
+      "link_id",
+      "claim_id",
+      "ledger_entry_id",
+      "link_type",
+      "linked_at",
+      "linked_by",
+      "evidence_hash_at_link",
+      "migration_run_id"
+    ],
+    "link_types": [
+      "supports",
+      "supersedes_basis",
+      "approval_basis"
+    ],
+    "unique": [
+      "claim_id",
+      "ledger_entry_id",
+      "link_type"
+    ]
+  }
+}

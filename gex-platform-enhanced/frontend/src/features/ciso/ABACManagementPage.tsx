@@ -1,8 +1,16 @@
-import React, { useState, useEffect } from 'react';
+// Screen: ABAC identity management screen (/ciso-identity)
+import { useState, useEffect } from 'react';
 import {
-  Users, Shield, ChevronRight, Save, X, CheckCircle,
+  ChevronRight, Save, X, CheckCircle,
   AlertTriangle, Lock, Info, Globe, Eye, EyeOff,
 } from 'lucide-react';
+import { useUserRole } from '@/contexts/UserRoleContext';
+
+/** Convert a company display name to the demo slug used as the API company key.
+ *  e.g. "HamburgOne.com" → "hamburgone_com",  "NordLB" → "nordlb" */
+function toDemoCompanyKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -19,12 +27,20 @@ interface GexUser {
   email: string;
   role: string;
   clearance_level: string;
-  actor_type_per_project: Record<string, string>;
+  actor_type_per_project: Record<string, string[]>;
   nda_signed_with: string[];
   certifications: string[];
   last_active: string;
   kyc_status: string;
   mfa_enabled: boolean;
+  // Prosumer / trade attributes
+  capabilities?: string[];
+  credit_rating?: string;
+  credit_rating_source?: string;
+  export_licenses?: string[];
+  token_ready?: boolean;
+  transformation_license?: boolean;
+  aggregation_limit_mt?: number | null;
 }
 
 const ACTOR_TYPES = [
@@ -34,6 +50,8 @@ const ACTOR_TYPES = [
 ];
 
 const CLEARANCE_LEVELS = ['STANDARD', 'CONFIDENTIAL', 'RESTRICTED'];
+
+const CAPABILITIES = ['OFFTAKE', 'PRODUCE', 'SELL', 'TRADE', 'CERTIFY', 'FINANCE', 'INSURE'];
 
 const CERT_OPTIONS = ['ISO_27001', 'SOC2_TYPE_II', 'GDPR_DPO', 'ISO_14064', 'RED_III'];
 
@@ -100,9 +118,13 @@ function EditDrawer({
   onSave: (updated: Partial<GexUser>) => Promise<void>;
 }) {
   const [clearance, setClearance]     = useState(user.clearance_level);
-  const [actorMap, setActorMap]       = useState<Record<string, string>>({ ...user.actor_type_per_project });
+  const [actorMap, setActorMap]       = useState<Record<string, string[]>>({ ...user.actor_type_per_project });
   const [ndas, setNdas]               = useState<string[]>([...user.nda_signed_with]);
   const [certs, setCerts]             = useState<string[]>([...user.certifications]);
+  const [caps, setCaps]               = useState<string[]>([...(user.capabilities ?? [])]);
+  const [creditRating, setCreditRating] = useState(user.credit_rating ?? 'NR');
+  const [exportLicenses, setExportLicenses] = useState<string[]>([...(user.export_licenses ?? [])]);
+  const [tokenReady, setTokenReady]   = useState(user.token_ready ?? false);
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
   const [showGates, setShowGates]     = useState<string | null>(null);
@@ -113,6 +135,9 @@ function EditDrawer({
   const toggleCert = (c: string) =>
     setCerts(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
 
+  const toggleCap = (c: string) =>
+    setCaps(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+
   const handleSave = async () => {
     setSaving(true);
     await onSave({
@@ -120,7 +145,11 @@ function EditDrawer({
       actor_type_per_project: actorMap,
       nda_signed_with: ndas,
       certifications: certs,
-    });
+      capabilities: caps,
+      credit_rating: creditRating,
+      export_licenses: exportLicenses,
+      token_ready: tokenReady,
+    } as Partial<GexUser>);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -173,53 +202,133 @@ function EditDrawer({
             </div>
           </section>
 
-          {/* ── Actor type per project ── */}
+          {/* ── Trade Capabilities (Prosumer) ── */}
           <section>
             <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)] mb-2">
-              Role per GEX Project
+              Trade Capabilities
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {CAPABILITIES.map(c => (
+                <button
+                  key={c}
+                  onClick={() => toggleCap(c)}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors
+                    ${caps.includes(c)
+                      ? 'border-emerald-400 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                      : 'border-[var(--border)] text-[var(--text-muted)] hover:border-emerald-300'}`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[10px] text-[var(--text-muted)]">
+              Prosumers hold multiple capabilities (e.g. OFFTAKE + PRODUCE + SELL). Enforced by ABAC R7.
+            </p>
+          </section>
+
+          {/* ── Credit & Geofence ── */}
+          <section>
+            <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)] mb-2">
+              Credit Rating & Export Compliance
+            </label>
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-[10px] text-[var(--text-muted)]">Credit Rating</label>
+                  <input
+                    type="text"
+                    value={creditRating}
+                    onChange={e => setCreditRating(e.target.value)}
+                    placeholder="e.g. A-, BBB+, GEX-4"
+                    className="gex-input mt-1 w-full text-xs"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-[var(--text-muted)]">Export Licenses (ISO codes)</label>
+                  <input
+                    type="text"
+                    value={exportLicenses.join(', ')}
+                    onChange={e => setExportLicenses(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                    placeholder="e.g. DE, NL, FR"
+                    className="gex-input mt-1 w-full text-xs"
+                  />
+                </div>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={tokenReady}
+                  onChange={e => setTokenReady(e.target.checked)}
+                  className="accent-indigo-600"
+                />
+                <span className="text-sm text-[var(--text-primary)]">Token-ready (can settle tokenized molecules)</span>
+              </label>
+            </div>
+          </section>
+
+          {/* ── Actor type per project (multi-select for prosumers) ── */}
+          <section>
+            <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)] mb-2">
+              Roles per GEX Project
             </label>
             <div className="space-y-2">
-              {projects.map(proj => (
-                <div key={proj.id} className="rounded-lg border border-[var(--border)] p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div>
-                      <div className="text-xs font-semibold text-[var(--text-primary)]">{proj.name}</div>
-                      <div className="text-[10px] text-[var(--text-muted)]">{proj.molecule} · {proj.location}</div>
+              {projects.map(proj => {
+                const roles = actorMap[proj.id] ?? [];
+                const toggleRole = (role: string) => {
+                  setActorMap(prev => {
+                    const current = prev[proj.id] ?? [];
+                    const next = current.includes(role)
+                      ? current.filter(r => r !== role)
+                      : [...current, role];
+                    return { ...prev, [proj.id]: next };
+                  });
+                };
+                // Union of gates across all assigned actor types
+                const visibleGates = roles.flatMap(r => ACTOR_GATES[r] ?? []);
+                const uniqueGates = [...new Set(visibleGates)].sort();
+
+                return (
+                  <div key={proj.id} className="rounded-lg border border-[var(--border)] p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-semibold text-[var(--text-primary)]">{proj.name}</div>
+                        <div className="text-[10px] text-[var(--text-muted)]">{proj.molecule} · {proj.location}</div>
+                      </div>
+                      {roles.length > 0 && (
+                        <button
+                          onClick={() => setShowGates(showGates === proj.id ? null : proj.id)}
+                          className="flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          <Info className="w-3 h-3" /> Gates ({uniqueGates.length})
+                        </button>
+                      )}
                     </div>
-                    {actorMap[proj.id] && (
-                      <button
-                        onClick={() => setShowGates(showGates === proj.id ? null : proj.id)}
-                        className="flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline"
-                      >
-                        <Info className="w-3 h-3" /> Gates
-                      </button>
-                    )}
-                  </div>
-                  <select
-                    value={actorMap[proj.id] ?? ''}
-                    onChange={e => setActorMap(prev => ({
-                      ...prev,
-                      [proj.id]: e.target.value || undefined as any,
-                    }))}
-                    className="gex-select w-full text-xs"
-                    aria-label={`Actor type for ${proj.name}`}
-                  >
-                    <option value="">— No access —</option>
-                    {ACTOR_TYPES.map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  {showGates === proj.id && actorMap[proj.id] && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {(ACTOR_GATES[actorMap[proj.id]] ?? []).map(g => (
-                        <span key={g} className="rounded bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-700 dark:text-indigo-300">
-                          {g}
-                        </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ACTOR_TYPES.map(t => (
+                        <button
+                          key={t}
+                          onClick={() => toggleRole(t)}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors
+                            ${roles.includes(t)
+                              ? 'border-indigo-400 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+                              : 'border-[var(--border)] text-[var(--text-muted)] hover:border-indigo-300'}`}
+                        >
+                          {t}
+                        </button>
                       ))}
                     </div>
-                  )}
-                </div>
-              ))}
+                    {showGates === proj.id && uniqueGates.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {uniqueGates.map(g => (
+                          <span key={g} className="rounded bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-700 dark:text-indigo-300">
+                            {g}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -292,13 +401,16 @@ function EditDrawer({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ABACManagementPage() {
+  const { role } = useUserRole();
+  const companyKey = toDemoCompanyKey(role.company_name);
+
   const [users, setUsers]         = useState<GexUser[]>([]);
   const [projects, setProjects]   = useState<GexProject[]>([]);
   const [loading, setLoading]     = useState(true);
   const [selected, setSelected]   = useState<GexUser | null>(null);
 
   useEffect(() => {
-    fetch('/api/v1/ciso/users', { headers: { 'x-demo-company': 'bp_global_energy' } })
+    fetch('/api/v1/ciso/users', { headers: { 'x-demo-company': companyKey } })
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d?.users)    setUsers(d.users);
@@ -306,7 +418,7 @@ export function ABACManagementPage() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [companyKey]);
 
   const handleSave = async (updated: Partial<GexUser>) => {
     if (!selected) return;
@@ -315,13 +427,17 @@ export function ABACManagementPage() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-demo-company': 'bp_global_energy',
+          'x-demo-company': companyKey,
         },
         body: JSON.stringify({
           clearance_level:         updated.clearance_level,
           actor_type_per_project:  updated.actor_type_per_project,
           nda_signed_with:         updated.nda_signed_with,
           certifications:          updated.certifications,
+          capabilities:            updated.capabilities,
+          credit_rating:           updated.credit_rating,
+          export_licenses:         updated.export_licenses,
+          token_ready:             updated.token_ready,
         }),
       });
       if (res.ok) {
@@ -345,11 +461,11 @@ export function ABACManagementPage() {
         <div>
           <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">Identity & Access</h1>
           <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
-            Manage ABAC attributes for BP Global Energy users in GEX
+            Manage ABAC attributes for {role.company_name} users in GEX
           </p>
         </div>
         <span className="rounded-full bg-indigo-100 dark:bg-indigo-900/20 px-3 py-1 text-xs font-bold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
-          ABAC Phase 2 Active
+          ABAC Phase 3 Active — Trade Policy
         </span>
       </div>
 
@@ -357,8 +473,10 @@ export function ABACManagementPage() {
       <div className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-900/20 px-4 py-3">
         <Info className="mt-0.5 w-4 h-4 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
         <p className="text-sm text-indigo-800 dark:text-indigo-200">
-          Each user's <strong>actor type per project</strong> determines which bankability gates and documents
-          they can read, write or export. Changes take effect immediately and are logged to the immutable audit trail.
+          Each user's <strong>roles per project</strong> and <strong>trade capabilities</strong> determine which gates, documents,
+          and trade actions they can access. Prosumers (entities that both buy and produce) hold multiple roles.
+          Credit rating, export licenses, and token readiness are enforced by ABAC rules R7-R9.
+          Changes take effect immediately and are logged to the immutable audit trail.
         </p>
       </div>
 
@@ -366,7 +484,7 @@ export function ABACManagementPage() {
       <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
         <div className="border-b border-[var(--border)] px-5 py-3.5">
           <h2 className="text-sm font-bold text-[var(--text-primary)]">
-            Organisation Users ({users.length})
+            {role.company_name} — Users ({users.length})
           </h2>
         </div>
 
@@ -377,7 +495,7 @@ export function ABACManagementPage() {
             <table className="gex-table">
               <thead>
                 <tr>
-                  {['User', 'Role', 'Clearance', 'KYC', 'MFA', 'Projects', 'Last Active', ''].map(h => (
+                  {['User', 'Role', 'Capabilities', 'Credit', 'Clearance', 'KYC', 'MFA', 'Projects', ''].map(h => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -385,6 +503,8 @@ export function ABACManagementPage() {
               <tbody>
                 {users.map(u => {
                   const projectCount = Object.keys(u.actor_type_per_project).length;
+                  const caps = u.capabilities ?? [];
+                  const isProsumer = caps.includes('OFFTAKE') && caps.includes('PRODUCE');
                   return (
                     <tr key={u.user_id}>
                       <td>
@@ -392,6 +512,24 @@ export function ABACManagementPage() {
                         <div className="text-xs text-[var(--text-muted)]">{u.email}</div>
                       </td>
                       <td className="text-sm text-[var(--text-secondary)]">{u.role}</td>
+                      <td>
+                        <div className="flex flex-wrap gap-0.5">
+                          {caps.length > 0 ? caps.map(c => (
+                            <span key={c} className={`rounded px-1 py-0.5 text-[10px] font-bold
+                              ${isProsumer
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+                            >{c}</span>
+                          )) : <span className="text-[10px] text-[var(--text-muted)]">—</span>}
+                        </div>
+                      </td>
+                      <td>
+                        {u.credit_rating && u.credit_rating !== 'NR'
+                          ? <span className="rounded bg-amber-100 dark:bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                              {u.credit_rating}
+                            </span>
+                          : <span className="text-[10px] text-[var(--text-muted)]">NR</span>}
+                      </td>
                       <td><ClearanceBadge level={u.clearance_level} /></td>
                       <td><KycBadge status={u.kyc_status} /></td>
                       <td>
@@ -403,9 +541,6 @@ export function ABACManagementPage() {
                         {projectCount > 0
                           ? <span className="gex-badge gex-badge-default">{projectCount} project{projectCount > 1 ? 's' : ''}</span>
                           : <span className="text-xs text-[var(--text-muted)]">No access</span>}
-                      </td>
-                      <td className="text-xs text-[var(--text-muted)] whitespace-nowrap">
-                        {new Date(u.last_active).toLocaleDateString('en-GB')}
                       </td>
                       <td>
                         <button

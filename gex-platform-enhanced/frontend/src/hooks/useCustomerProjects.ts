@@ -1,3 +1,4 @@
+// Screen: Hook (no screen)
 /**
  * Hook that returns the canonical 5 customer projects.
  * Tries the API first; falls back to the static CUSTOMER_PROJECTS registry.

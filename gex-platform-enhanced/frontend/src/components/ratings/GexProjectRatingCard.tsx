@@ -1,4 +1,4 @@
-import React from "react";
+// Screen: Shared component — Project rating view screen
 import type { ProjectRatingResponse, RatingLetter } from "@/types/projectRating";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,10 +39,14 @@ function ratingAccent(r: RatingLetter): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-interface Props { data: ProjectRatingResponse }
+interface Props {
+  data: ProjectRatingResponse
+  constraintActions?: Array<{ text: string; route: string }>
+  onNavigate?: (route: string) => void
+}
 
-export default function GexProjectRatingCard({ data }: Props) {
-  const axisPosition = positionPct(data.final_score, data.displayed_scale);
+export default function GexProjectRatingCard({ data, constraintActions, onNavigate }: Props) {
+  const axisPosition = 100 - positionPct(data.final_score, data.displayed_scale);
   const accentDot    = ratingAccent(data.rating);
   const accentText   = ratingColor(data.rating);
 
@@ -93,7 +97,7 @@ export default function GexProjectRatingCard({ data }: Props) {
                 <div className="absolute left-0 right-0 top-[18px] h-[2px] bg-slate-200 dark:bg-slate-600" />
                 {/* Nodes */}
                 {data.displayed_scale.map((label, idx) => {
-                  const left   = (idx / Math.max(data.displayed_scale.length - 1, 1)) * 100;
+                  const left   = ((data.displayed_scale.length - 1 - idx) / Math.max(data.displayed_scale.length - 1, 1)) * 100;
                   const active = label === data.rating;
                   return (
                     <div
@@ -119,24 +123,40 @@ export default function GexProjectRatingCard({ data }: Props) {
 
           {/* Strengths + Constraints */}
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {[
-              { label: "Main strengths",   items: data.key_strengths,   dot: "bg-emerald-500" },
-              { label: "Main constraints", items: data.key_constraints, dot: "bg-amber-500" },
-            ].map(({ label, items, dot }) => (
-              <div key={label} className="rounded-xl border border-[var(--border)] p-4 dark:border-slate-700">
-                <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                  {label}
-                </div>
-                <ul className="space-y-2">
-                  {items.map((item) => (
-                    <li key={item} className="flex gap-2.5 text-sm text-[var(--text-secondary)]">
-                      <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+            <div className="rounded-xl border border-[var(--border)] p-4 dark:border-slate-700">
+              <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                Strengths
               </div>
-            ))}
+              <ul className="space-y-2">
+                {data.key_strengths.map((item) => (
+                  <li key={item} className="flex gap-2.5 text-sm text-[var(--text-secondary)]">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-4 dark:border-slate-700">
+              <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                Constraints
+              </div>
+              <ul className="space-y-2">
+                {(constraintActions ?? data.key_constraints.map(t => ({ text: t, route: '' }))).map((c, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-sm text-[var(--text-secondary)]">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                    <span className="flex-1">{c.text}</span>
+                    {c.route && onNavigate && (
+                      <button
+                        onClick={() => onNavigate(c.route)}
+                        className="shrink-0 text-[11px] font-semibold text-teal-600 hover:text-teal-800 mt-0.5"
+                      >
+                        Fix &rarr;
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
 
           {/* Rating mechanics */}

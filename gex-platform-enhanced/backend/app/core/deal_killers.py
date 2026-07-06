@@ -168,6 +168,50 @@ DEAL_KILLERS: list[DealKiller] = [
         affects_states=["TECHNICALLY_PLAUSIBLE", "COMMERCIALLY_PLAUSIBLE"],
         waiver_requires="PPA with direct-wire arrangement confirmed by IE as technically equivalent.",
     ),
+    # ── Verification-report-driven killers (added 2026-05-27) ────────────────
+    DealKiller(
+        id="DK_STATUS_PHASE_MISMATCH",
+        gate="G0",
+        condition="status == 'construction' AND phase LIKE 'FEED%'",
+        plain_language=(
+            "Project status says 'Construction' but phase says 'FEED' — "
+            "these contradict each other. Lenders cannot price risk if basic project phase is wrong."
+        ),
+        severity=KillerSeverity.FATAL,
+        resolution_action="Correct Status to match Phase. If in FEED, status must be 'development' or 'pre-construction'. If truly in construction, update Phase accordingly.",
+        resolution_page="/projects",
+        affects_states=["STRUCTURALLY_BANKABLE", "CREDIT_APPROVED", "FINANCEABLE"],
+        waiver_requires="N/A — non-waivable. Status/Phase must be internally consistent.",
+    ),
+    DealKiller(
+        id="DK_G4_NO_THIRD_PARTY_OFFTAKE",
+        gate="G4",
+        condition="third_party_binding_offtake_pct < 30",
+        plain_language=(
+            "No binding third-party offtake agreement covers at least 30% of production — "
+            "related-party (self-purchase) offtake is discounted or excluded by lenders. "
+            "A bankable project requires independent counterparty commitment."
+        ),
+        severity=KillerSeverity.FATAL,
+        resolution_action="Execute a binding offtake with a non-affiliated, creditworthy counterparty covering ≥30% of nameplate. Related-party offtakes do not count.",
+        resolution_page="/finance/offtake-quality",
+        affects_states=["STRUCTURALLY_BANKABLE", "CREDIT_APPROVED", "FINANCEABLE"],
+        waiver_requires="Senior lender written confirmation that related-party offtake with credit support is acceptable.",
+    ),
+    DealKiller(
+        id="DK_G8_CURVE_INPUTS_INCONSISTENT",
+        gate="G8",
+        condition="pricing_fit.r2_vs_fundamental < 0 OR params_on_bound != []",
+        plain_language=(
+            "The price-curve inputs are internally inconsistent — "
+            "the LCOF fit is worse than a flat anchor or a calibrated parameter is pinned to a bound."
+        ),
+        severity=KillerSeverity.CRITICAL,
+        resolution_action="Review spot, LCOF short-end, parameter bounds, and assumed curve inputs before committee use.",
+        resolution_page="/finance/pricing-workbench",
+        affects_states=["CREDIT_APPROVED", "FINANCEABLE"],
+        waiver_requires="Investment committee acknowledgement of model-risk exception.",
+    ),
 ]
 
 # Index for O(1) lookup
@@ -201,15 +245,30 @@ class DealKillerEngine:
         """
         results: list[DealKiller] = []
 
+        # Detect status/phase contradiction
+        status_val = project_data.get("status", "").lower()
+        phase_val = project_data.get("phase", "").upper()
+        status_phase_mismatch = (
+            status_val == "construction" and phase_val.startswith("FEED")
+        )
+        pricing_fit = project_data.get("pricing_fit", {}) or {}
+        curve_inputs_inconsistent = bool(project_data.get("curve_inputs_inconsistent")) or (
+            pricing_fit.get("r2_vs_fundamental", 0) < 0
+            or bool(pricing_fit.get("params_on_bound"))
+        )
+
         checks: list[tuple[str, bool]] = [
-            ("DK_G4_NO_OFFTAKE",     project_data.get("offtake_binding_pct", 0) < 50),
-            ("DK_G5_NO_EPC",         not project_data.get("epc_contract_executed", False)),
-            ("DK_G6_NO_IE",          not project_data.get("ie_appointed", False)),
-            ("DK_G8_NO_AUDIT_MODEL", project_data.get("financial_model_status", "") != "AUDIT_GRADE"),
-            ("DK_G7_NO_INSURANCE",   not project_data.get("insurance_fully_placed", False)),
-            ("DK_G2_CERT_FAIL",      not project_data.get("rfnbo_pathway_viable", False)),
-            ("DK_DSCR_BELOW_FLOOR",  project_data.get("dscr_p90", 0) < 1.10),
-            ("DK_G1_NO_GRID",        not project_data.get("grid_connection_firm", False)),
+            ("DK_G4_NO_OFFTAKE",               project_data.get("offtake_binding_pct", 0) < 50),
+            ("DK_G5_NO_EPC",                   not project_data.get("epc_contract_executed", False)),
+            ("DK_G6_NO_IE",                    not project_data.get("ie_appointed", False)),
+            ("DK_G8_NO_AUDIT_MODEL",           project_data.get("financial_model_status", "") != "AUDIT_GRADE"),
+            ("DK_G7_NO_INSURANCE",             not project_data.get("insurance_fully_placed", False)),
+            ("DK_G2_CERT_FAIL",                not project_data.get("rfnbo_pathway_viable", False)),
+            ("DK_DSCR_BELOW_FLOOR",            project_data.get("dscr_p90", 0) < 1.10),
+            ("DK_G1_NO_GRID",                  not project_data.get("grid_connection_firm", False)),
+            ("DK_STATUS_PHASE_MISMATCH",       status_phase_mismatch),
+            ("DK_G4_NO_THIRD_PARTY_OFFTAKE",   project_data.get("third_party_binding_offtake_pct", 0) < 30),
+            ("DK_G8_CURVE_INPUTS_INCONSISTENT", curve_inputs_inconsistent),
         ]
 
         for killer_id, is_active in checks:

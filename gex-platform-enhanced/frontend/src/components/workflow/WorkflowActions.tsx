@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance workflow screens
 /**
  * WorkflowActions — context-aware action buttons based on workflow state.
  * Surfaces the correct controls to each role at each state transition.

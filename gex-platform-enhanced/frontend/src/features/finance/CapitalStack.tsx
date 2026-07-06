@@ -1,23 +1,28 @@
+// Screen: Capital stack screen (/capital-stack, /finance/capital-stack)
 /**
  * CapitalStack — multi-tranche capital stack evaluation.
  * Shows per-tranche breakdown, blended WACC, phase-matching chart,
  * WACC sensitivity table, and gap analysis for the selected project.
  */
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Layers, TrendingUp, AlertTriangle, ChevronDown, ChevronUp, Leaf, Shield, BarChart3 } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HELP } from '@/config/helpText'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
 import { CommitmentStatusBadge } from '@/components/finance/CommitmentStatusBadge'
+import { packagesAPI } from '@/api'
+import { UnlockChainPanel } from './UnlockChainPanel'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════
 
-type TrancheType = 'GRANT' | 'DFI' | 'ECA/DFI' | 'SENIOR' | 'EQUITY' | 'MEZZ'
+type TrancheType = 'GRANT' | 'DFI' | 'ECA/DFI' | 'SENIOR' | 'EQUITY' | 'MEZZ' | 'CONCESSIONAL' | 'CONCESSIONAL_FL'
 type TrancheStatus = 'COMMITTED' | 'MANDATE' | 'PIPELINE' | 'SECURED'
 type Phase = 'ADVISORY' | 'FINANCIAL_CLOSE' | 'CONSTRUCTION'
 
@@ -29,11 +34,22 @@ interface Tranche {
   tenor: number | null  // years, null for equity/grants
   phase: Phase
   status: TrancheStatus
+  gracePeriod?: number  // years — DFI grace period (interest-only)
+  dfiProvider?: string  // IFC, EIB, KfW, etc.
+  isConcessional?: boolean
+}
+
+interface ConcessionalMetrics {
+  concessionalShare: number   // 0-1
+  catalyticRatio: number | null
+  blendedDebtCost: number
+  maxGracePeriod: number
 }
 
 interface ProjectCapitalData {
   blendedWacc: number
   tranches: Tranche[]
+  concessional?: ConcessionalMetrics
 }
 
 // ── Change 4: CAPEX Layer decomposition ──────────────────────────
@@ -154,35 +170,38 @@ const CAPITAL_DATA: Record<string, ProjectCapitalData> = {
   proj_le_havre_eng: {
     blendedWacc: 7.2,
     tranches: [
-      { type: 'GRANT',   source: 'H2Global + EU IH2',        amount: 18,  cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'DFI',     source: 'BPI France',                amount: 95,  cost: 3.2,  tenor: 20,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE'   },
-      { type: 'ECA/DFI', source: 'EIB Project Finance',       amount: 115, cost: 3.8,  tenor: 18,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE'   },
-      { type: 'SENIOR',  source: 'Credit Agricole CIB lead',  amount: 0,   cost: 0,    tenor: 0,    phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'EQUITY',  source: 'Project sponsors',          amount: 82,  cost: 12.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'MEZZ',    source: 'GreenFin Mezz Fund',        amount: 18,  cost: 8.5,  tenor: 12,   phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
+      { type: 'GRANT',        source: 'H2Global + EU IH2',        amount: 18,  cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
+      { type: 'CONCESSIONAL', source: 'BPI France',                amount: 95,  cost: 3.2,  tenor: 20,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 3, dfiProvider: 'BPI', isConcessional: true },
+      { type: 'ECA/DFI',      source: 'EIB Project Finance',       amount: 115, cost: 3.8,  tenor: 18,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 2, dfiProvider: 'EIB', isConcessional: true },
+      { type: 'SENIOR',       source: 'Credit Agricole CIB lead',  amount: 0,   cost: 0,    tenor: 0,    phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
+      { type: 'EQUITY',       source: 'Project sponsors',          amount: 82,  cost: 12.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
+      { type: 'MEZZ',         source: 'GreenFin Mezz Fund',        amount: 18,  cost: 8.5,  tenor: 12,   phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
     ],
+    concessional: { concessionalShare: 0.64, catalyticRatio: 0.86, blendedDebtCost: 3.53, maxGracePeriod: 3 },
   },
   // Alias for canonical ID in customerProjects
   proj_lehavre_eng: {
     blendedWacc: 7.2,
     tranches: [
-      { type: 'GRANT',   source: 'H2Global + EU IH2',        amount: 18,  cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'DFI',     source: 'BPI France',                amount: 95,  cost: 3.2,  tenor: 20,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE'   },
-      { type: 'ECA/DFI', source: 'EIB Project Finance',       amount: 115, cost: 3.8,  tenor: 18,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE'   },
-      { type: 'SENIOR',  source: 'Credit Agricole CIB lead',  amount: 0,   cost: 0,    tenor: 0,    phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'EQUITY',  source: 'Project sponsors',          amount: 82,  cost: 12.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'MEZZ',    source: 'GreenFin Mezz Fund',        amount: 18,  cost: 8.5,  tenor: 12,   phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
+      { type: 'GRANT',        source: 'H2Global + EU IH2',        amount: 18,  cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
+      { type: 'CONCESSIONAL', source: 'BPI France',                amount: 95,  cost: 3.2,  tenor: 20,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 3, dfiProvider: 'BPI', isConcessional: true },
+      { type: 'ECA/DFI',      source: 'EIB Project Finance',       amount: 115, cost: 3.8,  tenor: 18,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 2, dfiProvider: 'EIB', isConcessional: true },
+      { type: 'SENIOR',       source: 'Credit Agricole CIB lead',  amount: 0,   cost: 0,    tenor: 0,    phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
+      { type: 'EQUITY',       source: 'Project sponsors',          amount: 82,  cost: 12.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
+      { type: 'MEZZ',         source: 'GreenFin Mezz Fund',        amount: 18,  cost: 8.5,  tenor: 12,   phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
     ],
+    concessional: { concessionalShare: 0.64, catalyticRatio: 0.86, blendedDebtCost: 3.53, maxGracePeriod: 3 },
   },
   proj_bremen_h2: {
     blendedWacc: 8.9,
     tranches: [
-      { type: 'GRANT',  source: 'IPCEI H2 + BMWK',      amount: 22, cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'DFI',    source: 'EIB (indicative)',       amount: 80, cost: 4.1,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'EQUITY', source: 'Project sponsors',       amount: 58, cost: 14.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'MEZZ',   source: 'KfW Climate Action',    amount: 17, cost: 7.2,  tenor: 10,   phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
-      { type: 'SENIOR', source: 'DZ Bank syndicate',      amount: 65, cost: 5.2,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
+      { type: 'GRANT',        source: 'IPCEI H2 + BMWK',      amount: 22, cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
+      { type: 'CONCESSIONAL', source: 'EIB (indicative)',       amount: 80, cost: 4.1,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE', gracePeriod: 3, dfiProvider: 'EIB', isConcessional: true },
+      { type: 'EQUITY',       source: 'Project sponsors',       amount: 58, cost: 14.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
+      { type: 'CONCESSIONAL', source: 'KfW Climate Action',    amount: 17, cost: 7.2,  tenor: 10,   phase: 'CONSTRUCTION',    status: 'PIPELINE', gracePeriod: 2, dfiProvider: 'KfW', isConcessional: true },
+      { type: 'SENIOR',       source: 'DZ Bank syndicate',      amount: 65, cost: 5.2,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
     ],
+    concessional: { concessionalShare: 0.53, catalyticRatio: 0.67, blendedDebtCost: 4.83, maxGracePeriod: 3 },
   },
   proj_helios_emethanol: {
     blendedWacc: 10.2,
@@ -266,12 +285,14 @@ const STATUS_STYLES: Record<TrancheStatus, { bg: string; text: string; border: s
 }
 
 const TYPE_STYLES: Record<TrancheType, string> = {
-  GRANT:     'bg-emerald-50 text-emerald-700',
-  DFI:       'bg-sky-50 text-sky-700',
-  'ECA/DFI': 'bg-cyan-50 text-cyan-700',
-  SENIOR:    'bg-indigo-50 text-indigo-700',
-  EQUITY:    'bg-violet-50 text-violet-700',
-  MEZZ:      'bg-orange-50 text-orange-700',
+  GRANT:            'bg-emerald-50 text-emerald-700',
+  DFI:              'bg-sky-50 text-sky-700',
+  'ECA/DFI':        'bg-cyan-50 text-cyan-700',
+  SENIOR:           'bg-indigo-50 text-indigo-700',
+  EQUITY:           'bg-violet-50 text-violet-700',
+  MEZZ:             'bg-orange-50 text-orange-700',
+  CONCESSIONAL:     'bg-teal-50 text-teal-700',
+  CONCESSIONAL_FL:  'bg-rose-50 text-rose-700',
 }
 
 const PHASE_LABELS: Record<Phase, string> = {
@@ -882,15 +903,77 @@ function GreenBondComparison({ tranches, baseWacc }: { tranches: Tranche[]; base
 }
 
 // ═══════════════════════════════════════════════════════════════
+// UNMODELLED PROJECT — honest live view instead of borrowed numbers
+// ═══════════════════════════════════════════════════════════════
+
+interface ChainPkg { package_id: string; package_name: string; gex_gate?: string | null; workflow_state: string }
+
+function CapitalStackUnmodelled({ projectId, projectName, location }: { projectId: string; projectName?: string; location?: string }) {
+  const valid = !!projectId && projectId !== 'all'
+  const { data: packages = [] } = useQuery<ChainPkg[]>({
+    queryKey: ['packages', projectId],
+    queryFn: () => packagesAPI.listForProject(projectId),
+    enabled: valid,
+  })
+
+  return (
+    <div className="space-y-4 max-w-7xl mx-auto pb-8">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-sm overflow-hidden">
+        <div className="flex items-start justify-between px-6 py-4 bg-gradient-to-r from-gray-900 to-gray-800">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Layers className="w-4 h-4 text-gray-400" />
+              <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Capital Stack</span>
+            </div>
+            <h1 className="text-2xl font-black text-white">{projectName ?? 'Project'}</h1>
+            <p className="text-sm text-gray-400 mt-0.5">{location ?? '—'}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          No hand-modelled capital stack (tranches, term sheets, blended WACC) exists for this project yet.
+          Rather than borrow another deal's numbers, this shows the <strong>live</strong> capital structure derived
+          from this project's own packages and bankability gates. Build the worked stack once instruments are
+          mandated.
+        </span>
+      </div>
+
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+        <h2 className="mb-2 text-sm font-bold text-[var(--text-primary)]">Capital released in tranches, gated by gates</h2>
+        <UnlockChainPanel projectId={projectId} packages={packages} />
+      </div>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--text-secondary)]">
+        Debt structure and the cashflow waterfall (CFADS · DSRA · LLCR) become relevant once senior debt is
+        committed (post-FID). See{' '}
+        <Link to="/finance/debt-waterfall" className="font-semibold text-[var(--brand)] hover:underline">
+          Debt Cashflow &amp; Waterfall
+        </Link>.
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════
 
 export function CapitalStack() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId)
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
 
-  const data: ProjectCapitalData =
-    CAPITAL_DATA[selectedProjectId] ?? CAPITAL_DATA['proj_lehavre_eng']
+  // No hand-modelled capital stack for this project (e.g. a project created via
+  // the on-ramp). Do NOT borrow another project's tranches — that would show a
+  // worked term sheet that isn't this project's. Show the live, governed
+  // gate→tranche view derived from this project's own packages and gates.
+  const data: ProjectCapitalData | undefined = CAPITAL_DATA[selectedProjectId]
+  if (!data) {
+    return <CapitalStackUnmodelled projectId={selectedProjectId} projectName={project?.name} location={project?.location} />
+  }
 
   const { tranches, blendedWacc } = data
 
@@ -1070,6 +1153,50 @@ export function CapitalStack() {
             </div>
           </div>
 
+          {/* Concessional / DFI Metrics Card */}
+          {data.concessional && (
+            <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield className="w-4 h-4 text-teal-600" />
+                <span className="text-xs font-black uppercase tracking-widest text-teal-700">DFI / Concessional</span>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Concessional share</span>
+                  <span className="font-semibold tabular-nums text-teal-700">{(data.concessional.concessionalShare * 100).toFixed(0)}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Catalytic ratio</span>
+                  <span className="font-semibold tabular-nums">{data.concessional.catalyticRatio != null ? `${data.concessional.catalyticRatio.toFixed(1)}:1` : 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Blended debt cost</span>
+                  <span className="font-semibold tabular-nums">{data.concessional.blendedDebtCost.toFixed(2)}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Max grace period</span>
+                  <span className="font-semibold tabular-nums">{data.concessional.maxGracePeriod}y</span>
+                </div>
+              </div>
+              {data.concessional.catalyticRatio != null && data.concessional.catalyticRatio < 5 && (
+                <p className="mt-2 text-xs text-amber-600 font-semibold">
+                  Below IFC 5:1 catalytic target — concessional-heavy structure
+                </p>
+              )}
+              {tranches.filter(t => t.gracePeriod && t.gracePeriod > 0).length > 0 && (
+                <div className="mt-2 pt-2 border-t border-teal-200">
+                  <p className="text-xs text-teal-700 font-semibold mb-1">Grace periods</p>
+                  {tranches.filter(t => t.gracePeriod && t.gracePeriod > 0).map((t, i) => (
+                    <div key={i} className="flex justify-between text-xs text-gray-600">
+                      <span className="truncate max-w-[130px]">{t.dfiProvider || t.source}</span>
+                      <span className="tabular-nums font-mono">{t.gracePeriod}y interest-only</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Gap Analysis Card */}
           <div className={`rounded-xl border p-4 shadow-sm ${
             gapPct > 20 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'
@@ -1107,13 +1234,13 @@ export function CapitalStack() {
           </div>
 
           {/* Commitment Pipeline — from live project data */}
-          {project?.capital_status && project.capital_status.length > 0 && (
+          {project?.bankability.capital_status && project.bankability.capital_status.length > 0 && (
             <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-black uppercase tracking-widest text-gray-600 mb-3">
                 Commitment Pipeline
               </div>
               <div className="space-y-2.5">
-                {project.capital_status.map((item, i) => (
+                {project.bankability.capital_status.map((item, i) => (
                   <div key={i} className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-gray-700 truncate max-w-[110px]" title={item.name}>
                       {item.name}

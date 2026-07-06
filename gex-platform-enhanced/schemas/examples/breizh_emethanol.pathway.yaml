@@ -1,0 +1,331 @@
+# =============================================================================
+# WORKED EXAMPLE · GEX canonical pathway · e-methanol (FEED Class 3 client)
+# Validates against ../gex_pathway.schema.yaml — run:
+#   ./backend/venv/bin/python schemas/validate_pathway.py \
+#       schemas/examples/breizh_emethanol.pathway.yaml
+# -----------------------------------------------------------------------------
+# Illustrative numbers, modelled on the Breizh reference plant but re-cast for
+# E_METHANOL (matches the live client: e-methanol, offtake-gated capital).
+#
+# CANONICAL VOCABULARY: every node id and claim_type below is drawn from the
+# truth-stack registry (efuel_truth_stack.projectors.NODES), so the pathway
+# folds through the real rollup projector instead of silently no-op'ing. This
+# is the lesson the validator's first run taught us.
+# =============================================================================
+
+metadata:
+  pathway_id:       PW-BREIZH-EMEOH-001
+  project_id:       GEX-BRZ-EMEOH-001
+  title:            Breizh e-Methanol Complex — Base Case
+  fuel_id:          E_METHANOL            # ← gex_fuel_catalog.json
+  functional_unit:  1 t e-methanol at plant gate
+  jurisdiction:     FR
+  feed_class:       3
+  created_at:       2026-06-29T00:00:00Z
+  spec_ref:         sha256:gex-pathway-0.1
+
+# ---- EVIDENCE ENTRIES (immutable ledger facts; NOT claims) -----------------
+evidence_entries:
+  - {id: LE-TEA-RUN-0007,  kind: derived, entry_type: projection_snapshot,
+     produced_by: tea_engine, hash: sha256:openpytea-abc123,
+     summary: "OpenPyTEA run — CAPEX 310M / OPEX 34M/yr / LCOP 720 EUR/t"}
+  - {id: LE-ASSUMP-0007,   kind: fact,    entry_type: contract,
+     produced_by: ACT-SPONSOR, hash: sha256:assump-pack-77,
+     summary: "Assumption pack — power price, utilisation, yield, CO2 cost, contingency"}
+  - {id: LE-APPROVE-MODEL, kind: decision, entry_type: approval_decision,
+     produced_by: ACT-IE, hash: sha256:ie-approve-model,
+     summary: "IE approval that would fold CLM-MODEL submitted → verified (not yet issued)"}
+  - {id: LE-TEA-RUN-0006,  kind: derived, entry_type: projection_snapshot,
+     produced_by: tea_engine, hash: sha256:openpytea-v0,
+     summary: "Prior OpenPyTEA run — superseded by LE-TEA-RUN-0007"}
+  - {id: LE-MOL-0001,      kind: fact,    entry_type: measurement,
+     produced_by: ACT-IE, hash: sha256:h2-meter,
+     summary: "H2 production meter reading"}
+  - {id: LE-CERT-0003,     kind: fact,    entry_type: certificate,
+     produced_by: ACT-CERT, hash: sha256:lca-def456, summary: "LCA / GHG dossier"}
+  - {id: LE-CERT-0005,     kind: fact,    entry_type: certificate,
+     produced_by: ACT-CERT, hash: sha256:goo-pos, summary: "GoO / PoS RFNBO issuance"}
+  - {id: LE-CERT-0009,     kind: fact,    entry_type: certificate,
+     produced_by: ACT-CERT, hash: sha256:cert-vol, summary: "Certified volume attestation"}
+  - {id: LE-OFF-0011,      kind: fact,    entry_type: offtake_proof,
+     produced_by: ACT-MAERSK, hash: sha256:hoa-maersk, summary: "Maersk offtake HOA"}
+
+# ---- CLAIM REGISTRY (canonical claim_types only) ---------------------------
+claims:
+  # -- molecule spine -------------------------------------------------------
+  - id: CLM-H2
+    subject_node: electrolyser
+    claim_type: h2_produced_t
+    value_type: numeric
+    value: 18000
+    unit: t
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: [{ledger_entry_id: LE-MOL-0001, evidence_hash: sha256:h2-meter}]
+    authority_rule: ie_engineer
+  - id: CLM-DEGRAD
+    subject_node: electrolyser
+    claim_type: stack_degradation_pct
+    value_type: numeric
+    value: 1.2
+    unit: pct_per_year
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: []
+    authority_rule: ie_engineer
+  - id: CLM-PRODT
+    subject_node: synthesis
+    claim_type: product_t
+    value_type: numeric
+    value: 50000
+    unit: t
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: []
+    authority_rule: ie_engineer
+  - id: CLM-YIELD
+    subject_node: synthesis
+    claim_type: conversion_yield
+    value_type: numeric
+    value: 0.92
+    unit: fraction
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: []
+    authority_rule: ie_engineer
+  - id: CLM-CERTVOL
+    subject_node: product
+    claim_type: certified_volume_t
+    value_type: numeric
+    value: 48000
+    unit: t
+    state: submitted
+    valid_from: 2026-06-29
+    evidence_refs: [{ledger_entry_id: LE-CERT-0009, evidence_hash: sha256:cert-vol}]
+    authority_rule: certifier
+
+  # -- engineering / financial (OpenPyTEA-sourced) --------------------------
+  - id: CLM-MODEL-V0                    # prior base case, replaced by a re-run
+    subject_node: financial_model
+    claim_type: model_base_case
+    value_type: doc_ref
+    value: LE-TEA-RUN-0006
+    unit: null
+    state: superseded                   # terminal-invalid; kept for lineage/audit
+    valid_from: 2026-05-15
+    valid_to: 2026-06-29
+    evidence_refs: [{ledger_entry_id: LE-TEA-RUN-0006, evidence_hash: sha256:openpytea-v0}]
+    authority_rule: ie_engineer
+  - id: CLM-MODEL                       # current base case — PROJECTION of its evidence
+    subject_node: financial_model
+    claim_type: model_base_case
+    value_type: doc_ref                 # points at the OpenPyTEA run (evidence)
+    value: LE-TEA-RUN-0007
+    unit: null
+    state: submitted                    # NOT yet base case; IE approval folds → verified (G04)
+    valid_from: 2026-06-29
+    evidence_refs:
+      - {ledger_entry_id: LE-TEA-RUN-0007, evidence_hash: sha256:openpytea-abc123}
+      - {ledger_entry_id: LE-ASSUMP-0007, evidence_hash: sha256:assump-pack-77}
+    authority_rule: "ie_engineer verifies; gex_orchestrator may not self-verify"
+    supersedes_claim: CLM-MODEL-V0
+    reconciliation_group_id: RG-BASECASE-EMEOH   # ex-ante ↔ ex-post metered facts
+  - id: CLM-AACE
+    subject_node: fel_class
+    claim_type: aace_class
+    value_type: categorical
+    value: "Class 3"                    # FEED Class 3 — matches client maturity
+    unit: null
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: []
+    authority_rule: ie_engineer
+  - id: CLM-EPC
+    subject_node: epc_signed
+    claim_type: epc_price
+    value_type: numeric
+    value: 310000000                    # EUR — EPC contract price (≈ capex basis)
+    unit: EUR
+    state: submitted
+    valid_from: 2026-06-29
+    evidence_refs: [{ledger_entry_id: LE-TEA-RUN-0007, evidence_hash: sha256:openpytea-abc123}]
+    authority_rule: ie_engineer
+
+  # -- certification --------------------------------------------------------
+  - id: CLM-GHG
+    subject_node: ghg_lca
+    claim_type: g_co2e_per_mj
+    value_type: numeric
+    value: 18.5                         # gCO2e/MJ — must clear RED III RFNBO threshold
+    unit: gCO2e/MJ
+    state: submitted
+    valid_from: 2026-06-29
+    evidence_refs: [{ledger_entry_id: LE-CERT-0003, evidence_hash: sha256:lca-def456}]
+    authority_rule: certifier
+  - id: CLM-RFNBO
+    subject_node: goo_pos
+    claim_type: rfnbo_issued
+    value_type: boolean
+    value: true
+    unit: null
+    state: submitted
+    valid_from: 2026-06-29
+    evidence_refs: [{ledger_entry_id: LE-CERT-0005, evidence_hash: sha256:goo-pos}]
+    authority_rule: certifier
+
+  # -- commercial (offtake_matrix) ------------------------------------------
+  - id: CLM-VOL
+    subject_node: offtake_matrix
+    claim_type: volume
+    value_type: numeric
+    value: 40000
+    unit: t_per_year
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: [{ledger_entry_id: LE-OFF-0011, evidence_hash: sha256:hoa-maersk}]
+    authority_rule: offtaker
+  - id: CLM-TENOR
+    subject_node: offtake_matrix
+    claim_type: tenor
+    value_type: numeric
+    value: 10
+    unit: years
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: []
+    authority_rule: offtaker
+  - id: CLM-PRICEIDX
+    subject_node: offtake_matrix
+    claim_type: price_index
+    value_type: categorical
+    value: "fixed_980_eur_per_t"        # covers LCOP with margin
+    unit: EUR/t
+    state: submitted
+    valid_from: 2026-06-29
+    evidence_refs: []
+    authority_rule: offtaker
+  - id: CLM-BUYERCREDIT
+    subject_node: offtake_matrix
+    claim_type: buyer_credit
+    value_type: categorical
+    value: "investment_grade"
+    unit: null
+    state: verified
+    valid_from: 2026-06-29
+    evidence_refs: []
+    authority_rule: financier
+
+# ---- NODES (canonical ids; molecule→capital DAG) ---------------------------
+nodes:
+  - {id: electrolyser,    layer: molecule,       label: PEM electrolyser,
+     depends_on: [],                  required_claims: [h2_produced_t, stack_degradation_pct]}
+  - {id: synthesis,       layer: molecule,       label: methanol synthesis,
+     depends_on: [electrolyser],      required_claims: [product_t, conversion_yield]}
+  - {id: product,         layer: molecule,       label: e-methanol product,
+     depends_on: [synthesis],         required_claims: [certified_volume_t]}
+  - {id: fel_class,       layer: engineering,    label: FEL/FEED maturity,
+     depends_on: [],                  required_claims: [aace_class]}
+  - {id: epc_signed,      layer: engineering,    label: EPC contract,
+     depends_on: [fel_class],         required_claims: [epc_price]}
+  - {id: financial_model, layer: financial,      label: TEA base case (OpenPyTEA),
+     depends_on: [epc_signed],        required_claims: [model_base_case]}
+  - {id: ghg_lca,         layer: certification,  label: GHG / LCA,
+     depends_on: [product],           required_claims: [g_co2e_per_mj]}
+  - {id: goo_pos,         layer: certification,  label: GoO / PoS (RFNBO),
+     depends_on: [ghg_lca],           required_claims: [rfnbo_issued]}
+  - {id: offtake_matrix,  layer: commercial,     label: offtake matrix,
+     depends_on: [goo_pos],           required_claims: [volume, tenor, price_index, buyer_credit]}
+
+# ---- ENGINEERING (OpenPyTEA-facing; refs resolve to canonical claims) ------
+engineering:
+  feedstocks:
+    - {id: renewable_h2,  stream_ref: STR-H2,  cost_claim: {claim: CLM-H2}}
+  products:
+    - {id: e_methanol_product, fuel_id: E_METHANOL, spec_claims: [{claim: CLM-CERTVOL}]}
+  streams:
+    - {id: STR-H2, from_unit: null, to_unit: synthesis,
+       mass_flow: {claim: CLM-H2}, energy_flow: {claim: CLM-PRODT}}
+  process_units:
+    - {id: electrolyser, category: PEM_electrolyser, material: null,
+       sizing: {claim: CLM-H2},    utilities: [{claim: CLM-DEGRAD}]}
+    - {id: synthesis,    category: catalytic_reactor, material: SS316,
+       sizing: {claim: CLM-PRODT}, utilities: [{claim: CLM-YIELD}]}
+  balances:
+    mass_closed:   {claim: CLM-PRODT}
+    energy_closed: {claim: CLM-H2}
+
+# ---- TEA (← OpenPyTEA :8002; numbers → PlantSummary; provenance → CLM-MODEL) -
+tea:
+  cost_basis_hash:    sha256:openpytea-abc123
+  model_claim:        {claim: CLM-MODEL}
+  run_evidence:       LE-TEA-RUN-0007
+  capex_eur:          310000000
+  opex_eur_per_year:  34000000
+  nameplate_capacity: 50000
+  lcop:               720
+  sensitivity_ref:    LE-TEA-SENS-0008
+
+# ---- COMPUTE AUTHORIZATION --------------------------------------------------
+# CLM-MODEL is `submitted` (not terminal-valid) → PROVISIONAL: the PF engine may
+# compute, but no release-gated gate may open until the IE approval folds it to
+# `verified`. The validator (B7) enforces this.
+compute_authorization:
+  base_case_claim: {claim: CLM-MODEL}
+
+# ---- LCA -------------------------------------------------------------------
+lca:
+  ghg_intensity: {claim: CLM-GHG}
+  allocation_method: energy_allocation
+  emission_factors: [{claim: CLM-GHG}]
+
+# ---- COMMERCIAL / CAPITAL --------------------------------------------------
+commercial:
+  offtakes:
+    - id: off-maersk-001
+      counterparty: ACT-MAERSK
+      volume: {claim: CLM-VOL}
+      price: {claim: CLM-PRICEIDX}
+      tenor_years: {claim: CLM-TENOR}
+capital:
+  deal_structure_id: deal-brz-emeoh-001-base   # → gex_pf_engine (port 8001)
+  funding_sources:
+    - {source_type: senior_debt, amount: {claim: CLM-EPC}}
+    - {source_type: dfi_eca,     amount: {claim: CLM-EPC}}
+    - {source_type: equity,      amount: {claim: CLM-EPC}}
+
+# ---- GATES (12-gate framework; ladder-tagged) ------------------------------
+gates:
+  - gate_id: G04
+    name: Cost basis verified (TEA)
+    layer: financial
+    validation_level: 3              # tea_lca_plausible
+    required_claims: [CLM-MODEL, CLM-AACE, CLM-EPC]
+    approval: {check_id: chk-tea-verify, required_actor: ie_engineer,
+               approval_threshold: single, waivable: false, veto_right: true, drawstop_right: false}
+    blocks_release_until: true
+  - gate_id: G06
+    name: RFNBO certification cleared
+    layer: certification
+    validation_level: 4              # certification_fit
+    required_claims: [CLM-GHG, CLM-RFNBO]
+    approval: {check_id: chk-cert-rfnbo, required_actor: certifier,
+               approval_threshold: single, waivable: false, veto_right: true, drawstop_right: true}
+    blocks_release_until: true
+  - gate_id: G09
+    name: Bankable offtake secured
+    layer: commercial
+    validation_level: 5              # finance_cp_cost
+    required_claims: [CLM-VOL, CLM-TENOR, CLM-PRICEIDX, CLM-BUYERCREDIT]
+    approval: {check_id: chk-offtake-bankable, required_actor: financier,
+               approval_threshold: majority, waivable: false, veto_right: true, drawstop_right: true}
+    blocks_release_until: true
+
+# ---- ACTORS (subset of the 11 ABAC actor types party to this pathway) ------
+actors:
+  - {actor_id: ACT-SPONSOR, actor_type: sponsor,          role_note: project company}
+  - {actor_id: ACT-IE,      actor_type: ie_engineer,      role_note: verifies TEA cost basis}
+  - {actor_id: ACT-CERT,    actor_type: certifier,        role_note: RED III RFNBO}
+  - {actor_id: ACT-MAERSK,  actor_type: offtaker,         role_note: shipping-pool buyer}
+  - {actor_id: ACT-BANK,    actor_type: financier,        role_note: senior lender}
+  - {actor_id: ACT-DFI,     actor_type: financier,        role_note: DFI/ECA}
+  - {actor_id: ACT-GEX,     actor_type: gex_orchestrator, role_note: orchestration engine}

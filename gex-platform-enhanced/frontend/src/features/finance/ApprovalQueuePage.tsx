@@ -1,3 +1,4 @@
+// Screen: Approval queue screen (/approval-queue, /finance/approval-queue)
 /**
  * ApprovalQueuePage — WAE pending approvals table.
  * Used in both Finance and Executive workspaces.

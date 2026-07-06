@@ -7,8 +7,10 @@
  *          GET /api/v1/plant-data/data/{project_id}  (live)
  */
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Activity, Zap, Wind, Gauge, AlertCircle, RefreshCw } from 'lucide-react'
 import { plantDataAPI } from '@/api'
+import { useSelectedProject } from '@/contexts/ProjectContext'
 
 interface PlantRecord {
   id: string
@@ -58,7 +60,8 @@ const DATA_TYPE_CONFIG: Record<string, {
   },
 }
 
-const PROJECT_ID = 'proj_breizh_saf'
+// Fallback when no project context is provided via ?project= or selectedProject.
+const FALLBACK_PROJECT_ID = 'proj_breizh_saf'
 
 function RecordCard({ record }: { record: PlantRecord }) {
   const config = DATA_TYPE_CONFIG[record.data_type]
@@ -140,15 +143,33 @@ export function PlantDataDashboard() {
   const [isDemo, setIsDemo] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
+  // Project context resolution order:
+  //   1. ?project=<id> from URL (deep-link from ProjectProfile)
+  //   2. global useSelectedProject() context
+  //   3. FALLBACK_PROJECT_ID for unauthenticated demo flow
+  const [searchParams] = useSearchParams()
+  const { selectedProjectId, setSelectedProjectId } = useSelectedProject()
+  const queryProject = searchParams.get('project')
+  const projectId = queryProject || selectedProjectId || FALLBACK_PROJECT_ID
+
+  // Sync the query-string project into global context so other screens
+  // the user navigates to next stay on the same project.
+  useEffect(() => {
+    if (queryProject && queryProject !== selectedProjectId) {
+      setSelectedProjectId(queryProject)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryProject])
+
   const load = () => {
     setLoading(true)
-    plantDataAPI.getForProject(PROJECT_ID)
+    plantDataAPI.getForProject(projectId)
       .then((data) => {
         if (data.records && data.records.length > 0) {
           setRecords(data.records)
           setIsDemo(false)
         } else {
-          return plantDataAPI.getDemoData(PROJECT_ID).then((demo) => {
+          return plantDataAPI.getDemoData(projectId).then((demo) => {
             setRecords(demo.records || [])
             setIsDemo(true)
           })
@@ -157,7 +178,7 @@ export function PlantDataDashboard() {
         setLoading(false)
       })
       .catch(() => {
-        plantDataAPI.getDemoData(PROJECT_ID)
+        plantDataAPI.getDemoData(projectId)
           .then((demo) => {
             setRecords(demo.records || [])
             setIsDemo(true)
@@ -168,7 +189,7 @@ export function PlantDataDashboard() {
       })
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [projectId])
 
   // Deduplicate: keep latest record per data_type
   const latestByType = records.reduce<Record<string, PlantRecord>>((acc, rec) => {
@@ -234,7 +255,7 @@ export function PlantDataDashboard() {
 
       <div className="mt-6 text-xs text-gray-400 border-t pt-4">
         Domain 4 — OT/IT Boundary · NIS2 Art. 21 ·
-        Data integrity verified by SHA-256 · Project: {PROJECT_ID}
+        Data integrity verified by SHA-256 · Project: {projectId}
       </div>
     </div>
   )

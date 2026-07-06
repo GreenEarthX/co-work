@@ -1,3 +1,4 @@
+// Screen: Types (no screen)
 // ─── Rating scale ─────────────────────────────────────────────────────────────
 
 export type RatingLetter = "AAA" | "AA" | "A" | "BBB" | "BB" | "B" | "CCC" | "CC" | "C" | "D";

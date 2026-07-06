@@ -1,10 +1,13 @@
 """
 CFADS Calculator - Cash Flow Available for Debt Service
-Specialized for green fuel projects with subsidy tracking
+Specialized for green fuel projects with subsidy tracking.
+Integrates with debt.tranche.FinancingStructure for blended WACC output.
 """
 from typing import Dict, List, Optional
 from datetime import date
 from decimal import Decimal
+
+from .debt.tranche import FinancingStructure
 
 
 class CFADSCalculator:
@@ -255,6 +258,213 @@ class CFADSCalculator:
             yearly_cfads.append(cfads_year)
         
         return yearly_cfads
+
+    @staticmethod
+    def calculate_with_financing(
+        production_volume_mtpd: float,
+        offtake_price_eur_kg: float,
+        financing: FinancingStructure,
+        year: int = 1,
+        subsidies: Dict[str, float] = None,
+        opex_eur_kg: float = 0,
+        maintenance_capex: float = 0,
+        working_capital_change: float = 0,
+        tax_rate: float = 0.21,
+        period_days: int = 365,
+    ) -> Dict:
+        """
+        Calculate CFADS with blended WACC and DSCR from FinancingStructure.
+        This is the method the proxy should call — it returns everything
+        the frontend finance workspace needs.
+
+        Args:
+            production_volume_mtpd: Metric tonnes per day
+            offtake_price_eur_kg: Offtake contract price
+            financing: FinancingStructure with concessional tranches
+            year: Project year (1-indexed) for grace period logic
+            subsidies: Subsidy types and per-kg amounts
+            opex_eur_kg: Operating cost per kg
+            maintenance_capex: Annual maintenance capex
+            working_capital_change: WC delta
+            tax_rate: Corporate tax rate
+            period_days: Days in period
+
+        Returns:
+            Standard CFADS dict + blended_wacc, blended_debt_cost, dscr,
+            concessional_share, catalytic_ratio, debt_service_profile
+        """
+        # Base CFADS calculation
+        result = CFADSCalculator.calculate(
+            production_volume_mtpd=production_volume_mtpd,
+            offtake_price_eur_kg=offtake_price_eur_kg,
+            subsidies=subsidies,
+            opex_eur_kg=opex_eur_kg,
+            maintenance_capex=maintenance_capex,
+            working_capital_change=working_capital_change,
+            tax_rate=tax_rate,
+            period_days=period_days,
+        )
+
+        cfads = result["cfads"]
+
+        # Debt service for this year (respects grace periods)
+        total_ds = financing.total_annual_debt_service(year)
+        dscr = cfads / total_ds if total_ds > 0 else float('inf')
+
+        # Financing metrics
+        result["blended_wacc"] = round(financing.blended_wacc(), 5)
+        result["blended_debt_cost"] = round(financing.blended_debt_cost(), 5)
+        result["total_debt_service"] = round(total_ds, 2)
+        result["dscr"] = round(dscr, 3)
+        result["concessional_share"] = round(financing.concessional_share, 4)
+        result["catalytic_ratio"] = (
+            round(financing.catalytic_ratio, 2)
+            if financing.catalytic_ratio != float('inf')
+            else None
+        )
+        result["leverage_ratio"] = round(financing.leverage_ratio, 4)
+        result["total_capital"] = financing.total_capital
+        result["year"] = year
+        result["grace_period_active"] = year <= financing.max_grace_period()
+
+        # Per-tranche breakdown for this year
+        tranche_ds = {}
+        for t in financing.tranches:
+            ds = t.annual_debt_service(year)
+            if ds > 0:
+                tranche_ds[t.name] = {
+                    "debt_service": round(ds, 2),
+                    "type": t.tranche_type.value,
+                    "is_concessional": t.is_concessional,
+                    "in_grace": year <= t.grace_period_years,
+                }
+        result["tranche_debt_service"] = tranche_ds
+
+        return result
+
+    @staticmethod
+    def calculate_lifetime_with_financing(
+        production_mtpd: float,
+        offtake_price_eur_kg: float,
+        opex_eur_kg: float,
+        subsidies: Dict[str, float],
+        financing: FinancingStructure,
+        start_year: int,
+        end_year: int,
+        ramp_up_years: int = 1,
+    ) -> List[Dict]:
+        """
+        Year-by-year CFADS with financing metrics over project lifetime.
+        Combines ramp-up production with grace period debt sculpting.
+        """
+        yearly = []
+        for year_offset in range(end_year - start_year + 1):
+            calendar_year = start_year + year_offset
+            project_year = year_offset + 1
+
+            # Production ramp-up
+            if year_offset < ramp_up_years:
+                production_factor = (year_offset + 1) / ramp_up_years
+            else:
+                production_factor = 1.0
+
+            effective_production = production_mtpd * production_factor
+
+            cfads_year = CFADSCalculator.calculate_with_financing(
+                production_volume_mtpd=effective_production,
+                offtake_price_eur_kg=offtake_price_eur_kg,
+                financing=financing,
+                year=project_year,
+                subsidies=subsidies,
+                opex_eur_kg=opex_eur_kg,
+            )
+
+            cfads_year["calendar_year"] = calendar_year
+            cfads_year["production_factor"] = production_factor
+            yearly.append(cfads_year)
+
+        return yearly
+
+
+    @staticmethod
+    def calculate_multi_currency(
+        revenue_streams: List[Dict],
+        opex_streams: List[Dict],
+        base_currency: str = "EUR",
+        maintenance_capex: float = 0,
+        working_capital_change: float = 0,
+        tax_rate: float = 0.21,
+    ) -> Dict:
+        """
+        Multi-currency CFADS: each revenue/opex stream has its own currency
+        and FX rate to base.
+
+        Args:
+            revenue_streams: [{"label": str, "amount": float, "currency": str, "fx_rate": float}]
+            opex_streams: [{"label": str, "amount": float, "currency": str, "fx_rate": float}]
+            base_currency: Project base currency
+            maintenance_capex: In base currency
+            working_capital_change: In base currency
+            tax_rate: Corporate tax rate
+
+        Returns:
+            CFADS breakdown with FX detail
+        """
+        total_revenue_base = 0.0
+        revenue_detail = []
+        for s in revenue_streams:
+            fx = s.get("fx_rate", 1.0)
+            base_amount = s["amount"] * fx
+            total_revenue_base += base_amount
+            revenue_detail.append({
+                "label": s["label"],
+                "amount_local": s["amount"],
+                "currency": s.get("currency", base_currency),
+                "fx_rate": fx,
+                "amount_base": round(base_amount, 2),
+            })
+
+        total_opex_base = 0.0
+        opex_detail = []
+        for s in opex_streams:
+            fx = s.get("fx_rate", 1.0)
+            base_amount = s["amount"] * fx
+            total_opex_base += base_amount
+            opex_detail.append({
+                "label": s["label"],
+                "amount_local": s["amount"],
+                "currency": s.get("currency", base_currency),
+                "fx_rate": fx,
+                "amount_base": round(base_amount, 2),
+            })
+
+        ebitda = total_revenue_base - total_opex_base
+        taxable = ebitda - maintenance_capex
+        taxes = max(taxable * tax_rate, 0) if taxable > 0 else 0
+        cfads = ebitda - maintenance_capex - working_capital_change - taxes
+
+        return {
+            "base_currency": base_currency,
+            "total_revenue_base": round(total_revenue_base, 2),
+            "total_opex_base": round(total_opex_base, 2),
+            "ebitda": round(ebitda, 2),
+            "maintenance_capex": maintenance_capex,
+            "working_capital_change": working_capital_change,
+            "taxes": round(taxes, 2),
+            "cfads": round(cfads, 2),
+            "revenue_streams": revenue_detail,
+            "opex_streams": opex_detail,
+            "fx_exposure": {
+                "currencies": list(set(
+                    s.get("currency", base_currency)
+                    for s in revenue_streams + opex_streams
+                )),
+                "natural_hedge_ratio": round(
+                    min(total_opex_base, total_revenue_base) /
+                    max(total_revenue_base, 1) * 100, 1
+                ),
+            },
+        }
 
 
 if __name__ == "__main__":

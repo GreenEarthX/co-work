@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, Download, Info } from 'lucide-react';
+// Screen: Compliance reporting screen (/ciso-compliance, /ciso-policy)
+import { useState, useEffect } from 'react';
+import { CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, Download } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ const FRAMEWORK_COLOR: Record<string, string> = {
   abac:      'from-indigo-500 to-indigo-600',
 };
 
-function ScoreBar({ score, color }: { score: number; color?: string }) {
+function ScoreBar({ score, color: _color }: { score: number; color?: string }) {
   const bg = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500';
   return (
     <div className="h-1.5 w-full rounded-full bg-[var(--border)]">
@@ -192,9 +193,7 @@ function PolicyMatrixPage() {
   const [matrix, setMatrix] = useState<any>(null);
 
   useEffect(() => {
-    fetch('/api/v1/ciso/policy-matrix', {
-      headers: { 'x-demo-company': 'bp_global_energy' },
-    })
+    fetch('/api/v1/ciso/policy-matrix')
       .then(r => r.ok ? r.json() : null)
       .then(d => setMatrix(d))
       .catch(() => null);
@@ -265,9 +264,7 @@ export function ComplianceReportingPage() {
   const [tab, setTab]     = useState<'frameworks' | 'matrix'>('frameworks');
 
   useEffect(() => {
-    fetch('/api/v1/ciso/compliance', {
-      headers: { 'x-demo-company': 'bp_global_energy' },
-    })
+    fetch('/api/v1/ciso/compliance')
       .then(r => r.ok ? r.json() : null)
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));

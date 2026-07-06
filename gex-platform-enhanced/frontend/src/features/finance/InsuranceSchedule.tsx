@@ -1,3 +1,4 @@
+// Screen: Insurance schedule screen (/insurance-schedule, /finance/insurance-schedule)
 /**
  * InsuranceSchedule — Structured insurance program schedule following Playbook §12A.
  * G7 gate evidence with lines, deductibles, endorsements, and completeness tracking.
@@ -9,7 +10,7 @@ import {
   Building2, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
 
@@ -537,7 +538,8 @@ function endorsementStatusBadge(status: 'PLACED' | 'PENDING' | 'REQUIRED') {
 
 export function InsuranceSchedule() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId) ?? CUSTOMER_PROJECTS[0]
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
   const data = SCHEDULE_DATA[project.id] ?? SCHEDULE_DATA['proj_wales_saf']
   const [showEndorsements, setShowEndorsements] = useState(true)
 

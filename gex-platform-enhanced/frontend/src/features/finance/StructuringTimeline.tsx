@@ -1,3 +1,4 @@
+// Screen: Structuring timeline screen (/finance-structuring-timeline)
 // ──────────────────────────────────────────────────────────
 // FILE 5: StructuringTimeline.tsx
 // Route: /finance-structuring-timeline
@@ -7,10 +8,8 @@
  
 // Save as: src/features/finance/StructuringTimeline.tsx
  
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Search, Layers, ArrowRight } from 'lucide-react';
-import { InfoTooltip } from '@/components/ui/InfoTooltip';
-import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
+import { useState, useEffect } from 'react';
+import { TAB_DESCRIPTIONS } from '@/config/helpText';
 
 export function StructuringTimeline() {
   const [timeline, setTimeline] = useState<any[]>([]);

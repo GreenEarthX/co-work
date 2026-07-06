@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+// Screen: Project rating view screen
+import { useMemo } from "react";
 import GexProjectRatingCard from "@/components/ratings/GexProjectRatingCard";
 import { useProjectRating } from "@/hooks/useProjectRating";
 import type { ProjectRatingRequest } from "@/types/projectRating";

@@ -1,3 +1,4 @@
+// Screen: Instrument catalog screen (/finance-instruments)
 // ──────────────────────────────────────────────────────────
 // FILE 2: InstrumentCatalog.tsx
 // Route: /finance-instruments
@@ -7,8 +8,8 @@
  
 // Save as: src/features/finance/InstrumentCatalog.tsx
  
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Search, Layers, ArrowRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Layers, ArrowRight } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
 

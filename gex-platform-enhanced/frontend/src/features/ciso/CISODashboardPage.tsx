@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// Screen: CISO dashboard screen (/ciso-dashboard)
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Shield, ShieldCheck, AlertTriangle, Users, Activity,
@@ -131,9 +132,7 @@ export function CISODashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/v1/ciso/overview', {
-      headers: { 'x-demo-company': 'bp_global_energy' },
-    })
+    fetch('/api/v1/ciso/overview')
       .then(r => r.ok ? r.json() : null)
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));

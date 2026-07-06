@@ -10,6 +10,7 @@ from datetime import datetime
 import httpx
 import json
 from app.core.decision_twin import DecisionTwin
+from app.core.fuel_catalog import find_fuel, load_fuel_catalog, offered_molecule_payload
 
 router = APIRouter()
 
@@ -23,7 +24,7 @@ FINANCE_ENGINE_URL = "http://localhost:8001/api/v1/model"  # Finance microservic
 
 class Step1ProjectBasics(BaseModel):
     """Step 1: Basic project information"""
-    molecule: str  # H2, NH3, CH3OH, SAF
+    molecule: str  # Product-facing catalogue values or legacy aliases
     capacity_mtpd: float
     location: str
     country: str
@@ -72,33 +73,24 @@ async def check_market_demand(project: Step1ProjectBasics):
         
         # Mock demand data (replace with actual DB queries)
         demand_signals = {
-            "H2": {
-                "active_rfqs": 12,
-                "avg_price_eur_kg": 6.5,
-                "demand_level": "high",
-                "trend": "increasing"
-            },
-            "NH3": {
-                "active_rfqs": 8,
-                "avg_price_eur_kg": 0.45,
-                "demand_level": "medium",
-                "trend": "stable"
-            },
-            "SAF": {
-                "active_rfqs": 15,
-                "avg_price_eur_kg": 2.1,
-                "demand_level": "very_high",
-                "trend": "increasing"
-            },
-            "CH3OH": {
-                "active_rfqs": 5,
-                "avg_price_eur_kg": 0.38,
-                "demand_level": "medium",
-                "trend": "stable"
-            }
+            "e-Methane": {"active_rfqs": 7, "avg_price_eur_kg": 0.12, "demand_level": "medium", "trend": "increasing"},
+            "e-Methanol": {"active_rfqs": 9, "avg_price_eur_kg": 0.80, "demand_level": "high", "trend": "increasing"},
+            "e-NH3": {"active_rfqs": 8, "avg_price_eur_kg": 0.45, "demand_level": "medium", "trend": "stable"},
+            "HVO": {"active_rfqs": 11, "avg_price_eur_kg": 1.80, "demand_level": "high", "trend": "stable"},
+            "SAF": {"active_rfqs": 15, "avg_price_eur_kg": 2.10, "demand_level": "very_high", "trend": "increasing"},
+            "e-Gasoline": {"active_rfqs": 6, "avg_price_eur_kg": 1.25, "demand_level": "medium", "trend": "increasing"},
+            "e-LG": {"active_rfqs": 4, "avg_price_eur_kg": 0.15, "demand_level": "emerging", "trend": "increasing"},
+            "e-Naphtha": {"active_rfqs": 5, "avg_price_eur_kg": 0.98, "demand_level": "medium", "trend": "stable"},
+            "H2": {"active_rfqs": 12, "avg_price_eur_kg": 6.5, "demand_level": "high", "trend": "increasing"},
+            "NH3": {"active_rfqs": 8, "avg_price_eur_kg": 0.45, "demand_level": "medium", "trend": "stable"},
+            "CH3OH": {"active_rfqs": 5, "avg_price_eur_kg": 0.38, "demand_level": "medium", "trend": "stable"},
+            "e-NG": {"active_rfqs": 7, "avg_price_eur_kg": 0.12, "demand_level": "medium", "trend": "increasing"},
         }
         
-        molecule_demand = demand_signals.get(project.molecule, {
+        fuel = find_fuel(project.molecule)
+        molecule_key = fuel["id"] if fuel else project.molecule
+        molecule_label = fuel["label"] if fuel else project.molecule
+        molecule_demand = demand_signals.get(molecule_key, {
             "active_rfqs": 0,
             "avg_price_eur_kg": 0,
             "demand_level": "unknown",
@@ -117,7 +109,7 @@ async def check_market_demand(project: Step1ProjectBasics):
         timeline_assessment = "aggressive" if years_to_production < 3 else "feasible" if years_to_production < 5 else "conservative"
         
         return {
-            "molecule": project.molecule,
+            "molecule": molecule_label,
             "market_demand": {
                 "level": molecule_demand["demand_level"],
                 "active_buyers": molecule_demand["active_rfqs"],
@@ -654,34 +646,13 @@ async def compute_trust_score(submission: TrustScoreRequest):
 @router.get("/reference-data/molecules")
 async def get_molecule_options():
     """Get available molecule types with descriptions"""
-    return {
-        "molecules": [
-            {
-                "code": "H2",
-                "name": "Hydrogen",
-                "description": "Green hydrogen via electrolysis",
-                "typical_uses": ["Industry feedstock", "Fuel cells", "Ammonia production"]
-            },
-            {
-                "code": "NH3",
-                "name": "Ammonia",
-                "description": "Green ammonia from renewable H2",
-                "typical_uses": ["Fertilizer", "Shipping fuel", "Energy carrier"]
-            },
-            {
-                "code": "SAF",
-                "name": "Sustainable Aviation Fuel",
-                "description": "Drop-in jet fuel from renewable sources",
-                "typical_uses": ["Aviation", "Military"]
-            },
-            {
-                "code": "CH3OH",
-                "name": "Methanol",
-                "description": "Green methanol from renewable sources",
-                "typical_uses": ["Chemical feedstock", "Shipping fuel", "Fuel blending"]
-            }
-        ]
-    }
+    return {"molecules": offered_molecule_payload()}
+
+
+@router.get("/reference-data/fuels")
+async def get_fuel_catalog():
+    """Get the full canonical fuel catalogue with measures and aliases."""
+    return load_fuel_catalog()
 
 
 @router.get("/reference-data/certifications")

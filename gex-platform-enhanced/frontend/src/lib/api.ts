@@ -1,3 +1,4 @@
+// Screen: API client (no screen)
 // Re-export all API clients from the centralized api.ts
 // This file exists so that both `@/lib/api` and `@/api` imports work.
 export {
@@ -10,4 +11,6 @@ export {
   financeAPI,
   bankabilityAPI,
   financeModelAPI,
-} from '../api'
+  pricingAPI,
+  projectTruthAPI,
+} from "../api";

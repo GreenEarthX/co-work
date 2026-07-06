@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, CheckCircle, XCircle, Clock, FileText } from 'lucide-react';
+// Screen: RFQ management screen (/rfqs)
+import { useState, useEffect } from 'react';
+import { Plus, CheckCircle, XCircle, Clock, FileText } from 'lucide-react';
 
 interface RFQ {
   id: string;

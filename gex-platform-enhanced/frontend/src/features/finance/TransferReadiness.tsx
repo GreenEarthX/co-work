@@ -1,3 +1,4 @@
+// Screen: Transfer readiness screen (/transfer-readiness, /finance/transfer-readiness)
 /**
  * TransferReadiness — Transfer Readiness Index (0-100) for secondary market exit evaluation.
  * Arc gauge score, 4 sub-scores, consent matrix, and timeline to transfer.
@@ -9,7 +10,7 @@ import {
   CheckCircle2, AlertTriangle, Clock, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
 
@@ -427,7 +428,8 @@ function SubScoreCard({ sub, icon: Icon }: { sub: SubScore; icon: React.ElementT
 
 export function TransferReadiness() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId) ?? CUSTOMER_PROJECTS[0]
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
   const data = TRANSFER_DATA[project.id] ?? TRANSFER_DATA['proj_wales_saf']
 
   const subScores: SubScore[] = [data.assignable, data.dscrPostTransfer, data.warrantyTail, data.gooPorts]

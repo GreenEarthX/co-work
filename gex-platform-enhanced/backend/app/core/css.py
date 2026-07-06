@@ -24,10 +24,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
+from app.core.config import settings
 
 logger = logging.getLogger("gex.css")
 
-_DB_PATH = "gex_platform.db"
+_DB_PATH = settings.SQLITE_DB_PATH
 
 # In production: HSM/KMS-backed private keys. Dev: HMAC-SHA256 with per-user secret.
 _DEV_MASTER_SECRET = b"gex_dev_signing_secret_2026_change_in_production"

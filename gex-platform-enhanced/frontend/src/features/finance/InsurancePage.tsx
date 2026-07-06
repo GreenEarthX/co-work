@@ -1,3 +1,4 @@
+// Screen: Insurance screen (/insurance, /finance/insurance)
 import { useState, useEffect } from 'react'
 import { Shield, AlertTriangle, Calendar, DollarSign, FileText, CheckCircle2, RefreshCw } from 'lucide-react'
 import { financeAPI } from '@/lib/api'

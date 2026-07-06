@@ -33,7 +33,7 @@ Five role-filtered top-bar dropdown menus replace the old workspace sidebar:
 | **Commercial** | Producer/Offtaker/Bank | Market Discovery, Supply Offers, Demand Pipeline, Contracts |
 | **Finance** | Producer FT / Bank / Insurer | Bankability Status, Capital Stack, IC Pack, Deal Room |
 | **Compliance** | All | Cert Readiness, Evidence Hierarchy, Audit Trail |
-| **Operations** | All | Project Timeline, Plant Telemetry, Performance Matrix |
+| **Operations** | All | Project Timeline, CEO Report, Plant Telemetry, Performance Matrix |
 
 A password-gated **CISO** gear (⚙) exposes security admin (Information Barriers, OT Gateways, Data Residency, Access Monitor).
 
@@ -102,6 +102,35 @@ API docs: `http://localhost:8000/docs`
 - `menuArchitecture.ts` is single source of truth for nav items + visibility rules
 - CISO workspace password-gated (`Enter-123` default, overridable via `gex_ciso_password` localStorage key)
 - Onboarding wizard shows RoleSelector on first visit
+- CEO portfolio reporting sits under `Operations`, not `Finance`, because it is an execution and delivery view first
+
+---
+
+## Integrity Status (2026-04-05)
+
+The platform is now a credible orchestration shell, but it is not yet a single operational source of truth.
+
+### What is solid
+
+- Role-filtered top-bar navigation and route structure
+- Guided UX primitives: task router, deal-killers, evidence hierarchy, approvals, data room
+- Project-aware truth aggregation for dashboard and guided decision flows
+
+### Main integrity gaps
+
+- `backend/app` still contains a mirrored React tree (`App.tsx`, `main.tsx`, `components/`, `features/`), which creates frontend drift risk
+- `backend/app/core/project_truth.py` explicitly remains a transitional bridge, not the final database-backed truth service
+- `backend/app/api/v1/routes_structuring.py` and `backend/app/api/v1/routes_instruments.py` still rely on demo contexts for structuring outputs
+- `backend/app/main.py` still mounts many routers with soft-fail `...not found - skipping` startup behavior
+- Direct `CUSTOMER_PROJECTS` usage still exists in multiple frontend screens; see `GEX_DEPENDENCY_MAP.md`
+
+### Next improvement priorities
+
+1. Replace transitional project truth with one database-backed service for projects, gates, owners, blockers, instruments, and access scope.
+2. Remove the mirrored UI tree from `backend/app` and keep React source under `frontend/` only.
+3. Replace structuring demo contexts with project-truth-backed queries.
+4. Convert critical route loading from skip-on-missing to fail-fast or health-gated startup.
+5. Finish retiring direct `CUSTOMER_PROJECTS` imports from frontend screens.
 
 ---
 

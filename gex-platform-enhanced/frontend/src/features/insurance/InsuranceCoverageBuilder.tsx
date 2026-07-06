@@ -1,3 +1,4 @@
+// Screen: Insurance coverage builder screen (/insurance-coverage)
 /**
  * InsuranceCoverageBuilder — insurer-facing coverage line builder.
  * Shows CAR/EAR/DSU/BI/Marine/Liability lines with gap flags and molecule-specific overlays.
@@ -7,7 +8,7 @@
 import { useState } from 'react'
 import { ShieldCheck, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Plus, Info } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { MoleculeGatingAlert } from '@/components/finance/MoleculeGatingAlert'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -141,7 +142,8 @@ function CoverageRow({ line }: { line: CoverageLine }) {
 
 export function InsuranceCoverageBuilder() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId)
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
   const lines = BASE_LINES[selectedProjectId] ?? DEFAULT_LINES
 
   const placed  = lines.filter(l => l.status === 'PLACED').length

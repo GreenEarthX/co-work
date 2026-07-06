@@ -1,5 +1,5 @@
 /* ─── Font imports (Manrope · Inter · JetBrains Mono) ─────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inria+Sans:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -7,37 +7,47 @@
 
 /* ─── Semantic design tokens — light mode ────────────────────────────────── */
 :root {
+  /* Neutral */
+  --bg:             #f8fafc;
+  --surface:        #ffffff;
+  --surface-muted:  #f1f5f9;
+  --surface-hover:  #e2e8f0;
+  --border:         #cbd5e1;
+  --border-strong:  #94a3b8;
+  --text-primary:   #0f172a;
+  --text-secondary: #334155;
+  --text-muted:     #64748b;
+
   /* Brand */
   --brand:          #0f766e;
   --brand-dark:     #115e59;
-  --brand-light:    #edf4f2;
-  --brand-ring:     rgba(15, 118, 110, 0.14);
-
-  /* Surfaces */
-  --bg:             #f3f4f2;
-  --surface:        #ffffff;
-  --surface-muted:  #f7f7f4;
-  --surface-hover:  #eff1ee;
-
-  /* Borders */
-  --border:         #dde2dd;
-  --border-strong:  #c5ccc6;
-
-  /* Typography */
-  --text-primary:   #16211d;
-  --text-secondary: #55615d;
-  --text-muted:     #87918c;
+  --brand-light:    #ccfbf1;
+  --brand-border:   #5eead4;
+  --brand-ring:     rgba(15, 118, 110, 0.22);
 
   /* Status */
-  --success:        #16a34a;
-  --warning:        #d97706;
-  --danger:         #dc2626;
-  --info:           #0ea5e9;
+  --status-blocker:        #b91c1c;
+  --status-blocker-hover:  #991b1b;
+  --status-blocker-light:  #fee2e2;
+  --status-blocker-border: #fecaca;
+  --status-blocker-text:   #7f1d1d;
+
+  --status-warning:        #b45309;
+  --status-warning-hover:  #92400e;
+  --status-warning-light:  #fef3c7;
+  --status-warning-border: #fde68a;
+  --status-warning-text:   #78350f;
+
+  --status-success:        #15803d;
+  --status-success-hover:  #166534;
+  --status-success-light:  #dcfce7;
+  --status-success-border: #bbf7d0;
+  --status-success-text:   #14532d;
 
   /* Rating bands */
-  --rating-investment:  #16a34a;
-  --rating-crossover:   #d97706;
-  --rating-speculative: #dc2626;
+  --rating-investment:  var(--status-success);
+  --rating-crossover:   var(--status-warning);
+  --rating-speculative: var(--status-blocker);
 
   /* Layout */
   --sidebar-w:      72px;
@@ -46,20 +56,31 @@
 
 /* ─── Dark mode overrides ─────────────────────────────────────────────────── */
 .dark {
-  --bg:             #0b0f1a;
-  --surface:        #111827;
-  --surface-muted:  #1f2937;
-  --surface-hover:  #1e293b;
+  --bg:             #020617;
+  --surface:        #0f172a;
+  --surface-muted:  #1e293b;
+  --surface-hover:  #334155;
+  --border:         #334155;
+  --border-strong:  #475569;
+  --text-primary:   #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted:     #94a3b8;
 
-  --border:         #1e293b;
-  --border-strong:  #334155;
+  --brand-light:    rgba(15, 118, 110, 0.18);
+  --brand-border:   rgba(94, 234, 212, 0.38);
+  --brand-ring:     rgba(15, 118, 110, 0.3);
 
-  --text-primary:   #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted:     #475569;
+  --status-blocker-light:  rgba(185, 28, 28, 0.16);
+  --status-blocker-border: rgba(248, 113, 113, 0.28);
+  --status-blocker-text:   #fecaca;
 
-  --brand-light:    rgba(14, 165, 160, 0.12);
-  --brand-ring:     rgba(14, 165, 160, 0.25);
+  --status-warning-light:  rgba(180, 83, 9, 0.18);
+  --status-warning-border: rgba(251, 191, 36, 0.28);
+  --status-warning-text:   #fde68a;
+
+  --status-success-light:  rgba(21, 128, 61, 0.18);
+  --status-success-border: rgba(74, 222, 128, 0.28);
+  --status-success-text:   #bbf7d0;
 }
 
 /* ─── Base reset ──────────────────────────────────────────────────────────── */
@@ -67,7 +88,7 @@
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Inria Sans', system-ui, sans-serif;
   font-size: 0.9375rem;
   font-weight: 400;
   line-height: 1.5;
@@ -79,7 +100,7 @@ body {
 
 /* Display font applied to h1–h3 automatically */
 h1, h2, h3, .font-display {
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Inria Sans', system-ui, sans-serif;
 }
 
 /* Mono font for numbers / code */
@@ -99,7 +120,7 @@ h1, h2, h3, .font-display {
 }
 
 .section-title {
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Inria Sans', system-ui, sans-serif;
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -181,8 +202,8 @@ h1, h2, h3, .font-display {
 .gex-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(22, 33, 29, 0.05), 0 10px 24px rgba(22, 33, 29, 0.04);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 /* ─── Badge ───────────────────────────────────────────────────────────────── */
@@ -197,17 +218,13 @@ h1, h2, h3, .font-display {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.gex-badge-green   { background: #dcfce7; color: #15803d; }
-.gex-badge-amber   { background: #fef9c3; color: #a16207; }
-.gex-badge-red     { background: #fee2e2; color: #b91c1c; }
-.gex-badge-blue    { background: #dbeafe; color: #1d4ed8; }
+.gex-badge-green   { background: var(--status-success-light); color: var(--status-success-text); }
+.gex-badge-amber   { background: var(--status-warning-light); color: var(--status-warning-text); }
+.gex-badge-red     { background: var(--status-blocker-light); color: var(--status-blocker-text); }
+.gex-badge-blue    { background: var(--surface-muted); color: var(--text-secondary); }
 .gex-badge-default { background: var(--surface-muted); color: var(--text-secondary); }
 
-.dark .gex-badge-green   { background: rgba(22,163,74,0.15);  color: #4ade80; }
-.dark .gex-badge-amber   { background: rgba(217,119,6,0.15);  color: #fbbf24; }
-.dark .gex-badge-red     { background: rgba(220,38,38,0.15);  color: #f87171; }
-.dark .gex-badge-blue    { background: rgba(29,78,216,0.15);  color: #60a5fa; }
-.dark .gex-badge-default { background: var(--surface-muted);  color: var(--text-secondary); }
+.dark .gex-badge-default { background: var(--surface-muted); color: var(--text-secondary); }
 
 /* ─── Rating letter badge ─────────────────────────────────────────────────── */
 .rating-aaa, .rating-aa, .rating-a   { color: var(--rating-investment); }
@@ -220,3 +237,39 @@ h1, h2, h3, .font-display {
 @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
 .animate-fade-in  { animation: fadeIn  0.2s ease; }
 .animate-slide-in { animation: slideIn 0.18s ease; }
+
+@layer utilities {
+  .bg-neutral-canvas { background-color: var(--bg); }
+  .bg-neutral-surface { background-color: var(--surface); }
+  .bg-neutral-muted { background-color: var(--surface-muted); }
+  .bg-neutral-hover { background-color: var(--surface-hover); }
+  .border-neutral-border { border-color: var(--border); }
+  .border-neutral-strong { border-color: var(--border-strong); }
+  .text-neutral-primary { color: var(--text-primary); }
+  .text-neutral-secondary { color: var(--text-secondary); }
+  .text-neutral-muted { color: var(--text-muted); }
+
+  .bg-brand-primary { background-color: var(--brand); }
+  .bg-brand-primary-hover { background-color: var(--brand-dark); }
+  .bg-brand-light { background-color: var(--brand-light); }
+  .border-brand-primary { border-color: var(--brand); }
+  .border-brand-subtle { border-color: var(--brand-border); }
+  .text-brand-primary { color: var(--brand); }
+  .text-brand-strong { color: var(--brand-dark); }
+  .ring-brand-focus { --tw-ring-color: var(--brand-ring); }
+
+  .bg-status-blocker { background-color: var(--status-blocker); }
+  .bg-status-blocker-light { background-color: var(--status-blocker-light); }
+  .border-status-blocker { border-color: var(--status-blocker-border); }
+  .text-status-blocker { color: var(--status-blocker-text); }
+
+  .bg-status-warning { background-color: var(--status-warning); }
+  .bg-status-warning-light { background-color: var(--status-warning-light); }
+  .border-status-warning { border-color: var(--status-warning-border); }
+  .text-status-warning { color: var(--status-warning-text); }
+
+  .bg-status-success { background-color: var(--status-success); }
+  .bg-status-success-light { background-color: var(--status-success-light); }
+  .border-status-success { border-color: var(--status-success-border); }
+  .text-status-success { color: var(--status-success-text); }
+}

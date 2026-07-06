@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Filter, TrendingUp, MapPin, Calendar, DollarSign, Award, FileText } from 'lucide-react';
+// Screen: Market discovery screen (/market-discovery)
+import { useState, useEffect } from 'react';
+import { Filter, TrendingUp, MapPin, Calendar, DollarSign, Award, FileText } from 'lucide-react';
 
 interface Offer {
   id: string;

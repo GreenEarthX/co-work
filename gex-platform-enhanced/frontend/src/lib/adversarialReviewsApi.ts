@@ -1,12 +1,27 @@
+// Screen: API client (no screen)
 const API_PREFIX = '/api/v1/adversarial-reviews'
 
+// Bearer token from the persisted auth session (same key UserRoleContext writes).
+// Without it the ABAC middleware rejects every /api/ call with 401 and the
+// review workspace renders empty.
+function authToken(): string | null {
+  try {
+    const saved = localStorage.getItem('gex_auth_session')
+    return saved ? (JSON.parse(saved).token ?? null) : null
+  } catch {
+    return null
+  }
+}
+
 async function fetchAdversarial<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const token = authToken()
   const response = await fetch(`${API_PREFIX}${endpoint}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
-    ...options,
   })
 
   if (!response.ok) {

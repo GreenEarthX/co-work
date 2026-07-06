@@ -1,3 +1,4 @@
+// Screen: Legacy API client (no screen)
 const API_BASE_URL = 'http://localhost:8000/api/v1'
 
 // Generic fetch wrapper

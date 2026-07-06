@@ -1,3 +1,4 @@
+// Screen: All screens (root router)
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
@@ -6,6 +7,7 @@ import { useUserRole } from '@/contexts/UserRoleContext'
 import { Layout } from '@/components/Layout'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { GuestLandingPage } from '@/features/auth/GuestLandingPage'
+import { AccountPage } from '@/features/auth/AccountPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { FinanceDashboardPage } from '@/features/finance/FinanceDashboardPage'
 import { StageGatesPage } from '@/features/finance/StageGatesPage'
@@ -14,6 +16,8 @@ import { CovenantsPage } from '@/features/finance/CovenantsPage'
 import { InsurancePage } from '@/features/finance/InsurancePage'
 import { CapacityPage } from '@/features/capacity/CapacityPage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
+import { ProjectProfilePage } from '@/features/projects/ProjectProfilePage'
+import { NewProjectPage } from '@/features/projects/NewProjectPage'
 import { ProductionPage } from '@/features/production/ProductionPage'
 import { TokenisationPage } from '@/features/tokenisation/TokenisationPage'
 import { MarketplacePage } from '@/features/marketplace/MarketplacePage'
@@ -45,6 +49,7 @@ import { PlantDataDashboard } from '@/features/producer/PlantDataDashboard'
 import BankabilityScorePage from '@/features/finance/BankabilityScorePage'
 import { BankersSnapshot } from '@/features/finance/BankersSnapshot'
 import { DSCRHeatmap } from '@/features/finance/DSCRHeatmap'
+import { FinanceRouteGuard } from '@/components/FinanceRouteGuard'
 import { OfftakeQuality } from '@/features/finance/OfftakeQuality'
 import { CertReadiness } from '@/features/finance/CertReadiness'
 import { ProjectTimeline } from '@/features/finance/ProjectTimeline'
@@ -60,15 +65,29 @@ import { GanttVisibilityConfig } from '@/features/ciso/GanttVisibilityConfig'
 import { GapAnalysis } from '@/features/finance/GapAnalysis'
 import { GabillonAdminPage } from '@/features/pricing/GabillonAdminPage'
 import { MoleculePriceCurve } from '@/features/pricing/MoleculePriceCurve'
+import MoleculeLineage from '@/features/pricing/MoleculeLineage'
 import { InstrumentCatalog } from '@/features/finance/InstrumentCatalog'
-import { PackageBuilder } from '@/features/finance/PackageBuilder'
+import { InstrumentCompatibility } from '@/features/finance/InstrumentCompatibility'
+import { PackageRegister } from '@/features/finance/PackageRegister'
 import { RiskAllocationMatrix } from '@/features/finance/RiskAllocationMatrix'
 import { StructuringTimeline } from '@/features/finance/StructuringTimeline'
 import { DemandPipeline } from '@/features/finance/DemandPipeline'
 import { PlantBuilder } from '@/features/finance/PlantBuilder'
 import { AdversarialReviewPage } from '@/features/reviews/AdversarialReviewPage'
+import { SpendWaveView } from '@/features/finance/SpendWaveView'
+import { DebtCashflowWaterfall } from '@/features/finance/DebtCashflowWaterfall'
+import { DrawdownTimeline } from '@/features/finance/DrawdownTimeline'
+import { DFIDashboard } from '@/features/finance/DFIDashboard'
+import { LineagePanel } from '@/features/finance/LineagePanel'
 import { InsuranceCoverageBuilder } from '@/features/insurance/InsuranceCoverageBuilder'
 import { InsuranceAssetRegister } from '@/features/insurance/InsuranceAssetRegister'
+import { GatedRoute } from '@/components/GatedRoute'
+import { ProcurementSimulatorPage } from '@/features/procurement/ProcurementSimulatorPage'
+import { KycVerification } from '@/features/kyc/KycVerificationPage'
+import { KybVerification } from '@/features/kyc/KybVerificationPage'
+import PlantCanvas from '@/features/canvas/PlantCanvas'
+import CanvasPlantBuilder from '@/features/canvas/PlantBuilder'
+import SiteInfrastructure from '@/features/canvas/SiteInfrastructure'
 
 // This fixes the QueryClient error
 const queryClient = new QueryClient()
@@ -104,10 +123,18 @@ function App() {
             <Route path="/onboarding" element={<OnboardingWizard />} />
             <Route path="/get-started" element={<OnboardingWizard />} />
 
+            {/* ── KYC/KYB — full-page flows with own header, outside Layout ── */}
+            <Route path="/kyc" element={<RequireAuth><KycVerification /></RequireAuth>} />
+            <Route path="/kyc/:projectId" element={<RequireAuth><KycVerification /></RequireAuth>} />
+            <Route path="/kyb" element={<RequireAuth><KybVerification /></RequireAuth>} />
+
             {/* ── Protected routes — pathless layout so existing paths (/dashboard, /finance/*) stay intact ── */}
             <Route element={<RequireAuth><Layout /></RequireAuth>}>
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/account" element={<AccountPage />} />
               <Route path="projects" element={<ProjectsPage />} />
+              <Route path="projects/new" element={<NewProjectPage />} />
+              <Route path="projects/:id/edit" element={<ProjectProfilePage />} />
               <Route path="adversarial-review" element={<AdversarialReviewPage />} />
               <Route path="production" element={<ProductionPage />} />
               <Route path="capacity" element={<CapacityPage />} />
@@ -124,13 +151,20 @@ function App() {
               <Route path="covenants" element={<CovenantsPage />} />
               <Route path="insurance" element={<InsurancePage />} />
               <Route path="finance-reports" element={<PlaceholderPage title="Reports & Audit" workspace="Finance" />} />
-              <Route path="finance-gaps" element={<GapAnalysis />} />
+              <Route path="finance-gaps" element={<GatedRoute path="/finance-gaps"><GapAnalysis /></GatedRoute>} />
               <Route path="finance-instruments" element={<InstrumentCatalog />} />
-              <Route path="finance-package" element={<PackageBuilder />} />
+              <Route path="instrument-compatibility" element={<InstrumentCompatibility />} />
+              <Route path="finance-package" element={<PackageRegister />} />
               <Route path="finance-risk-matrix" element={<RiskAllocationMatrix />} />
               <Route path="finance-structuring-timeline" element={<StructuringTimeline />} />
               <Route path="finance-demand" element={<DemandPipeline />} />
               <Route path="finance-plant-builder" element={<PlantBuilder />} />
+              <Route path="procurement-simulator" element={<ProcurementSimulatorPage />} />
+
+              {/* ── Canvas / Plant Design ── */}
+              <Route path="canvas/:plantId" element={<PlantCanvas />} />
+              <Route path="canvas/:plantId/infrastructure" element={<SiteInfrastructure />} />
+              <Route path="plants" element={<CanvasPlantBuilder />} />
 
               {/* ── /finance/* — clean URLs used by deal-killer links & direct nav ── */}
               <Route path="finance">
@@ -143,20 +177,25 @@ function App() {
                 <Route path="bankability"         element={<FinanceBankabilityView />} />
                 <Route path="bankability-scores"  element={<BankabilityScorePage />} />
                 <Route path="bankers-snapshot"    element={<BankersSnapshot />} />
-                <Route path="dscr-sensitivity"    element={<DSCRHeatmap />} />
-                <Route path="offtake-quality"     element={<OfftakeQuality />} />
+                <Route path="dscr-sensitivity"    element={<FinanceRouteGuard routeLabel="DSCR Sensitivity Analysis"><DSCRHeatmap /></FinanceRouteGuard>} />
+                <Route path="offtake-quality"     element={<GatedRoute path="/offtake-quality"><OfftakeQuality /></GatedRoute>} />
                 <Route path="cert-readiness"      element={<CertReadiness />} />
                 <Route path="timeline"            element={<ProjectTimeline />} />
-                <Route path="ic-pack"             element={<ICPackBuilder />} />
-                <Route path="capital-stack"       element={<CapitalStack />} />
-                <Route path="data-room"           element={<DataRoom />} />
-                <Route path="term-sheet"          element={<TermSheetTracker />} />
+                <Route path="ic-pack"             element={<GatedRoute path="/ic-pack"><ICPackBuilder /></GatedRoute>} />
+                <Route path="capital-stack"       element={<GatedRoute path="/capital-stack"><CapitalStack /></GatedRoute>} />
+                <Route path="data-room"           element={<GatedRoute path="/data-room"><DataRoom /></GatedRoute>} />
+                <Route path="term-sheet"          element={<GatedRoute path="/term-sheet"><TermSheetTracker /></GatedRoute>} />
                 <Route path="transfer-readiness"  element={<TransferReadiness />} />
-                <Route path="insurance-schedule"  element={<InsuranceSchedule />} />
-                <Route path="gaps"                element={<GapAnalysis />} />
+                <Route path="insurance-schedule"  element={<GatedRoute path="/insurance-schedule"><InsuranceSchedule /></GatedRoute>} />
+                <Route path="gaps"                element={<GatedRoute path="/finance-gaps"><GapAnalysis /></GatedRoute>} />
                 <Route path="evidence-hierarchy"  element={<EvidenceHierarchy />} />
-                <Route path="approval-queue"      element={<ApprovalQueuePage />} />
-                <Route path="commitment-signing"  element={<CommitmentSigning />} />
+                <Route path="spend-wave"         element={<SpendWaveView />} />
+                <Route path="debt-waterfall"     element={<DebtCashflowWaterfall />} />
+                <Route path="drawdown-timeline"  element={<GatedRoute path="/finance/drawdown-timeline"><DrawdownTimeline /></GatedRoute>} />
+                <Route path="dfi-dashboard"      element={<DFIDashboard />} />
+                <Route path="lineage"            element={<LineagePanel />} />
+                <Route path="approval-queue"      element={<GatedRoute path="/approval-queue"><ApprovalQueuePage /></GatedRoute>} />
+                <Route path="commitment-signing"  element={<GatedRoute path="/commitment-signing"><CommitmentSigning /></GatedRoute>} />
                 <Route path="commitment-verifier" element={<CommitmentVerifier />} />
               </Route>
 
@@ -186,11 +225,11 @@ function App() {
               <Route path="stakeholders" element={<PlaceholderPage title="Stakeholder View" workspace="Executive" />} />
               <Route path="executive-analytics" element={<PlaceholderPage title="Advanced Analytics" workspace="Executive" />} />
 
-              {/* ── WAE / Approval Queue (Finance + Executive) ── */}
-              <Route path="approval-queue"      element={<ApprovalQueuePage />} />
+              {/* ── WAE / Approval Queue (Finance + Executive) — gate-locked ── */}
+              <Route path="approval-queue"      element={<GatedRoute path="/approval-queue"><ApprovalQueuePage /></GatedRoute>} />
 
-              {/* ── CSS / Commitment Signing (Finance) ── */}
-              <Route path="commitment-signing"  element={<CommitmentSigning />} />
+              {/* ── CSS / Commitment Signing (Finance) — gate-locked ── */}
+              <Route path="commitment-signing"  element={<GatedRoute path="/commitment-signing"><CommitmentSigning /></GatedRoute>} />
               <Route path="commitment-verifier" element={<CommitmentVerifier />} />
 
               {/* ── OT Plant Telemetry (Producer) ── */}
@@ -203,33 +242,34 @@ function App() {
               {/* R8: Offtaker 4-column supply table */}
               <Route path="offtaker-supply"     element={<OfftakerSupplyTable />} />
 
-              {/* ── B1: Banker's Snapshot + DSCR Heatmap (Finance) ── */}
-              <Route path="bankability-snapshot" element={<BankersSnapshot />} />
-              <Route path="dscr-sensitivity"     element={<DSCRHeatmap />} />
+              {/* ── B1: Banker's Snapshot + DSCR Heatmap (Finance) — gate-locked ── */}
+              <Route path="bankability-snapshot" element={<GatedRoute path="/bankability-snapshot"><BankersSnapshot /></GatedRoute>} />
+              <Route path="dscr-sensitivity"     element={<FinanceRouteGuard routeLabel="DSCR Sensitivity Analysis"><DSCRHeatmap /></FinanceRouteGuard>} />
 
               {/* ── B2: Offtake Quality + Cert Readiness + Timeline (Finance) ── */}
-              <Route path="offtake-quality"      element={<OfftakeQuality />} />
+              <Route path="offtake-quality"      element={<GatedRoute path="/offtake-quality"><OfftakeQuality /></GatedRoute>} />
               <Route path="cert-readiness"       element={<CertReadiness />} />
               <Route path="finance-timeline"     element={<ProjectTimeline />} />
 
-              {/* ── B3: IC Pack Builder (Finance) ── */}
-              <Route path="ic-pack"              element={<ICPackBuilder />} />
+              {/* ── B3: IC Pack Builder (Finance) — gate-locked ── */}
+              <Route path="ic-pack"              element={<GatedRoute path="/ic-pack"><ICPackBuilder /></GatedRoute>} />
 
-              {/* ── CFO Report (Executive) ── */}
+              {/* ── CEO Report (Operations / Executive) ── */}
               <Route path="cfo-report"           element={<CFOReport />} />
 
-              {/* ── B3: Capital Stack + Data Room + Terms + Transfer (Finance) ── */}
-              <Route path="capital-stack"        element={<CapitalStack />} />
-              <Route path="data-room"            element={<DataRoom />} />
-              <Route path="term-sheet"           element={<TermSheetTracker />} />
+              {/* ── B3: Capital Stack + Data Room + Terms + Transfer (Finance) — gate-locked ── */}
+              <Route path="capital-stack"        element={<GatedRoute path="/capital-stack"><CapitalStack /></GatedRoute>} />
+              <Route path="data-room"            element={<GatedRoute path="/data-room"><DataRoom /></GatedRoute>} />
+              <Route path="term-sheet"           element={<GatedRoute path="/term-sheet"><TermSheetTracker /></GatedRoute>} />
               <Route path="transfer-readiness"   element={<TransferReadiness />} />
-              <Route path="insurance-schedule"   element={<InsuranceSchedule />} />
+              <Route path="insurance-schedule"   element={<GatedRoute path="/insurance-schedule"><InsuranceSchedule /></GatedRoute>} />
 
               {/* ── Gantt Visibility Config (CISO) ── */}
               <Route path="ciso-gantt-config"    element={<GanttVisibilityConfig />} />
 
               {/* ── Gabillon / Pricing (CISO Webmaster + project view) ── */}
               <Route path="ciso-pricing"         element={<GabillonAdminPage />} />
+              <Route path="pricing-lineage"      element={<FinanceRouteGuard routeLabel="Price Decomposition (Gabillon)"><MoleculeLineage /></FinanceRouteGuard>} />
               <Route path="pricing-curves"       element={
                 <div className="space-y-6">
                   <div>
@@ -241,7 +281,7 @@ function App() {
                     </p>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                    {['H2','NH3','E_METHANOL','E_NG','SAF','HVO'].map(mol => (
+                    {['E_METHANE','E_METHANOL','E_NH3','HVO','SAF','E_GASOLINE','E_LG','E_NAPHTHA'].map(mol => (
                       <MoleculePriceCurve key={mol} molecule={mol} showTable />
                     ))}
                   </div>
@@ -249,7 +289,7 @@ function App() {
               } />
 
               {/* ── Insurance Workspace (Insurer + Producer Finance) ── */}
-              <Route path="insurance-coverage" element={<InsuranceCoverageBuilder />} />
+              <Route path="insurance-coverage" element={<GatedRoute path="/insurance-coverage"><InsuranceCoverageBuilder /></GatedRoute>} />
               <Route path="insurance-assets"   element={<InsuranceAssetRegister />} />
 
               {/* ── CISO Workspace ── */}

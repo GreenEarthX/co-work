@@ -91,7 +91,7 @@ const ENTRY_OPTIONS: Array<{
   },
 ];
 
-const ENTRY_MOLECULES = ['H2', 'NH3', 'SAF', 'e-Methanol'] as const;
+const ENTRY_MOLECULES = ['e-Methane', 'e-Methanol', 'e-NH3', 'HVO', 'SAF', 'e-Gasoline', 'e-LG', 'e-Naphtha'] as const;
 
 const ENTRY_ROLE_PRESETS: Record<EntryObjective, UserRole> = {
   PROJECT_REALITY: {
@@ -125,7 +125,7 @@ const ENTRY_ROLE_PRESETS: Record<EntryObjective, UserRole> = {
 };
 
 function mapEntryMoleculeToWizardValue(molecule: string): string {
-  return molecule === 'e-Methanol' ? 'CH3OH' : molecule;
+  return molecule;
 }
 
 const OnboardingWizard: React.FC = () => {
@@ -133,7 +133,7 @@ const OnboardingWizard: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [entryStarted, setEntryStarted] = useState(false);
   const [entryObjective, setEntryObjective] = useState<EntryObjective>('PROJECT_REALITY');
-  const [entryMolecule, setEntryMolecule] = useState<(typeof ENTRY_MOLECULES)[number]>('H2');
+  const [entryMolecule, setEntryMolecule] = useState<(typeof ENTRY_MOLECULES)[number]>('e-Methane');
   const [loading, setLoading] = useState(false);
 
   // ── Offtaker intake state ──────────────────────────────────────────────────
@@ -375,7 +375,7 @@ const OnboardingWizard: React.FC = () => {
                       onChange={e => setOfftakerData(d => ({ ...d, molecule: e.target.value }))}
                       className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
                     >
-                      {['H2', 'NH3', 'e-Methanol', 'SAF', 'e-NG'].map(m => (
+                      {ENTRY_MOLECULES.map(m => (
                         <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
@@ -804,10 +804,9 @@ const OnboardingWizard: React.FC = () => {
                     onChange={(e) => setStep1Data({...step1Data, molecule: e.target.value})}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="H2">H2 - Hydrogen</option>
-                    <option value="NH3">NH3 - Ammonia</option>
-                    <option value="SAF">SAF - Sustainable Aviation Fuel</option>
-                    <option value="CH3OH">CH3OH - Methanol</option>
+                    {ENTRY_MOLECULES.map((molecule) => (
+                      <option key={molecule} value={molecule}>{molecule}</option>
+                    ))}
                   </select>
                 </div>
 

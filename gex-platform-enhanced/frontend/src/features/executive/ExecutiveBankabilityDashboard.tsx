@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { TrendingUp, AlertTriangle, CheckCircle, DollarSign, Users, Activity, Target, Eye } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { AlertTriangle, CheckCircle, DollarSign, Users, Activity, Target, Eye } from 'lucide-react';
 import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
 
 interface ProjectBankabilityKPI {
@@ -178,7 +178,7 @@ export function ExecutiveBankabilityDashboard() {
               Capital Pipeline
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              {portfolioData.capital_pipeline.map((stage, index) => (
+              {portfolioData.capital_pipeline.map((stage, _index) => (
                 <div key={stage.stage} className="text-center">
                   <div className="text-lg font-bold text-gray-900">{stage.amount}</div>
                   <div className="text-sm text-gray-600">{stage.stage}</div>

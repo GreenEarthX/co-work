@@ -1,3 +1,4 @@
+// Screen: Barrier management screen (/ciso-barriers)
 /**
  * BarrierManagement — CISO view for Domain 3: Information Barriers.
  * Shows configured Chinese Walls / HARD/SOFT barriers between desks.

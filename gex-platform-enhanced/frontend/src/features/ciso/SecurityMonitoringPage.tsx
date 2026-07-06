@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, RefreshCw, CheckCircle, XCircle, Filter } from 'lucide-react';
+// Screen: Security monitoring / access monitor screen (/ciso-access-monitor)
+import { useState, useEffect, useMemo } from 'react';
+import { Search, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,8 +51,8 @@ export function SecurityMonitoringPage() {
 
   const [search, setSearch]       = useState('');
   const [filterDecision, setFilterDecision] = useState<'ALL' | 'ALLOW' | 'DENY'>('ALL');
-  const [filterUser, setFilterUser]         = useState('');
-  const [filterProject, setFilterProject]   = useState('');
+  const [filterUser, _setFilterUser]         = useState('');
+  const [filterProject, _setFilterProject]   = useState('');
 
   const load = (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
@@ -60,9 +61,7 @@ export function SecurityMonitoringPage() {
     if (filterUser)    params.set('user_id', filterUser);
     if (filterProject) params.set('project_id', filterProject);
 
-    fetch(`/api/v1/ciso/access-log?${params}`, {
-      headers: { 'x-demo-company': 'bp_global_energy' },
-    })
+    fetch(`/api/v1/ciso/access-log?${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d?.events) setEvents(d.events);

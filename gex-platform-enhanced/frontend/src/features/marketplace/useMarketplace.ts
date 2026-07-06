@@ -1,3 +1,4 @@
+// Screen: Marketplace hook (no screen)
 // src/features/marketplace/useMarketplace.ts
 // ─────────────────────────────────────────────────────────────────────────────
 // React Query hook for marketplace offers & RFQs.

@@ -10,7 +10,8 @@ router = APIRouter()
 
 
 # Database path - 3 levels up from app/api/endpoints/ to backend/
-DB_PATH = os.path.join(os.path.dirname(__file__), '../../../gex_platform.db')
+from app.core.config import settings
+DB_PATH = settings.SQLITE_DB_PATH
 
 # ADD THESE LINES:
 insurance_db = None
@@ -105,7 +106,8 @@ async def get_stage_gates():
             },
         ]
 
-# Covenants
+# ── Response models ──────────────────────────────────────────────────────────
+
 class CovenantResponse(BaseModel):
     name: str
     current: str
@@ -114,10 +116,6 @@ class CovenantResponse(BaseModel):
     trend: str
     lastUpdated: str
 
-@router.get("/covenants", response_model=List[CovenantResponse])
-
-
-# Insurance
 class InsuranceResponse(BaseModel):
     id: str
     type: str
@@ -129,10 +127,6 @@ class InsuranceResponse(BaseModel):
     daysUntilExpiry: int
     status: str
 
-@router.get("/insurance", response_model=List[InsuranceResponse])
-
-
-# Guarantees
 class GuaranteeResponse(BaseModel):
     id: str
     type: str
@@ -142,10 +136,6 @@ class GuaranteeResponse(BaseModel):
     expiryDate: str
     status: str
 
-@router.get("/guarantees", response_model=List[GuaranteeResponse])
-
-
-# Contracts (for revenue)
 class ContractResponse(BaseModel):
     id: str
     counterparty: str
@@ -159,10 +149,6 @@ class ContractResponse(BaseModel):
     creditRating: str
     status: str
 
-@router.get("/contracts", response_model=List[ContractResponse])
-
-
-# Risks
 class RiskResponse(BaseModel):
     id: str
     category: str
@@ -173,20 +159,8 @@ class RiskResponse(BaseModel):
     owner: str
     status: str
 
-@router.get("/risks", response_model=List[RiskResponse])
 
-
-# Insurance
-class InsuranceResponse(BaseModel):
-    id: str
-    type: str
-    provider: str
-    coverage: str
-    premium: str
-    startDate: str
-    expiryDate: str
-    daysUntilExpiry: int
-    status: str
+# ── Route handlers ───────────────────────────────────────────────────────────
 
 @router.get("/insurance", response_model=List[InsuranceResponse])
 async def get_insurance():
@@ -222,16 +196,6 @@ async def get_insurance():
         print(f"Error fetching insurance: {e}")
         return []
 
-# Guarantees
-class GuaranteeResponse(BaseModel):
-    id: str
-    type: str
-    provider: str
-    amount: str
-    beneficiary: str
-    expiryDate: str
-    status: str
-
 @router.get("/guarantees", response_model=List[GuaranteeResponse])
 async def get_guarantees():
     """Get all guarantees"""
@@ -263,20 +227,6 @@ async def get_guarantees():
     except Exception as e:
         print(f"Error fetching guarantees: {e}")
         return []
-
-# Contracts (for revenue)
-class ContractResponse(BaseModel):
-    id: str
-    counterparty: str
-    molecule: str
-    volume_mtpd: float
-    price_eur_kg: float
-    pricingBasis: str
-    startDate: str
-    endDate: str
-    tenor_years: int
-    creditRating: str
-    status: str
 
 @router.get("/contracts", response_model=List[ContractResponse])
 async def get_contracts():
@@ -319,17 +269,6 @@ async def get_contracts():
     except Exception as e:
         print(f"Error fetching contracts: {e}")
         return []
-
-# Risks
-class RiskResponse(BaseModel):
-    id: str
-    category: str
-    description: str
-    impact: str
-    likelihood: str
-    mitigation: str
-    owner: str
-    status: str
 
 @router.get("/risks", response_model=List[RiskResponse])
 async def get_risks():
@@ -467,9 +406,6 @@ async def get_financial_model_results(match_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-#Also ENHANCE your existing `/covenants` endpoint to include DSCR from financial model:
-
-# MODIFY EXISTING get_covenants() function
 @router.get("/covenants", response_model=List[CovenantResponse])
 async def get_covenants():
     """Get all covenant metrics (ENHANCED with financial model DSCR)"""

@@ -1,3 +1,4 @@
+// Screen: IC pack builder screen (/ic-pack, /finance/ic-pack)
 /**
  * ICPackBuilder — Investment Committee Pack assembly tool.
  * Assembles and previews IC packs for lender submission, with section
@@ -9,7 +10,7 @@ import {
   ChevronDown, ChevronUp, Zap, Clock, Lock, Share2, Hash,
 } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
 // ─────────────────────────────── Types ───────────────────────────────────────
 
@@ -270,7 +271,8 @@ export function ICPackBuilder() {
   const [showPreview, setShowPreview] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
 
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId)
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
   const projectId = selectedProjectId ?? 'unknown'
 
   const sections = useMemo(() => buildSections(projectId), [projectId])

@@ -1,3 +1,4 @@
+// Screen: Hook (no screen)
 import { useEffect, useState } from "react";
 import { scoreProjectRating } from "@/lib/api/projectRatings";
 import type { ProjectRatingRequest, ProjectRatingResponse } from "@/types/projectRating";

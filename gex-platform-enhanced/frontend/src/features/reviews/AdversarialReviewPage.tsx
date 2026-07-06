@@ -1,3 +1,4 @@
+// Screen: Adversarial review screen (/adversarial-review)
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -10,7 +11,7 @@ import {
   Siren,
   Workflow,
 } from 'lucide-react'
-import { CUSTOMER_PROJECTS, getProjectById } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { AdversarialReviewEntryCard } from '@/components/AdversarialReviewEntryCard'
 import {
@@ -648,7 +649,8 @@ export function AdversarialReviewPage() {
     await loadProjectState()
   }
 
-  const project = getProjectById(projectId) ?? CUSTOMER_PROJECTS[0]
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === projectId) ?? visibleProjects[0]
   const actorPresets = presets.filter(preset => preset.actor_type === draft.actor_type)
 
   return (
@@ -670,7 +672,7 @@ export function AdversarialReviewPage() {
         </div>
       </div>
 
-      <AdversarialReviewEntryCard projectId={projectId} actorType={actorType} title="Project challenge summary" />
+      <AdversarialReviewEntryCard projectId={projectId} actorType={actorType} title="Project challenge summary" linkToWorkspace={false} />
 
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-[220px_220px_1fr]">
@@ -681,7 +683,7 @@ export function AdversarialReviewPage() {
               onChange={event => setSearchParams({ project: event.target.value, actor: actorType })}
               className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
             >
-              {CUSTOMER_PROJECTS.map(item => (
+              {visibleProjects.map(item => (
                 <option key={item.id} value={item.id}>{item.name}</option>
               ))}
             </select>

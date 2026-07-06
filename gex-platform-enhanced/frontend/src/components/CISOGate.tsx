@@ -1,5 +1,6 @@
+// Screen: Shared component — CISO-gated screens
 import React, { useState, useEffect } from 'react';
-import { Lock, X, ShieldCheck } from 'lucide-react';
+import { X, ShieldCheck } from 'lucide-react';
 
 export function CISOGate({
   isOpen,

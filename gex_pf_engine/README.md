@@ -71,7 +71,16 @@ GEX Project Finance Engine (port 8001)   ← this service
 | REGULATOR | G2, G6, G9 |
 | EXECUTIVE | G0, G5, G11 + portfolio summary |
 
-**Verification-weighted scores (v6.0 R2):** effective score = raw score × mean(verification weights), where UNVERIFIED=0.25, SUBMITTED=0.50, CONFIRMED=0.85, AUDITED=1.00. State machine uses effective scores, not raw.
+**Current completion logic (2026-04-05):** the engine returns `overall_completion_pct` and gate completion based on verified evidence coverage. Verification-weighted effective scoring remains the intended R2 consolidation model, but it is not yet the only implementation path across the codebase.
+
+---
+
+## Integrity Status (2026-04-05)
+
+- Core bankability and financial-model modules compile and remain usable through the platform proxy.
+- `app/api/routes_model.py` still contains placeholder project-summary integration, so model outputs are not yet fully grounded in one shared project truth.
+- `app/core/engine.py` still carries the shared event-store TODO, so engine events are not yet integrated into a broader operational event spine.
+- `micro_service/` exists in this workspace as local runtime material. It should be treated as environment state, not source architecture.
 
 ---
 
@@ -143,7 +152,7 @@ gex_pf_engine/
 │   │           ├── sculpting.py       # Debt sculpting (stub)
 │   │           └── tranche.py         # Tranche management (stub)
 │   └── requirements.txt
-├── micro_service/                     # Python venv (not committed)
+├── micro_service/                     # Local venv present in this workspace; runtime material, not source
 └── docs/
     └── ARCHITECTURE.md
 ```

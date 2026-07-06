@@ -1,0 +1,239 @@
+# =============================================================================
+# GEX Canonical Pathway Schema  ·  v0.1 draft  ·  2026-06-29
+# -----------------------------------------------------------------------------
+# Borrows the process-engineering hierarchy of insightquantix/pathway-spec
+# (feedstock → stream → process_unit → TEA → LCA) and binds it to the vocabulary
+# GEX already owns and tests in efuel_truth_stack:
+#   - layers      ← efuel_truth_stack.enums.Layer
+#   - claim.state ← efuel_truth_stack.enums.ClaimState  (the 9-state machine)
+#   - gates       ← efuel_truth_stack.models.ApprovalRequirement (12-gate framework)
+#   - units       ← gex_fuel_catalog.json (per-fuel measures)
+#
+# Principle: a GEX pathway is NOT a config file. Every leaf value is a *claim*
+# carrying evidence and a verification state, so the same object that describes
+# the molecule also proves it is bankable. One object, eleven actors, one truth.
+# =============================================================================
+
+$schema_version: "0.1"
+kind: gex.pathway
+
+# ----------------------------------------------------------------------------
+# 0. METADATA  (pathway-spec: metadata + functional unit)
+# ----------------------------------------------------------------------------
+metadata:
+  pathway_id:        str          # stable id, e.g. "PW-BREIZH-EMEOH-001"
+  project_id:        str          # FK → truth-stack CanonicalLedgerEntry.project_id
+  title:             str
+  fuel_id:           enum         # MUST be an id in gex_fuel_catalog.json (e.g. E_METHANOL)
+  functional_unit:   str          # e.g. "1 t e-methanol at plant gate"
+  jurisdiction:      str          # ISO-3166; drives public_controls layer
+  feed_class:        enum[1,2,3]  # FEED maturity (client is FEED Class 3)
+  created_at:        datetime
+  spec_ref:          str          # hash of the spec version this object validates against
+
+# ----------------------------------------------------------------------------
+# 0b. EVIDENCE ENTRIES  — immutable ledger facts the claims hang off.
+#    A calculation (OpenPyTEA run) or an input set (assumption pack) is EVIDENCE,
+#    never a claim. Mirrors efuel_truth_stack.CanonicalLedgerEntry. The split is
+#    the heart of the design: OpenPyTEA *produces evidence*; GEX *promotes a
+#    claim* against that evidence only on approval. Producer is bound by the
+#    truth-stack WRITE_AUTHORITY table — e.g. only `tea_engine` may write the run.
+# ----------------------------------------------------------------------------
+evidence_entries:
+  - id:           str            # "LE-..." ledger entry id (referenced by evidence_refs)
+    kind:         enum           # fact | decision | derived
+    entry_type:   enum           # projection_snapshot (run) | measurement | contract | ...
+    produced_by:  str            # actor id; must be an allowed writer for entry_type
+    hash:         str            # content hash (compute_entry_hash) — the audit anchor
+    summary:      str            # human note (NOT a source of truth)
+
+# ----------------------------------------------------------------------------
+# 1. CLAIM REGISTRY  — every value referenced below resolves to one of these.
+#    Mirrors efuel_truth_stack.models.Claim 1:1 so it round-trips to the ledger.
+#    A claim's `value` for a calculation result is a PROJECTION of its evidence
+#    (read cache), derived by hash — never edited independently of the evidence.
+# ----------------------------------------------------------------------------
+claims:
+  - id:            str           # "CLM-..." ; referenced as {claim: CLM-...} everywhere
+    subject_node:  str           # FK → nodes[].id ; MUST be a canonical registry node
+    claim_type:    str           # MUST be a canonical claim_type (see §2 constraint)
+    value_type:    enum          # numeric | boolean | categorical | doc_ref
+    value:         any
+    unit:          str|null      # from fuel catalog measures where applicable
+    state:         enum          # 9-STATE MACHINE — see transitions below
+    period:        str|null
+    valid_from:    date
+    valid_to:      date|null
+    evidence_refs: [EvidenceLink] # {ledger_entry_id, evidence_hash, claim_id?}
+    authority_rule: str          # which actor/rule may move this claim's state
+    # -- lineage & reconciliation (mirror CanonicalLedgerEntry / Claim) --------
+    supersedes_claim:        str|null  # id of the prior version this replaces
+    reconciliation_group_id: str|null  # links ex-ante claim → ex-post measured facts
+
+# ClaimState (informational — enforced in code, not re-declared here):
+#   asserted → submitted → verified → satisfied
+#                  ↘ rejected ↺      ↘ expired / superseded
+#   waived (terminal-valid) · failed (terminal-invalid)
+# Terminal-valid = {verified, satisfied, waived}. Promotion to `verified` is the
+# FOLDED RESULT of an APPROVAL_DECISION entry (CFO/IE) — not a hand-set field.
+
+# ----------------------------------------------------------------------------
+# 2. NODES  — the dependency graph. Mirrors efuel_truth_stack.models.Node.
+#    `layer` is the truth-stack Layer enum, verbatim. This is the integration
+#    spine: producers/certifiers/financiers all attach evidence to nodes.
+#
+#    CANONICAL-VOCABULARY CONSTRAINT (enforced by validate_pathway.py B5/B6):
+#    node `id` MUST be one of the truth-stack canonical node ids
+#    (efuel_truth_stack.projectors.NODES — e.g. electrolyser, synthesis, product,
+#    financial_model, ghg_lca, goo_pos, offtake_matrix, epc_signed, fel_class),
+#    and each claim's claim_type MUST be a `required_claims` member of its
+#    subject_node. Inventing ids/claim_types binds to the *types* but NOT to the
+#    rollup projector — i.e. it silently never folds. This is the rule that keeps
+#    GEX from re-creating the capital_taxonomy vocabulary entropy.
+# ----------------------------------------------------------------------------
+nodes:
+  - id:               str        # MUST ∈ projectors.NODES (canonical registry)
+    layer:            enum       # molecule | certification | engineering |
+                                 # commercial | financial | accounts |
+                                 # capital | public_controls
+    label:            str
+    depends_on:       [str]      # node ids — builds the molecule→capital DAG
+    required_claims:  [str]      # claim ids that must be terminal-valid
+    rolled_up_state:  enum|null  # computed: weakest required claim state
+
+# ----------------------------------------------------------------------------
+# 3. PROCESS LAYER  (pathway-spec core — lives under layer: engineering)
+#    This is what feeds OpenPyTEA (Play #1). Each process_unit → an OpenPyTEA
+#    Equipment; streams close the mass/energy balance.
+# ----------------------------------------------------------------------------
+engineering:
+  feedstocks:
+    - id:           str          # "renewable_h2", "biogenic_co2", "electricity"
+      stream_ref:   str
+      cost_claim:   {claim: str} # → claim_type "feedstock_cost"
+  products:
+    - id:           str
+      fuel_id:      enum         # cross-checks metadata.fuel_id
+      spec_claims:  [{claim: str}]
+  streams:
+    - id:           str
+      from_unit:    str|null
+      to_unit:      str|null
+      mass_flow:    {claim: str} # unit from catalog (t/h, kg/s…)
+      energy_flow:  {claim: str}
+  process_units:
+    - id:           str          # "electrolyser", "methanol_synth", "distillation"
+      category:     str          # OpenPyTEA cost-correlation category
+      material:     str|null
+      sizing:       {claim: str} # the parameter OpenPyTEA costs against
+      utilities:    [{claim: str}]
+  balances:
+    mass_closed:    {claim: str} # boolean claim — reconciliation result
+    energy_closed:  {claim: str}
+
+# ----------------------------------------------------------------------------
+# 4. TEA  (pathway-spec TEA — POPULATED BY OpenPyTEA at :8002, not hand-entered)
+#    The numeric handoff to gex_pf_engine.PlantSummary lives here as plain
+#    numbers. Truth-tracking is via ONE canonical claim — model_base_case (on the
+#    financial_model node) — pinned to the same ledger entry / cost-basis hash.
+#    We do NOT mint capex_eur/opex_eur claim_types (they aren't in the canonical
+#    registry); the figures are an extract of the model_base_case claim.
+#    [SPEC-REVIEW] confirm aace_class (FEL/cost class) is sourced from the same run.
+# ----------------------------------------------------------------------------
+tea:
+  cost_basis_hash:    str            # OpenPyTEA input-config hash (audit anchor)
+  model_claim:        {claim: str}   # → canonical model_base_case claim (provenance)
+  run_evidence:       str            # → evidence_entries[].id of the OpenPyTEA run
+  # The figures below are a PROJECTION of model_claim's evidence (read cache),
+  # derived by hash. They populate PlantSummary; they are never edited here.
+  capex_eur:          float          # → PlantSummary.capex_eur   (extract)
+  opex_eur_per_year:  float          # → PlantSummary.opex_eur_per_year (extract)
+  nameplate_capacity: float          # → PlantSummary.nameplate_capacity
+  lcop:               float          # levelized cost of product (EUR/t for E_METHANOL)
+  sensitivity_ref:    str|null       # ledger_entry_id of :8002 tornado/Monte-Carlo run
+
+# ----------------------------------------------------------------------------
+# 4b. COMPUTE AUTHORIZATION  — the rule that connects approval-state to the PF
+#    engine (port 8001). Enforced by validate_pathway.py (B7).
+#      · model_base_case is terminal-valid (verified/satisfied)  → RELEASE-READY:
+#        the PF engine may run release/drawdown-gated compute.
+#      · otherwise                                                → PROVISIONAL:
+#        the PF engine may compute, but outputs are non-bankable; NO release-
+#        gated gate may be open while the cost basis is still provisional.
+# ----------------------------------------------------------------------------
+compute_authorization:
+  base_case_claim: {claim: str}      # the model_base_case claim that gates release
+
+# ----------------------------------------------------------------------------
+# 5. LCA  (pathway-spec LCA — feeds certification layer + carbon_attribution)
+# ----------------------------------------------------------------------------
+lca:
+  ghg_intensity:      {claim: str}   # unit from catalog (kgCO2e/kg) — gates RFNBO/RED III
+  allocation_method:  str
+  emission_factors:   [{claim: str}]
+
+# ----------------------------------------------------------------------------
+# 6. COMMERCIAL / CAPITAL  (offtake-gated capital — the bankability arc)
+# ----------------------------------------------------------------------------
+commercial:
+  offtakes:
+    - id:            str
+      counterparty:  str           # actor id (ABAC)
+      volume:        {claim: str}
+      price:         {claim: str}  # EUR/t from catalog
+      tenor_years:   {claim: str}
+capital:
+  deal_structure_id: str|null      # FK → gex_pf_engine DealStructure (port 8001)
+  funding_sources:                 # → truth-stack FundingSourceType
+    - source_type:   enum          # equity | senior_debt | mezzanine | dfi_eca | grant
+      amount:        {claim: str}
+
+# ----------------------------------------------------------------------------
+# 6b. VALIDATION LADDER  — six escalating tiers of pathway validity.
+#    Extends pathway-spec's Level 1-2 structural/literature validation up into
+#    GEX's certification, finance and reconciliation territory. Every gate
+#    declares which ladder level it enforces; a pathway's overall validity is
+#    the highest *contiguous* level whose gates are all open.
+#      1  structural        — schema valid, refs resolve, DAG acyclic
+#      2  mass_energy        — balances close (engineering.balances claims true)
+#      3  tea_lca_plausible  — TEA/LCA within plausibility bounds (LCOP, GHG)
+#      4  certification_fit  — RFNBO/RED III rule fit (certifier-approved)
+#      5  finance_cp_cost    — CP register satisfied, eligible-cost balanced
+#      6  measured_recon     — operating facts reconcile to claims (truth stack)
+# ----------------------------------------------------------------------------
+validation_ladder:
+  levels: [structural, mass_energy, tea_lca_plausible,
+           certification_fit, finance_cp_cost, measured_recon]
+
+# ----------------------------------------------------------------------------
+# 7. GATES  — the 12-gate evidence framework.
+#    Each gate binds required claims to an ApprovalRequirement (truth-stack).
+#    A gate opens iff all required claims are terminal-valid AND the required
+#    actor has approved at the stated threshold and no blocking event is open.
+# ----------------------------------------------------------------------------
+gates:
+  - gate_id:            str         # "G01".."G12"
+    name:               str
+    layer:              enum        # which layer this gate guards
+    validation_level:   enum        # 1..6 — which ladder tier this gate enforces
+    required_claims:    [str]       # claim ids
+    approval:                       # ← efuel_truth_stack.models.ApprovalRequirement
+      check_id:           str
+      required_actor:     enum      # one of the 11 ABAC actor types
+      approval_threshold: enum      # single | majority | super_majority | unanimous
+      waivable:           bool
+      veto_right:         bool
+      drawstop_right:     bool
+    blocks_release_until: bool      # ties to release_predicate.no_open_blocking_event
+
+# ----------------------------------------------------------------------------
+# 8. ACTORS  — the 11 ABAC actor types that read/write this object.
+#    (producer, financier, insurer, certifier, logistics, trader, regulator,
+#     offtaker, ie_engineer, sponsor, gex_orchestrator)
+#    Write-authority per layer/claim_type is enforced by ABAC, not declared here;
+#    this block records which actors are *party* to this pathway.
+# ----------------------------------------------------------------------------
+actors:
+  - actor_id:    str
+    actor_type:  enum
+    role_note:   str|null

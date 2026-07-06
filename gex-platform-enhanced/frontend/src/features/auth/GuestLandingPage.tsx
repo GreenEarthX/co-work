@@ -1,7 +1,8 @@
+// Screen: Guest landing screen (/)
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Leaf, ArrowRight, CheckCircle, Lock, Zap, Globe, BarChart2,
+  ArrowRight, CheckCircle, Lock, Zap, Globe, BarChart2,
   ShieldCheck, TrendingUp, FileText, LogIn,
 } from 'lucide-react';
 
@@ -48,17 +49,15 @@ export function GuestLandingPage() {
 
       {/* ── Top nav (guest version) ───────────────────────────── */}
       <header
-        className="h-14 border-b flex items-center px-6 sticky top-0 z-40 backdrop-blur"
+        className="h-20 border-b flex items-center px-6 sticky top-0 z-40 backdrop-blur"
         style={{ background: 'rgba(243, 244, 242, 0.94)', borderColor: 'var(--border)' }}
       >
         <div className="flex items-center gap-2 flex-1">
-          <div
-            className="w-8 h-8 rounded-lg border flex items-center justify-center"
-            style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
-          >
-            <Leaf className="w-4 h-4" style={{ color: 'var(--brand)' }} />
-          </div>
-          <span className="text-sm font-semibold tracking-[0.16em]">GreenEarthX</span>
+          <img
+            src="/GreenEarthX-updated.png"
+            alt="GreenEarthX"
+            className="h-12 w-auto object-contain sm:h-14"
+          />
         </div>
 
         <div className="flex items-center gap-3">
@@ -91,17 +90,17 @@ export function GuestLandingPage() {
             style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
           >
             <Zap className="w-3.5 h-3.5" />
-            Green Fuel Project Finance Platform
+            Green Fuel Project Orchestration Software
           </div>
 
           <h1 className="text-5xl sm:text-6xl font-semibold leading-[1.02] mb-6 max-w-4xl mx-auto">
-            Is your green fuel project
-            <span style={{ color: 'var(--brand)' }}> bankable?</span>
+            Make your green fuel project a
+            <span style={{ color: 'var(--brand)' }}> Success</span>
           </h1>
           <p className="text-lg max-w-2xl mx-auto mb-12 leading-8" style={{ color: 'var(--text-secondary)' }}>
-            GreenEarthX evaluates H₂, NH₃, SAF and e-MeOH projects against
-            12 bankability gates — giving producers, banks, and regulators a
-            shared language from speculative to financial close.
+            GreenEarthX evaluates green molecules projects against
+            12 bankability gates — giving producers, banks, insurers, certifiersand regulators a
+            shared language from inception to COD via financial close.
           </p>
 
           {/* ── PRIMARY CTA — Project Viability Teaser ── */}
@@ -199,7 +198,7 @@ export function GuestLandingPage() {
           </div>
           <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
             <Lock className="w-3.5 h-3.5" />
-            Scores visible after sign-in
+            Scores visible as you sign-in
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

@@ -1,5 +1,6 @@
+// Screen: Tokenisation screen (/tokenisation)
 import { useState, useEffect } from 'react'
-import { Coins, Plus, RefreshCw, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Coins, Plus, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { capacitiesAPI, tokensAPI } from '@/lib/api'
 
 interface Capacity {

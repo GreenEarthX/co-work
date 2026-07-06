@@ -4,7 +4,7 @@ Enforce business rules and valid state transitions with event emission
 """
 from typing import Dict, List, Callable, Optional, Any
 from enum import Enum
-from app.core.event_store import EventStore
+from app.core.event_store import append_event
 
 
 class TransitionError(Exception):
@@ -90,7 +90,8 @@ class StateMachine:
         to_state: str,
         data: Optional[Dict] = None,
         user_id: Optional[str] = None,
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
+        causation_id: Optional[str] = None,
     ) -> str:
         """
         Execute state transition with event emission
@@ -104,7 +105,7 @@ class StateMachine:
         self.validate_transition(aggregate_id, from_state, to_state, data, user_id)
         
         # Emit status_changed event
-        event_id = EventStore.append_event(
+        event_id = append_event(
             event_type=f"{self.name}.status_changed",
             aggregate_type=self.name,
             aggregate_id=aggregate_id,
@@ -114,7 +115,8 @@ class StateMachine:
                 **data
             },
             user_id=user_id,
-            correlation_id=correlation_id
+            correlation_id=correlation_id,
+            causation_id=causation_id,
         )
         
         # Execute postconditions (side effects)
@@ -235,12 +237,55 @@ CONTRACT_TRANSITIONS = {
 }
 
 def contract_credit_check_precondition(contract_id: str, data: Dict) -> Dict:
-    """Check if contract has required data for credit check"""
-    # Would check: counterparty creditworthiness, volume, etc.
-    return {
-        "valid": True,
-        "reason": None
-    }
+    """Check counterparty credit quality + geofence via ABAC trade policy (R7-R9).
+
+    Expects data to contain:
+        buyer_attrs: serialised UserAttributes-compatible dict
+        trade_ctx:   serialised TradeContext-compatible dict
+    Falls back to pass-through if attrs are not provided (backward compat).
+    """
+    buyer_raw = data.get("buyer_attrs") if data else None
+    trade_raw = data.get("trade_ctx") if data else None
+
+    if not buyer_raw or not trade_raw:
+        # Legacy path — no trade attributes available yet
+        return {"valid": True, "reason": None}
+
+    from app.core.abac import (
+        UserAttributes, TradeContext, TradeAction, Capability,
+        ClearanceLevel, Decision, evaluate_trade_policy,
+    )
+
+    user = UserAttributes(
+        user_id=buyer_raw.get("user_id", ""),
+        company_id=buyer_raw.get("company_id", ""),
+        actor_type_per_project={},
+        clearance_level=ClearanceLevel(buyer_raw.get("clearance_level", "STANDARD")),
+        capabilities={Capability(c) for c in buyer_raw.get("capabilities", [])},
+        credit_rating=buyer_raw.get("credit_rating", "NR"),
+        credit_rating_source=buyer_raw.get("credit_rating_source", "GEX"),
+        export_licenses=buyer_raw.get("export_licenses", []),
+        token_ready=buyer_raw.get("token_ready", False),
+        transformation_license=buyer_raw.get("transformation_license", False),
+        aggregation_limit_mt=buyer_raw.get("aggregation_limit_mt"),
+    )
+
+    trade = TradeContext(
+        action=TradeAction(trade_raw.get("action", "BUY")),
+        molecule=trade_raw.get("molecule", ""),
+        is_tokenized=trade_raw.get("is_tokenized", False),
+        destination=trade_raw.get("destination", ""),
+        required_rating=trade_raw.get("required_rating", "NR"),
+        volume_mt=trade_raw.get("volume_mt", 0),
+        counterparty_company_id=trade_raw.get("counterparty_company_id", ""),
+    )
+
+    decision = evaluate_trade_policy(user, trade)
+
+    if decision.decision == Decision.DENY:
+        return {"valid": False, "reason": decision.denial_reason}
+
+    return {"valid": True, "reason": None}
 
 def contract_signature_precondition(contract_id: str, data: Dict) -> Dict:
     """Check if contract can be signed"""
@@ -311,7 +356,7 @@ def match_accepted_postcondition(match_id: str, data: Dict, event_id: str):
     dd_id = str(uuid.uuid4())
     
     # Emit DD pipeline created event
-    EventStore.append_event(
+    append_event(
         event_type="dd.pipeline_created",
         aggregate_type="dd_pipeline",
         aggregate_id=dd_id,
@@ -381,7 +426,8 @@ def transition_state(
     to_state: str,
     data: Optional[Dict] = None,
     user_id: Optional[str] = None,
-    correlation_id: Optional[str] = None
+    correlation_id: Optional[str] = None,
+    causation_id: Optional[str] = None,
 ) -> str:
     """
     Convenience function to transition entity state
@@ -396,7 +442,8 @@ def transition_state(
         to_state=to_state,
         data=data,
         user_id=user_id,
-        correlation_id=correlation_id
+        correlation_id=correlation_id,
+        causation_id=causation_id,
     )
 
 
@@ -458,7 +505,7 @@ def dd_financial_model_postcondition(dd_id: str, data: Dict, event_id: str):
         result = run_financial_model_for_match(match_id)
         
         # Store result in event store
-        EventStore.append_event(
+        append_event(
             event_type="dd.financial_model_completed",
             aggregate_type="dd_pipeline",
             aggregate_id=dd_id,

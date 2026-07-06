@@ -1,3 +1,4 @@
+// Screen: Commitment verifier screen (/commitment-verifier, /finance/commitment-verifier)
 /**
  * CommitmentVerifier — Verify and audit any commitment record.
  * Used by all workspaces. Shows record hash, signature verification, counterparty status.

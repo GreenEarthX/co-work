@@ -27,7 +27,9 @@ import httpx
 logger = logging.getLogger("gex.bankability_client")
 
 # Engine URL — in production, use environment variable
-BANKABILITY_ENGINE_URL = "http://localhost:8001/api/v1/bankability"
+import os
+from app.services.engine_auth import engine_auth_headers
+BANKABILITY_ENGINE_URL = os.getenv("GEX_ENGINE_URL", "http://localhost:8001") + "/api/v1/bankability"
 REQUEST_TIMEOUT = 30.0
 
 
@@ -110,7 +112,7 @@ class BankabilityClient:
         }
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             try:
-                resp = await client.post(f"{self.base_url}/evaluate", json=payload)
+                resp = await client.post(f"{self.base_url}/evaluate", json=payload, headers=engine_auth_headers())
                 resp.raise_for_status()
                 return resp.json()
             except httpx.HTTPStatusError as e:
@@ -159,7 +161,7 @@ class BankabilityClient:
             "previous_state": previous_state,
         }
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.post(f"{self.base_url}/evaluate/persona", json=payload)
+            resp = await client.post(f"{self.base_url}/evaluate/persona", json=payload, headers=engine_auth_headers())
             resp.raise_for_status()
             return resp.json()
 
@@ -183,7 +185,7 @@ class BankabilityClient:
             "previous_state": previous_state,
         }
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.post(f"{self.base_url}/evaluate/multi-persona", json=payload)
+            resp = await client.post(f"{self.base_url}/evaluate/multi-persona", json=payload, headers=engine_auth_headers())
             resp.raise_for_status()
             return resp.json()
 
@@ -192,7 +194,7 @@ class BankabilityClient:
     async def get_gate_definitions(self) -> list[dict]:
         """Fetch gate definitions. Call once on app init, cache in memory."""
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.get(f"{self.base_url}/gates")
+            resp = await client.get(f"{self.base_url}/gates", headers=engine_auth_headers())
             resp.raise_for_status()
             return resp.json()
 
@@ -201,7 +203,7 @@ class BankabilityClient:
     async def get_rules(self) -> dict:
         """Fetch state transition and regression rules."""
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.get(f"{self.base_url}/rules")
+            resp = await client.get(f"{self.base_url}/rules", headers=engine_auth_headers())
             resp.raise_for_status()
             return resp.json()
 
@@ -231,7 +233,7 @@ class BankabilityClient:
             "previous_state": previous_state,
         }
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.post(f"{self.base_url}/regression/check", json=payload)
+            resp = await client.post(f"{self.base_url}/regression/check", json=payload, headers=engine_auth_headers())
             resp.raise_for_status()
             return resp.json()
 
@@ -241,7 +243,7 @@ class BankabilityClient:
         """Check if bankability engine is reachable."""
         async with httpx.AsyncClient(timeout=5.0) as client:
             try:
-                resp = await client.get(f"{self.base_url}/health")
+                resp = await client.get(f"{self.base_url}/health", headers=engine_auth_headers())
                 resp.raise_for_status()
                 return resp.json()
             except Exception:

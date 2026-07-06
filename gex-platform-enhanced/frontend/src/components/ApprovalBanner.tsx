@@ -1,3 +1,4 @@
+// Screen: Shared component — Approval queue screen, Finance screens
 /**
  * ApprovalBanner — displayed when a backend action returns HTTP 202 (PENDING_APPROVAL).
  * Renders an amber notice with the request_id and required approvers.

@@ -1,3 +1,4 @@
+// Screen: Legacy API client (no screen)
 // API Client for GreenEarthX Platform
 const API_BASE_URL = 'http://localhost:8000/api/v1'
 

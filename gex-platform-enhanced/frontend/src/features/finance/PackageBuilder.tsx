@@ -1,3 +1,4 @@
+// Screen: Finance package builder screen (/finance-package)
 // ──────────────────────────────────────────────────────────
 // FILE 3: PackageBuilder.tsx
 // Route: /finance-package
@@ -8,8 +9,7 @@
 // Save as: src/features/finance/PackageBuilder.tsx
  
 
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Search, Layers, ArrowRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
 

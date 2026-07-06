@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GEX Platform - Dependency Map v2</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f6f8f9;
+    color: #172126;
+  }
+  h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: 0; }
+  h2 {
+    margin: 30px 0 12px;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #42525a;
+  }
+  h3 {
+    margin: 20px 0 10px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #5d6b72;
+  }
+  p { margin: 0; }
+  code {
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #edf1f3;
+    color: #24343c;
+    font-size: 12px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left;
+    background: #eef2f4;
+    color: #42525a;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 8px 10px;
+    border-bottom: 1px solid #dfe6ea;
+  }
+  td {
+    vertical-align: top;
+    padding: 9px 10px;
+    border-bottom: 1px solid #edf1f3;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  tr:last-child td { border-bottom: 0; }
+  ul { margin: 8px 0 0; padding-left: 18px; }
+  li { margin: 4px 0; font-size: 12px; line-height: 1.45; }
+
+  .subtitle { color: #64727a; font-size: 13px; margin-bottom: 18px; }
+  .note {
+    border: 1px solid #d8e0e4;
+    background: #fff;
+    border-left: 4px solid #2c7a7b;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 14px 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 16px 0 24px; }
+  .metric { background: #fff; border: 1px solid #dfe6ea; border-radius: 8px; padding: 12px; }
+  .metric .num { display: block; font-size: 24px; font-weight: 800; color: #162126; }
+  .metric .label { display: block; margin-top: 2px; color: #64727a; font-size: 12px; }
+  .card { background: #fff; border: 1px solid #dfe6ea; border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: #162126;
+    color: #fff;
+  }
+  .card-title { font-weight: 800; }
+  .card-sub { color: rgba(255,255,255,.68); font-size: 12px; }
+  .card-body { padding: 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid #d8e0e4;
+    background: #fff;
+    padding: 4px 9px;
+    color: #42525a;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .done { border-color: #b9ddce; background: #ecf8f2; color: #116149; }
+  .partial { border-color: #d8c28f; background: #fff8e7; color: #80611c; }
+  .open { border-color: #e3b9b0; background: #fff0ed; color: #9c3c32; }
+  .watch { border-color: #c5d2df; background: #edf4fb; color: #2d5576; }
+  .lane {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .node {
+    border: 1px solid #dfe6ea;
+    border-radius: 9px;
+    background: #fff;
+    padding: 12px;
+    min-height: 118px;
+  }
+  .node strong { display: block; margin-bottom: 6px; font-size: 13px; }
+  .node p { color: #64727a; font-size: 12px; line-height: 1.45; }
+  .risk { font-weight: 800; white-space: nowrap; }
+  .risk.high { color: #9c3c32; }
+  .risk.med { color: #80611c; }
+  .risk.low { color: #116149; }
+  .phase { font-weight: 800; white-space: nowrap; }
+  .phase.done { color: #116149; background: transparent; border: 0; }
+  .phase.partial { color: #80611c; background: transparent; border: 0; }
+  .phase.open { color: #9c3c32; background: transparent; border: 0; }
+  .footer { margin-top: 28px; color: #7b888f; font-size: 11px; text-align: center; }
+
+  @media (max-width: 1050px) {
+    body { padding: 18px; }
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .lane { grid-template-columns: 1fr; }
+    .card { overflow-x: auto; }
+    table { min-width: 850px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>GEX Platform - Dependency Map v2</h1>
+<p class="subtitle">gex-platform-enhanced + gex_pf_engine - generated 2026-05-06</p>
+
+<!-- anchor: reason -->
+<div class="note">
+  <strong>Reason for v2:</strong> <code>dep-map.html</code> mixed a topology map, an AS-IS/TO-BE gap list, and a future sprint plan. The project has moved since then. This version separates implemented, partial, and open work, and points to the current files that now carry architectural responsibility.
+</div>
+
+<div class="grid">
+  <div class="metric"><span class="num">5</span><span class="label">TopBar business menus</span></div>
+  <div class="metric"><span class="num">57</span><span class="label">business menu entries</span></div>
+  <div class="metric"><span class="num">13</span><span class="label">CISO menu entries</span></div>
+  <div class="metric"><span class="num">11</span><span class="label">menu gate locks</span></div>
+</div>
+
+<div class="legend">
+  <span class="pill done">Implemented</span>
+  <span class="pill partial">Partial</span>
+  <span class="pill open">Open</span>
+  <span class="pill watch">Watch</span>
+</div>
+
+<!-- anchor: topology -->
+<h2>1. Current Service Topology</h2>
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">Runtime lanes</div>
+    <div class="card-sub">browser to engine</div>
+  </div>
+  <div class="card-body">
+    <div class="lane">
+      <div class="node">
+        <strong>Frontend</strong>
+        <p>Vite + React + TypeScript. Authenticated routes use <code>Layout</code>, <code>TopBar</code>, <code>UserRoleContext</code>, and <code>ProjectContext</code>.</p>
+      </div>
+      <div class="node">
+        <strong>Menu + Gate UI</strong>
+        <p><code>menuArchitecture.ts</code> drives TopBar visibility. <code>GateLock</code>, <code>GatedRoute</code>, and <code>useGateAccess</code> enforce some route locks.</p>
+      </div>
+      <div class="node">
+        <strong>Main Backend</strong>
+        <p>FastAPI app owns auth, ABAC, project truth, gate registry, events, commercial, finance proxies, CISO, and SQLite persistence.</p>
+      </div>
+      <div class="node">
+        <strong>Finance Engine</strong>
+        <p><code>gex_pf_engine</code> remains browser-isolated. The platform reaches it through finance-model and bankability proxy routes.</p>
+      </div>
+      <div class="node">
+        <strong>Persistence</strong>
+        <p>SQLite-backed demo persistence plus append-only event/audit concepts. Some audit/event pieces are implemented; real-time UI consumption remains open.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- anchor: section-3 -->
+<h2>2. Section 3 Reassessment - AS-IS / TO-BE</h2>
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">Old section 3 is now mixed status</div>
+    <div class="card-sub">keep, but rewrite as status</div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Topic</th>
+        <th>Status</th>
+        <th>Current evidence</th>
+        <th>Update needed in dep map</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Server-side login and JWT</td>
+        <td><span class="pill partial">Partial</span></td>
+        <td><code>backend/app/core/auth.py</code> verifies seeded users, hashes passwords, stores users in SQLite, and issues JWT access tokens.</td>
+        <td>Replace "frontend-only token illusion" with "server-issued HS256 JWT, no refresh-token family yet".</td>
+      </tr>
+      <tr>
+        <td>JWT algorithm</td>
+        <td><span class="pill open">Open</span></td>
+        <td><code>auth.py</code> still sets <code>ALGORITHM = "HS256"</code>.</td>
+        <td>Keep RS256 as open work. The old target was not completed.</td>
+      </tr>
+      <tr>
+        <td>Refresh token rotation</td>
+        <td><span class="pill open">Open</span></td>
+        <td><code>/auth/login</code> returns access token, expiry, role, and user. No refresh token route or token-family table is present.</td>
+        <td>Keep in future auth foundation work.</td>
+      </tr>
+      <tr>
+        <td>OIDC / SSO / MFA</td>
+        <td><span class="pill partial">Partial</span></td>
+        <td><code>/auth/oidc-discovery</code> returns an OIDC-like discovery document, but no external IdP, auth code flow, JWKS signing, or MFA is wired.</td>
+        <td>Call this an OIDC compatibility stub, not federation.</td>
+      </tr>
+      <tr>
+        <td>Demo headers</td>
+        <td><span class="pill open">Open</span></td>
+        <td><code>abac_middleware.py</code> still falls back to <code>x-demo-user</code>, <code>x-demo-company-type</code>, <code>x-demo-function</code>, and related headers.</td>
+        <td>Keep spoofable demo headers as a current risk until removed or gated by environment.</td>
+      </tr>
+      <tr>
+        <td>Project visibility</td>
+        <td><span class="pill partial">Partial</span></td>
+        <td><code>useVisibleProjects.ts</code>, <code>project_registry.py</code>, and ABAC middleware scope projects by company/stakeholder role. Frontend still filters static <code>CUSTOMER_PROJECTS</code> for many views.</td>
+        <td>Replace "no ABAC project layer" with "hybrid static/client filter plus backend registry".</td>
+      </tr>
+      <tr>
+        <td>Gate registry API</td>
+        <td><span class="pill done">Implemented</span></td>
+        <td><code>routes_gate_registry.py</code> exposes <code>/registry</code>, <code>/registry/{gate_id}</code>, and <code>/screen-gates</code>.</td>
+        <td>Move from target to implemented foundation.</td>
+      </tr>
+      <tr>
+        <td>Menu gate prerequisites</td>
+        <td><span class="pill done">Implemented</span></td>
+        <td><code>menuArchitecture.ts</code> has <code>gate_prerequisite</code> on gated menu entries.</td>
+        <td>Record this as implemented. See <code>menu-map-current.html</code>.</td>
+      </tr>
+      <tr>
+        <td>Route-level locked states</td>
+        <td><span class="pill partial">Partial</span></td>
+        <td><code>GateLock.tsx</code>, <code>GatedRoute.tsx</code>, and <code>useGateAccess.ts</code> exist. Some routes are wrapped in <code>App.tsx</code>, but not all gated menu entries are consistently route-wrapped.</td>
+        <td>Mark as partial enforcement, not complete workflow control.</td>
+      </tr>
+      <tr>
+        <td>Event bus and live UI</td>
+        <td><span class="pill partial">Partial</span></td>
+        <td><code>routes_events.py</code>, <code>event_bus.py</code>, and <code>event_store.py</code> exist. No confirmed SSE <code>/events/stream</code> route or frontend <code>useEventStream</code> hook is present.</td>
+        <td>Split event persistence/admin visibility from real-time browser subscriptions.</td>
+      </tr>
+      <tr>
+        <td>Bounded contexts</td>
+        <td><span class="pill partial">Partial</span></td>
+        <td>Routes and core modules are more domain-organized, but the backend is still one FastAPI deployment.</td>
+        <td>Describe as modular monolith, not bounded service split.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- anchor: section-4 -->
+<h2>3. Section 4 Reassessment - Coupling / Blast Radius</h2>
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">Current high-coupling modules</div>
+    <div class="card-sub">updated from old list</div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Module</th>
+        <th>Risk</th>
+        <th>Why it matters</th>
+        <th>Current action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>backend/app/core/auth.py</code></td>
+        <td><span class="risk high">Critical</span></td>
+        <td>Login, JWT claims, seeded identities, project actor roles, password hashing.</td>
+        <td>Next hardening: RS256/JWKS, refresh token rotation, issuer/audience checks.</td>
+      </tr>
+      <tr>
+        <td><code>backend/app/core/abac_middleware.py</code></td>
+        <td><span class="risk high">Critical</span></td>
+        <td>Interposes API requests, extracts user/resource context, enforces ABAC, and still accepts demo headers.</td>
+        <td>Gate demo fallback by environment and persist access logs outside application logger.</td>
+      </tr>
+      <tr>
+        <td><code>backend/app/core/permission_engine.py</code></td>
+        <td><span class="risk high">Critical</span></td>
+        <td>Feature-level permission matrix sits behind ABAC middleware.</td>
+        <td>Keep route-to-permission mapping explicit and tested.</td>
+      </tr>
+      <tr>
+        <td><code>frontend/src/contexts/UserRoleContext.tsx</code></td>
+        <td><span class="risk high">Critical</span></td>
+        <td>Controls session tier, role, JWT storage, and global persona state.</td>
+        <td>Add token expiry handling and avoid stale role data after token invalidation.</td>
+      </tr>
+      <tr>
+        <td><code>frontend/src/config/menuArchitecture.ts</code></td>
+        <td><span class="risk high">Critical</span></td>
+        <td>Single active source for TopBar visibility and gate prerequisites.</td>
+        <td>Keep synced with backend gate registry or generate one from the other.</td>
+      </tr>
+      <tr>
+        <td><code>frontend/src/hooks/useGateAccess.ts</code></td>
+        <td><span class="risk med">High</span></td>
+        <td>Builds path-to-gate locking from menu config and static project gate completion.</td>
+        <td>Move toward server-backed gate state and cover all gated routes.</td>
+      </tr>
+      <tr>
+        <td><code>frontend/src/components/GateLock.tsx</code> + <code>GatedRoute.tsx</code></td>
+        <td><span class="risk med">High</span></td>
+        <td>Visible workflow enforcement. Inconsistent wrapping creates bypass risk.</td>
+        <td>Audit all routes with <code>gate_prerequisite</code> and wrap consistently.</td>
+      </tr>
+      <tr>
+        <td><code>backend/app/api/v1/routes_gate_registry.py</code></td>
+        <td><span class="risk med">High</span></td>
+        <td>Canonical gate definitions, prerequisites, phase, and screen links.</td>
+        <td>Use this as source for frontend gate maps rather than duplicating logic.</td>
+      </tr>
+      <tr>
+        <td><code>backend/app/core/project_registry.py</code></td>
+        <td><span class="risk med">High</span></td>
+        <td>Backend project ownership and stakeholder scope for JWT and ABAC.</td>
+        <td>Unify with frontend project data or expose a project-visible API.</td>
+      </tr>
+      <tr>
+        <td><code>frontend/src/data/customerProjects</code></td>
+        <td><span class="risk med">High</span></td>
+        <td>Still feeds visible-project hooks and selected-project behavior.</td>
+        <td>Retire as source of truth after backend project API stabilizes.</td>
+      </tr>
+      <tr>
+        <td><code>backend/app/api/v1/routes_finance_model.py</code></td>
+        <td><span class="risk med">High</span></td>
+        <td>Proxy boundary between platform and <code>gex_pf_engine</code>.</td>
+        <td>Keep engine isolated; test proxy failure modes and schemas.</td>
+      </tr>
+      <tr>
+        <td><code>backend/app/core/event_bus.py</code> + <code>event_store.py</code></td>
+        <td><span class="risk low">Moderate</span></td>
+        <td>Event publishing and append-only event history exist, but live UI path is incomplete.</td>
+        <td>Add SSE/websocket strategy only after event semantics are stable.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- anchor: section-5 -->
+<h2>4. Section 5 Reassessment - Sprint Plan</h2>
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">Migration plan status</div>
+    <div class="card-sub">old sprint plan converted to reality check</div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Sprint</th>
+        <th>Status</th>
+        <th>Delivered</th>
+        <th>Still open</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Auth Foundation</strong></td>
+        <td><span class="phase partial">Partial</span></td>
+        <td>Backend login, seeded users, password hashing, access JWT, login history, OIDC discovery stub.</td>
+        <td>RS256/JWKS, refresh tokens, IdP federation, MFA, strict removal of demo header fallback.</td>
+      </tr>
+      <tr>
+        <td><strong>2. Data Layer</strong></td>
+        <td><span class="phase partial">Partial</span></td>
+        <td><code>useVisibleProjects</code>, backend project registry, project truth API, ABAC resource scoping.</td>
+        <td><code>useProjectStore</code>, React Query project cache, canonical <code>/projects/visible</code> endpoint, removal of broad static project imports.</td>
+      </tr>
+      <tr>
+        <td><strong>3. Gate Workflow</strong></td>
+        <td><span class="phase partial">Partial</span></td>
+        <td>Gate registry API, menu gate prerequisites, <code>useGateAccess</code>, <code>GateLock</code>, some <code>GatedRoute</code> usage.</td>
+        <td>Frontend reads server gate registry, full route coverage, route/menu/gate consistency tests.</td>
+      </tr>
+      <tr>
+        <td><strong>4. Screen States</strong></td>
+        <td><span class="phase partial">Partial</span></td>
+        <td>Locked-screen component with progress and navigation to resolving gate.</td>
+        <td>Consistent locked/readonly/actionable states across all gated screens and direct URL paths.</td>
+      </tr>
+      <tr>
+        <td><strong>5. Real-Time</strong></td>
+        <td><span class="phase open">Open</span></td>
+        <td>Event bus/admin/recent-event routes exist.</td>
+        <td>SSE <code>/events/stream</code>, frontend <code>useEventStream</code>, live badges/toasts/dashboard refresh.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- anchor: menu -->
+<h2>5. Current Menu Setup</h2>
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">Menu source and drift</div>
+    <div class="card-sub">active UI path</div>
+  </div>
+  <div class="card-body">
+    <ul>
+      <li>The active UI reads <code>frontend/src/config/menuArchitecture.ts</code> through <code>TopBar.tsx</code>.</li>
+      <li>The active map is captured separately in <code>frontend/public/menu-map-current.html</code>.</li>
+      <li>The backend copy <code>backend/app/config/menuArchitecture.ts</code> is older and differs in labels, gate metadata, and Commercial menu composition.</li>
+      <li><code>gex_pf_engine</code> does not define browser menus. It is surfaced through platform finance/pricing routes.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- anchor: decisions -->
+<h2>6. Updated Decisions</h2>
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">Recommended next edits</div>
+    <div class="card-sub">priority order</div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Priority</th>
+        <th>Decision</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>Keep <code>dep-map.html</code> as historical v1 and use <code>dep-map_2.html</code> for current review.</td>
+        <td>It preserves the original migration intent while avoiding a misleading overwrite.</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Promote <code>routes_gate_registry.py</code> as the canonical gate source.</td>
+        <td>Frontend and backend currently duplicate gate and screen mappings.</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>Resolve auth hardening before broad partner access.</td>
+        <td>HS256, missing refresh tokens, and demo header fallback are the largest security gaps.</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Create a real project visibility endpoint before retiring <code>CUSTOMER_PROJECTS</code>.</td>
+        <td>The frontend has ABAC-aware filtering but still relies on static project data in key flows.</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>Defer live UI until event stream contracts are explicit.</td>
+        <td>The backend event substrate exists, but browser subscription semantics are not finished.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="footer">GreenEarthX Platform - Dependency Map v2 - status over aspiration</div>
+</body>
+</html>

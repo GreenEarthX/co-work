@@ -1,11 +1,12 @@
+// Screen: Project timeline screen (/finance-timeline, /finance/timeline)
 /**
  * ProjectTimeline — Interactive project milestone timeline with drawdown schedule.
  * Three tabs: Timeline (phase swimlanes), Drawdown Schedule (S-curve), Milestones (table).
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ChevronUp, ChevronDown, Euro, Calendar, User, Flag, CheckCircle, Clock, AlertCircle, Circle } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
 // ─────────────────────────────── Types ───────────────────────────────────────
 
@@ -35,51 +36,37 @@ interface TimelineData {
 type SortKey = 'name' | 'phase' | 'targetDate' | 'status' | 'owner' | 'drawdownAmount'
 type SortDir = 'asc' | 'desc'
 
-// ─────────────────────────────── Demo data ───────────────────────────────────
+// ─────────────────────────── Non-sensitive demo data ─────────────────────────
+//
+// R1 (Ticket 1a): the frontend bundle ships ONLY non-sensitive project
+// milestones (inception → development → permitting → FEED/EPC → construction →
+// commissioning → COD → operations). It contains NO drawdownAmount, NO funding
+// triggers, NO FINANCIAL_CLOSE phase, and NO term-sheet / lender / covenant /
+// CP detail. That sensitive layer is served by the protected backend endpoint
+// GET /api/v1/finance-model/drawdown-timeline/{project_id} (403 if unauthorized).
 
 function generateTimelineData(projectId: string): TimelineData {
   if (projectId === 'proj_le_havre_eng') {
     return {
       phases: [
-        {
-          phase: 'ADVISORY', status: 'COMPLETED', milestones: [
-            { name: 'LCA Protocol Locked', status: 'COMPLETED', targetDate: '2025-Q1', owner: 'DNV', fundingTrigger: false },
-            { name: 'BPI Mandate Letter', status: 'COMPLETED', targetDate: '2025-Q3', owner: 'CFO', fundingTrigger: false },
-            { name: 'EIB Co-Finance LOI', status: 'COMPLETED', targetDate: '2025-Q4', owner: 'CFO', fundingTrigger: false },
-            { name: 'Offtake 92% Signed', status: 'COMPLETED', targetDate: '2025-Q4', owner: 'Commercial', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'BUILD', status: 'COMPLETED', milestones: [
-            { name: 'EPC Contract Executed', status: 'COMPLETED', targetDate: '2025-Q2', owner: 'PM', fundingTrigger: false },
-            { name: 'Insurance CAR/DSU Placed', status: 'COMPLETED', targetDate: '2025-Q3', owner: 'Risk', fundingTrigger: false },
-            { name: 'IE Appointment', status: 'COMPLETED', targetDate: '2025-Q4', owner: 'Legal', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'FINANCIAL_CLOSE', status: 'IN_PROGRESS', milestones: [
-            { name: 'IE Final Signoff', status: 'IN_PROGRESS', targetDate: '2026-Q2', owner: 'IE (Mott MacDonald)', fundingTrigger: false },
-            { name: 'BPI+EIB Term Sheet', status: 'IN_PROGRESS', targetDate: '2026-Q2', owner: 'CFO', fundingTrigger: true, drawdownAmount: 210000000 },
-            { name: 'Credit Committee', status: 'PLANNED', targetDate: '2026-Q3', owner: 'BPI', fundingTrigger: false },
-            { name: 'FID Decision', status: 'PLANNED', targetDate: '2026-Q3', owner: 'Board', fundingTrigger: false },
-            { name: 'Facility Agreement', status: 'PLANNED', targetDate: '2026-Q3', owner: 'Legal', fundingTrigger: true, drawdownAmount: 42000000 },
-          ],
-        },
-        {
-          phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-            { name: 'NTP Issued', status: 'PLANNED', targetDate: '2026-Q3', owner: 'PM', fundingTrigger: true, drawdownAmount: 85000000 },
-            { name: 'Electrolyser Delivery', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: true, drawdownAmount: 55000000 },
-            { name: 'Methanation Unit FAT', status: 'PLANNED', targetDate: '2027-Q4', owner: 'PM', fundingTrigger: true, drawdownAmount: 28000000 },
-            { name: 'COD Commissioning', status: 'PLANNED', targetDate: '2028-Q2', owner: 'PM', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-            { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2028-Q2', owner: 'Operations', fundingTrigger: false },
-            { name: 'First GoO Issuance', status: 'PLANNED', targetDate: '2028-Q3', owner: 'Certification', fundingTrigger: false },
-            { name: 'Refinancing Eligibility', status: 'PLANNED', targetDate: '2030-Q2', owner: 'CFO', fundingTrigger: false },
-          ],
-        },
+        { phase: 'ADVISORY', status: 'COMPLETED', milestones: [
+          { name: 'LCA Protocol Locked', status: 'COMPLETED', targetDate: '2025-Q1', owner: 'DNV', fundingTrigger: false },
+          { name: 'Offtake 92% Signed', status: 'COMPLETED', targetDate: '2025-Q4', owner: 'Commercial', fundingTrigger: false },
+        ]},
+        { phase: 'BUILD', status: 'COMPLETED', milestones: [
+          { name: 'EPC Contract Executed', status: 'COMPLETED', targetDate: '2025-Q2', owner: 'PM', fundingTrigger: false },
+          { name: 'Insurance CAR/DSU Placed', status: 'COMPLETED', targetDate: '2025-Q3', owner: 'Risk', fundingTrigger: false },
+        ]},
+        { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
+          { name: 'NTP Issued', status: 'PLANNED', targetDate: '2026-Q3', owner: 'PM', fundingTrigger: false },
+          { name: 'Electrolyser Delivery', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: false },
+          { name: 'Methanation Unit FAT', status: 'PLANNED', targetDate: '2027-Q4', owner: 'PM', fundingTrigger: false },
+          { name: 'COD Commissioning', status: 'PLANNED', targetDate: '2028-Q2', owner: 'PM', fundingTrigger: false },
+        ]},
+        { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
+          { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2028-Q2', owner: 'Operations', fundingTrigger: false },
+          { name: 'First GoO Issuance', status: 'PLANNED', targetDate: '2028-Q3', owner: 'Certification', fundingTrigger: false },
+        ]},
       ],
     }
   }
@@ -87,36 +74,21 @@ function generateTimelineData(projectId: string): TimelineData {
   if (projectId === 'proj_bremen_h2') {
     return {
       phases: [
-        {
-          phase: 'ADVISORY', status: 'COMPLETED', milestones: [
-            { name: 'Feasibility Study', status: 'COMPLETED', targetDate: '2024-Q2', owner: 'Engineering', fundingTrigger: false },
-            { name: 'Stakeholder MoU', status: 'COMPLETED', targetDate: '2024-Q4', owner: 'BD', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'BUILD', status: 'IN_PROGRESS', milestones: [
-            { name: 'EPC Tender Award', status: 'COMPLETED', targetDate: '2025-Q2', owner: 'PM', fundingTrigger: false },
-            { name: 'Grid Connection Agreement', status: 'IN_PROGRESS', targetDate: '2026-Q1', owner: 'Grid Ops', fundingTrigger: false },
-            { name: 'Insurance Placement', status: 'PLANNED', targetDate: '2026-Q2', owner: 'Risk', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'FINANCIAL_CLOSE', status: 'PLANNED', milestones: [
-            { name: 'KfW Term Sheet', status: 'PLANNED', targetDate: '2026-Q3', owner: 'CFO', fundingTrigger: true, drawdownAmount: 120000000 },
-            { name: 'FID Decision', status: 'PLANNED', targetDate: '2026-Q4', owner: 'Board', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-            { name: 'NTP Issued', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: true, drawdownAmount: 60000000 },
-            { name: 'COD Commissioning', status: 'PLANNED', targetDate: '2028-Q4', owner: 'PM', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-            { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2029-Q1', owner: 'Operations', fundingTrigger: false },
-          ],
-        },
+        { phase: 'ADVISORY', status: 'COMPLETED', milestones: [
+          { name: 'Feasibility Study', status: 'COMPLETED', targetDate: '2024-Q2', owner: 'Engineering', fundingTrigger: false },
+          { name: 'Stakeholder MoU', status: 'COMPLETED', targetDate: '2024-Q4', owner: 'BD', fundingTrigger: false },
+        ]},
+        { phase: 'BUILD', status: 'IN_PROGRESS', milestones: [
+          { name: 'EPC Tender Award', status: 'COMPLETED', targetDate: '2025-Q2', owner: 'PM', fundingTrigger: false },
+          { name: 'Grid Connection Agreement', status: 'IN_PROGRESS', targetDate: '2026-Q1', owner: 'Grid Ops', fundingTrigger: false },
+        ]},
+        { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
+          { name: 'NTP Issued', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: false },
+          { name: 'COD Commissioning', status: 'PLANNED', targetDate: '2028-Q4', owner: 'PM', fundingTrigger: false },
+        ]},
+        { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
+          { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2029-Q1', owner: 'Operations', fundingTrigger: false },
+        ]},
       ],
     }
   }
@@ -124,34 +96,20 @@ function generateTimelineData(projectId: string): TimelineData {
   if (projectId === 'proj_helios_solar' || projectId === 'proj_rotterdam_nh3') {
     return {
       phases: [
-        {
-          phase: 'ADVISORY', status: 'IN_PROGRESS', milestones: [
-            { name: 'Pre-Feasibility Study', status: 'COMPLETED', targetDate: '2025-Q3', owner: 'Engineering', fundingTrigger: false },
-            { name: 'Site Selection', status: 'IN_PROGRESS', targetDate: '2026-Q2', owner: 'BD', fundingTrigger: false },
-            { name: 'Environmental Assessment', status: 'PLANNED', targetDate: '2026-Q3', owner: 'ESG', fundingTrigger: false },
-            { name: 'Mandate Letter', status: 'PLANNED', targetDate: '2026-Q4', owner: 'CFO', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'BUILD', status: 'PLANNED', milestones: [
-            { name: 'EPC Tender', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: false },
-          ],
-        },
-        {
-          phase: 'FINANCIAL_CLOSE', status: 'PLANNED', milestones: [
-            { name: 'Term Sheet', status: 'PLANNED', targetDate: '2027-Q3', owner: 'CFO', fundingTrigger: true, drawdownAmount: 95000000 },
-          ],
-        },
-        {
-          phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-            { name: 'NTP Issued', status: 'PLANNED', targetDate: '2028-Q1', owner: 'PM', fundingTrigger: true, drawdownAmount: 45000000 },
-          ],
-        },
-        {
-          phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-            { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2029-Q4', owner: 'Operations', fundingTrigger: false },
-          ],
-        },
+        { phase: 'ADVISORY', status: 'IN_PROGRESS', milestones: [
+          { name: 'Pre-Feasibility Study', status: 'COMPLETED', targetDate: '2025-Q3', owner: 'Engineering', fundingTrigger: false },
+          { name: 'Site Selection', status: 'IN_PROGRESS', targetDate: '2026-Q2', owner: 'BD', fundingTrigger: false },
+          { name: 'Environmental Assessment', status: 'PLANNED', targetDate: '2026-Q3', owner: 'ESG', fundingTrigger: false },
+        ]},
+        { phase: 'BUILD', status: 'PLANNED', milestones: [
+          { name: 'EPC Tender', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: false },
+        ]},
+        { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
+          { name: 'NTP Issued', status: 'PLANNED', targetDate: '2028-Q1', owner: 'PM', fundingTrigger: false },
+        ]},
+        { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
+          { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2029-Q4', owner: 'Operations', fundingTrigger: false },
+        ]},
       ],
     }
   }
@@ -159,34 +117,49 @@ function generateTimelineData(projectId: string): TimelineData {
   // Wales / default (PRE_ADVISORY)
   return {
     phases: [
-      {
-        phase: 'ADVISORY', status: 'PLANNED', milestones: [
-          { name: 'Initial Screening', status: 'PLANNED', targetDate: '2026-Q3', owner: 'BD', fundingTrigger: false },
-          { name: 'Concept Note', status: 'PLANNED', targetDate: '2026-Q4', owner: 'Engineering', fundingTrigger: false },
-        ],
-      },
-      {
-        phase: 'BUILD', status: 'PLANNED', milestones: [
-          { name: 'EPC Tender', status: 'PLANNED', targetDate: '2028-Q1', owner: 'PM', fundingTrigger: false },
-        ],
-      },
-      {
-        phase: 'FINANCIAL_CLOSE', status: 'PLANNED', milestones: [
-          { name: 'Term Sheet', status: 'PLANNED', targetDate: '2028-Q3', owner: 'CFO', fundingTrigger: true, drawdownAmount: 70000000 },
-        ],
-      },
-      {
-        phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-          { name: 'NTP Issued', status: 'PLANNED', targetDate: '2029-Q1', owner: 'PM', fundingTrigger: true, drawdownAmount: 35000000 },
-        ],
-      },
-      {
-        phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-          { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2030-Q3', owner: 'Operations', fundingTrigger: false },
-        ],
-      },
+      { phase: 'ADVISORY', status: 'PLANNED', milestones: [
+        { name: 'Initial Screening', status: 'PLANNED', targetDate: '2026-Q3', owner: 'BD', fundingTrigger: false },
+        { name: 'Concept Note', status: 'PLANNED', targetDate: '2026-Q4', owner: 'Engineering', fundingTrigger: false },
+      ]},
+      { phase: 'BUILD', status: 'PLANNED', milestones: [
+        { name: 'EPC Tender', status: 'PLANNED', targetDate: '2028-Q1', owner: 'PM', fundingTrigger: false },
+      ]},
+      { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
+        { name: 'NTP Issued', status: 'PLANNED', targetDate: '2029-Q1', owner: 'PM', fundingTrigger: false },
+      ]},
+      { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
+        { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2030-Q3', owner: 'Operations', fundingTrigger: false },
+      ]},
     ],
   }
+}
+
+// Sensitive layer fetched from the protected backend endpoint.
+interface DrawdownLayer {
+  financial_close: Phase
+  drawdowns: Array<{ phase: string; name: string; targetDate: string; drawdownAmount: number }>
+}
+
+/** Merge the protected sensitive layer into the broad timeline (entitled users). */
+function mergeSensitiveLayer(broad: TimelineData, layer: DrawdownLayer): TimelineData {
+  const amountByName = new Map(layer.drawdowns.map(d => [d.name, d.drawdownAmount]))
+  const phases = broad.phases.map(p => ({
+    ...p,
+    milestones: p.milestones.map(m =>
+      amountByName.has(m.name) ? { ...m, drawdownAmount: amountByName.get(m.name), fundingTrigger: true } : m
+    ),
+  }))
+  // Insert the FINANCIAL_CLOSE phase after BUILD (before CONSTRUCTION).
+  const out: Phase[] = []
+  let inserted = false
+  for (const p of phases) {
+    if (p.phase === 'CONSTRUCTION' && !inserted) {
+      out.push(layer.financial_close as Phase); inserted = true
+    }
+    out.push(p)
+  }
+  if (!inserted) out.push(layer.financial_close as Phase)
+  return { phases: out }
 }
 
 // ─────────────────────────────── Helpers ─────────────────────────────────────
@@ -727,14 +700,36 @@ export function ProjectTimeline() {
   const { selectedProjectId } = useSelectedProject()
   const [activeTab, setActiveTab] = useState<Tab>('timeline')
 
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId)
-  const data = generateTimelineData(selectedProjectId ?? '')
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
+  const rawData = generateTimelineData(selectedProjectId ?? '')
+
+  // Fetch the PROTECTED sensitive layer. The endpoint 403s unauthorized callers;
+  // success === authorized for this project. The sensitive data is never in the
+  // bundle — it only exists here if the backend authorised and returned it.
+  const [layer, setLayer] = useState<DrawdownLayer | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setLayer(null) // fail closed by default
+    if (!selectedProjectId) return
+    fetch(`/api/v1/finance-model/drawdown-timeline/${encodeURIComponent(selectedProjectId)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (!cancelled && j && j.financial_close) setLayer(j as DrawdownLayer) })
+      .catch(() => { /* fail closed — no sensitive layer */ })
+    return () => { cancelled = true }
+  }, [selectedProjectId])
+
+  const financeEntitled = layer !== null
+  const data = financeEntitled ? mergeSensitiveLayer(rawData, layer) : rawData
 
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'timeline',   label: 'Timeline' },
-    { id: 'drawdown',   label: 'Drawdown Schedule' },
+    // Drawdown Schedule (S-curve of drawdown amounts) is finance-only.
+    ...(financeEntitled ? [{ id: 'drawdown' as Tab, label: 'Drawdown Schedule' }] : []),
     { id: 'milestones', label: 'Milestones' },
   ]
+  // If a non-entitled user is somehow on the drawdown tab, send them to timeline.
+  const safeTab: Tab = (activeTab === 'drawdown' && !financeEntitled) ? 'timeline' : activeTab
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -742,8 +737,13 @@ export function ProjectTimeline() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Project Timeline</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {project?.name ?? selectedProjectId ?? 'Select a project'} — Milestone & Drawdown Schedule
+          {project?.name ?? selectedProjectId ?? 'Select a project'} — Milestone{financeEntitled ? ' & Drawdown' : ''} Schedule
         </p>
+        {!financeEntitled && (
+          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.08em] text-amber-700">
+            Drawdown / Financial Close detail redacted — requires finance entitlement
+          </p>
+        )}
       </div>
 
       {/* Tab bar */}
@@ -753,7 +753,7 @@ export function ProjectTimeline() {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
-              activeTab === tab.id
+              safeTab === tab.id
                 ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/40'
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
@@ -764,9 +764,9 @@ export function ProjectTimeline() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'timeline'   && <TimelineTab data={data} />}
-      {activeTab === 'drawdown'   && <DrawdownTab data={data} />}
-      {activeTab === 'milestones' && <MilestonesTab data={data} />}
+      {safeTab === 'timeline'   && <TimelineTab data={data} />}
+      {safeTab === 'drawdown'   && financeEntitled && <DrawdownTab data={data} />}
+      {safeTab === 'milestones' && <MilestonesTab data={data} />}
     </div>
   )
 }

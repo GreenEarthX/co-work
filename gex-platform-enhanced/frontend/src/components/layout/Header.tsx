@@ -1,3 +1,4 @@
+// Screen: Shared layout component — all authenticated screens
 import { LogOut } from 'lucide-react'
 
 interface HeaderProps {

@@ -11,12 +11,13 @@ import os
 import uuid
 
 # EVENT SYSTEM IMPORTS
-from app.core.event_store import EventStore
+from app.core.event_store import append_event
+from app.core.config import settings
 
 router = APIRouter()
 
 # Database path
-DB_PATH = os.path.join(os.path.dirname(__file__), '../../../gex_platform.db')
+DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     """Get database connection"""
@@ -96,7 +97,7 @@ async def create_contract(contract: ContractCreate, user_id: str = "system"):
         tenor_years = int((end - start).days / 365.25)
         
         # 1. EMIT EVENT (with inherited correlation_id - COMPLETES CHAIN!)
-        EventStore.append_event(
+        append_event(
             event_type="contract.created",
             aggregate_type="contract",
             aggregate_id=contract_id,

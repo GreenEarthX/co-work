@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GEX Platform — Dependency Map</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f8fafc; color: #0f172a; padding: 32px; }
+  h1 { font-size: 20px; font-weight: 900; margin-bottom: 4px; }
+  h2 { font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; margin-bottom: 12px; }
+  h3 { font-size: 13px; font-weight: 700; color: #64748b; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .subtitle { font-size: 12px; color: #64748b; margin-bottom: 24px; }
+  .section { margin-bottom: 32px; }
+
+  /* ── Service Topology ── */
+  .topo { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .svc-box { border: 2px solid #cbd5e1; border-radius: 12px; padding: 16px 20px; background: #fff; width: 680px; position: relative; }
+  .svc-box.frontend { border-color: #0ea5a0; }
+  .svc-box.backend { border-color: #475569; }
+  .svc-box.engine { border-color: #94a3b8; }
+  .svc-label { font-size: 13px; font-weight: 800; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .svc-label .port { font-size: 11px; font-weight: 600; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; color: #64748b; }
+  .svc-label .port.teal { background: #ccfbf1; color: #0d9488; }
+  .svc-label .port.dark { background: #334155; color: #f8fafc; }
+  .svc-label .port.gray { background: #e2e8f0; color: #475569; }
+  .svc-detail { font-size: 11px; color: #64748b; line-height: 1.5; }
+  .svc-stats { display: flex; gap: 16px; margin-top: 8px; }
+  .svc-stat { font-size: 11px; font-weight: 700; color: #334155; }
+  .svc-stat span { color: #94a3b8; font-weight: 400; }
+  .arrow-down { display: flex; flex-direction: column; align-items: center; }
+  .arrow-down .line { width: 2px; height: 20px; background: #94a3b8; }
+  .arrow-down .head { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #94a3b8; }
+  .arrow-down .label { font-size: 10px; color: #94a3b8; font-weight: 600; margin-top: 2px; margin-bottom: 2px; }
+
+  /* ── Context boxes ── */
+  .ctx-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .ctx { font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #f8fafc; }
+  .ctx.role { border-color: #0ea5a0; color: #0d9488; background: #f0fdfa; }
+  .ctx.project { border-color: #6366f1; color: #4f46e5; background: #eef2ff; }
+  .ctx.abac { border-color: #f59e0b; color: #d97706; background: #fffbeb; }
+  .ctx.jwt { border-color: #ef4444; color: #dc2626; background: #fef2f2; }
+
+  /* ── Gate Timeline ── */
+  .timeline { display: flex; gap: 0; width: 100%; }
+  .phase { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #fff; position: relative; min-height: 200px; }
+  .phase + .phase { margin-left: -1px; }
+  .phase-header { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; }
+  .phase.adv .phase-header { color: #0d9488; border-color: #ccfbf1; }
+  .phase.com .phase-header { color: #2563eb; border-color: #dbeafe; }
+  .phase.str .phase-header { color: #7c3aed; border-color: #ede9fe; }
+  .phase.fin .phase-header { color: #dc2626; border-color: #fee2e2; }
+  .phase.ops .phase-header { color: #059669; border-color: #d1fae5; }
+  .gate { font-size: 10px; padding: 4px 8px; border-radius: 6px; margin-bottom: 4px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+  .gate.done { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+  .gate.wip { background: #fefce8; color: #a16207; border: 1px solid #fde68a; }
+  .gate.blocked { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+  .screen-link { font-size: 10px; color: #64748b; padding: 2px 6px; margin: 2px 0; display: block; }
+  .screen-link code { font-size: 10px; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
+
+  /* ── AS-IS / TO-BE ── */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .compare-box { border-radius: 12px; padding: 16px; }
+  .compare-box.asis { background: #fef2f2; border: 2px solid #fecaca; }
+  .compare-box.tobe { background: #f0fdf4; border: 2px solid #bbf7d0; }
+  .compare-box h3 { margin-bottom: 10px; }
+  .compare-box.asis h3 { color: #b91c1c; }
+  .compare-box.tobe h3 { color: #15803d; }
+  .issue { font-size: 11px; color: #64748b; line-height: 1.6; padding: 4px 0; border-bottom: 1px solid rgba(0,0,0,0.05); display: flex; gap: 6px; }
+  .issue .num { font-weight: 800; color: #94a3b8; min-width: 16px; }
+  .issue.asis .num { color: #ef4444; }
+  .issue.tobe .num { color: #22c55e; }
+
+  /* ── Sprint Plan ── */
+  .sprints { display: flex; gap: 8px; }
+  .sprint { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #fff; }
+  .sprint-num { font-size: 11px; font-weight: 800; color: #0ea5a0; margin-bottom: 6px; }
+  .sprint-title { font-size: 12px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+  .sprint-item { font-size: 10px; color: #64748b; padding: 2px 0; display: flex; gap: 4px; }
+  .sprint-item .dot { width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; margin-top: 4px; flex-shrink: 0; }
+
+  /* ── Blast Radius ── */
+  .blast { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .blast-mod { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; background: #fff; }
+  .blast-mod .name { font-size: 11px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+  .blast-mod .desc { font-size: 10px; color: #94a3b8; }
+  .blast-mod .radius { font-size: 10px; font-weight: 700; margin-top: 6px; }
+  .blast-mod .radius.high { color: #dc2626; }
+  .blast-mod .radius.med { color: #f59e0b; }
+  .blast-mod .radius.low { color: #22c55e; }
+
+  .divider { height: 1px; background: #e2e8f0; margin: 24px 0; }
+</style>
+</head>
+<body>
+
+<h1>GEX Platform — Dependency Map</h1>
+<p class="subtitle">gex-platform-enhanced + gex_pf_engine · Generated 2026-04-03</p>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 1: SERVICE TOPOLOGY -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section">
+  <h2>1. Service Topology</h2>
+  <div class="topo">
+    <div class="svc-box frontend">
+      <div class="svc-label">FRONTEND <span class="port teal">:3000</span> Vite + React 18 + TypeScript + Tailwind</div>
+      <div class="ctx-row">
+        <div class="ctx role">UserRoleContext</div>
+        <div class="ctx project">ProjectContext</div>
+        <div class="ctx abac">useVisibleProjects (ABAC)</div>
+        <div class="ctx jwt">JWT in localStorage</div>
+      </div>
+      <div class="svc-stats">
+        <div class="svc-stat">91 <span>routes</span></div>
+        <div class="svc-stat">29 <span>feature modules</span></div>
+        <div class="svc-stat">5 <span>menu tabs</span></div>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <div class="line"></div>
+      <div class="label">fetch() + Bearer JWT + x-demo-* headers</div>
+      <div class="head"></div>
+    </div>
+
+    <div class="svc-box backend">
+      <div class="svc-label">MAIN BACKEND <span class="port dark">:8000</span> FastAPI + SQLite/PostgreSQL</div>
+      <div class="svc-detail">Middleware: CORS → GZip → ABAC (R0-R9, 165 perms × 30 profiles)</div>
+      <div class="svc-stats">
+        <div class="svc-stat">40 <span>route files</span></div>
+        <div class="svc-stat">34 <span>core modules</span></div>
+        <div class="svc-stat">9 <span>DB models</span></div>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <div class="line"></div>
+      <div class="label">httpx proxy (bankability, model, pricing)</div>
+      <div class="head"></div>
+    </div>
+
+    <div class="svc-box engine">
+      <div class="svc-label">FINANCE ENGINE <span class="port gray">:8001</span> FastAPI — isolated, no browser exposure</div>
+      <div class="svc-detail">CFADS · Waterfall · Debt sculpting · Gabillon pricing · Bankability scoring</div>
+      <div class="svc-stats">
+        <div class="svc-stat">4 <span>route files</span></div>
+        <div class="svc-stat">11 <span>core modules</span></div>
+        <div class="svc-stat">0 <span>callbacks to :8000</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 2: GATE TIMELINE -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section">
+  <h2>2. Screen Path Dependencies — Gated Timeline</h2>
+  <div class="timeline">
+    <div class="phase adv">
+      <div class="phase-header">① Advisory</div>
+      <div class="gate wip">G0 Site Rights</div>
+      <div class="gate wip">G1 Grid Connection</div>
+      <div class="gate wip">G3 Feedstock & Logistics</div>
+      <div class="gate wip">G9 Permits & Regulatory</div>
+      <div style="margin-top:8px">
+        <div class="screen-link">→ <code>/onboarding</code></div>
+        <div class="screen-link">→ <code>/projects</code></div>
+        <div class="screen-link">→ <code>/finance-plant-builder</code></div>
+        <div class="screen-link">→ <code>/stage-gates</code></div>
+        <div class="screen-link">→ <code>/producer-bankability</code></div>
+      </div>
+    </div>
+
+    <div class="phase com">
+      <div class="phase-header">② Commercial</div>
+      <div class="gate wip">G4 Binding Offtake (≥70%)</div>
+      <div style="margin-top:8px">
+        <div class="screen-link">→ <code>/marketplace</code></div>
+        <div class="screen-link">→ <code>/offtaker-supply</code></div>
+        <div class="screen-link">→ <code>/matching</code></div>
+        <div class="screen-link">→ <code>/trader-dashboard</code></div>
+        <div class="screen-link">→ <code>/offtake-quality</code></div>
+        <div class="screen-link">→ <code>/term-sheet</code></div>
+        <div class="screen-link">→ <code>/contracts</code></div>
+      </div>
+    </div>
+
+    <div class="phase str">
+      <div class="phase-header">③ Structuring</div>
+      <div class="gate wip">G5 EPC Contract</div>
+      <div class="gate wip">G6 IE Signoff</div>
+      <div class="gate wip">G7 Insurance</div>
+      <div class="gate blocked">G8 Model Audit</div>
+      <div style="margin-top:8px">
+        <div class="screen-link">→ <code>/capital-stack</code></div>
+        <div class="screen-link">→ <code>/finance-gaps</code></div>
+        <div class="screen-link">→ <code>/insurance-schedule</code></div>
+        <div class="screen-link">→ <code>/dscr-sensitivity</code></div>
+        <div class="screen-link">→ <code>/covenants</code></div>
+      </div>
+    </div>
+
+    <div class="phase fin">
+      <div class="phase-header">④ Financial Close</div>
+      <div class="gate blocked">G10 Close Readiness</div>
+      <div class="gate blocked">G11 COD</div>
+      <div style="margin-top:8px">
+        <div class="screen-link">→ <code>/ic-pack</code></div>
+        <div class="screen-link">→ <code>/approval-queue</code></div>
+        <div class="screen-link">→ <code>/commitment-signing</code></div>
+        <div class="screen-link">→ <code>/data-room</code></div>
+      </div>
+    </div>
+
+    <div class="phase ops">
+      <div class="phase-header">⑤ Operations</div>
+      <div class="gate done">Post-COD</div>
+      <div style="margin-top:8px">
+        <div class="screen-link">→ <code>/production</code></div>
+        <div class="screen-link">→ <code>/plant-data</code></div>
+        <div class="screen-link">→ <code>/capacity</code></div>
+        <div class="screen-link">→ <code>/transfer-readiness</code></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 3: AS-IS vs TO-BE -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section">
+  <h2>3. AS-IS vs TO-BE</h2>
+  <div class="compare">
+    <div class="compare-box asis">
+      <h3>AS-IS — Current Problems</h3>
+      <div class="issue asis"><span class="num">1</span> 19 files import CUSTOMER_PROJECTS directly — no central data service</div>
+      <div class="issue asis"><span class="num">2</span> HS256 symmetric JWT, no refresh tokens, 30min hard expiry</div>
+      <div class="issue asis"><span class="num">3</span> x-demo-* headers = role impersonation in dev mode</div>
+      <div class="issue asis"><span class="num">4</span> No OIDC — can't federate with Tier-1 banks/insurers</div>
+      <div class="issue asis"><span class="num">5</span> Gate IDs hardcoded in 8+ frontend files</div>
+      <div class="issue asis"><span class="num">6</span> No workflow enforcement — user can URL-jump anywhere</div>
+      <div class="issue asis"><span class="num">7</span> 40 routes + 34 modules in one FastAPI monolith</div>
+      <div class="issue asis"><span class="num">8</span> Backend event_bus exists but frontend never subscribes</div>
+    </div>
+    <div class="compare-box tobe">
+      <h3>TO-BE — Target Architecture</h3>
+      <div class="issue tobe"><span class="num">1</span> Single useProjectStore() with ABAC + React Query caching</div>
+      <div class="issue tobe"><span class="num">2</span> RS256 asymmetric JWT + refresh token rotation</div>
+      <div class="issue tobe"><span class="num">3</span> OIDC claims carry role attributes — no header spoofing</div>
+      <div class="issue tobe"><span class="num">4</span> Keycloak/Auth0 federation for partner SSO + MFA</div>
+      <div class="issue tobe"><span class="num">5</span> Gate registry API — frontend reads mapping from server</div>
+      <div class="issue tobe"><span class="num">6</span> Screens show "locked" state when prereq gates < threshold</div>
+      <div class="issue tobe"><span class="num">7</span> Bounded contexts: Auth, Project, Commercial, Finance, Ops</div>
+      <div class="issue tobe"><span class="num">8</span> SSE endpoint → live badges, toasts, dashboard refresh</div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 4: HIGH-COUPLING MODULES (BLAST RADIUS) -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section">
+  <h2>4. High-Coupling Modules — Blast Radius</h2>
+  <div class="blast">
+    <div class="blast-mod">
+      <div class="name">auth.py</div>
+      <div class="desc">JWT signing, login, token decode</div>
+      <div class="radius high">● CRITICAL — every endpoint</div>
+    </div>
+    <div class="blast-mod">
+      <div class="name">abac.py + middleware</div>
+      <div class="desc">R0-R9 rules, 165 permissions</div>
+      <div class="radius high">● CRITICAL — every HTTP request</div>
+    </div>
+    <div class="blast-mod">
+      <div class="name">project_truth.py</div>
+      <div class="desc">Source of truth for project state</div>
+      <div class="radius high">● CRITICAL — killers, tasks, activity</div>
+    </div>
+    <div class="blast-mod">
+      <div class="name">verification.py</div>
+      <div class="desc">Evidence state machine</div>
+      <div class="radius med">● HIGH — gates, bankability, certs</div>
+    </div>
+    <div class="blast-mod">
+      <div name="name">CUSTOMER_PROJECTS</div>
+      <div class="desc">Static project registry (frontend)</div>
+      <div class="radius med">● HIGH — 19 files import directly</div>
+    </div>
+    <div class="blast-mod">
+      <div class="name">UserRoleContext</div>
+      <div class="desc">Global role state (frontend)</div>
+      <div class="radius high">● CRITICAL — every page reads it</div>
+    </div>
+    <div class="blast-mod">
+      <div class="name">event_store.py</div>
+      <div class="desc">Immutable audit log</div>
+      <div class="radius low">● MODERATE — audit trail</div>
+    </div>
+    <div class="blast-mod">
+      <div class="name">config.py</div>
+      <div class="desc">JWT secret, DB URL, feature flags</div>
+      <div class="radius high">● CRITICAL — all services</div>
+    </div>
+    <div class="blast-mod">
+      <div class="name">ProductionRoadmapGantt</div>
+      <div class="desc">Timeline component (frontend)</div>
+      <div class="radius med">● HIGH — 5 pages embed it</div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 5: SPRINT PLAN -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section">
+  <h2>5. Migration Sprint Plan — No Big Bang</h2>
+  <div class="sprints">
+    <div class="sprint">
+      <div class="sprint-num">SPRINT 1</div>
+      <div class="sprint-title">Auth Foundation</div>
+      <div class="sprint-item"><div class="dot" style="background:#dc2626"></div> RS256 JWT (replace HS256)</div>
+      <div class="sprint-item"><div class="dot" style="background:#dc2626"></div> OIDC discovery endpoint</div>
+      <div class="sprint-item"><div class="dot" style="background:#dc2626"></div> Refresh token rotation</div>
+      <div class="sprint-item"><div class="dot" style="background:#dc2626"></div> Feature flag: ENABLE_OIDC</div>
+    </div>
+    <div class="sprint">
+      <div class="sprint-num">SPRINT 2</div>
+      <div class="sprint-title">Data Layer</div>
+      <div class="sprint-item"><div class="dot" style="background:#f59e0b"></div> /projects/visible API</div>
+      <div class="sprint-item"><div class="dot" style="background:#f59e0b"></div> Server-side ABAC filter</div>
+      <div class="sprint-item"><div class="dot" style="background:#f59e0b"></div> Replace 14 raw CP imports</div>
+      <div class="sprint-item"><div class="dot" style="background:#f59e0b"></div> ProjectContext validation</div>
+    </div>
+    <div class="sprint">
+      <div class="sprint-num">SPRINT 3</div>
+      <div class="sprint-title">Gate Workflow</div>
+      <div class="sprint-item"><div class="dot" style="background:#7c3aed"></div> Gate registry API</div>
+      <div class="sprint-item"><div class="dot" style="background:#7c3aed"></div> Clickable Gantt bars</div>
+      <div class="sprint-item"><div class="dot" style="background:#7c3aed"></div> Menu gate prerequisites</div>
+      <div class="sprint-item"><div class="dot" style="background:#7c3aed"></div> useGateAccess hook</div>
+    </div>
+    <div class="sprint">
+      <div class="sprint-num">SPRINT 4</div>
+      <div class="sprint-title">Screen States</div>
+      <div class="sprint-item"><div class="dot" style="background:#2563eb"></div> Locked-screen empty states</div>
+      <div class="sprint-item"><div class="dot" style="background:#2563eb"></div> Gate-check navigation</div>
+      <div class="sprint-item"><div class="dot" style="background:#2563eb"></div> Dynamic deal killers</div>
+      <div class="sprint-item"><div class="dot" style="background:#2563eb"></div> Bounded context split</div>
+    </div>
+    <div class="sprint">
+      <div class="sprint-num">SPRINT 5</div>
+      <div class="sprint-title">Real-Time</div>
+      <div class="sprint-item"><div class="dot" style="background:#059669"></div> SSE /events/stream</div>
+      <div class="sprint-item"><div class="dot" style="background:#059669"></div> useEventStream hook</div>
+      <div class="sprint-item"><div class="dot" style="background:#059669"></div> Live dashboard updates</div>
+      <div class="sprint-item"><div class="dot" style="background:#059669"></div> Approval/commit toasts</div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px; text-align:center; font-size:10px; color:#94a3b8;">
+  GreenEarthX Platform · Dependency Map · v1.0 · Function over design
+</div>
+
+</body>
+</html>

@@ -76,6 +76,13 @@ except ImportError:
     print("⚠️  routes_risk_pricing not found - skipping")
 
 try:
+    from app.api.v1 import routes_pricing_proxy
+    HAS_PRICING_PROXY = True
+except ImportError:
+    HAS_PRICING_PROXY = False
+    print("⚠️  routes_pricing_proxy not found - skipping")
+
+try:
     from app.api.v1.routes_plant_builder import router as plant_builder_router
     HAS_PLANT_BUILDER = True
 except ImportError:
@@ -149,6 +156,21 @@ except ImportError:
     print("⚠️  routes_bankability_proxy not found - skipping")
 
 try:
+    from app.trading_book.api import router as trading_book_router
+    HAS_TRADING_BOOK = True
+except ImportError:
+    trading_book_router = None
+    HAS_TRADING_BOOK = False
+    print("⚠️  trading_book not found - skipping")
+
+try:
+    from app.api.v1.routes_gate_registry import router as gate_registry_router
+    HAS_GATE_REGISTRY = True
+except ImportError:
+    HAS_GATE_REGISTRY = False
+    print("⚠️  routes_gate_registry not found - skipping")
+
+try:
     from app.api.v1 import routes_finance_model
     HAS_FINANCE_MODEL = True
 except ImportError:
@@ -168,6 +190,27 @@ try:
 except ImportError:
     HAS_CISO = False
     print("⚠️  routes_ciso not found - skipping")
+
+try:
+    from app.api.v1 import routes_auth
+    HAS_AUTH = True
+except ImportError as exc:
+    HAS_AUTH = False
+    print(f"⚠️  routes_auth not found - skipping: {exc}")
+
+try:
+    from app.api.v1 import routes_fuels
+    HAS_FUELS = True
+except ImportError as exc:
+    HAS_FUELS = False
+    print(f"⚠️  routes_fuels not found - skipping: {exc}")
+
+try:
+    from app.api.v1 import routes_permissions
+    HAS_PERMISSIONS = True
+except ImportError:
+    HAS_PERMISSIONS = False
+    print("⚠️  routes_permissions not found - skipping")
 
 try:
     from app.api.v1 import routes_matrix
@@ -203,6 +246,13 @@ try:
 except ImportError:
     HAS_PROJECT_ACTIVITY = False
     print("⚠️  routes_project_activity not found - skipping")
+
+try:
+    from app.api.v1 import routes_project_truth
+    HAS_PROJECT_TRUTH = True
+except ImportError:
+    HAS_PROJECT_TRUTH = False
+    print("⚠️  routes_project_truth not found - skipping")
 
 try:
     from app.api.v1 import routes_workflow
@@ -260,10 +310,192 @@ except ImportError:
     HAS_ADVERSARIAL_REVIEWS = False
     print("⚠️  routes_adversarial_reviews not found - skipping")
 
+try:
+    from app.core.abac_middleware import ABACMiddleware
+    HAS_ABAC_MIDDLEWARE = True
+except ImportError:
+    ABACMiddleware = None
+    HAS_ABAC_MIDDLEWARE = False
+    print("⚠️  ABAC middleware not found - skipping")
+
+try:
+    from app.api.v1.development_packages import router as dev_packages_router, init_db as dev_packages_init_db
+    dev_packages_init_db()
+    HAS_DEV_PACKAGES = True
+except ImportError:
+    dev_packages_router = None
+    HAS_DEV_PACKAGES = False
+    print("⚠️  development_packages not found - skipping")
+
+try:
+    from app.api.v1.pre_cod_metrics import router as pre_cod_router, init_db as pre_cod_init_db
+    pre_cod_init_db()
+    HAS_PRE_COD_METRICS = True
+except ImportError:
+    pre_cod_router = None
+    HAS_PRE_COD_METRICS = False
+    print("⚠️  pre_cod_metrics not found - skipping")
+
+try:
+    from app.api.v1.routes_entitlements import router as entitlements_router
+    from app.core.entitlements import init_entitlements_db
+    init_entitlements_db()
+    HAS_ENTITLEMENTS = True
+except ImportError:
+    entitlements_router = None
+    HAS_ENTITLEMENTS = False
+    print("⚠️  routes_entitlements not found - skipping")
+
+try:
+    from app.api.v1.additionality import router as additionality_router, init_db as additionality_init_db
+    additionality_init_db()
+    HAS_ADDITIONALITY = True
+except ImportError:
+    additionality_router = None
+    HAS_ADDITIONALITY = False
+    print("⚠️  additionality not found - skipping")
+
+try:
+    from app.api.v1.capital_bridge import router as capital_bridge_router, init_db as capital_bridge_init_db
+    capital_bridge_init_db()
+    HAS_CAPITAL_BRIDGE = True
+except ImportError as exc:
+    capital_bridge_router = None
+    HAS_CAPITAL_BRIDGE = False
+    print(f"⚠️  capital_bridge not found - skipping: {exc}")
+
+try:
+    from app.api.v1.spend_wave import router as spend_wave_router, init_db as spend_wave_init_db
+    spend_wave_init_db()
+    HAS_SPEND_WAVE = True
+except ImportError:
+    spend_wave_router = None
+    HAS_SPEND_WAVE = False
+    print("⚠️  spend_wave not found - skipping")
+
+try:
+    from app.api.v1.drawdown_schedule import router as drawdown_router, init_db as drawdown_init_db
+    drawdown_init_db()
+    HAS_DRAWDOWN = True
+except ImportError:
+    drawdown_router = None
+    HAS_DRAWDOWN = False
+    print("⚠️  drawdown_schedule not found - skipping")
+
+try:
+    from app.api.v1.settlement_events import router as settlement_router, init_db as settlement_init_db
+    settlement_init_db()
+    HAS_SETTLEMENTS = True
+except ImportError:
+    settlement_router = None
+    HAS_SETTLEMENTS = False
+    print("⚠️  settlement_events not found - skipping")
+
+try:
+    from app.api.v1.carbon_attribution import router as carbon_attr_router, init_db as carbon_attr_init_db
+    carbon_attr_init_db()
+    HAS_CARBON_ATTR = True
+except ImportError:
+    carbon_attr_router = None
+    HAS_CARBON_ATTR = False
+    print("⚠️  carbon_attribution not found - skipping")
+
+try:
+    from app.api.v1.sovereign_instruments import router as sovereign_router, init_db as sovereign_init_db
+    sovereign_init_db()
+    HAS_SOVEREIGN = True
+except ImportError:
+    sovereign_router = None
+    HAS_SOVEREIGN = False
+    print("⚠️  sovereign_instruments not found - skipping")
+
+try:
+    from app.api.v1.dfi_criteria import router as dfi_criteria_router, init_db as dfi_criteria_init_db
+    dfi_criteria_init_db()
+    HAS_DFI_CRITERIA = True
+except ImportError:
+    dfi_criteria_router = None
+    HAS_DFI_CRITERIA = False
+    print("⚠️  dfi_criteria not found - skipping")
+
+try:
+    from app.api.v1.evidence_ledger import router as evidence_ledger_router, init_db as evidence_ledger_init_db
+    evidence_ledger_init_db()
+    HAS_EVIDENCE_LEDGER = True
+except ImportError:
+    evidence_ledger_router = None
+    HAS_EVIDENCE_LEDGER = False
+    print("⚠️  evidence_ledger not found - skipping")
+
+try:
+    from app.api.v1.routes_tea import router as tea_bridge_router, init_db as tea_bridge_init_db
+    tea_bridge_init_db()
+    HAS_TEA_BRIDGE = True
+except ImportError:
+    tea_bridge_router = None
+    HAS_TEA_BRIDGE = False
+    print("⚠️  routes_tea not found - skipping")
+
+try:
+    from app.api.v1.next_best_action import router as nba_router
+    HAS_NBA = True
+except ImportError:
+    nba_router = None
+    HAS_NBA = False
+    print("⚠️  next_best_action not found - skipping")
+
+try:
+    from app.api.v1.corpus_routes import router as corpus_router, init_db as corpus_init_db
+    corpus_init_db()
+    HAS_CORPUS = True
+except ImportError:
+    corpus_router = None
+    HAS_CORPUS = False
+    print("⚠️  corpus_routes not found - skipping")
+
+try:
+    from app.api.v1.lineage import router as lineage_router, init_db as lineage_init_db
+    lineage_init_db()
+    HAS_LINEAGE = True
+except ImportError:
+    lineage_router = None
+    HAS_LINEAGE = False
+    print("⚠️  lineage not found - skipping")
+
+try:
+    from app.api.v1.adjacency import router as adjacency_router, init_db as adjacency_init_db
+    adjacency_init_db()
+    HAS_ADJACENCY = True
+except ImportError:
+    adjacency_router = None
+    HAS_ADJACENCY = False
+    print("⚠️  adjacency not found - skipping")
+
+try:
+    from app.api.v1.mass_balance import router as mass_balance_router, init_db as mass_balance_init_db
+    mass_balance_init_db()
+    HAS_MASS_BALANCE = True
+except ImportError:
+    mass_balance_router = None
+    HAS_MASS_BALANCE = False
+    print("⚠️  mass_balance not found - skipping")
+
 
 # ═══════════════════════════════════════════════════════════════
 # CREATE APP
 # ═══════════════════════════════════════════════════════════════
+
+# Security layering (ADR 2026-07-06), outermost first:
+#   1. require_authenticated — identity by default; public routes are the
+#      explicit registry in app.core.route_security. Holds even if the ABAC
+#      middleware is disabled — defense in depth, fail closed.
+#   2. enforce_domain_authorization — business-function write policy per
+#      domain (app.core.domain_authorization); unmapped routes fail closed.
+#   3. ABAC middleware + permission engine (below) — policy + audit.
+#   4. PostgreSQL RLS — final backstop as slices migrate.
+from fastapi import Depends
+from app.core.route_security import require_authenticated
+from app.core.domain_authorization import enforce_domain_authorization
 
 app = FastAPI(
     title="GreenEarthX Platform API",
@@ -271,6 +503,10 @@ app = FastAPI(
     version="5.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    dependencies=[
+        Depends(require_authenticated),
+        Depends(enforce_domain_authorization),
+    ],
 )
 
 
@@ -314,6 +550,9 @@ async def shutdown_event_bus():
 # MIDDLEWARE
 # ═══════════════════════════════════════════════════════════════
 
+if HAS_ABAC_MIDDLEWARE and settings.ENABLE_ABAC_MIDDLEWARE:
+    app.add_middleware(ABACMiddleware, phase=settings.ABAC_PHASE)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -321,14 +560,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # ═══════════════════════════════════════════════════════════════
 # HEALTH CHECK
 # ═══════════════════════════════════════════════════════════════
 
+@app.get("/")
+async def root():
+    return {
+        "service": "GreenEarthX Platform API",
+        "version": "5.0.0",
+        "docs": "/docs",
+    }
+
+
 @app.get("/health")
+@app.get("/healthz")
 async def health_check():
     return {
         "status": "healthy",
@@ -356,6 +604,11 @@ app.include_router(trader_rfqs.router, prefix="/api/v1/trader/rfqs", tags=["Trad
 app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding Wizard"])
 app.include_router(decision_twin.router, prefix="/api/v1/decision-twin", tags=["Decision Twin - Certification Engine"])
 app.include_router(finance.router, prefix="/api/v1/finance", tags=["Finance & Risk Management"])
+if HAS_AUTH:
+    app.include_router(routes_auth.router, prefix="/api/v1", tags=["Auth"])
+
+if HAS_FUELS:
+    app.include_router(routes_fuels.router, prefix="/api/v1", tags=["Fuel Catalogue"])
 
 # ── Optional core modules ──
 if HAS_TOKENS:
@@ -374,6 +627,12 @@ if HAS_CONTRACTS:
 if HAS_BANKABILITY_PROXY:
     app.include_router(routes_bankability_proxy.router, prefix="/api/v1/bankability", tags=["Bankability Proxy"])
 
+if HAS_TRADING_BOOK:
+    app.include_router(trading_book_router, prefix="/api/v1/trading-book", tags=["Trading Book (B1)"])
+
+if HAS_GATE_REGISTRY:
+    app.include_router(gate_registry_router, prefix="/api/v1/gates", tags=["Gate Registry"])
+
 if HAS_FINANCE_MODEL:
     app.include_router(routes_finance_model.router, prefix="/api/v1/finance-model", tags=["Finance Model Proxy"])
 
@@ -383,6 +642,9 @@ if HAS_PROJECT_RATINGS:
 # ── Security Architecture Extension ──
 if HAS_CISO:
     app.include_router(routes_ciso.router, prefix="/api/v1/ciso", tags=["CISO — Security & Compliance"])
+
+if HAS_PERMISSIONS:
+    app.include_router(routes_permissions.router, prefix="/api/v1/ciso", tags=["CISO — Permission Engine"])
 
 if HAS_MATRIX:
     app.include_router(routes_matrix.router, prefix="/api/v1/comms", tags=["Secure Communications — Matrix/Synapse"])
@@ -398,6 +660,12 @@ if HAS_COMMITMENTS:
 
 if HAS_PROJECT_ACTIVITY:
     app.include_router(routes_project_activity.router, prefix="/api/v1", tags=["Project Activity Ledger"])
+
+if HAS_PROJECT_TRUTH:
+    app.include_router(routes_project_truth.router, prefix="/api/v1", tags=["Project Truth"])
+
+from app.api.v1.routes_projects import router as projects_router
+app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
 
 # ── Bankability Cockpit v2.0 ──
 if HAS_WORKFLOW:
@@ -424,6 +692,64 @@ if HAS_TERMS:
 if HAS_ADVERSARIAL_REVIEWS:
     app.include_router(routes_adversarial_reviews.router, prefix="/api/v1", tags=["Adversarial Reviews"])
 
+# ── Development Packages + Pre-COD Metrics + Additionality (Bridge Doc v3.0) ──
+if HAS_DEV_PACKAGES:
+    app.include_router(dev_packages_router, tags=["Development Packages"])
+
+if HAS_PRE_COD_METRICS:
+    app.include_router(pre_cod_router, tags=["Pre-COD Metrics"])
+
+if HAS_ENTITLEMENTS:
+    app.include_router(entitlements_router, prefix="/api/v1/entitlements", tags=["Finance Entitlements"])
+
+if HAS_ADDITIONALITY:
+    app.include_router(additionality_router, tags=["DFI Additionality"])
+
+if HAS_CAPITAL_BRIDGE:
+    app.include_router(capital_bridge_router, tags=["Capital Bridge (multi-fuel)"])
+
+# ── Spend Wave + Drawdown Schedule (Bridge Doc v4.1) ──
+if HAS_SPEND_WAVE:
+    app.include_router(spend_wave_router, tags=["Spend Wave"])
+
+if HAS_DRAWDOWN:
+    app.include_router(drawdown_router, tags=["Drawdown Schedule"])
+
+# ── DFI Criteria + Evidence Ledger + Lineage + Adjacency ──
+if HAS_DFI_CRITERIA:
+    app.include_router(dfi_criteria_router, tags=["DFI Criteria"])
+
+if HAS_EVIDENCE_LEDGER:
+    app.include_router(evidence_ledger_router, tags=["Evidence Ledger"])
+
+if HAS_TEA_BRIDGE:
+    app.include_router(tea_bridge_router, prefix="/api/v1/tea", tags=["TEA Engine Bridge"])
+
+if HAS_NBA:
+    app.include_router(nba_router, prefix="/api/v1/nba", tags=["Next Best Action"])
+
+if HAS_CORPUS:
+    app.include_router(corpus_router, prefix="/api/v1/corpus", tags=["External Corpus"])
+
+if HAS_LINEAGE:
+    app.include_router(lineage_router, tags=["Lineage Synthesis"])
+
+if HAS_ADJACENCY:
+    app.include_router(adjacency_router, tags=["Adjacency Benchmark"])
+
+if HAS_MASS_BALANCE:
+    app.include_router(mass_balance_router, tags=["Mass Balance Ledger"])
+
+# ── Settlement + Carbon Attribution + Sovereign Instruments (B4) ──
+if HAS_SETTLEMENTS:
+    app.include_router(settlement_router, tags=["Settlement Events"])
+
+if HAS_CARBON_ATTR:
+    app.include_router(carbon_attr_router, tags=["Carbon Attribution"])
+
+if HAS_SOVEREIGN:
+    app.include_router(sovereign_router, tags=["Sovereign Instruments"])
+
 # ── Event Bus ──
 if HAS_EVENTS_ROUTER:
     app.include_router(events_router)
@@ -440,6 +766,9 @@ if HAS_DEMAND:
 
 if HAS_RISK_PRICING:
     app.include_router(risk_pricing_router)
+
+if HAS_PRICING_PROXY:
+    app.include_router(routes_pricing_proxy.router, prefix="/api/v1/pricing", tags=["Pricing Proxy"])
 
 if HAS_PLANT_BUILDER:
     app.include_router(plant_builder_router, prefix="/api/v1/plant-builder", tags=["Plant Builder — CAPEX/OPEX Engine"])

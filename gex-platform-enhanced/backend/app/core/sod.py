@@ -22,10 +22,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
+from app.core.config import settings
 
 logger = logging.getLogger("gex.sod")
 
-_DB_PATH = "gex_platform.db"
+_DB_PATH = settings.SQLITE_DB_PATH
 
 
 # ═══════════════════════════════════════════════════════════════

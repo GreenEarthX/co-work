@@ -32,6 +32,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
+from app.core.config import settings
 
 logger = logging.getLogger("gex.matrix")
 
@@ -41,7 +42,7 @@ MATRIX_HOMESERVER_URL = os.getenv("MATRIX_HOMESERVER_URL", "http://localhost:800
 MATRIX_AS_TOKEN       = os.getenv("MATRIX_AS_TOKEN", "")        # Application Service token
 MATRIX_HS_TOKEN       = os.getenv("MATRIX_HS_TOKEN", "")        # Homeserver verification token
 MATRIX_BOT_USER_ID    = os.getenv("MATRIX_BOT_USER_ID", "@gex_platform:gex.internal")
-DB_PATH               = os.path.join(os.path.dirname(__file__), "..", "..", "gex_platform.db")
+DB_PATH               = settings.SQLITE_DB_PATH
 
 # ─── ABAC → Matrix power level mapping ────────────────────────────────────────
 
@@ -58,6 +59,7 @@ ACTOR_POWER_LEVEL: dict[str, int] = {
     "LOGISTICS_OPERATOR": 50,
     "TECHNOLOGY_PROVIDER":50,
     "EXECUTIVE":          50,
+    "ECA":                50,
     "GEX_PLATFORM":       100,  # platform bot — full admin
 }
 

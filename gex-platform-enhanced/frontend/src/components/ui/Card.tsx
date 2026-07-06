@@ -1,3 +1,4 @@
+// Screen: UI primitive — used across all screens
 import { type HTMLAttributes } from 'react'
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {

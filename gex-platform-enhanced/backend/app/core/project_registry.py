@@ -65,6 +65,43 @@ class ProjectAccessProfile:
 
 
 PROJECT_ACCESS_PROFILES: dict[str, ProjectAccessProfile] = {
+    # ── ETFuels SA portfolio ─────────────────────────────────────────────
+    "proj_etf_pecos1": ProjectAccessProfile(
+        project_id="proj_etf_pecos1",
+        project_name="ETFuels Pecos I",
+        owner_company_name="ETFuels SA",
+        associated_company_names=("ING Capital", "BNP Paribas CIB", "Maersk Decarbonization"),
+        jurisdiction="US",
+    ),
+    "etfuels_us_tx_rattlesnake_gap": ProjectAccessProfile(
+        project_id="etfuels_us_tx_rattlesnake_gap",
+        project_name="Rattlesnake Gap",
+        owner_company_name="ETFuels SA",
+        associated_company_names=(),
+        jurisdiction="US",
+    ),
+    "etfuels_fi_ranua_naataaapa": ProjectAccessProfile(
+        project_id="etfuels_fi_ranua_naataaapa",
+        project_name="Ranua Näätäaapa e-Methanol",
+        owner_company_name="ETFuels SA",
+        associated_company_names=(),
+        jurisdiction="FI",
+    ),
+    "etfuels_uk_skyfuel_teesside": ProjectAccessProfile(
+        project_id="etfuels_uk_skyfuel_teesside",
+        project_name="Project SkyFuel Teesside",
+        owner_company_name="ETFuels SA",
+        associated_company_names=(),
+        jurisdiction="GB",
+    ),
+    # ── Other companies ──────────────────────────────────────────────────
+    "proj_rheinwerk_prosumer": ProjectAccessProfile(
+        project_id="proj_rheinwerk_prosumer",
+        project_name="RheinWerk Duisburg H₂ (Prosumer)",
+        owner_company_name="RheinWerk Industries AG",
+        associated_company_names=(),
+        jurisdiction="DE",
+    ),
     "proj_bremen_h2": ProjectAccessProfile(
         project_id="proj_bremen_h2",
         project_name="Bremen Green Hydrogen Plant",
@@ -126,17 +163,172 @@ PROJECT_ACCESS_PROFILES: dict[str, ProjectAccessProfile] = {
 }
 
 
+# ── Physical context — power model + lifecycle phase per project ────────────
+# Server-side source for the bankability engine's power-model-aware gate
+# scoping and phase-aware severity escalation. The frontend static seeds in
+# customerProjects.ts mirror this for dev fallback; THIS is what the engine
+# actually receives. Belongs in the project store once projects are
+# server-persisted.
+
+@dataclass(frozen=True)
+class ProjectPhysicalContext:
+    power_model: str               # OFF_GRID_BTM | GRID_CONNECTED | HYBRID
+    phase: str                     # development | construction | commissioning | operating
+    financing_model: str = "PROJECT_FINANCE"  # PROJECT_FINANCE | BALANCE_SHEET
+
+
+# SEED ONLY. The runtime source of truth is the project_context DB table
+# (see routes_project_context.py) — these values initialise it and are
+# superseded by any PATCH. Editing this dict is NOT how projects are
+# onboarded or updated; the API is.
+PROJECT_PHYSICAL: dict[str, ProjectPhysicalContext] = {
+    # ETFuels portfolio — off-grid behind-the-meter, SPV project finance
+    "proj_etf_pecos1":                ProjectPhysicalContext("OFF_GRID_BTM", "development"),
+    "etfuels_us_tx_rattlesnake_gap":  ProjectPhysicalContext("OFF_GRID_BTM", "development"),
+    "etfuels_fi_ranua_naataaapa":     ProjectPhysicalContext("OFF_GRID_BTM", "development"),
+    "etfuels_uk_skyfuel_teesside":    ProjectPhysicalContext("OFF_GRID_BTM", "development"),
+    # Grid-connected SPV projects
+    "proj_bremen_h2":                 ProjectPhysicalContext("GRID_CONNECTED", "construction"),
+    "proj_hamburgone_emethanol":      ProjectPhysicalContext("GRID_CONNECTED", "development"),
+    # Prosumer demo — hybrid power, corporate balance sheet, internal offtake
+    "proj_rheinwerk_prosumer":        ProjectPhysicalContext("HYBRID", "development", "BALANCE_SHEET"),
+}
+
+
+def get_project_physical(project_id: str | None) -> ProjectPhysicalContext | None:
+    normalized = normalize_project_id(project_id)
+    if not normalized:
+        return None
+    return PROJECT_PHYSICAL.get(normalized)
+
+
+# ── Effective context: DB override > seed ────────────────────────────────────
+# project_context rows are written by PATCH /api/v1/projects/{id}/context
+# (audited, owner-EXEC/admin only). This is how project context is updated in
+# operation — code-edits to PROJECT_PHYSICAL are seed/dev only.
+
+import os as _os
+import sqlite3 as _sqlite3
+from app.core.config import settings
+
+_DB_PATH = settings.SQLITE_DB_PATH
+
+VALID_POWER_MODELS = ("OFF_GRID_BTM", "GRID_CONNECTED", "HYBRID")
+VALID_PHASES = ("development", "construction", "commissioning", "operating")
+VALID_FINANCING_MODELS = ("PROJECT_FINANCE", "BALANCE_SHEET")
+
+
+def ensure_context_tables(conn: _sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS project_context (
+            project_id TEXT PRIMARY KEY,
+            power_model TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            financing_model TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    # Append-only audit of context changes — control functions audit
+    # transitions, not just states.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS project_context_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            field TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+
+def get_effective_context(project_id: str | None) -> ProjectPhysicalContext | None:
+    """DB-stored context wins; the in-code seed is the fallback."""
+    normalized = normalize_project_id(project_id)
+    if not normalized:
+        return None
+    try:
+        conn = _sqlite3.connect(_DB_PATH)
+        conn.row_factory = _sqlite3.Row
+        ensure_context_tables(conn)
+        row = conn.execute(
+            "SELECT power_model, phase, financing_model FROM project_context WHERE project_id = ?",
+            (normalized,),
+        ).fetchone()
+        conn.close()
+        if row:
+            return ProjectPhysicalContext(row["power_model"], row["phase"], row["financing_model"])
+    except _sqlite3.Error:
+        pass
+    return PROJECT_PHYSICAL.get(normalized)
+
+
 def normalize_project_id(project_id: str | None) -> str | None:
     if not project_id:
         return project_id
     return PROJECT_ID_ALIASES.get(project_id, project_id)
 
 
+# ── Runtime project registry (the on-ramp) ───────────────────────────────────
+# The static PROJECT_ACCESS_PROFILES / PROJECT_PHYSICAL dicts are SEED/demo
+# data. New projects are created at runtime via POST /api/v1/projects and live
+# in the `projects` table. get_project_profile() consults the seed first, then
+# the runtime table — so a UI-created project is a first-class bridge citizen
+# (ABAC, context, gates, packages) without a code edit. This is the fix for the
+# "master data lives in a TypeScript file" gap.
+
+def ensure_project_table(conn: _sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS projects (
+            project_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            molecule TEXT,
+            country TEXT,
+            location TEXT,
+            capacity_mtpd REAL,
+            capex_eur REAL,
+            owner_company_name TEXT NOT NULL,
+            power_model TEXT,
+            financing_model TEXT,
+            phase TEXT,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+
+def _runtime_profile(project_id: str) -> ProjectAccessProfile | None:
+    try:
+        conn = _sqlite3.connect(_DB_PATH)
+        conn.row_factory = _sqlite3.Row
+        ensure_project_table(conn)
+        row = conn.execute(
+            "SELECT name, owner_company_name, country FROM projects WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        conn.close()
+        if row:
+            return ProjectAccessProfile(
+                project_id=project_id,
+                project_name=row["name"],
+                owner_company_name=row["owner_company_name"],
+                associated_company_names=(),
+                jurisdiction=row["country"] or "",
+            )
+    except _sqlite3.Error:
+        pass
+    return None
+
+
 def get_project_profile(project_id: str | None) -> ProjectAccessProfile | None:
     normalized = normalize_project_id(project_id)
     if not normalized:
         return None
-    return PROJECT_ACCESS_PROFILES.get(normalized)
+    return PROJECT_ACCESS_PROFILES.get(normalized) or _runtime_profile(normalized)
 
 
 def visible_project_ids_for_company(company_name: str) -> list[str]:
@@ -145,5 +337,74 @@ def visible_project_ids_for_company(company_name: str) -> list[str]:
     for project_id, profile in PROJECT_ACCESS_PROFILES.items():
         if company_id in profile.stakeholder_company_ids:
             visible.append(project_id)
+    # Runtime-created projects owned by this company.
+    try:
+        conn = _sqlite3.connect(_DB_PATH)
+        conn.row_factory = _sqlite3.Row
+        ensure_project_table(conn)
+        for r in conn.execute("SELECT project_id, owner_company_name FROM projects").fetchall():
+            if company_slug(r["owner_company_name"]) == company_id and r["project_id"] not in visible:
+                visible.append(r["project_id"])
+        conn.close()
+    except _sqlite3.Error:
+        pass
     return visible
+
+
+def _gen_project_id(name: str) -> str:
+    import secrets
+    base = company_slug(name)[:32] or "project"
+    return f"proj_{base}_{secrets.token_hex(3)}"
+
+
+def create_project(
+    *,
+    name: str,
+    molecule: str,
+    location: str,
+    country: str,
+    capacity_mtpd: float,
+    capex_eur: float,
+    owner_company_name: str,
+    power_model: str,
+    financing_model: str,
+    phase: str,
+    created_by: str,
+) -> str:
+    """
+    Create a runtime project and seed its physical/financing context in one
+    transaction. The seeded context lands in the SAME project_context store the
+    PATCH endpoint writes, so the bankability engine, ABAC and finance views see
+    the premise the moment the project exists — no code edit, no second step.
+    Returns the generated project_id.
+    """
+    from datetime import datetime, timezone
+
+    project_id = _gen_project_id(name)
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _sqlite3.connect(_DB_PATH)
+    try:
+        ensure_project_table(conn)
+        ensure_context_tables(conn)
+        conn.execute(
+            """INSERT INTO projects (project_id, name, molecule, country, location,
+                  capacity_mtpd, capex_eur, owner_company_name, power_model,
+                  financing_model, phase, created_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (project_id, name, molecule, country, location, capacity_mtpd, capex_eur,
+             owner_company_name, power_model, financing_model, phase, created_by, now),
+        )
+        conn.execute(
+            """INSERT INTO project_context (project_id, power_model, phase, financing_model, updated_by, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (project_id, power_model, phase, financing_model, created_by, now),
+        )
+        conn.execute(
+            "INSERT INTO project_context_events (project_id, field, old_value, new_value, actor, at) VALUES (?, ?, ?, ?, ?, ?)",
+            (project_id, "project", None, "created", created_by, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return project_id
 

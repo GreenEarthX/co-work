@@ -1,0 +1,161 @@
+{
+  "_comment": "GEX Gabillon curve engine - all modifiable inputs live here. Edit values, not code.",
+  "molecule": "green_ammonia",
+  "region": "EU",
+  "valuation_date": "2026-06-04",
+  "market_state": {
+    "spot": 690.0,
+    "long_term_anchor": 450.0,
+    "_note": "spot S0 should equal the LCOF short-end (here 690 $/MT, the current green-ammonia level); long_term_anchor is where the curve reverts (450 $/MT as the green premium erodes)."
+  },
+  "params": {
+    "kappa": {
+      "value": 0.85,
+      "status": "calibrated",
+      "min": 0.05,
+      "max": 5.0
+    },
+    "sigma_S": {
+      "value": 0.35,
+      "status": "calibrated",
+      "min": 0.01,
+      "max": 1.5
+    },
+    "sigma_L": {
+      "value": 0.15,
+      "status": "calibrated",
+      "min": 0.01,
+      "max": 1.0
+    },
+    "rho": {
+      "value": 0.6,
+      "status": "assumed",
+      "min": -0.99,
+      "max": 0.99
+    },
+    "mu_L": {
+      "value": 0.02,
+      "status": "assumed",
+      "min": -0.2,
+      "max": 0.2
+    },
+    "lambda_S": {
+      "value": 0.0,
+      "status": "assumed",
+      "min": -1.0,
+      "max": 1.0
+    },
+    "_note": "status drives the provenance banner. lambda_S is the P->Q wedge; 0.0 at inception (no traded risk premium to read it from). Only 'calibrated' params are moved by the optimizer."
+  },
+  "calibration": {
+    "target_source": "LCOF_fundamental",
+    "warm_start_from_memory": true,
+    "lcof_curve": [
+      {
+        "tau": 0.25,
+        "price": 690.0
+      },
+      {
+        "tau": 1.0,
+        "price": 610.0
+      },
+      {
+        "tau": 2.0,
+        "price": 540.0
+      },
+      {
+        "tau": 3.0,
+        "price": 500.0
+      },
+      {
+        "tau": 5.0,
+        "price": 470.0
+      },
+      {
+        "tau": 7.0,
+        "price": 458.0
+      },
+      {
+        "tau": 10.0,
+        "price": 452.0
+      }
+    ],
+    "_note": "LCOF = Levelized Cost Of Fuel curve (power-PPA x efficiency + capex amort + margin), supplied as the fundamental anchor. This is NOT a market futures panel - the engine will label every fit stat as fundamental, never as fit-to-market."
+  },
+  "policy_regimes": {
+    "enabled": true,
+    "states": [
+      {
+        "name": "incentives_intact",
+        "mu_L": 0.02,
+        "level_mult_on_entry": 1.0
+      },
+      {
+        "name": "incentives_eroded",
+        "mu_L": 0.06,
+        "level_mult_on_entry": 1.18
+      },
+      {
+        "name": "incentives_repealed",
+        "mu_L": 0.1,
+        "level_mult_on_entry": 1.35
+      }
+    ],
+    "initial_state": "incentives_intact",
+    "annual_transition_rates": {
+      "incentives_intact": {
+        "incentives_eroded": 0.15,
+        "incentives_repealed": 0.03
+      },
+      "incentives_eroded": {
+        "incentives_intact": 0.1,
+        "incentives_repealed": 0.1
+      },
+      "incentives_repealed": {
+        "incentives_eroded": 0.05
+      }
+    },
+    "_note": "(2) Markov regime switching on L. mu_L is the long-term drift in that state; level_mult_on_entry is a one-off jump to L when the regime is entered (e.g. 45V/RFNBO/IRA erosion lifts the cost floor). Rates are per-year intensities; missing pairs = 0."
+  },
+  "manual_branches": {
+    "enabled": true,
+    "_note": "(3) deterministic committee what-ifs, applied to ALL paths at the given time on top of the regime layer.",
+    "branches": [
+      {
+        "time": 2.0,
+        "target": "L",
+        "multiplier": 1.15,
+        "label": "CBAM tightening 2028"
+      }
+    ]
+  },
+  "hlr_logistics_overlay": {
+    "enabled": true,
+    "deliverability": "slow",
+    "deliverability_factor": {
+      "fast": 1.0,
+      "medium": 0.6,
+      "slow": 0.3
+    },
+    "location_spread_vol": 0.22,
+    "model_risk_band_pct": 0.25,
+    "_note": "Henaff-Laachir-Russo storage value repurposed as a LOGISTICS optionality proxy. 'fast' = molecule with available pipeline/shipping (can arbitrage location/time); 'slow' = stranded, thin transport. model_risk_band_pct = +/- band on the value (HLR show ~25% of storage value is pure model choice even with liquid data; we surface it as a band, not a point)."
+  },
+  "simulation": {
+    "horizon_years": 10.0,
+    "steps_per_year": 12,
+    "n_paths": 20000,
+    "seed": 20260604,
+    "cone_quantiles": [
+      0.05,
+      0.25,
+      0.5,
+      0.75,
+      0.95
+    ]
+  },
+  "memory": {
+    "state_file": "gabillon_calibration_memory.json",
+    "_note": "calibration with memory: every run is appended here with timestamp/provenance; next run warm-starts its optimizer from the last calibrated params."
+  }
+}

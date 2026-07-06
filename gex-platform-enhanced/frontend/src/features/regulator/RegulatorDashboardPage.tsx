@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// Screen: Regulator dashboard screen (/regulator-dashboard)
+import { useState, useEffect } from 'react';
 import { Shield, CheckCircle, AlertCircle, FileCheck, Eye, Search, Filter } from 'lucide-react';
 import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
 

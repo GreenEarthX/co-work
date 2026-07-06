@@ -12,13 +12,13 @@ import uuid
 from datetime import date
 
 # Import event system
-from app.core.event_store import EventStore, log_event
-from app.core.state_machine import transition_state, get_valid_next_states
+from app.core.event_store import append_event
+from app.core.config import settings
 
 router = APIRouter()
 
 # Database path - 3 levels up from app/api/v1/ to backend/
-DB_PATH = os.path.join(os.path.dirname(__file__), '../../../gex_platform.db')
+DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     """Get database connection"""
@@ -72,7 +72,7 @@ async def create_capacity(capacity: CapacityCreate, user_id: str = "system"):
         compliance_json = json.dumps(capacity.compliance_certifications) if capacity.compliance_certifications else None
         
         # 1. EMIT EVENT (Immutable audit log)
-        EventStore.append_event(
+        append_event(
             event_type="capacity.created",
             aggregate_type="capacity",
             aggregate_id=capacity_id,

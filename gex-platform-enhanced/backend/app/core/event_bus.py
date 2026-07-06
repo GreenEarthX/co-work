@@ -50,6 +50,7 @@ class EventStream(str, Enum):
     RISK = "gex:events:risk"
     COMMS = "gex:events:comms"
     PLANT = "gex:events:plant"
+    PRICING = "gex:events:pricing"
 
 
 class EventType(str, Enum):
@@ -109,6 +110,15 @@ class EventType(str, Enum):
     PLANT_GATEWAY_OFFLINE = "plant.gateway_offline"
     PLANT_ANOMALY_DETECTED = "plant.anomaly_detected"
 
+    # Pricing lineage events
+    PRICING_CALIBRATION_COMPLETED = "pricing.calibration_completed"
+    PRICING_SUBSIDY_INCORPORATED = "pricing.subsidy_incorporated"
+    PRICING_DFI_STRUCTURE_UPDATED = "pricing.dfi_structure_updated"
+    PRICING_INSURANCE_PREMIUM_SET = "pricing.insurance_premium_set"
+    PRICING_FORWARD_CURVE_GENERATED = "pricing.forward_curve_generated"
+    PRICING_FLOOR_UPDATED = "pricing.floor_updated"
+    PRICING_DECOMPOSITION_REQUESTED = "pricing.decomposition_requested"
+
 
 # ── Stream Routing ──
 
@@ -123,6 +133,7 @@ EVENT_STREAM_MAP: dict[str, EventStream] = {
     "risk.": EventStream.RISK,
     "comms.": EventStream.COMMS,
     "plant.": EventStream.PLANT,
+    "pricing.": EventStream.PRICING,
 }
 
 
@@ -236,6 +247,15 @@ CONSUMER_GROUPS = {
     "audit-trail": {
         "streams": [s for s in EventStream],
         "description": "Appends every event to immutable event store",
+    },
+    "price-lineage": {
+        "streams": [
+            EventStream.PRICING,
+            EventStream.OFFTAKE,
+            EventStream.INSTRUMENT,
+            EventStream.RISK,
+        ],
+        "description": "Tracks pricing lineage: Gabillon calibrations, subsidy changes, DFI updates",
     },
 }
 

@@ -1,3 +1,4 @@
+// Screen: Risk allocation matrix screen (/finance-risk-matrix)
 // ──────────────────────────────────────────────────────────
 // FILE 4: RiskAllocationMatrix.tsx
 // Route: /finance-risk-matrix
@@ -7,8 +8,8 @@
  
 // Save as: src/features/finance/RiskAllocationMatrix.tsx
  
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Search, Layers, ArrowRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
 

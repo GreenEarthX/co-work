@@ -1,3 +1,4 @@
+// Screen: Shared layout component — all authenticated screens
 import { NavLink } from 'react-router-dom'
 import {
   LayoutGrid,

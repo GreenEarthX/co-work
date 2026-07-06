@@ -3,6 +3,9 @@ Matching Engine Service - Core Algorithm
 
 This service implements the molecule-specific matching algorithm
 that scores offers against buyer RFQs.
+
+Phase 3: Integrates ABAC trade policy (credit gating, geofencing,
+tokenization) into counterparty scoring via evaluate_trade_policy().
 """
 from datetime import date, timedelta
 from typing import Dict, List, Optional
@@ -10,6 +13,11 @@ from uuid import UUID
 
 from app.db.models import Offer, RFQ, Match
 from app.schemas import MatchBreakdown
+from app.core.abac import (
+    CREDIT_RATING_ORDER, _rating_ordinal,
+    evaluate_trade_policy, UserAttributes, TradeContext,
+    TradeAction, Decision,
+)
 
 
 # Molecule-specific configuration
@@ -79,7 +87,7 @@ class MatchingEngine:
     def __init__(self):
         self.tolerance = 0.2  # 20% tolerance for numeric ranges
     
-    def score_offer(self, rfq: RFQ, offer: Offer) -> Dict:
+    def score_offer(self, rfq: RFQ, offer: Offer, buyer_attrs: Optional[UserAttributes] = None) -> Dict:
         """
         Score an offer against an RFQ
         
@@ -99,7 +107,7 @@ class MatchingEngine:
         window_score = self._score_delivery_window(rfq, offer)
         distance_score = self._score_distance(rfq, offer)
         compliance_score = self._score_compliance(rfq, offer)
-        counterparty_score = self._score_counterparty(offer)
+        counterparty_score = self._score_counterparty(offer, buyer_attrs)
         spec_score = self._score_specifications(rfq, offer, molecule)
         
         # Calculate weighted total
@@ -238,11 +246,42 @@ class MatchingEngine:
         
         return sum(scores) / len(scores)
     
-    def _score_counterparty(self, offer: Offer) -> float:
-        """Score counterparty quality (0-100)"""
-        # TODO: Implement actual counterparty rating system
-        # For now, return placeholder
-        return 80.0
+    def _score_counterparty(
+        self, offer: Offer, buyer_attrs: Optional[UserAttributes] = None
+    ) -> float:
+        """Score counterparty quality (0-100).
+
+        Uses the ABAC credit rating ordinal when buyer attributes are available.
+        Falls back to a neutral 80 for backward compatibility.
+        """
+        if buyer_attrs is None:
+            return 80.0
+
+        ordinal = _rating_ordinal(buyer_attrs.credit_rating)
+        max_ordinal = max(CREDIT_RATING_ORDER.values())  # AAA = 22
+
+        if max_ordinal == 0:
+            return 80.0
+
+        # Linear scale: NR(0) → 0, AAA(22) → 100
+        return round(min(100.0, (ordinal / max_ordinal) * 100), 2)
+
+    def evaluate_trade_eligibility(
+        self, buyer_attrs: UserAttributes, trade_ctx: TradeContext
+    ) -> Dict:
+        """Run ABAC trade policy R7-R9 and return decision + reason.
+
+        Called by matching endpoints before presenting matches to the buyer.
+        A DENY result means the match should be flagged (not necessarily hidden)
+        so the buyer knows what constraints block execution.
+        """
+        decision = evaluate_trade_policy(buyer_attrs, trade_ctx)
+        return {
+            "eligible": decision.decision == Decision.ALLOW,
+            "rules_evaluated": decision.rules_evaluated,
+            "denial_reason": decision.denial_reason,
+            "snapshot": decision.attributes_snapshot,
+        }
     
     def _score_specifications(self, rfq: RFQ, offer: Offer, molecule: str) -> float:
         """Score technical specifications match (0-100)"""

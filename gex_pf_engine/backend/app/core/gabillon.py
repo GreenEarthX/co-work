@@ -2,8 +2,8 @@
 Gabillon Modified Two-Factor Model — Green Fuel Price Curves
 gex_pf_engine/app/core/gabillon.py
 
-Calibrates spot + convenience yield dynamics for H2, eMeOH, SAF
-against European market price observations.
+Calibrates spot + convenience yield dynamics for the current
+GreenEarthX molecule catalogue plus legacy aliases.
 
 Modifications for green fuel markets vs. original Gabillon (1991):
   1. μ(t) includes CAPEX learning curve
@@ -36,7 +36,7 @@ except ImportError:
 @dataclass
 class GabillonParams:
     """Two-factor Gabillon model parameters with green fuel extensions."""
-    molecule: str                    # "H2" | "SAF" | "E_METHANOL"
+    molecule: str
 
     # ── Core Gabillon ──
     alpha: float                     # spot mean-reversion speed (yr⁻¹)
@@ -221,6 +221,96 @@ SEED_PARAMS: dict[str, GabillonParams] = {
         n_observations=0,
         last_calibrated="2026-03-25",
     ),
+    "E_METHANE": GabillonParams(
+        molecule="E_METHANE",
+        alpha=0.80,
+        mu_base=math.log(120),
+        sigma_s=0.45,
+        kappa=0.55,
+        theta_0=0.10,
+        sigma_delta=0.18,
+        rho=-0.30,
+        season_a1=0.12,
+        season_a2=-0.09,
+        learning_rate=-0.18,
+        reference_capacity_gw=1.5,
+        capex_floor_eur_t=95,
+        regulatory_premium_base=25,
+        n_observations=0,
+        last_calibrated="2026-04-07",
+    ),
+    "E_NH3": GabillonParams(
+        molecule="E_NH3",
+        alpha=0.50,
+        mu_base=math.log(700),
+        sigma_s=0.22,
+        kappa=0.40,
+        theta_0=0.06,
+        sigma_delta=0.10,
+        rho=-0.20,
+        season_a1=0.03,
+        season_a2=-0.02,
+        learning_rate=-0.15,
+        reference_capacity_gw=3.0,
+        capex_floor_eur_t=450,
+        regulatory_premium_base=80,
+        n_observations=0,
+        last_calibrated="2026-04-07",
+    ),
+    "E_GASOLINE": GabillonParams(
+        molecule="E_GASOLINE",
+        alpha=0.48,
+        mu_base=math.log(1_250),
+        sigma_s=0.26,
+        kappa=0.42,
+        theta_0=0.07,
+        sigma_delta=0.12,
+        rho=-0.24,
+        season_a1=-0.02,
+        season_a2=0.05,
+        learning_rate=-0.14,
+        reference_capacity_gw=0.9,
+        capex_floor_eur_t=1_050,
+        regulatory_premium_base=120,
+        n_observations=0,
+        last_calibrated="2026-04-07",
+    ),
+    "E_LG": GabillonParams(
+        molecule="E_LG",
+        alpha=0.72,
+        mu_base=math.log(145),
+        sigma_s=0.40,
+        kappa=0.50,
+        theta_0=0.09,
+        sigma_delta=0.17,
+        rho=-0.28,
+        season_a1=0.10,
+        season_a2=-0.07,
+        learning_rate=-0.16,
+        reference_capacity_gw=1.2,
+        capex_floor_eur_t=110,
+        regulatory_premium_base=35,
+        n_observations=0,
+        last_calibrated="2026-04-07",
+    ),
+    "E_NAPHTHA": GabillonParams(
+        molecule="E_NAPHTHA",
+        alpha=0.46,
+        mu_base=math.log(980),
+        sigma_s=0.24,
+        kappa=0.40,
+        theta_0=0.06,
+        sigma_delta=0.11,
+        rho=-0.22,
+        season_a1=-0.01,
+        season_a2=0.04,
+        learning_rate=-0.14,
+        reference_capacity_gw=0.8,
+        capex_floor_eur_t=820,
+        regulatory_premium_base=90,
+        n_observations=0,
+        last_calibrated="2026-04-07",
+    ),
 }
 
 
@@ -244,14 +334,17 @@ class GabillonModel:
         """
         Compute Gabillon forward price at given tenor.
 
-        F(t,T) = S(t) * exp(
-            (1/α)(1 - e^(-α(T-t)))(δ(t) - θ(T))
-            + (T-t)(μ(T) - σ_S²/2 + ρ*σ_S*σ_δ/κ)
-            + (σ_S²/(4α))(1 - e^(-2α(T-t)))
-            + ...seasonality + learning terms...
-        )
+        ln F(t,T) = e^(-ατ)·ln S(t)                         [spot, decaying]
+                  + (1 - e^(-ατ))·μ                          [pull to equilibrium]
+                  - ((1 - e^(-κτ))/κ)·(δ(t) - θ)             [convenience-yield drag]
+                  + (σ_S²/(4α))(1 - e^(-2ατ))                [Jensen variance correction]
+                  + cross-correlation term + seasonality + CAPEX-floor pull
 
-        Simplified closed-form (Jensen's inequality correction included).
+        τ = T - t in YEARS. μ (mu_base) is the long-run equilibrium expressed
+        as a LOG PRICE LEVEL — it is blended toward via the mean-reversion
+        envelope (1 - e^(-ατ)), never multiplied by τ as a drift rate.
+        As τ→0 the forward converges to spot; as τ→∞ it converges to
+        e^μ (plus small convexity/seasonal adjustments).
         """
         tau = tenor_years
         if tau <= 0:
@@ -268,15 +361,15 @@ class GabillonModel:
         e_alpha_tau = math.exp(-alpha * tau)
         e_kappa_tau = math.exp(-kappa * tau)
 
-        # Convenience yield contribution
-        delta_term = (1 / alpha) * (1 - e_alpha_tau) * (delta - theta)
+        # Convenience yield drag: δ mean-reverts to θ at speed κ.
+        # δ above θ = scarcity premium today → backwardation → forward BELOW spot.
+        delta_term = -((1 - e_kappa_tau) / kappa) * (delta - theta)
 
-        # Long-term drift
-        mu_longrun = params.mu_base
-        drift_term = tau * (mu_longrun - 0.5 * sigma_s ** 2
-                           + rho * sigma_s * sigma_d / kappa)
+        # Mean-reverting pull toward the long-run equilibrium log-level μ.
+        # Weight (1 - e^(-ατ)) ∈ [0,1): 0 at spot, →1 at long tenors.
+        level_term = (1 - e_alpha_tau) * (params.mu_base - math.log(spot))
 
-        # Variance correction (Jensen)
+        # Variance correction (Jensen, Ornstein-Uhlenbeck process)
         var_term = (sigma_s ** 2 / (4 * alpha)) * (1 - math.exp(-2 * alpha * tau))
 
         # Cross-term: sigma_S * sigma_δ correlation
@@ -303,8 +396,8 @@ class GabillonModel:
 
         log_forward = (
             math.log(spot)
+            + level_term
             + delta_term
-            + drift_term
             + var_term
             + cross_term
             + season_term

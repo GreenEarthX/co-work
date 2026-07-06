@@ -29,10 +29,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
+from app.core.config import settings
 
 logger = logging.getLogger("gex.ot_boundary")
 
-_DB_PATH = "gex_platform.db"
+_DB_PATH = settings.SQLITE_DB_PATH
 
 
 # ═══════════════════════════════════════════════════════════════

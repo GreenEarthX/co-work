@@ -1,3 +1,4 @@
+// Screen: Gabillon pricing admin screen (/ciso-pricing)
 /**
  * GabillonAdminPage — GEX Webmaster / Orchestrator Tool
  * Route: /ciso-pricing  (CISO password-gated)
@@ -8,7 +9,7 @@
  *   3. View backtest quality (model vs observed)
  *   4. Publish the forward curve to the platform
  *
- * Molecules: e-H2 · e-NH3 · e-Methanol · e-NG · SAF · HVO
+ * Molecules: e-Methane · e-Methanol · e-NH3 · HVO · SAF · e-Gasoline · e-LG · e-Naphtha
  */
 import React, { useState, useCallback } from 'react';
 import {
@@ -32,12 +33,16 @@ interface Molecule {
 }
 
 const MOLECULES: Molecule[] = [
-  { id: 'H2',         label: 'e-Hydrogen',   unit: '€/kg',  color: '#38bdf8', spotHint: 5.5  },
-  { id: 'NH3',        label: 'e-Ammonia',    unit: '€/t',   color: '#a78bfa', spotHint: 700  },
+  { id: 'H2',         label: 'e-Hydrogen',   unit: '€/t',   color: '#06b6d4', spotHint: 5500 },
+  { id: 'E_METHANE',  label: 'e-Methane',    unit: '€/MWh', color: '#38bdf8', spotHint: 120  },
   { id: 'E_METHANOL', label: 'e-Methanol',   unit: '€/t',   color: '#34d399', spotHint: 800  },
-  { id: 'E_NG',       label: 'e-Nat. Gas',   unit: '€/MWh', color: '#fb923c', spotHint: 120  },
-  { id: 'SAF',        label: 'SAF',          unit: '€/t',   color: '#facc15', spotHint: 1500 },
+  { id: 'E_NH3',      label: 'e-NH3',        unit: '€/t',   color: '#a78bfa', spotHint: 700  },
   { id: 'HVO',        label: 'HVO',          unit: '€/t',   color: '#f87171', spotHint: 1800 },
+  { id: 'SAF',        label: 'SAF',          unit: '€/t',   color: '#facc15', spotHint: 1500 },
+  { id: 'E_GASOLINE', label: 'e-Gasoline',   unit: '€/t',   color: '#fb923c', spotHint: 1250 },
+  { id: 'E_LG',       label: 'e-LG',         unit: '€/MWh', color: '#60a5fa', spotHint: 145  },
+  { id: 'E_NAPHTHA',  label: 'e-Naphtha',    unit: '€/t',   color: '#f472b6', spotHint: 980  },
+  { id: 'E_NG',       label: 'e-Nat. Gas',   unit: '€/MWh', color: '#fb923c', spotHint: 120  },
 ];
 
 const TENORS = [0, 1, 3, 6, 12, 24, 36, 60];
@@ -79,7 +84,8 @@ interface CalibrationResult {
 
 function buildSeedCurve(mol: Molecule): CalibrationResult {
   const spotMap: Record<string, number> = {
-    H2: 5500, NH3: 700, E_METHANOL: 800, E_NG: 120, SAF: 1500, HVO: 1800,
+    H2: 5500, E_METHANE: 120, E_METHANOL: 800, E_NH3: 700, HVO: 1800,
+    SAF: 1500, E_GASOLINE: 1250, E_LG: 145, E_NAPHTHA: 980, E_NG: 120,
   };
   const spot = spotMap[mol.id] ?? 1000;
   const tenors = [1, 3, 6, 12, 24, 36, 60];
@@ -114,7 +120,7 @@ function buildSeedCurve(mol: Molecule): CalibrationResult {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 let _obsId = 1;
-const newObs = (mol: string): Observation => ({
+const newObs = (_mol: string): Observation => ({
   id: String(_obsId++),
   date: new Date().toISOString().slice(0, 10),
   price_eur: 0,
@@ -152,7 +158,7 @@ export function GabillonAdminPage() {
     }));
 
     try {
-      const res = await fetch('http://localhost:8001/api/v1/pricing/calibrate', {
+      const res = await fetch('/api/v1/pricing/calibrate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

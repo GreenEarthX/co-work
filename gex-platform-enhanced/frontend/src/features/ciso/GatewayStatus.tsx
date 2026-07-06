@@ -1,3 +1,4 @@
+// Screen: Gateway status screen (/ciso-gateways)
 /**
  * GatewayStatus — CISO monitoring view for Domain 4: OT/IT Boundary.
  * Shows all registered OT gateways, their status, last-seen, and allowed data types.

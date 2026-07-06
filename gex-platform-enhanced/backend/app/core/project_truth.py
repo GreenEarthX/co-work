@@ -20,8 +20,9 @@ import os
 import sqlite3
 from pathlib import Path
 from typing import Any
+from app.core.config import settings
 
-DB_PATH = os.getenv("GEX_DB_PATH", "greenearth.db")
+DB_PATH = settings.SQLITE_DB_PATH
 
 
 DEFAULT_PROJECT_TRUTH: dict[str, Any] = {

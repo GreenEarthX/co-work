@@ -1,3 +1,4 @@
+// Screen: Term sheet tracker screen (/term-sheet, /finance/term-sheet)
 /**
  * TermSheetTracker — Tracks convergence of commercial terms (Playbook Annex B checklist).
  * Shows which terms are agreed, pending, or disputed grouped by category.
@@ -8,7 +9,7 @@ import {
   FileSignature, CheckCircle2, Clock, AlertTriangle, Plus, Filter,
 } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
 
@@ -134,7 +135,8 @@ const TERM_GROUPS = [
 
 export function TermSheetTracker() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId) ?? CUSTOMER_PROJECTS[0]
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
   const [filterStatus, setFilterStatus] = useState<TermStatus | 'ALL'>('ALL')
 
   const allTerms = buildTerms(project.id)

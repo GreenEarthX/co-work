@@ -1,12 +1,13 @@
+// Screen: Insurance asset register screen (/insurance-assets)
 /**
  * InsuranceAssetRegister — asset & exposure register for insurers.
  * Molecule-specific hazard classification. Route: /insurance-assets
  * Visible to: INSURER (TP) and PRODUCER FINANCE_TREASURY
  */
 import { useState } from 'react'
-import { Building2, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Flame } from 'lucide-react'
+import { Building2, AlertTriangle, ChevronDown, ChevronUp, Flame } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -137,7 +138,8 @@ function AssetRow({ asset }: { asset: AssetItem }) {
 
 export function InsuranceAssetRegister() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId)
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
   const assets = ASSET_REGISTERS[selectedProjectId] ?? DEFAULT_REGISTER
 
   const totalRV = assets.reduce((sum, a) => {

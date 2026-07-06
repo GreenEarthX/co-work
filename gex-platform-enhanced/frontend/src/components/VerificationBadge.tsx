@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance verification screens
 /**
  * VerificationBadge — R0 (Architectural Reform v6.0)
  *
@@ -11,7 +12,7 @@
  * AUDITED     → green  — "Audited · [Firm] Ref: [ref]"
  */
 
-import { ShieldAlert, ShieldCheck, ShieldQuestion, ShieldOff } from 'lucide-react'
+import { ShieldCheck, ShieldQuestion, ShieldOff } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

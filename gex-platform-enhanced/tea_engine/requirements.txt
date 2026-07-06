@@ -1,0 +1,16 @@
+# tea_engine — TEA service wrapping OpenPyTEA, behind the GEX-JWT bridge.
+
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+
+# JWT verification (same bridge as gex_pf_engine)
+PyJWT[crypto]==2.9.0
+httpx==0.27.2
+
+# Techno-economics engine (the thing this service wraps). Pulls its own
+# scientific stack (numpy, pandas, scipy, matplotlib, seaborn, tqdm, jinja2).
+# Set TEA_STUB=1 to bypass it for CI / demo without the heavy deps.
+openpytea==2.1.0
+
+python-json-logger==2.0.7

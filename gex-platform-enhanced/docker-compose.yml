@@ -16,6 +16,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - gex_net
 
   redis:
     image: redis:7-alpine
@@ -28,6 +30,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - gex_net
 
   backend:
     build:
@@ -45,6 +49,8 @@ services:
       MATRIX_HS_TOKEN: gex_hs_token_change_in_production
       MATRIX_BOT_USER_ID: "@gex_platform:gex.internal"
       PF_ENGINE_URL: http://pf_engine:8001
+      GEX_ENGINE_URL: http://pf_engine:8001
+      TEA_ENGINE_URL: http://tea_engine:8002
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +89,8 @@ services:
     volumes:
       - ./backend:/app
     command: celery -A app.tasks.celery_app worker --loglevel=info
+    networks:
+      - gex_net
 
   celery_beat:
     build:
@@ -98,6 +106,8 @@ services:
     volumes:
       - ./backend:/app
     command: celery -A app.tasks.celery_app beat --loglevel=info
+    networks:
+      - gex_net
 
   # ── Matrix Synapse ─────────────────────────────────────────────────────────
   # Self-hosted homeserver for GEX secure actor-to-actor communications.
@@ -137,6 +147,26 @@ services:
       - "8001:8001"
     environment:
       ENVIRONMENT: development
+      # One identity issuer (ADR 2026-07-06): engines verify GEX platform
+      # JWTs only. Must match the backend SECRET_KEY (HS256), or set
+      # GEX_JWKS_URL for RS256 key discovery.
+      GEX_JWT_SECRET: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      GEX_JWKS_URL: http://backend:8000/api/v1/auth/jwks
+    networks:
+      - gex_net
+
+  tea_engine:
+    build:
+      context: ./tea_engine
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      ENVIRONMENT: development
+      TEA_STUB: "0"            # real OpenPyTEA; set 1 for deterministic stub (CI/demo)
+      # One identity issuer (ADR 2026-07-06) — Supabase verification retired.
+      GEX_JWT_SECRET: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      GEX_JWKS_URL: http://backend:8000/api/v1/auth/jwks
     networks:
       - gex_net
 

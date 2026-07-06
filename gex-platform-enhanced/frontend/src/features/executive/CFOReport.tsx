@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Printer, AlertTriangle, CheckSquare, Square, TrendingUp, TrendingDown, Minus } from 'lucide-react'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
-import { useSelectedProject } from '@/contexts/ProjectContext'
+// Screen: CFO/CEO report screen (/cfo-report)
+import { useState } from 'react'
+import { Printer, AlertTriangle, Square, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -276,7 +275,7 @@ export function CFOReport() {
         <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--brand, #0ea5e9)' }}>
           GreenEarthX — Executive Report
         </p>
-        <h1 className="text-2xl font-bold mb-0.5">CFO → CEO Portfolio Report</h1>
+        <h1 className="text-2xl font-bold mb-0.5">CEO Portfolio Report</h1>
         <p className="text-sm" style={{ color: 'var(--text-muted, #64748b)' }}>
           Reporting period: March 2026 · Prepared by: Finance &amp; Strategy · {generatedAt}
         </p>

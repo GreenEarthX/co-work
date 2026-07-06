@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance / cooperation screens
 /**
  * CooperationHandoffFeed — live cross-functional knowledge transfer feed.
  * Shows insurance sign-offs, OFFTAKER EXECUTIVE decisions, HAZOP events,
@@ -9,7 +10,7 @@ import {
   CheckCircle2, AlertTriangle, Clock, FileText,
 } from 'lucide-react'
 import { projectActivityAPI } from '@/api'
-import { getProjectById } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -219,7 +220,8 @@ export function CooperationHandoffFeed({
   const [events, setEvents] = useState<HandoffEvent[]>([])
   const [loading, setLoading] = useState(false)
 
-  const resolvedProjectName = projectFilter ?? (projectId ? getProjectById(projectId)?.name : undefined)
+  const { projects: visibleProjects } = useVisibleProjects()
+  const resolvedProjectName = projectFilter ?? (projectId ? visibleProjects.find(p => p.id === projectId)?.name : undefined)
 
   useEffect(() => {
     let cancelled = false

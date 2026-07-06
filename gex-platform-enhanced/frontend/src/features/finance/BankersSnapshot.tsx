@@ -1,6 +1,7 @@
-import { Printer, MapPin, Calendar, TrendingUp, TrendingDown, AlertTriangle, XCircle, CheckCircle2, Zap } from 'lucide-react'
+// Screen: Banker's snapshot screen (/bankability-snapshot, /finance/bankers-snapshot)
+import { Printer, MapPin, Calendar, TrendingUp, AlertTriangle, XCircle, CheckCircle2, Zap } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -43,6 +44,10 @@ interface SnapshotData {
     termSheetTarget: string
     fidTarget: string
     codTarget: string
+    concessionalShare?: number  // 0-1
+    blendedDebtCost?: number   // %
+    catalyticRatio?: number    // x:1
+    maxGracePeriod?: number    // years
   }
   gates: GateEntry[]
   certReadiness: number
@@ -61,7 +66,7 @@ const SNAPSHOT_DATA: Record<string, SnapshotData> = {
     technology: '120MW PEM + DSO integration',
     financials: { capex: 220, dscrP50: 1.34, dscrP90: 1.18, llcr: 1.41, wacc: 8.9, breakeven: 1.62 },
     offtake: { contracted: 78, tenor: 15, buyerCredit: 'BBB+ (Vattenfall parent guarantee)', index: 'ICIS H2 NWE + logistics escalator', score: 79 },
-    financing: { seniorDebt: 145, ecaDfi: 'EIB indicative offer received', equity: 58, mezzEur: 17, termSheetTarget: 'Q4-2026', fidTarget: 'Q1-2027', codTarget: 'Q3-2028' },
+    financing: { seniorDebt: 145, ecaDfi: 'EIB indicative offer received', equity: 58, mezzEur: 17, termSheetTarget: 'Q4-2026', fidTarget: 'Q1-2027', codTarget: 'Q3-2028', concessionalShare: 0.53, blendedDebtCost: 4.83, catalyticRatio: 0.67, maxGracePeriod: 3 },
     gates: [
       { id: 'G0',  name: 'Site Rights',       status: 'PASS',        score: 95 },
       { id: 'G1',  name: 'Grid Connection',   status: 'IN_PROGRESS', score: 67 },
@@ -332,7 +337,8 @@ function TrustArc({ score }: { score: number }) {
 
 export function BankersSnapshot() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId)
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
   const data = SNAPSHOT_DATA[selectedProjectId] ?? SNAPSHOT_DATA['proj_lehavre_eng']
 
   const stateStyle = BANKABILITY_STATE_STYLES[data.bankabilityState]
@@ -513,6 +519,36 @@ export function BankersSnapshot() {
                 <span className="text-xs font-bold text-gray-700">Total investment</span>
                 <span className="text-base font-black text-gray-900">€{totalInvestment}M</span>
               </div>
+              {/* Concessional metrics (when available) */}
+              {data.financing.concessionalShare != null && data.financing.concessionalShare > 0 && (
+                <div className="mt-3 pt-2 border-t border-teal-200 space-y-1">
+                  <div className="text-xs font-black uppercase tracking-widest text-teal-700 mb-1">DFI / Concessional</div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Concessional share</span>
+                    <span className="font-semibold text-teal-700">{(data.financing.concessionalShare * 100).toFixed(0)}%</span>
+                  </div>
+                  {data.financing.blendedDebtCost != null && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Blended debt cost</span>
+                      <span className="font-semibold">{data.financing.blendedDebtCost.toFixed(2)}%</span>
+                    </div>
+                  )}
+                  {data.financing.catalyticRatio != null && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Catalytic ratio</span>
+                      <span className={`font-semibold ${data.financing.catalyticRatio >= 5 ? 'text-green-600' : 'text-amber-600'}`}>
+                        {data.financing.catalyticRatio.toFixed(1)}:1
+                      </span>
+                    </div>
+                  )}
+                  {data.financing.maxGracePeriod != null && data.financing.maxGracePeriod > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Max grace period</span>
+                      <span className="font-semibold">{data.financing.maxGracePeriod}y</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </SectionCard>
           </div>
 

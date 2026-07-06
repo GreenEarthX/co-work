@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gex_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gex_password_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-gex_platform}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gex_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gex_net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gex_net
+
+  backend:
+    image: ${NAMESPACE}/gex-backend:${TAG:-latest}
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gex_user}:${POSTGRES_PASSWORD:-gex_password_dev}@postgres:5432/${POSTGRES_DB:-gex_platform}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      PF_ENGINE_URL: http://pf_engine:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - gex_net
+
+  frontend:
+    image: ${NAMESPACE}/gex-frontend:${TAG:-latest}
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - gex_net
+
+  celery_worker:
+    image: ${NAMESPACE}/gex-backend:${TAG:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gex_user}:${POSTGRES_PASSWORD:-gex_password_dev}@postgres:5432/${POSTGRES_DB:-gex_platform}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+    depends_on:
+      - postgres
+      - redis
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    networks:
+      - gex_net
+
+  celery_beat:
+    image: ${NAMESPACE}/gex-backend:${TAG:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gex_user}:${POSTGRES_PASSWORD:-gex_password_dev}@postgres:5432/${POSTGRES_DB:-gex_platform}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+    depends_on:
+      - postgres
+      - redis
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    networks:
+      - gex_net
+
+  pf_engine:
+    image: ${NAMESPACE}/gex-pf-engine:${TAG:-latest}
+    ports:
+      - "8001:8001"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    networks:
+      - gex_net
+
+networks:
+  gex_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance molecule-gated screens
 /**
  * MoleculeGatingAlert — molecule-specific safety & regulatory gate status block.
  * Surfaces HAZOP/Seveso for NH3 and HAZOP/ASTM for SAF.
@@ -18,11 +19,11 @@ interface GateField {
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM'
 }
 
-function statusIcon(passed: boolean) {
-  return passed
-    ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-    : <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-}
+// function _statusIcon(passed: boolean) {
+//   return passed
+//     ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+//     : <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+// }
 
 function buildNH3Gates(mg: NonNullable<CustomerProject['molecule_gating']>): GateField[] {
   const sevesoPassed = mg.seveso_tier === 'LOWER' || mg.seveso_tier === 'UPPER'

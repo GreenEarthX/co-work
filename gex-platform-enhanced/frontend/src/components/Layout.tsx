@@ -1,3 +1,4 @@
+// Screen: Shared layout component — all authenticated screens
 import { Outlet } from 'react-router-dom';
 import { TopBar } from './TopBar';
 

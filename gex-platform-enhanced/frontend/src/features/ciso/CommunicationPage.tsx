@@ -1,3 +1,4 @@
+// Screen: CISO communications screen (/ciso-communications)
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   MessageSquare, Shield, AlertTriangle, CheckCircle, XCircle,
@@ -72,9 +73,7 @@ function EventLog() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch('/api/v1/comms/events?limit=200', {
-      headers: { 'x-demo-company': 'bp_global_energy' },
-    })
+    fetch('/api/v1/comms/events?limit=200')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.events) setEvents(d.events); })
       .catch(() => {})
@@ -234,9 +233,7 @@ function AdminLogTab() {
   const [expanded, setExpanded] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch('/api/v1/comms/admin-log?limit=100', {
-      headers: { 'x-demo-company': 'bp_global_energy' },
-    })
+    fetch('/api/v1/comms/admin-log?limit=100')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.entries) setEntries(d.entries); })
       .catch(() => {})
@@ -346,9 +343,7 @@ function RoomPolicyTab() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/v1/comms/policy', {
-      headers: { 'x-demo-company': 'bp_global_energy' },
-    })
+    fetch('/api/v1/comms/policy')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setPolicy(d); })
       .catch(() => {})

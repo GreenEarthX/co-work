@@ -1,5 +1,6 @@
+// Screen: Covenants screen (/covenants, /finance/covenants)
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Shield, AlertTriangle, CheckCircle2, XCircle, ArrowRight, TrendingUp, TrendingDown } from 'lucide-react'
+import { RefreshCw, Shield, AlertTriangle, CheckCircle2, XCircle, ArrowRight } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
 import { bankabilityAPI, financeModelAPI } from '@/lib/api'
@@ -20,6 +21,14 @@ interface Covenant {
   frequency: string
 }
 
+interface GateEvaluation {
+  gate_id: string
+  is_complete: boolean
+  completion_pct: number
+  verified_count: number
+  total_evidence: number
+}
+
 interface RegressionRule {
   from_state: string
   trigger_gate: string
@@ -31,14 +40,14 @@ interface RegressionRule {
 // COVENANT DEFINITIONS (derived from bankability engine gates)
 // ═══════════════════════════════════════════════════════════════
 
-function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant[] {
+function deriveCovenants(snapshot: any, _rules: any, cfadsResult?: any): Covenant[] {
   if (!snapshot) return []
 
   const gates = snapshot.gate_evaluations || []
   const covenants: Covenant[] = []
 
   // Financial covenants from gate completion status
-  const gateMap = new Map(gates.map((g: any) => [g.gate_id, g]))
+  const gateMap = new Map<string, GateEvaluation>(gates.map((g: any) => [g.gate_id, g]))
 
   // DSCR covenant — tied to G8 (Audit-Grade Model)
   const g8 = gateMap.get('G8_AUDIT_GRADE_MODEL')
@@ -69,7 +78,7 @@ function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant
     metric: 'Contracted / Capacity',
     threshold: '≥ 70%',
     current_value: g4 ? `${Math.round(g4.completion_pct)}% gate progress` : 'No data',
-    status: g4?.is_complete ? 'compliant' : g4?.completion_pct > 50 ? 'warning' : 'not_applicable',
+    status: g4?.is_complete ? 'compliant' : (g4?.completion_pct ?? 0) > 50 ? 'warning' : 'not_applicable',
     linked_gate: 'G4_OFFTAKE_BANKABLE',
     frequency: 'Semi-annual',
   })
@@ -83,7 +92,7 @@ function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant
     metric: 'All required policies',
     threshold: 'Fully bound',
     current_value: g7 ? `${g7.verified_count}/${g7.total_evidence} verified` : 'No data',
-    status: g7?.is_complete ? 'compliant' : g7?.completion_pct > 30 ? 'warning' : 'not_applicable',
+    status: g7?.is_complete ? 'compliant' : (g7?.completion_pct ?? 0) > 30 ? 'warning' : 'not_applicable',
     linked_gate: 'G7_INSURANCE_BOUND',
     frequency: 'Annual renewal',
   })
@@ -97,7 +106,7 @@ function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant
     metric: 'IE sign-off status',
     threshold: 'Full sign-off',
     current_value: g6 ? `${g6.verified_count}/${g6.total_evidence} items` : 'Not started',
-    status: g6?.is_complete ? 'compliant' : g6?.completion_pct > 50 ? 'warning' : 'not_applicable',
+    status: g6?.is_complete ? 'compliant' : (g6?.completion_pct ?? 0) > 50 ? 'warning' : 'not_applicable',
     linked_gate: 'G6_IE_SIGNOFF',
     frequency: 'Per milestone',
   })
@@ -111,7 +120,7 @@ function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant
     metric: 'EPC readiness',
     threshold: 'Executed w/ guarantees',
     current_value: g5 ? `${Math.round(g5.completion_pct)}% complete` : 'Pre-procurement',
-    status: g5?.is_complete ? 'compliant' : g5?.completion_pct > 30 ? 'warning' : 'not_applicable',
+    status: g5?.is_complete ? 'compliant' : (g5?.completion_pct ?? 0) > 30 ? 'warning' : 'not_applicable',
     linked_gate: 'G5_EPC_RISK_PRICED',
     frequency: 'Pre-FC',
   })
@@ -125,7 +134,7 @@ function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant
     metric: 'Certification scheme locked',
     threshold: 'Scheme selected + GHG methodology',
     current_value: g2 ? `${g2.verified_count}/${g2.total_evidence} verified` : 'Not started',
-    status: g2?.is_complete ? 'compliant' : g2?.completion_pct > 50 ? 'warning' : 'not_applicable',
+    status: g2?.is_complete ? 'compliant' : (g2?.completion_pct ?? 0) > 50 ? 'warning' : 'not_applicable',
     linked_gate: 'G2_CERTIFICATION_PATH_LOCKED',
     frequency: 'Annual',
   })
@@ -139,7 +148,7 @@ function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant
     metric: 'All permits secured',
     threshold: 'EIA + construction + operating',
     current_value: g9 ? `${g9.verified_count}/${g9.total_evidence} secured` : 'Pre-application',
-    status: g9?.is_complete ? 'compliant' : g9?.completion_pct > 30 ? 'warning' : 'not_applicable',
+    status: g9?.is_complete ? 'compliant' : (g9?.completion_pct ?? 0) > 30 ? 'warning' : 'not_applicable',
     linked_gate: 'G9_PERMITS_SAFE',
     frequency: 'Per permit cycle',
   })
@@ -153,7 +162,7 @@ function deriveCovenants(snapshot: any, rules: any, cfadsResult?: any): Covenant
     metric: 'CP satisfaction',
     threshold: 'All CPs satisfied',
     current_value: g10 ? `${g10.verified_count}/${g10.total_evidence} CPs` : 'Pre-FC',
-    status: g10?.is_complete ? 'compliant' : g10?.completion_pct > 50 ? 'warning' : 'not_applicable',
+    status: g10?.is_complete ? 'compliant' : (g10?.completion_pct ?? 0) > 50 ? 'warning' : 'not_applicable',
     linked_gate: 'G10_FINANCIAL_CLOSE_CP',
     frequency: 'At FC',
   })

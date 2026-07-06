@@ -1,3 +1,4 @@
+// Screen: API client (no screen)
 import type { ProjectRatingCreateRequest, ProjectRatingResponse } from "@/types/projectRating";
 
 const API_BASE = (import.meta as ImportMeta & { env: Record<string, string> }).env?.VITE_API_BASE_URL ?? "";
@@ -29,16 +30,26 @@ export async function scoreProjectRating(
 /** Alias for callers that prefer the longer name. */
 export const createProjectRating = scoreProjectRating;
 
-export async function getCurrentProjectRating(projectId: string): Promise<ProjectRatingResponse> {
+/**
+ * Fetch current persisted rating for a project.
+ * Returns null when backend returns 501 (persistence not yet wired).
+ */
+export async function getCurrentProjectRating(projectId: string): Promise<ProjectRatingResponse | null> {
   const response = await fetch(`${API_BASE}/api/v1/project-ratings/projects/${projectId}/current`, {
     credentials: "include",
   });
+  if (response.status === 501) return null;
   return parseJson<ProjectRatingResponse>(response);
 }
 
+/**
+ * Fetch rating history for a project.
+ * Returns empty array when backend returns 501 (persistence not yet wired).
+ */
 export async function getProjectRatingHistory(projectId: string): Promise<ProjectRatingResponse[]> {
   const response = await fetch(`${API_BASE}/api/v1/project-ratings/projects/${projectId}/history`, {
     credentials: "include",
   });
+  if (response.status === 501) return [];
   return parseJson<ProjectRatingResponse[]>(response);
 }

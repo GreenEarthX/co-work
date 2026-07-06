@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance workflow screens
 /**
  * WorkflowBadge — small reusable state badge for governed bankability objects.
  * Shows the current workflow state with colour coding and an optional staleness warning.

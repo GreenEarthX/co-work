@@ -1,3 +1,4 @@
+// Screen: Gantt visibility config screen (/ciso-gantt-config)
 /**
  * GanttVisibilityConfig — CISO control panel for configuring which Gantt items
  * each workspace can see. Implements ABAC gate filtering for the Production

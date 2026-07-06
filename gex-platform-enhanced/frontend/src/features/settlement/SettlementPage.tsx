@@ -1,3 +1,4 @@
+// Screen: Settlement screen (/settlement)
 import { useState, useEffect } from 'react'
 import { RefreshCw, Truck, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
 import { contractsAPI } from '@/lib/api'

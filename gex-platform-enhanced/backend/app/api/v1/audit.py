@@ -5,7 +5,12 @@ Query event history, chain of custody, and verify integrity
 from typing import Optional, List, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.core.event_store import EventStore, get_compliance_thread, verify_integrity, get_entity_history
+from app.core.event_store import (
+    get_compliance_thread,
+    get_entity_history,
+    get_events,
+    verify_integrity,
+)
 from app.core.state_machine import get_valid_next_states, get_state_machine
 
 router = APIRouter()
@@ -53,7 +58,7 @@ async def list_events(
     List events with optional filtering
     """
     try:
-        events = EventStore.get_events(
+        events = get_events(
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
             event_type=event_type,
@@ -160,7 +165,7 @@ async def verify_event_chain_integrity():
         verify_integrity()
         
         # Count total events
-        events = EventStore.get_events()
+        events = get_events()
         
         return {
             "verified": True,
@@ -240,7 +245,7 @@ async def get_compliance_report(correlation_id: str):
         
         # Verify integrity for this correlation_id
         try:
-            all_events = EventStore.get_events(correlation_id=correlation_id)
+            all_events = get_events(correlation_id=correlation_id)
             # Simple check - just verify we can retrieve events
             report['integrity_verified'] = len(all_events) > 0
         except:
@@ -260,7 +265,7 @@ async def get_audit_stats():
     Get overall audit statistics
     """
     try:
-        events = EventStore.get_events()
+        events = get_events()
         
         # Count by type
         event_types = {}

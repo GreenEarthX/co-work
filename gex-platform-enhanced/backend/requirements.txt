@@ -1,6 +1,3 @@
-# Async HTTP Client (for calling gex_pf_engine)
-httpx==0.25.1
-
 # If you don't have these already, add them:
 #sqlite3  # Usually built-in with Python
 

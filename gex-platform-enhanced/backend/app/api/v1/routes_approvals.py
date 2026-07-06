@@ -38,11 +38,13 @@ class EvaluateRequest(BaseModel):
     payload: dict = {}
     amount: Optional[float] = None
     volume: Optional[float] = None
+    initiator_user_id: Optional[str] = None  # fallback if x-demo-user header absent
 
 
 class DecideRequest(BaseModel):
     decision: str   # APPROVE | REJECT
     reason_text: Optional[str] = None
+    approver_user_id: Optional[str] = None  # fallback if x-demo-user header absent
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ def evaluate(
     Evaluate whether an action requires approval.
     Returns IMMEDIATE or PENDING_APPROVAL + request_id.
     """
-    user_id = x_demo_user or "unknown_user"
+    user_id = x_demo_user or body.initiator_user_id or "unknown_user"
     decision = evaluate_authorization(
         initiator_user_id=user_id,
         action_type=body.action_type,
@@ -97,11 +99,13 @@ def evaluate(
 @router.get("/pending")
 def list_pending(
     project_id: Optional[str] = None,
+    company_id: Optional[str] = None,
     x_demo_company: Optional[str] = Header(default=None),
 ):
-    """All pending approval requests. Filtered by project if specified."""
+    """All pending approval requests. Filtered by project and/or company."""
+    resolved_company = x_demo_company or company_id
     items = get_pending_approvals(
-        company_id=x_demo_company,
+        company_id=resolved_company,
         project_id=project_id,
     )
     return {"total": len(items), "items": items}
@@ -131,7 +135,7 @@ def decide(
     except ValueError:
         raise HTTPException(status_code=422, detail="Decision must be APPROVE or REJECT")
 
-    approver = x_demo_user or "unknown_approver"
+    approver = x_demo_user or body.approver_user_id or "unknown_approver"
     result = record_decision(
         request_id=request_id,
         approver_user_id=approver,

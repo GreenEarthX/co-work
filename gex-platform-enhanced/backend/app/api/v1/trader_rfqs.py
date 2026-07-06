@@ -11,13 +11,14 @@ import uuid
 from datetime import datetime
 
 # EVENT SYSTEM IMPORTS
-from app.core.event_store import EventStore
+from app.core.event_store import append_event
 from app.core.state_machine import transition_state, TransitionError, PreconditionError
+from app.core.config import settings
 
 router = APIRouter()
 
 # Database path
-DB_PATH = os.path.join(os.path.dirname(__file__), '../../../gex_platform.db')
+DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     """Get database connection"""
@@ -72,7 +73,7 @@ async def create_rfq(rfq: RFQCreate, user_id: str = "trader"):
         compliance_json = json.dumps(rfq.compliance_requirements) if rfq.compliance_requirements else None
         
         # 1. EMIT EVENT
-        EventStore.append_event(
+        append_event(
             event_type="rfq.created",
             aggregate_type="rfq",
             aggregate_id=rfq_id,
@@ -291,7 +292,7 @@ async def update_rfq_status(
             )
         
         # Emit event
-        EventStore.append_event(
+        append_event(
             event_type="rfq.status_changed",
             aggregate_type="rfq",
             aggregate_id=rfq_id,

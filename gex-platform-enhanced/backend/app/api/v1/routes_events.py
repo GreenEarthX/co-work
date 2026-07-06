@@ -140,6 +140,55 @@ async def get_stream_stats():
     return {"streams": stats}
 
 
+@router.get("/stream/{project_id}")
+async def event_stream(project_id: str):
+    """
+    SSE event stream for a project.
+
+    Contract (intentionally deferred — returns 501 until implemented):
+      - Auth: Bearer token in Authorization header or `token` query param
+        (EventSource cannot set custom headers; token-in-query is the fallback).
+      - ABAC: Only events for projects visible to the requesting user are delivered.
+      - Event shape:
+          data: {"event_id": str, "event_type": str, "project_id": str,
+                 "payload": dict, "timestamp": str}
+      - Supported event_type values (planned):
+          gate.score_changed    — gate completion % updated
+          evidence.verified     — an evidence item was verified
+          commitment.signed     — a commitment was signed
+          deal_killer.resolved  — a fatal/critical blocker was resolved
+      - Heartbeat: `data: {"event_type": "heartbeat"}` every 30 s to keep the connection alive.
+
+    Implementation status: DEFERRED (Sprint 1).
+    """
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=501,
+        content={
+            "detail": "SSE stream not yet implemented",
+            "status": "DEFERRED",
+            "sprint": "S1",
+            "contract": {
+                "auth": "Bearer token in Authorization header or ?token=<jwt> query param",
+                "event_types": [
+                    "gate.score_changed",
+                    "evidence.verified",
+                    "commitment.signed",
+                    "deal_killer.resolved",
+                    "heartbeat",
+                ],
+                "payload_shape": {
+                    "event_id": "str",
+                    "event_type": "str",
+                    "project_id": "str",
+                    "payload": "dict",
+                    "timestamp": "ISO-8601 str",
+                },
+            },
+        },
+    )
+
+
 @router.get("/consumer-groups", response_model=dict)
 async def get_consumer_groups():
     """List all consumer groups and their stream subscriptions."""

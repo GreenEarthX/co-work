@@ -1,9 +1,10 @@
+// Screen: Molecule price curve — used in Green Fuel Forward Curves screen (/pricing-curves)
 /**
  * MoleculePriceCurve — Project-facing forward curve widget
  *
  * Reads the published Gabillon curve for a given molecule from localStorage
  * (set by GabillonAdminPage when CISO webmaster publishes) or falls back
- * to a live fetch from the finance engine at localhost:8001.
+ * to the platform pricing proxy.
  *
  * Usage:
  *   <MoleculePriceCurve molecule="H2" compact />
@@ -41,18 +42,23 @@ interface CurveData {
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const MOLECULE_META: Record<string, { label: string; unit: string; color: string }> = {
-  H2:         { label: 'e-Hydrogen',  unit: '€/kg',  color: '#38bdf8' },
-  NH3:        { label: 'e-Ammonia',   unit: '€/t',   color: '#a78bfa' },
+  E_METHANE:  { label: 'e-Methane',   unit: '€/MWh', color: '#38bdf8' },
   E_METHANOL: { label: 'e-Methanol',  unit: '€/t',   color: '#34d399' },
-  E_NG:       { label: 'e-Nat. Gas',  unit: '€/MWh', color: '#fb923c' },
-  SAF:        { label: 'SAF',         unit: '€/t',   color: '#facc15' },
+  E_NH3:      { label: 'e-NH3',       unit: '€/t',   color: '#a78bfa' },
   HVO:        { label: 'HVO',         unit: '€/t',   color: '#f87171' },
+  SAF:        { label: 'SAF',         unit: '€/t',   color: '#facc15' },
+  E_GASOLINE: { label: 'e-Gasoline',  unit: '€/t',   color: '#fb923c' },
+  E_LG:       { label: 'e-LG',        unit: '€/MWh', color: '#60a5fa' },
+  E_NAPHTHA:  { label: 'e-Naphtha',   unit: '€/t',   color: '#f472b6' },
+  H2:         { label: 'H2',          unit: '€/kg',  color: '#38bdf8' },
+  NH3:        { label: 'NH3',         unit: '€/t',   color: '#a78bfa' },
+  E_NG:       { label: 'e-NG',        unit: '€/MWh', color: '#fb923c' },
 };
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface Props {
-  molecule: string;        // e.g. "H2" | "SAF" | "E_METHANOL" | "NH3" | "E_NG" | "HVO"
+  molecule: string;
   compact?: boolean;       // smaller layout for embedding in project cards
   showTable?: boolean;     // show full term structure table beneath chart
   projectName?: string;    // if provided, shown as subtitle
@@ -60,19 +66,34 @@ interface Props {
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
+/** Sanity check: no real commodity forward >20× spot in any tenor ≤60M */
+function isCurveSane(curve: CurveData): boolean {
+  if (!curve.spot_price_eur || curve.spot_price_eur <= 0) return false;
+  return curve.term_curve.every(
+    pt => Math.abs(pt.price_eur / curve.spot_price_eur) < 20
+  );
+}
+
 async function loadCurve(molecule: string): Promise<CurveData | null> {
   // 1. Check localStorage for CISO-published curve
   const stored = localStorage.getItem(`gex_forward_curve_${molecule}`);
   if (stored) {
-    try { return JSON.parse(stored); } catch { /* fall through */ }
+    try {
+      const parsed = JSON.parse(stored) as CurveData;
+      if (isCurveSane(parsed)) return parsed;
+      // Corrupted curve (parameter explosion) — purge and fall through
+      console.warn(`[MoleculePriceCurve] Purging corrupted localStorage curve for ${molecule}`);
+      localStorage.removeItem(`gex_forward_curve_${molecule}`);
+    } catch { /* fall through */ }
   }
 
   // 2. Live fetch from finance engine
   try {
-    const res = await fetch(`http://localhost:8001/api/v1/pricing/term-curve/${molecule}`);
+    const res = await fetch(`/api/v1/pricing/term-curve/${molecule}`);
     if (res.ok) {
-      const data = await res.json();
-      return data;
+      const data = await res.json() as CurveData;
+      if (isCurveSane(data)) return data;
+      console.warn(`[MoleculePriceCurve] Engine returned insane curve for ${molecule} — using fallback`);
     }
   } catch { /* engine not running */ }
 
@@ -82,7 +103,9 @@ async function loadCurve(molecule: string): Promise<CurveData | null> {
 
 function buildFallbackCurve(molecule: string): CurveData {
   const spotMap: Record<string, number> = {
-    H2: 5500, NH3: 700, E_METHANOL: 800, E_NG: 120, SAF: 1500, HVO: 1800,
+    E_METHANE: 120, E_METHANOL: 800, E_NH3: 700, HVO: 1800,
+    SAF: 1500, E_GASOLINE: 1250, E_LG: 145, E_NAPHTHA: 980,
+    H2: 5500, NH3: 700, E_NG: 120,
   };
   const spot = spotMap[molecule] ?? 1000;
   const tenors = [1, 3, 6, 12, 24, 36, 60];

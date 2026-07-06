@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 from app.core.decision_twin import DecisionTwin, CertificationKnowledgeBase
+from app.core.fuel_catalog import offered_molecule_payload
 
 router = APIRouter()
 
@@ -34,6 +35,33 @@ class V45_EvaluationRequest(BaseModel):
     project_id: Optional[str] = None
 
 
+class SovereignCertRequest(BaseModel):
+    """Request model for sovereign certification pathway evaluation (G2)"""
+    molecule: str
+    country: str
+    ghg_intensity: float
+    renewable_electricity_pct: float
+    dfi_provider: Optional[str] = None       # IFC, EIB, KfW, etc.
+    concessional_share: Optional[float] = None  # 0-1, share of concessional in debt
+    esg_score: Optional[float] = None        # 0-100
+    project_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+
+
+class SovereignESGRequest(BaseModel):
+    """Request model for SOVEREIGN_ESG certification pathway evaluation"""
+    molecule: str
+    country: str
+    ghg_intensity: float
+    renewable_electricity_pct: float
+    host_country_ndc_target: Optional[float] = 0.0
+    carbon_attribution_split: Optional[Dict] = None  # {host_share, buyer_share}
+    debt_for_nature_instrument_id: Optional[str] = None
+    sovereign_credit_rating: Optional[str] = None
+    project_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+
+
 class ComprehensiveEvaluationRequest(BaseModel):
     """Request model for comprehensive evaluation across all schemes"""
     molecule: str
@@ -47,6 +75,14 @@ class ComprehensiveEvaluationRequest(BaseModel):
     prevailing_wage: Optional[bool] = False
     project_id: Optional[str] = None
     correlation_id: Optional[str] = None
+    # Sovereign / DFI extensions
+    dfi_provider: Optional[str] = None
+    concessional_share: Optional[float] = None
+    esg_score: Optional[float] = None
+    host_country_ndc_target: Optional[float] = None
+    carbon_attribution_split: Optional[Dict] = None
+    debt_for_nature_instrument_id: Optional[str] = None
+    sovereign_credit_rating: Optional[str] = None
 
 
 # ============================================================================
@@ -161,7 +197,12 @@ async def evaluate_comprehensive(request: ComprehensiveEvaluationRequest):
             "electricity_age_months": request.electricity_age_months,
             "temporal_matching": request.temporal_matching,
             "geographical_correlation": request.geographical_correlation,
-            "prevailing_wage": request.prevailing_wage
+            "prevailing_wage": request.prevailing_wage,
+            "dfi_provider": request.dfi_provider,
+            "host_country_ndc_target": request.host_country_ndc_target,
+            "carbon_attribution_split": request.carbon_attribution_split,
+            "debt_for_nature_instrument_id": request.debt_for_nature_instrument_id,
+            "sovereign_credit_rating": request.sovereign_credit_rating,
         }
         
         result = twin.evaluate_all_schemes(project_data)
@@ -171,6 +212,159 @@ async def evaluate_comprehensive(request: ComprehensiveEvaluationRequest):
             "comprehensive_evaluation": result
         }
         
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/evaluate/sovereign-esg")
+async def evaluate_sovereign_esg(request: SovereignESGRequest):
+    """
+    Evaluate SOVEREIGN_ESG certification pathway.
+
+    Distinct from commercial certification — used for projects with
+    sovereign-backed instruments (debt-for-nature swaps, NDC-linked
+    carbon attribution, sovereign green bonds).
+
+    Checks: NDC alignment, carbon attribution split, debt-for-nature
+    linkage, sovereign credit assessment, GHG threshold.
+    """
+    try:
+        twin = DecisionTwin(
+            project_id=request.project_id,
+            correlation_id=request.correlation_id or f"SOV-ESG-{request.project_id or 'eval'}",
+        )
+        result = twin.evaluate_sovereign_esg(
+            molecule=request.molecule,
+            country=request.country,
+            ghg_intensity=request.ghg_intensity,
+            renewable_electricity_pct=request.renewable_electricity_pct,
+            host_country_ndc_target=request.host_country_ndc_target or 0.0,
+            carbon_attribution_split=request.carbon_attribution_split,
+            debt_for_nature_instrument_id=request.debt_for_nature_instrument_id,
+            sovereign_credit_rating=request.sovereign_credit_rating,
+        )
+        return {"success": True, "evaluation": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/evaluate/sovereign-certification")
+async def evaluate_sovereign_certification(request: SovereignCertRequest):
+    """
+    Evaluate sovereign certification pathway (G2) for DFI-backed projects.
+
+    Checks:
+    - Eligible sovereign cert schemes based on country + molecule
+    - DFI additionality requirements
+    - ESG compliance threshold for concessional access
+    - Concessional share limits (IFC max 25%, GCF max 50%)
+
+    Returns eligibility map + recommendations.
+    """
+    try:
+        results = []
+        country = request.country.upper()
+        molecule = request.molecule.upper()
+
+        # EU countries eligible for RED III / RFNBO
+        eu_countries = {
+            "DE", "FR", "NL", "ES", "IT", "PT", "AT", "BE", "DK", "FI",
+            "SE", "IE", "PL", "CZ", "GR", "RO", "BG", "HR", "SK", "SI",
+            "HU", "LT", "LV", "EE", "CY", "MT", "LU",
+        }
+
+        # RED III
+        if country in eu_countries:
+            red_iii_eligible = (
+                request.ghg_intensity <= 3.38  # 70% reduction vs 11.28 fossil
+                and request.renewable_electricity_pct >= 90
+            )
+            results.append({
+                "scheme": "RED_III",
+                "eligible": red_iii_eligible,
+                "ghg_check": request.ghg_intensity <= 3.38,
+                "renewable_check": request.renewable_electricity_pct >= 90,
+                "subsidy_estimate_eur_kg": 0.50 if red_iii_eligible else 0,
+            })
+
+        # RFNBO (EU, non-bio origin fuels)
+        if country in eu_countries and molecule in ("H2", "NH3", "CH3OH", "SAF"):
+            rfnbo_eligible = (
+                request.ghg_intensity <= 3.38
+                and request.renewable_electricity_pct >= 90
+            )
+            results.append({
+                "scheme": "RFNBO",
+                "eligible": rfnbo_eligible,
+                "molecule_eligible": True,
+                "ghg_check": request.ghg_intensity <= 3.38,
+            })
+
+        # 45V (US only, H2 only)
+        if country == "US" and molecule == "H2":
+            tier = None
+            credit = 0
+            if request.ghg_intensity < 0.45:
+                tier, credit = 4, 3.00
+            elif request.ghg_intensity < 1.5:
+                tier, credit = 3, 1.00
+            elif request.ghg_intensity < 2.5:
+                tier, credit = 2, 0.75
+            elif request.ghg_intensity < 4.0:
+                tier, credit = 1, 0.60
+
+            results.append({
+                "scheme": "45V",
+                "eligible": tier is not None,
+                "tier": tier,
+                "credit_usd_kg": credit,
+            })
+
+        # CORSIA (international, SAF only)
+        if molecule == "SAF":
+            corsia_eligible = request.ghg_intensity <= 3.0
+            results.append({
+                "scheme": "CORSIA",
+                "eligible": corsia_eligible,
+                "ghg_check": request.ghg_intensity <= 3.0,
+            })
+
+        # DFI additionality assessment
+        dfi_assessment = None
+        if request.dfi_provider:
+            concessional_limits = {
+                "IFC": 0.25, "EIB": 0.35, "EBRD": 0.30,
+                "KfW": 0.30, "GCF": 0.50, "CIF": 0.40,
+            }
+            max_share = concessional_limits.get(request.dfi_provider, 0.25)
+            share_ok = (request.concessional_share or 0) <= max_share
+            esg_ok = (request.esg_score or 0) >= 60  # DFI minimum ESG threshold
+
+            dfi_assessment = {
+                "dfi_provider": request.dfi_provider,
+                "max_concessional_share": max_share,
+                "concessional_share_compliant": share_ok,
+                "esg_threshold_met": esg_ok,
+                "esg_minimum": 60,
+                "additionality_eligible": share_ok and esg_ok,
+                "catalytic_target": "5:1 commercial:concessional (IFC benchmark)",
+            }
+
+        return {
+            "success": True,
+            "sovereign_evaluation": {
+                "country": country,
+                "molecule": molecule,
+                "certification_pathways": results,
+                "dfi_assessment": dfi_assessment,
+                "eligible_scheme_count": sum(1 for r in results if r["eligible"]),
+                "total_subsidy_estimate": sum(
+                    r.get("subsidy_estimate_eur_kg", 0) + r.get("credit_usd_kg", 0)
+                    for r in results if r["eligible"]
+                ),
+            },
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -209,6 +403,21 @@ async def get_certification_schemes():
                 "jurisdiction": "International (ICAO)",
                 "applies_to": ["SAF"],
                 "status": "active"
+            },
+            {
+                "code": "SOVEREIGN_ESG",
+                "name": "Sovereign ESG Pathway",
+                "jurisdiction": "Global (DFI-backed)",
+                "applies_to": ["H2", "NH3", "CH3OH", "SAF", "HVO"],
+                "status": "active",
+                "notes": "For projects with sovereign-backed instruments, debt-for-nature swaps, NDC-linked attribution"
+            },
+            {
+                "code": "CERTIFHY",
+                "name": "CertifHy Hydrogen Guarantee of Origin",
+                "jurisdiction": "European Union",
+                "applies_to": ["H2"],
+                "status": "active"
             }
         ]
     }
@@ -219,16 +428,7 @@ async def get_supported_molecules():
     """
     Get list of supported molecules
     """
-    return {
-        "molecules": [
-            {"code": "H2", "name": "Hydrogen", "applications": ["Industry", "Transport", "Ammonia production"]},
-            {"code": "NH3", "name": "Ammonia", "applications": ["Fertilizer", "Shipping fuel", "Energy carrier"]},
-            {"code": "CH3OH", "name": "Methanol", "applications": ["Chemical feedstock", "Shipping fuel"]},
-            {"code": "SAF", "name": "Sustainable Aviation Fuel", "applications": ["Aviation"]},
-            {"code": "HVO", "name": "Hydrotreated Vegetable Oil", "applications": ["Transport"]},
-            {"code": "RD", "name": "Renewable Diesel", "applications": ["Transport"]}
-        ]
-    }
+    return {"molecules": offered_molecule_payload()}
 
 
 @router.post("/explain/{scheme}")

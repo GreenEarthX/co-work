@@ -4,13 +4,14 @@ Tracks when buyers view offers (market intelligence)
 """
 from typing import Optional
 from fastapi import APIRouter, HTTPException
-from app.core.event_store import EventStore
+from app.core.event_store import append_event, get_events
 import sqlite3
 import os
+from app.core.config import settings
 
 router = APIRouter()
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '../../../gex_platform.db')
+DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -47,7 +48,7 @@ async def track_offer_view(
         correlation_id = offer['correlation_id'] if 'correlation_id' in offer.keys() else None
         
         # Emit event (market intelligence!)
-        EventStore.append_event(
+        append_event(
             event_type="offer.viewed",
             aggregate_type="offer",
             aggregate_id=offer_id,
@@ -81,10 +82,8 @@ async def get_offer_analytics(offer_id: str):
     How many times viewed, by whom, etc.
     """
     try:
-        from app.core.event_store import EventStore
-        
         # Get all view events for this offer
-        events = EventStore.get_events(
+        events = get_events(
             aggregate_type="offer",
             aggregate_id=offer_id,
             event_type="offer.viewed"

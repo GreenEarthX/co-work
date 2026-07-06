@@ -1,3 +1,4 @@
+// Screen: Commitment signing screen (/commitment-signing, /finance/commitment-signing)
 /**
  * CommitmentSigning — Signing ceremony for binding commercial acts.
  * Used by Trader/Finance to sign commitments AFTER WAE approval quorum.

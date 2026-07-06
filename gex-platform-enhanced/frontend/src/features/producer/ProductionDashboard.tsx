@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { TrendingUp, Activity, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface ProductionReading {

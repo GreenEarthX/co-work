@@ -1,0 +1,226 @@
+{
+  "_comment": "Breizh SAF Complex (GEX-BRZ-SAF-001), Lorient, France — canonical reference project. Sized as a small green-field SAF plant: ~40 kt/yr SAF capacity, ~280M EUR capex, 36-month construction, 20-year operations.",
+  "deal": {
+    "id": "deal-brz-saf-001-base",
+    "plant_id": "GEX-BRZ-SAF-001",
+    "user_id": "11111111-2222-3333-4444-555555555555",
+    "name": "Breizh SAF — Base Case",
+    "version": 1,
+    "status": "draft",
+    "construction_start_date": "2026-07-01",
+    "scheduled_cod_date": "2029-06-30",
+    "actual_cod_date": null,
+    "operating_period_years": 20,
+    "discount_rate_pct": 8.0,
+    "tax_rate_pct": 25.0,
+    "depreciation_years": 15
+  },
+  "plant": {
+    "id": "GEX-BRZ-SAF-001",
+    "capex_eur": 280000000,
+    "opex_eur_per_year": 28000000,
+    "nameplate_capacity": 40,
+    "nameplate_unit": "kt_saf_per_year",
+    "verification_state": "SUBMITTED",
+    "deal_killer_flag": false,
+    "latest_engine_run_status": "clean"
+  },
+  "tranches": [
+    {
+      "id": "tr-senior-bank-001",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "seniority_rank": 1,
+      "tranche_type": "senior_bank",
+      "lender_class": "commercial_bank",
+      "lender_name": "HSH Nordbank consortium",
+      "commitment_eur": 110000000,
+      "currency": "EUR",
+      "fx_hedge_pct": 0,
+      "rate_type": "fixed",
+      "fixed_rate_pct": 5.25,
+      "upfront_fee_bps": 75,
+      "commitment_fee_bps": 35,
+      "tenor_years": 18,
+      "grace_years": 3,
+      "repayment_profile": "annuity",
+      "drawdown_phase": "construction",
+      "idc_treatment": "capitalised_from_drawings"
+    },
+    {
+      "id": "tr-eca-cover-001",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "seniority_rank": 1,
+      "tranche_type": "senior_bank",
+      "lender_class": "eca",
+      "lender_name": "Bpifrance Assurance Export",
+      "commitment_eur": 50000000,
+      "currency": "EUR",
+      "rate_type": "fixed",
+      "fixed_rate_pct": 4.50,
+      "upfront_fee_bps": 50,
+      "commitment_fee_bps": 25,
+      "tenor_years": 20,
+      "grace_years": 3,
+      "repayment_profile": "annuity",
+      "drawdown_phase": "construction",
+      "idc_treatment": "capitalised_from_drawings"
+    },
+    {
+      "id": "tr-eib-001",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "seniority_rank": 1,
+      "tranche_type": "senior_bank",
+      "lender_class": "multilateral",
+      "lender_name": "European Investment Bank",
+      "commitment_eur": 36000000,
+      "currency": "EUR",
+      "rate_type": "fixed",
+      "fixed_rate_pct": 3.95,
+      "tenor_years": 18,
+      "grace_years": 3,
+      "repayment_profile": "annuity",
+      "drawdown_phase": "construction",
+      "idc_treatment": "capitalised_from_drawings"
+    },
+    {
+      "id": "tr-equity-sponsor-001",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "seniority_rank": 99,
+      "tranche_type": "equity",
+      "lender_class": "sponsor",
+      "lender_name": "GEX Breizh Holdco",
+      "commitment_eur": 84000000,
+      "currency": "EUR",
+      "rate_type": "fixed",
+      "fixed_rate_pct": 0,
+      "tenor_years": 20,
+      "grace_years": 0,
+      "repayment_profile": "equity",
+      "drawdown_phase": "construction",
+      "idc_treatment": "not_applicable"
+    }
+  ],
+  "offtakes": [
+    {
+      "id": "off-airline-001",
+      "plant_id": "GEX-BRZ-SAF-001",
+      "counterparty_name": "Air France-KLM",
+      "counterparty_class": "investment_grade_corporate",
+      "molecule": "SAF",
+      "volume_per_year": 30,
+      "volume_unit": "kt_per_year",
+      "price_type": "indexed",
+      "price_formula": {
+        "base": 1850,
+        "index": "Platts_Jet_NWE",
+        "share": 0.45,
+        "floor": 1650,
+        "cap": 2400
+      },
+      "currency": "EUR",
+      "tenor_years": 12,
+      "start_year_offset_months": 0,
+      "status": "signed_conditional",
+      "verification_state": "CONFIRMED",
+      "deal_killer_flag": true,
+      "allocation_pct": 100
+    },
+    {
+      "id": "off-airline-002",
+      "plant_id": "GEX-BRZ-SAF-001",
+      "counterparty_name": "Lufthansa Group",
+      "counterparty_class": "investment_grade_corporate",
+      "molecule": "SAF",
+      "volume_per_year": 8,
+      "volume_unit": "kt_per_year",
+      "price_type": "fixed",
+      "price_formula": { "price_eur_per_unit": 1950 },
+      "currency": "EUR",
+      "tenor_years": 8,
+      "start_year_offset_months": 0,
+      "status": "loi",
+      "verification_state": "SUBMITTED",
+      "deal_killer_flag": false,
+      "allocation_pct": 100
+    }
+  ],
+  "covenants": [
+    {
+      "id": "cov-dscr-floor",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "phase": "operations",
+      "covenant_type": "dscr_floor",
+      "value": 1.10,
+      "test_frequency": "semi_annual"
+    },
+    {
+      "id": "cov-dscr-lockup",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "phase": "operations",
+      "covenant_type": "dscr_lockup",
+      "value": 1.20,
+      "test_frequency": "semi_annual"
+    },
+    {
+      "id": "cov-dscr-sweep",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "phase": "operations",
+      "covenant_type": "dscr_sweep",
+      "value": 1.40,
+      "test_frequency": "semi_annual"
+    },
+    {
+      "id": "cov-cash-sweep-pct",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "phase": "operations",
+      "covenant_type": "cash_sweep_pct",
+      "value": 50,
+      "test_frequency": "semi_annual"
+    },
+    {
+      "id": "cov-dsra-months",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "phase": "operations",
+      "covenant_type": "debt_service_reserve_months",
+      "value": 6,
+      "test_frequency": "quarterly"
+    },
+    {
+      "id": "cov-llcr-floor",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "phase": "operations",
+      "covenant_type": "llcr_floor",
+      "value": 1.30,
+      "test_frequency": "semi_annual"
+    }
+  ],
+  "precod": [
+    {
+      "id": "pct-ctc",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "test_type": "cost_to_complete_coverage",
+      "threshold": 1.05,
+      "comparison": "gte",
+      "test_frequency": "per_drawdown",
+      "breach_consequence": "block_next_drawdown"
+    },
+    {
+      "id": "pct-lookforward",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "test_type": "lookforward_dscr_p90",
+      "threshold": 1.30,
+      "comparison": "gte",
+      "test_frequency": "at_cod",
+      "breach_consequence": "event_of_default"
+    },
+    {
+      "id": "pct-capdemo",
+      "deal_structure_id": "deal-brz-saf-001-base",
+      "test_type": "capacity_demonstration_pct",
+      "threshold": 95,
+      "comparison": "gte",
+      "test_frequency": "at_cod",
+      "breach_consequence": "event_of_default"
+    }
+  ]
+}

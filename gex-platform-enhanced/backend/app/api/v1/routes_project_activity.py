@@ -26,10 +26,11 @@ from pydantic import BaseModel
 
 from app.core.css import get_commitments_for_project
 from app.core.project_truth import get_project_truth
+from app.core.config import settings
 
 router = APIRouter(prefix="/project-activity", tags=["project-activity"])
 
-DB_PATH = os.getenv("GEX_DB_PATH", "greenearth.db")
+DB_PATH = settings.SQLITE_DB_PATH
 PROJECT_ID_ALIASES = {
     "proj_le_havre_eng": "proj_lehavre_eng",
     "proj_helios_emethanol": "proj_sansebastian_emethanol",

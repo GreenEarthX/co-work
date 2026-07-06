@@ -1,6 +1,7 @@
+// Screen: UI primitive — used across all screens
 import { type HTMLAttributes } from 'react'
 
-type BadgeVariant =
+export type BadgeVariant =
   | 'default'
   | 'brand'
   | 'success'
@@ -8,19 +9,25 @@ type BadgeVariant =
   | 'danger'
   | 'info'
   | 'muted'
+  | 'outline'
+  | 'secondary'
+  | 'destructive'
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant
 }
 
 const VARIANTS: Record<BadgeVariant, string> = {
-  default: 'bg-[#f1f5f9] text-[#475569]',
-  brand:   'bg-[#f0fdf9] text-[#0ea5a0]',
-  success: 'bg-[#f0fdf4] text-[#16a34a]',
-  warning: 'bg-[#fffbeb] text-[#d97706]',
-  danger:  'bg-[#fef2f2] text-[#dc2626]',
-  info:    'bg-[#f0f9ff] text-[#0369a1]',
-  muted:   'bg-[#f8fafc] text-[#94a3b8]',
+  default:     'bg-[#f1f5f9] text-[#475569]',
+  brand:       'bg-[#f0fdf9] text-[#0ea5a0]',
+  success:     'bg-[#f0fdf4] text-[#16a34a]',
+  warning:     'bg-[#fffbeb] text-[#d97706]',
+  danger:      'bg-[#fef2f2] text-[#dc2626]',
+  info:        'bg-[#f0f9ff] text-[#0369a1]',
+  muted:       'bg-[#f8fafc] text-[#94a3b8]',
+  outline:     'bg-transparent text-[#475569] border border-[#e2e8f0]',
+  secondary:   'bg-[#f1f5f9] text-[#475569]',
+  destructive: 'bg-[#fef2f2] text-[#dc2626]',
 }
 
 export function Badge({ variant = 'default', className = '', children, ...props }: BadgeProps) {

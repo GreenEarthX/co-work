@@ -53,6 +53,7 @@ class CreateRoomRequest(BaseModel):
     gate_id: Optional[str] = None
     topic: Optional[str] = None
     members: list[dict] = []     # [{"user_id", "company_id", "actor_type"}]
+    settlement_hash_ref: Optional[str] = None  # Links room to a settlement event audit_hash
 
 
 class AddMemberRequest(BaseModel):

@@ -25,7 +25,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Shield, ShieldCheck, ArrowLeft, AlertTriangle, Activity,
-  CheckCircle, XCircle, Users, Lock, Eye, Globe, Workflow,
+  CheckCircle, XCircle, Users, Lock, Eye, Workflow,
   Split, Columns, MapPin, Fingerprint, FileCheck, Settings,
   UserCog, Wifi, WifiOff, Radio, Ban, Hash, Clock, Save,
   Pencil, Plus, ChevronDown, ChevronUp, Timer, FileSignature,
@@ -33,7 +33,7 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_BASE = 'http://localhost:8000/api/v1'
+const API_BASE = '/api/v1'
 
 const ACTOR_TYPES = [
   'PRODUCER', 'OFFTAKER', 'COMMERCIAL_BANKER', 'DFI', 'INSURER',
@@ -366,10 +366,10 @@ export function ClientCISODashboard() {
   const [residency, setResidency]     = useState<any[]>([])
   const [resAudit, setResAudit]       = useState<any[]>([])
   const [commitments, setCommitments] = useState<any[]>([])
-  const [compliance, setCompliance]   = useState<any>(null)
+  const [_compliance, setCompliance]   = useState<any>(null)
 
   const [loadedTabs, setLoadedTabs]   = useState<Set<TabKey>>(new Set())
-  const [loading, setLoading]         = useState<TabKey | null>('monitoring')
+  const [_loading, setLoading]         = useState<TabKey | null>('monitoring')
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [editingUser, setEditingUser] = useState<string | null>(null)
@@ -1184,7 +1184,7 @@ export function ClientCISODashboard() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-[var(--text-primary)]">Required: <strong>{p.required_jurisdiction}</strong></span>
                         {(p.locked || ALWAYS_EU.has(p.data_category)) && (
-                          <Lock className="w-3 h-3 text-[var(--text-muted)]" title="Locked — always EU" />
+                          <Lock className="w-3 h-3 text-[var(--text-muted)]" />
                         )}
                       </div>
                       <p className="text-xs text-[var(--text-muted)]">Stored: {p.storage_zone}</p>

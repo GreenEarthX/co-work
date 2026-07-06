@@ -1,3 +1,4 @@
+// Screen: Shared component — Approval queue, Commitment signing screens
 /**
  * ApprovalTrail — embeddable audit trail for a specific resource.
  * Shows all WAE approval requests and decisions in chronological order.

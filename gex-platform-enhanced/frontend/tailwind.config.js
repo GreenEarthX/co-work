@@ -7,54 +7,69 @@ export default {
   darkMode: "class",  // toggle with <html class="dark">
   theme: {
     extend: {
-      // ── Font families ──────────────────────────────────────────────────────
       fontFamily: {
-        // Headings / display — matched to Lovable design system
-        display: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-        // Body copy
-        sans:    ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        // Numbers, scores, metrics, code
+        display: ['"Inria Sans"', 'system-ui', 'sans-serif'],
+        sans:    ['"Inria Sans"', 'system-ui', '-apple-system', 'sans-serif'],
         mono:    ['"JetBrains Mono"', '"Fira Code"', '"Cascadia Code"', 'monospace'],
       },
 
-      // ── Brand palette ──────────────────────────────────────────────────────
       colors: {
+        neutral: {
+          canvas:       '#f8fafc',
+          surface:      '#ffffff',
+          surfaceMuted: '#f1f5f9',
+          hover:        '#e2e8f0',
+          border:       '#cbd5e1',
+          borderStrong: '#94a3b8',
+          text:         '#0f172a',
+          subtle:       '#334155',
+          muted:        '#64748b',
+          inverse:      '#ffffff',
+        },
         brand: {
-          50:  '#f0fdf9',
+          DEFAULT: '#0f766e',
+          50:  '#f0fdfa',
           100: '#ccfbf1',
           200: '#99f6e4',
           300: '#5eead4',
           400: '#2dd4bf',
-          500: '#0ea5a0',  // PRIMARY — buttons, active states, accents
-          600: '#0d9488',
-          700: '#0f766e',
-          800: '#115e59',
-          900: '#134e4a',
-          DEFAULT: '#0ea5a0',
+          500: '#0f766e',
+          600: '#0f766e',
+          700: '#115e59',
+          800: '#134e4a',
+          900: '#0f3f3b',
+          hover:   '#115e59',
+          active:  '#134e4a',
+          light:   '#ccfbf1',
+          border:  '#5eead4',
+          text:    '#115e59',
+          focus:   'rgba(15, 118, 110, 0.22)',
         },
-        // Neutral surfaces — light mode
-        surface: {
-          bg:     '#f5f6f8',
-          card:   '#ffffff',
-          border: '#e2e8f0',
-          hover:  '#f8fafc',
-          muted:  '#f1f5f9',
-        },
-        // Semantic
-        success: '#16a34a',
-        warning: '#d97706',
-        danger:  '#dc2626',
-        info:    '#0ea5e9',
-
-        // Rating letter colours (used in badge contexts)
-        rating: {
-          investment: '#16a34a',  // AAA / AA / A
-          crossover:  '#d97706',  // BBB / BB
-          speculative:'#dc2626',  // B and below
+        status: {
+          blocker: {
+            DEFAULT: '#b91c1c',
+            hover:   '#991b1b',
+            light:   '#fee2e2',
+            border:  '#fecaca',
+            text:    '#7f1d1d',
+          },
+          warning: {
+            DEFAULT: '#b45309',
+            hover:   '#92400e',
+            light:   '#fef3c7',
+            border:  '#fde68a',
+            text:    '#78350f',
+          },
+          success: {
+            DEFAULT: '#15803d',
+            hover:   '#166534',
+            light:   '#dcfce7',
+            border:  '#bbf7d0',
+            text:    '#14532d',
+          },
         },
       },
 
-      // ── Typography scale (compact, data-dense) ─────────────────────────────
       fontSize: {
         '2xs': ['0.625rem', { lineHeight: '0.875rem' }],   // 10px
         xs:    ['0.6875rem', { lineHeight: '1rem' }],       // 11px
@@ -67,36 +82,31 @@ export default {
         '4xl': ['2rem',      { lineHeight: '2.5rem' }],     // 32px
       },
 
-      // ── Layout constants ────────────────────────────────────────────────────
       spacing: {
         sidebar: '72px',
         header:  '56px',
       },
 
-      // ── Border radius ───────────────────────────────────────────────────────
       borderRadius: {
-        DEFAULT: '6px',
-        md:  '8px',
-        lg:  '10px',
-        xl:  '14px',
-        '2xl': '18px',
+        DEFAULT: '0.5rem',
+        sm: '0.375rem',
+        md: '0.5rem',
+        lg: '0.5rem',
+        xl: '0.5rem',
+        '2xl': '0.5rem',
       },
 
-      // ── Shadows ─────────────────────────────────────────────────────────────
       boxShadow: {
-        card:     '0 1px 3px 0 rgba(0,0,0,0.07), 0 1px 2px -1px rgba(0,0,0,0.05)',
-        'card-md':'0 4px 12px 0 rgba(0,0,0,0.08)',
-        dropdown: '0 4px 16px 0 rgba(0,0,0,0.12)',
-        ring:     '0 0 0 3px rgba(14,165,160,0.18)',
+        panel:    '0 1px 2px rgba(15, 23, 42, 0.04)',
+        dropdown: '0 8px 24px rgba(15, 23, 42, 0.12)',
+        focus:    '0 0 0 3px rgba(15, 118, 110, 0.22)',
       },
 
-      // ── Letter spacing ──────────────────────────────────────────────────────
       letterSpacing: {
         caps:   '0.08em',
         widest: '0.14em',
       },
 
-      // ── Keyframes / animations ──────────────────────────────────────────────
       keyframes: {
         fadeIn: {
           from: { opacity: '0', transform: 'translateY(4px)' },

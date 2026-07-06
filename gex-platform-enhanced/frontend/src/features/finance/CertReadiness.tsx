@@ -1,9 +1,11 @@
+// Screen: Certification readiness screen (/cert-readiness, /finance/cert-readiness)
 import { useState, useEffect } from 'react'
-import { CheckCircle2, XCircle, AlertTriangle, Clock, Award, Zap } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, Award, Zap, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { useSelectedProject } from '@/contexts/ProjectContext'
+import { fetchCertificationGate, type CertificationGateResult } from '@/lib/certificationGateApi'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -231,6 +233,71 @@ const CERT_DATA: Record<string, ProjectCert> = {
       { gate: 'LCA',            missing: 'No data; F-T SAF LCA scope undefined', action: 'Commission verifier for SAF LCA once power sourcing resolved', timeToClose: '12+ months' },
     ],
   },
+  // ── ETFuels Pecos I — RFNBO / RED III track (partial: temporal review pending) ──
+  proj_etf_pecos1: {
+    overall: 61,
+    additionality: makeGate(
+      'additionality', 'Additionality', 'Is the renewable power source new and additional capacity?',
+      'PASS', 88,
+      ['✓ Dedicated 340 MW greenfield wind farm (new capacity)', '✓ PPA commissioning date: Q3 2026', '✓ No grid injection — direct cable connection to electrolysis plant', '✓ Additionality declaration submitted to DOE (H2Hubs programme)']
+    ),
+    temporal: makeGate(
+      'temporal', 'Temporal Correlation', 'Is H₂ production correlated hourly with renewable generation?',
+      'PARTIAL', 58,
+      ['✓ Annual matching: compliant under current IRS Notice 2023-29 (45V)', '✗ RFNBO hourly matching: not yet implemented — rule review pending', '✓ PEM electrolyser can modulate to 15% within 3 min', '✗ 15-min interval data logging: certification not yet issued']
+    ),
+    geographical: makeGate(
+      'geographical', 'Geographical Correlation', 'Same bidding zone or direct physical connection?',
+      'PASS', 91,
+      ['✓ ERCOT West zone — same interconnect as electrolysis plant', '✓ No cross-zone transfer required', '✓ Pecos County: surplus wind region, minimal grid congestion', '✓ DOE geographic mapping complete']
+    ),
+    lca: makeGate(
+      'lca', 'LCA Intensity', 'Lifecycle CO₂ below 3.4 kgCO₂e/kgH₂ threshold (RFNBO/RED III)?',
+      'PASS', 85,
+      ['✓ Preliminary LCA: 0.82 kgCO₂e/kgH₂ (well below 3.4 RFNBO threshold)', '✓ DNV pre-audit complete', '✓ Methanol synthesis chain emissions included', '✗ Final DNV certification report pending (Q3 2026)']
+    ),
+    track: 'PRE_AUDIT',
+    verifier: 'DNV — pre-audit complete; final report Q3 2026',
+    nextAction: 'Resolve RFNBO temporal matching (hourly vs annual) before EU certification filing',
+    gaps: [
+      { gate: 'Temporal', missing: 'RFNBO requires hourly matching; IRS annual rule conflicts', action: 'Elect 45V primary; use annual matching for 45V. Defer RFNBO hourly matching to post-IRS guidance update.', timeToClose: 'IRS guidance Q4 2026 (est.)' },
+      { gate: 'LCA',      missing: 'DNV final report not yet issued', action: 'Finalise DNV LCA report — on track Q3 2026', timeToClose: '2–3 months' },
+    ],
+  },
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 45V (US CLEAN HYDROGEN PTC) GATE DATA
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * 45V gates for US projects. Keyed by project ID.
+ * Backend: decision_twin.py FORTY_FIVE_V enum + V45_EvaluationRequest.
+ * instrument_registry.py US_45V_PTC has explicit 45V+RFNBO conflict note.
+ */
+const V45_DATA: Record<string, CertGate[]> = {
+  proj_etf_pecos1: [
+    makeGate(
+      'v45_ghg_tier', 'GHG Intensity — Tier 1', 'Well-to-gate lifecycle <0.45 kgCO₂e/kgH₂ → $3/kg PTC (max credit tier)',
+      'PASS', 92,
+      ['✓ Lifecycle emissions: 0.42 kgCO₂e/kgH₂ (below 0.45 Tier 1 threshold)', '✓ GREET model pathway verified by Argonne National Lab (pre-audit)', '✓ DNV Tier 1 determination letter received', '✗ Final IRS-compliant LCA report pending Q3 2026']
+    ),
+    makeGate(
+      'v45_prevailing_wage', 'Prevailing Wage & Apprenticeship', 'Davis-Bacon Act wage compliance + 15% apprenticeship ratio for construction',
+      'PARTIAL', 55,
+      ['✓ Davis-Bacon wage schedule filed with DOE H2Hubs', '✓ Payroll certification and tracking system operational', '✗ Apprenticeship ratio: 12% vs 15% required (ramp-up in progress)', '✗ Q2 2026 apprenticeship compliance filing pending with DOL']
+    ),
+    makeGate(
+      'v45_temporal', 'Temporal Matching (Annual)', 'IRS Notice 2023-29: annual matching currently permitted; hourly rule under review',
+      'PASS', 78,
+      ['✓ Annual matching: compliant under IRS Notice 2023-29 (current rule)', '✓ 340 MW wind operates surplus to PEM demand 74% of hours (annual average)', '✗ IRS final rule on hourly matching pending — risk flag (timing conflict with RFNBO)', '✓ GEX model parameterised for both annual and hourly scenarios']
+    ),
+    makeGate(
+      'v45_geography', 'Geographic RE Correlation', 'Renewable generation must be in the same region as hydrogen production facility',
+      'PASS', 88,
+      ['✓ Wind farm and electrolysis plant both in ERCOT West zone', '✓ No cross-zone transfer required', '✓ Pecos County geographic constraint met — surplus RE region', '✓ DOE technology-neutral geographic mapping complete']
+    ),
+  ],
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -369,7 +436,6 @@ function CertTrackBar({ current }: { current: CertTrack }) {
         {TRACK_MILESTONES.map((m, i) => {
           const done    = i < currentIdx
           const active  = i === currentIdx
-          const pending = i > currentIdx
           return (
             <div key={m.id} className="flex flex-col items-center gap-1" style={{ width: 80 }}>
               <div
@@ -401,22 +467,242 @@ function CertTrackBar({ current }: { current: CertTrack }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// US 45V SECTION (shown only when project.country === 'US')
+// ═══════════════════════════════════════════════════════════════
+
+function V45Section({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState(true)
+  const gates = V45_DATA[projectId]
+
+  // Compute overall 45V score
+  const overall45v = gates
+    ? Math.round(gates.reduce((sum, g) => sum + g.score, 0) / gates.length)
+    : null
+
+  return (
+    <div className="mb-6">
+      {/* Amber conflict banner */}
+      <div className="mb-4 flex items-start gap-3 p-4 rounded-xl border border-amber-300 bg-amber-50">
+        <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600" />
+        <div>
+          <p className="text-xs font-bold text-amber-800 mb-0.5">45V + RFNBO: Double-Claim Risk</p>
+          <p className="text-xs text-amber-700">
+            Claiming both certifications on the same renewable energy attributes creates a double-claim risk.
+            If 45V is primary, RFNBO can only apply to EU-destination volumes using separate energy attribute accounting.
+            GEX recommendation: elect <strong>45V as primary</strong> for all US-produced hydrogen;
+            apply RFNBO as secondary pathway for CIF Rotterdam offtake volumes only.
+          </p>
+        </div>
+      </div>
+
+      {/* Section header with toggle */}
+      <button
+        className="w-full flex items-center justify-between mb-3 group"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-center gap-2">
+          <h2
+            className="text-sm font-bold uppercase tracking-wide"
+            style={{ color: '#1d4ed8' }}
+          >
+            US 45V Clean Hydrogen Track
+          </h2>
+          {overall45v !== null && (
+            <span
+              className="px-2 py-0.5 rounded-full text-xs font-bold"
+              style={{
+                backgroundColor: overall45v >= 70 ? '#dcfce7' : overall45v >= 50 ? '#fef3c7' : '#fee2e2',
+                color: overall45v >= 70 ? '#15803d' : overall45v >= 50 ? '#92400e' : '#991b1b',
+              }}
+            >
+              {overall45v}/100
+            </span>
+          )}
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+            $3/kg PTC (Tier 1 pathway)
+          </span>
+        </div>
+        {open
+          ? <ChevronUp size={16} className="text-slate-400 group-hover:text-slate-600" />
+          : <ChevronDown size={16} className="text-slate-400 group-hover:text-slate-600" />
+        }
+      </button>
+
+      {open && (
+        <>
+          {gates ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {gates.map(g => <GateCard key={g.id} gate={g} />)}
+            </div>
+          ) : (
+            <div className="rounded-xl p-4 border border-slate-200 bg-slate-50 text-sm text-slate-500">
+              No 45V gate data available for this project.
+            </div>
+          )}
+
+          {/* Recommendation */}
+          <div className="mt-4 flex items-start gap-2 p-3 rounded-lg border border-blue-200 bg-blue-50">
+            <Zap size={14} className="mt-0.5 shrink-0 text-blue-600" />
+            <p className="text-xs text-blue-700">
+              <span className="font-semibold">Recommendation: </span>
+              Elect 45V primary. Prevailing wage filing (Q2 2026) is the next gating action — clears Tier 1 credit
+              at ~$170/t e-methanol equivalent. RFNBO secondary: apply only to EU-destination volumes (CIF Rotterdam
+              offtake) once IRS temporal rule is finalised.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// LIVE regime-forked certification gate (backend /api/v1/tea/certification-gate)
+// Reads the project's PERSISTED ledger claims and shows whether the gate is open
+// for the fuel's pathway_class — RFNBO vs advanced biofuel require DIFFERENT claims.
+// ═══════════════════════════════════════════════════════════════
+
+// Map a project's molecule label → a process-function fuel_id.
+function moleculeToFuelId(molecule: string | undefined): string {
+  const m = (molecule ?? '').toLowerCase()
+  if (m.includes('methanol')) return 'E_METHANOL'
+  if (m.includes('methane') || m.includes('e-ng')) return 'E_METHANE'
+  if (m.includes('ammonia')) return 'E_AMMONIA'
+  if (m.includes('hydrogen') || m === 'h2') return 'GREEN_H2'
+  if (m.includes('saf') || m.includes('jet') || m.includes('aviation')) return 'E_SAF'
+  return 'E_SAF'
+}
+
+function LiveCertGatePanel({ projectId, molecule }: { projectId: string; molecule?: string }) {
+  const [data, setData] = useState<CertificationGateResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const fuelId = moleculeToFuelId(molecule)
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    setLoading(true); setError(null)
+    fetchCertificationGate(projectId, fuelId)
+      .then(r => { if (!cancelled) setData(r) })
+      .catch(e => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [projectId, fuelId])
+
+  const claimRow = (c: string, waived: boolean) => {
+    const state = data?.claim_states_from_ledger?.[c]
+    const ok = state === 'verified' || state === 'satisfied' || state === 'waived'
+    return (
+      <div key={c} className="flex items-center gap-2 text-xs py-0.5">
+        {waived
+          ? <Clock size={13} className="text-slate-400" />
+          : ok ? <CheckCircle2 size={13} className="text-emerald-600" />
+               : <XCircle size={13} className="text-rose-500" />}
+        <span className={waived ? 'text-slate-400 line-through' : 'text-slate-700'}>{c}</span>
+        {!waived && <span className="text-slate-400">· {state ?? 'absent'}</span>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-6 rounded-xl border border-slate-200 p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Award size={16} className="text-blue-600" />
+        <h2 className="text-sm font-bold uppercase tracking-wide text-blue-700">
+          Certification gate (regime-forked · live)
+        </h2>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{fuelId}</span>
+      </div>
+      {loading && <p className="text-xs text-slate-500">Evaluating gate from ledger…</p>}
+      {error && (
+        <p className="text-xs text-amber-700">
+          Gate unavailable ({error}). Requires the TEA engine + backend running with persisted claims.
+        </p>
+      )}
+      {data && (
+        <>
+          <div className="flex items-center gap-2 mb-2">
+            <span
+              className="px-2 py-0.5 rounded-full text-xs font-bold"
+              style={data.gate.gate_open
+                ? { backgroundColor: '#dcfce7', color: '#15803d' }
+                : { backgroundColor: '#fee2e2', color: '#991b1b' }}
+            >
+              {data.gate.gate_open ? 'GATE OPEN' : 'GATE CLOSED'}
+            </span>
+            <span className="text-xs text-slate-500">{data.gate.pathway_class}</span>
+          </div>
+          <p className="text-xs text-slate-600 mb-2">{data.gate.certification_scheme}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1">Required claims</p>
+              {data.gate.required_cert_claims.map(c => claimRow(c, false))}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-400 mb-1">Waived for this regime</p>
+              {data.gate.waived_cert_claims.map(c => claimRow(c, true))}
+            </div>
+          </div>
+          {data.gate.missing_claims.length > 0 && (
+            <p className="text-xs text-rose-600 mt-2">
+              Missing: {data.gate.missing_claims.join(', ')}
+            </p>
+          )}
+          <p className="text-xs text-slate-400 mt-2">
+            GHG method: {data.gate.ghg_method ?? '—'} · credit: {data.gate.us_credit ?? '—'}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
 
 export function CertReadiness() {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject()
   const [data, setData] = useState<ProjectCert | null>(null)
 
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId) ?? CUSTOMER_PROJECTS[0]
+  const { projects: visibleProjects } = useVisibleProjects()
+  const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
 
   useEffect(() => {
     // Demo data fallback — API not available
-    const d = CERT_DATA[selectedProjectId] ?? CERT_DATA[CUSTOMER_PROJECTS[0].id]
+    const d = CERT_DATA[selectedProjectId] ?? (visibleProjects[0] ? CERT_DATA[visibleProjects[0].id] : null)
     setData(d)
   }, [selectedProjectId])
 
-  if (!data) return null
+  // No sample dataset for this project — still render the LIVE panel. The
+  // ledger-derived gate must never be hidden behind demo-data availability.
+  if (!data) {
+    return (
+      <div className="min-h-screen p-6" style={{ backgroundColor: 'var(--surface, #f8fafc)', color: 'var(--text, #0f172a)' }}>
+        <div className="mb-6">
+          <h1 className="text-xl font-bold mb-1">Certification Readiness</h1>
+          <p className="text-sm" style={{ color: 'var(--text-muted, #64748b)' }}>
+            {TAB_DESCRIPTIONS.CERT_READINESS}
+          </p>
+        </div>
+        {selectedProjectId || project ? (
+          <LiveCertGatePanel
+            projectId={selectedProjectId || project?.id || ''}
+            molecule={project?.molecule}
+          />
+        ) : (
+          <p className="text-sm" style={{ color: 'var(--text-muted, #64748b)' }}>
+            No visible projects for this role.
+          </p>
+        )}
+        <p className="text-xs" style={{ color: 'var(--text-muted, #94a3b8)' }}>
+          No sample readiness dataset exists for this project — only the live,
+          ledger-derived certification gate is shown.
+        </p>
+      </div>
+    )
+  }
 
   const readinessLabel =
     data.overall >= 80 ? 'Ready for verifier engagement' :
@@ -454,7 +740,7 @@ export function CertReadiness() {
               color: 'var(--text, #0f172a)',
             }}
           >
-            {CUSTOMER_PROJECTS.map(p => (
+            {visibleProjects.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
@@ -482,6 +768,20 @@ export function CertReadiness() {
         </div>
       </div>
 
+      {/* ── SAMPLE-DATA FENCE — evidence-grade platforms must never mix demo
+             and live numbers without saying so. Only the "Certification gate
+             (regime-forked · live)" panel below reads the real ledger. ── */}
+      <div className="mb-4 flex items-start gap-2 p-3 rounded-lg border border-amber-300 bg-amber-50">
+        <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
+        <p className="text-xs text-amber-800">
+          <span className="font-bold">SAMPLE DATA — </span>
+          the readiness score, certification track, four-pillar gates, 45V track and
+          gap table on this screen are illustrative demo values, not ledger-derived.
+          Only the <span className="font-semibold">“Certification gate (regime-forked · live)”</span> panel
+          reads the project’s persisted claims.
+        </p>
+      </div>
+
       {/* ── Certification Track ──────────────────────────────── */}
       <div
         className="rounded-xl p-5 mb-6"
@@ -502,10 +802,10 @@ export function CertReadiness() {
         </div>
       </div>
 
-      {/* ── Four Gate Cards (2×2 grid) ───────────────────────── */}
+      {/* ── RFNBO / RED III Gate Cards (2×2 grid) ───────────── */}
       <div className="mb-6">
         <h2 className="text-sm font-bold uppercase tracking-wide mb-3" style={{ color: 'var(--brand, #0ea5e9)' }}>
-          Four RFNBO Gates
+          RFNBO / RED III Gates
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <GateCard gate={data.additionality} />
@@ -514,6 +814,14 @@ export function CertReadiness() {
           <GateCard gate={data.lca} />
         </div>
       </div>
+
+      {/* ── Certification gate (regime-forked, live — all projects) ── */}
+      <LiveCertGatePanel projectId={selectedProjectId} molecule={project.molecule} />
+
+      {/* ── US 45V Track (shown for US-jurisdiction projects) ── */}
+      {project?.country === 'US' && (
+        <V45Section projectId={selectedProjectId} />
+      )}
 
       {/* ── Readiness Gap Analysis Table ─────────────────────── */}
       {data.gaps.length > 0 ? (

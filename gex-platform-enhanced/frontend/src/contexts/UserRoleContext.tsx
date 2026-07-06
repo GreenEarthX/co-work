@@ -1,8 +1,12 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+// Screen: Global context (no screen)
+import { createContext, useContext, useState, ReactNode } from 'react';
 
 export type CompanyType = 'PRODUCER' | 'OFFTAKER' | 'THIRD_PARTY';
 export type ServiceType = 'BANK' | 'INSURER' | 'CERTIFIER' | 'LOGISTICS' | 'ENGINEER' | 'EQUIPMENT' | 'LEGAL' | null;
 export type BusinessFunction = 'ENGINEERING' | 'FINANCE_TREASURY' | 'COMMERCIAL' | 'COMPLIANCE_LEGAL' | 'OPERATIONS' | 'EXECUTIVE';
+
+// Prosumer capability — an entity can hold multiple (e.g. OFFTAKE + PRODUCE + SELL)
+export type TradeCapability = 'OFFTAKE' | 'PRODUCE' | 'SELL' | 'TRADE' | 'CERTIFY' | 'FINANCE' | 'INSURE';
 
 // Session tiers
 // 'guest'         — unauthenticated prospect, PUBLIC data only
@@ -17,11 +21,30 @@ export interface UserRole {
   user_name: string;
   /** Optional URL for the company logo shown in TopBar */
   company_logo_url?: string;
+  // ── Prosumer / trade attributes (Phase 3) ──
+  /** Capabilities this entity holds — prosumers have multiple (e.g. OFFTAKE + PRODUCE + SELL) */
+  capabilities?: TradeCapability[];
+  /** S&P or GEX-internal credit rating (e.g. "A-", "GEX-4") */
+  credit_rating?: string;
+  /** Source of the credit rating ("GEX" | "S&P" | "HOUSE_BANK") */
+  credit_rating_source?: string;
+  /** ISO-3166 alpha-2 codes for licensed export regions */
+  export_licenses?: string[];
+  /** Whether the entity can settle tokenized molecules */
+  token_ready?: boolean;
+  /** Whether the entity can transform feedstock → end-product */
+  transformation_license?: boolean;
+  /** Max metric-tons this entity may aggregate (null = unlimited) */
+  aggregation_limit_mt?: number | null;
 }
 
 export interface AuthSession {
-  /** JWT token — sent as Authorization header on API calls */
+  /** JWT access token — sent as Authorization header on API calls */
   token: string;
+  /** Opaque refresh token — sent only to /api/v1/auth/refresh */
+  refreshToken: string;
+  /** ISO-8601 expiry of the access token */
+  expiresAt: string;
   /** User e-mail used to log in */
   email: string;
 }
@@ -112,6 +135,15 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Best-effort server-side refresh token revocation
+    const savedSession = authSession;
+    if (savedSession?.token) {
+      fetch('/api/v1/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${savedSession.token}` },
+      }).catch(() => { /* ignore network errors on logout */ });
+    }
+
     setAuthSession(null);
     setSessionTier('guest');
     setIsRoleSet(false);

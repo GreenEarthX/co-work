@@ -1,0 +1,32 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": ["node_modules/.bin/vite", "--host"],
+      "port": 3000,
+      "autoPort": true,
+      "cwd": "frontend"
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+      "port": 8000,
+      "cwd": "backend"
+    },
+    {
+      "name": "tea_engine",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "SUPABASE_URL=https://demo.invalid",
+        "SUPABASE_JWT_SECRET=dev_secret_key_change_in_production",
+        "SUPABASE_JWT_AUDIENCE=gex-platform",
+        "backend/venv/bin/python", "-m", "uvicorn", "tea_engine.main:app",
+        "--host", "0.0.0.0", "--port", "8002"
+      ],
+      "port": 8002
+    }
+  ]
+}

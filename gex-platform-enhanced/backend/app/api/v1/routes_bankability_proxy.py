@@ -18,13 +18,16 @@ import sqlite3
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+
+from app.services.engine_auth import engine_auth_headers
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel
+from app.core.config import settings
 
 router = APIRouter()
 
 ENGINE_URL = os.getenv("GEX_ENGINE_URL", "http://localhost:8001")
-DB_PATH = os.getenv("GEX_DB_PATH", "greenearth.db")
+DB_PATH = settings.SQLITE_DB_PATH
 ENGINE_TIMEOUT = 10.0
 
 
@@ -66,6 +69,34 @@ def _ensure_tables(conn):
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_evidence_project ON bankability_evidence(project_id)")
+    # Documents backing evidence items — evidence without a document is a claim.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS evidence_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            evidence_key TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            stored_path TEXT NOT NULL,
+            uploaded_by TEXT NOT NULL,
+            uploaded_at TEXT NOT NULL
+        )
+    """)
+    # Append-only status transition log — control functions audit transitions,
+    # not states. Never UPDATEd, never DELETEd.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS evidence_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            evidence_key TEXT NOT NULL,
+            old_status TEXT,
+            new_status TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            at TEXT NOT NULL,
+            document_sha256 TEXT
+        )
+    """)
     conn.commit()
 
 
@@ -80,9 +111,14 @@ def _load_evidence(project_id="default"):
              "notes": r["notes"]} for r in rows]
 
 
-def _upsert_evidence(project_id, evidence_key, status, submitted_by=None, notes=None):
+def _upsert_evidence(project_id, evidence_key, status, submitted_by=None, notes=None, document_sha256=None):
     conn = _get_db()
     _ensure_tables(conn)
+    old = conn.execute(
+        "SELECT status FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
+        (project_id, evidence_key),
+    ).fetchone()
+    old_status = old["status"] if old else None
     conn.execute("""
         INSERT INTO bankability_evidence (project_id, evidence_key, status, submitted_by, notes, updated_at)
         VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -92,6 +128,13 @@ def _upsert_evidence(project_id, evidence_key, status, submitted_by=None, notes=
             notes=COALESCE(excluded.notes, bankability_evidence.notes),
             updated_at=datetime('now')
     """, (project_id, evidence_key, status, submitted_by, notes))
+    # Append-only audit: every status transition is recorded with its actor.
+    if old_status != status:
+        conn.execute(
+            "INSERT INTO evidence_events (project_id, evidence_key, old_status, new_status, actor, at, document_sha256) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?)",
+            (project_id, evidence_key, old_status, status, submitted_by or "system", document_sha256),
+        )
     conn.commit()
     conn.close()
 
@@ -116,11 +159,33 @@ def _store_snapshot(project_id, state, snapshot_json):
     conn.close()
 
 
+def _physical_payload(project_id: str) -> dict:
+    """
+    Power model + phase + financing model for the engine's gate scoping,
+    severity escalation, and financing-waived gates. Reads the EFFECTIVE
+    context (DB override written via PATCH /projects/{id}/context, falling
+    back to the code seed).
+    """
+    try:
+        from app.core.project_registry import get_effective_context
+        ctx = get_effective_context(project_id)
+        if ctx:
+            return {
+                "power_model": ctx.power_model,
+                "project_phase": ctx.phase,
+                "financing_model": ctx.financing_model,
+            }
+    except Exception:
+        pass
+    return {"power_model": None, "project_phase": None, "financing_model": None}
+
+
 async def _call_engine(path, method="GET", json_data=None):
     url = f"{ENGINE_URL}/api/v1/bankability{path}"
+    headers = engine_auth_headers()
     try:
         async with httpx.AsyncClient(timeout=ENGINE_TIMEOUT) as client:
-            resp = await (client.post(url, json=json_data) if method == "POST" else client.get(url))
+            resp = await (client.post(url, json=json_data, headers=headers) if method == "POST" else client.get(url, headers=headers))
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=f"Engine error: {resp.text}")
             return resp.json()
@@ -136,6 +201,7 @@ async def evaluate_project(project_id: str = Query(default="default")):
     previous_state = _get_project_state(project_id)
     snapshot = await _call_engine("/evaluate", method="POST", json_data={
         "project_id": project_id, "evidence": evidence, "previous_state": previous_state,
+        **_physical_payload(project_id),
     })
     _store_snapshot(project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
     return snapshot
@@ -150,6 +216,7 @@ async def evaluate_for_persona(
     previous_state = _get_project_state(project_id)
     return await _call_engine("/evaluate/persona", method="POST", json_data={
         "project_id": project_id, "evidence": evidence, "persona": persona, "previous_state": previous_state,
+        **_physical_payload(project_id),
     })
 
 
@@ -160,6 +227,7 @@ async def get_project_bankability_for_persona(project_id: str, persona: str):
     return await _call_engine("/evaluate/persona", method="POST", json_data={
         "project_id": project_id, "evidence": evidence,
         "persona": persona.upper(), "previous_state": previous_state,
+        **_physical_payload(project_id),
     })
 
 
@@ -183,6 +251,7 @@ async def get_executive_portfolio():
             persona_view = await _call_engine("/evaluate/persona", method="POST", json_data={
                 "project_id": project_id, "evidence": evidence,
                 "persona": "EXECUTIVE", "previous_state": row["current_state"],
+                **_physical_payload(project_id),
             })
         except Exception:
             persona_view = json.loads(row["snapshot_json"]) if row["snapshot_json"] else {}
@@ -239,6 +308,7 @@ async def update_evidence(request: EvidenceUpdateRequest):
     previous_state = _get_project_state(request.project_id)
     snapshot = await _call_engine("/evaluate", method="POST", json_data={
         "project_id": request.project_id, "evidence": evidence, "previous_state": previous_state,
+        **_physical_payload(request.project_id),
     })
     _store_snapshot(request.project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
     return snapshot
@@ -248,6 +318,139 @@ async def update_evidence(request: EvidenceUpdateRequest):
 async def list_evidence(project_id: str = Query(default="default")):
     evidence = _load_evidence(project_id)
     return {"project_id": project_id, "evidence": evidence, "count": len(evidence)}
+
+
+# ── Evidence documents — evidence without a document is a claim ─────────────
+
+EVIDENCE_DOCS_DIR = os.getenv("GEX_EVIDENCE_DOCS_DIR", "data/evidence_docs")
+_MAX_DOC_BYTES = 25 * 1024 * 1024  # 25 MB
+
+
+def _require_actor(authorization: str | None) -> dict:
+    from app.core.auth import get_user_payload_from_token
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    try:
+        return get_user_payload_from_token(authorization.split(" ", 1)[1].strip())
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+@router.post("/evidence/document")
+async def upload_evidence_document(
+    project_id: str = Form(...),
+    evidence_key: str = Form(...),
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+):
+    """
+    Attach a document to an evidence item. Stores the file with its sha256,
+    records the upload in evidence_documents, moves the item to SUBMITTED,
+    and logs the transition (actor + document hash) in evidence_events.
+    """
+    import hashlib
+    from pathlib import Path
+
+    actor = _require_actor(authorization)
+    content = await file.read()
+    if len(content) > _MAX_DOC_BYTES:
+        raise HTTPException(status_code=413, detail="Document exceeds 25 MB limit")
+    if len(content) == 0:
+        raise HTTPException(status_code=422, detail="Empty file")
+
+    sha = hashlib.sha256(content).hexdigest()
+    safe_name = os.path.basename(file.filename or "document.bin")
+    dest_dir = Path(EVIDENCE_DOCS_DIR) / project_id / evidence_key
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{sha[:12]}_{safe_name}"
+    dest.write_bytes(content)
+
+    now_actor = actor.get("email", "unknown")
+    conn = _get_db()
+    _ensure_tables(conn)
+    conn.execute(
+        "INSERT INTO evidence_documents (project_id, evidence_key, filename, sha256, size_bytes, stored_path, uploaded_by, uploaded_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+        (project_id, evidence_key, safe_name, sha, len(content), str(dest), now_actor),
+    )
+    conn.commit()
+    conn.close()
+
+    # Document arrival moves the item to SUBMITTED (never auto-VERIFIED —
+    # verification is a separate, human transition).
+    _upsert_evidence(project_id, evidence_key, "SUBMITTED", submitted_by=now_actor, document_sha256=sha)
+
+    return {
+        "project_id": project_id,
+        "evidence_key": evidence_key,
+        "filename": safe_name,
+        "sha256": sha,
+        "size_bytes": len(content),
+        "status": "SUBMITTED",
+        "uploaded_by": now_actor,
+    }
+
+
+@router.get("/evidence/documents")
+async def list_evidence_documents(
+    project_id: str = Query(...),
+    evidence_key: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+):
+    """Documents on file for a project's evidence items (metadata + hashes)."""
+    _require_actor(authorization)
+    conn = _get_db()
+    _ensure_tables(conn)
+    if evidence_key:
+        rows = conn.execute(
+            "SELECT evidence_key, filename, sha256, size_bytes, uploaded_by, uploaded_at FROM evidence_documents "
+            "WHERE project_id = ? AND evidence_key = ? ORDER BY id DESC",
+            (project_id, evidence_key),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT evidence_key, filename, sha256, size_bytes, uploaded_by, uploaded_at FROM evidence_documents "
+            "WHERE project_id = ? ORDER BY id DESC",
+            (project_id,),
+        ).fetchall()
+    conn.close()
+    return {"project_id": project_id, "documents": [dict(r) for r in rows]}
+
+
+@router.get("/evidence/document/{sha256}/download")
+async def download_evidence_document(sha256: str, authorization: str | None = Header(default=None)):
+    """Serve a stored evidence document by content hash (auth required)."""
+    from fastapi.responses import FileResponse
+
+    _require_actor(authorization)
+    conn = _get_db()
+    _ensure_tables(conn)
+    row = conn.execute(
+        "SELECT filename, stored_path FROM evidence_documents WHERE sha256 = ? ORDER BY id DESC LIMIT 1",
+        (sha256,),
+    ).fetchone()
+    conn.close()
+    if not row or not os.path.exists(row["stored_path"]):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return FileResponse(row["stored_path"], filename=row["filename"])
+
+
+@router.get("/evidence/events")
+async def list_evidence_events(
+    project_id: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    """Append-only evidence status-transition audit trail."""
+    _require_actor(authorization)
+    conn = _get_db()
+    _ensure_tables(conn)
+    rows = conn.execute(
+        "SELECT evidence_key, old_status, new_status, actor, at, document_sha256 FROM evidence_events "
+        "WHERE project_id = ? ORDER BY id DESC LIMIT 500",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    return {"project_id": project_id, "events": [dict(r) for r in rows]}
 
 """@router.post("/evidence/seed")
 async def seed_demo_evidence(project_id: str = Query(default="default")):
@@ -263,6 +466,14 @@ async def seed_demo_evidence(project_id: str = Query(default="default")):
         "stakeholder_map_v1": "SUBMITTED", "grid_interconnection_study": "VERIFIED",
         "queue_position_evidence": "UNDER_REVIEW", "curtailment_assessment": "IN_PROGRESS",
         "water_source_plan": "VERIFIED", "water_permit_pathway_memo": "NOT_STARTED",
+        # G1 expanded evidence (PPA + connection cost + dispatch + water volume)
+        "grid_connection_cost_estimate": "IN_PROGRESS", "connection_date_cod_compatibility_memo": "NOT_STARTED",
+        "ppa_register": "NOT_STARTED", "ppa_signed_or_term_sheet_evidence": "NOT_STARTED",
+        "ppa_volume_load_coverage_analysis": "NOT_STARTED", "ppa_tenor_debt_comparison": "NOT_STARTED",
+        "dispatch_load_factor_production_impact": "NOT_STARTED",
+        # G1 E-track (off-grid BTM generation)
+        "btm_generation_asset_evidence": "SUBMITTED", "generation_yield_study": "IN_PROGRESS",
+        "grid_independence_note": "NOT_STARTED", "backup_construction_power_plan": "NOT_STARTED",
         "certification_scheme_selection": "VERIFIED", "additionality_evidence": "SUBMITTED",
         "ghg_methodology_memo": "IN_PROGRESS", "feedstock_supply_loi": "VERIFIED",
         "transport_logistics_study": "SUBMITTED", "storage_plan": "IN_PROGRESS",
@@ -293,6 +504,7 @@ async def check_regression(project_id: str = Query(default="default")):
     previous_state = _get_project_state(project_id)
     return await _call_engine("/regression/check", method="POST", json_data={
         "project_id": project_id, "evidence": evidence, "previous_state": previous_state,
+        **_physical_payload(project_id),
     })
 
 

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GEX Platform - Current Menu Map</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f8f9; color: #172126; }
+  h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: 0; }
+  h2 { margin: 28px 0 12px; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: #42525a; }
+  h3 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #5d6b72; }
+  p { margin: 0; }
+  code { padding: 2px 5px; border-radius: 4px; background: #edf1f3; color: #24343c; font-size: 12px; }
+  .subtitle { color: #64727a; font-size: 13px; margin-bottom: 18px; }
+  .note { border: 1px solid #d8e0e4; background: #fff; border-left: 4px solid #2c7a7b; border-radius: 8px; padding: 12px 14px; margin: 14px 0; font-size: 13px; line-height: 1.5; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 16px 0 24px; }
+  .metric { background: #fff; border: 1px solid #dfe6ea; border-radius: 8px; padding: 12px; }
+  .metric .num { display: block; font-size: 24px; font-weight: 800; color: #162126; }
+  .metric .label { display: block; margin-top: 2px; color: #64727a; font-size: 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
+  .pill { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid #d8e0e4; background: #fff; padding: 4px 9px; color: #42525a; font-size: 11px; font-weight: 700; }
+  .pill.new { border-color: #b8d6d6; color: #0f6f70; background: #eefafa; }
+  .pill.gate { border-color: #d8c28f; color: #80611c; background: #fff8e7; }
+  .tabs { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .tab { border: 1px solid #dfe6ea; background: #fff; border-radius: 10px; overflow: hidden; }
+  .tab-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; background: #162126; color: #fff; }
+  .tab-title { font-weight: 800; }
+  .tab-count { color: rgba(255,255,255,.68); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; background: #eef2f4; color: #42525a; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px; border-bottom: 1px solid #dfe6ea; }
+  td { vertical-align: top; padding: 9px 10px; border-bottom: 1px solid #edf1f3; font-size: 12px; line-height: 1.45; }
+  tr:last-child td { border-bottom: 0; }
+  .section { color: #64727a; font-weight: 700; white-space: nowrap; }
+  .path { white-space: nowrap; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag { border-radius: 5px; background: #edf1f3; padding: 2px 5px; color: #42525a; font-size: 11px; }
+  .tag.all { background: #e7f5ef; color: #116149; }
+  .tag.prod { background: #eaf1ff; color: #1d4f91; }
+  .tag.oft { background: #f2ebff; color: #6040a0; }
+  .tag.tp { background: #fff0e8; color: #98501f; }
+  .flag { margin-left: 6px; font-size: 10px; font-weight: 800; color: #0f6f70; }
+  .gate-label { color: #80611c; font-weight: 800; }
+  .footer { margin-top: 28px; color: #7b888f; font-size: 11px; text-align: center; }
+  @media (max-width: 900px) {
+    body { padding: 18px; }
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    table { min-width: 760px; }
+    .tab { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<h1>GEX Platform - Current Menu Map</h1>
+<p class="subtitle">Generated 2026-05-06 from <code>frontend/src/config/menuArchitecture.ts</code> and <code>frontend/src/App.tsx</code>.</p>
+
+<div class="note">
+  <strong>Source of truth:</strong> the authenticated TopBar renders <code>MENU_TABS</code> and filters entries with <code>isVisible(item, role)</code>. The CISO menu is separate, always visible as a locked button, and opens only after the CISO gate is authenticated. The backend copy of <code>menuArchitecture.ts</code> is older and differs on labels, gates, and at least one Commercial item, so this document follows the active frontend construction.
+</div>
+
+<div class="grid">
+  <div class="metric"><span class="num">5</span><span class="label">business menu tabs</span></div>
+  <div class="metric"><span class="num">57</span><span class="label">business menu entries</span></div>
+  <div class="metric"><span class="num">13</span><span class="label">CISO admin entries</span></div>
+  <div class="metric"><span class="num">11</span><span class="label">gate-prerequisite entries</span></div>
+</div>
+
+<div class="legend">
+  <span class="pill">ALL = every role</span>
+  <span class="pill">PROD = producer</span>
+  <span class="pill">OFT = offtaker</span>
+  <span class="pill">TP = third-party service provider</span>
+  <span class="pill new">NEW = is_new flag</span>
+  <span class="pill gate">Gx = gate prerequisite</span>
+</div>
+
+<h2>Business Menus</h2>
+<div class="tabs">
+  <section class="tab">
+    <div class="tab-head"><div class="tab-title">Projects</div><div class="tab-count">9 entries</div></div>
+    <table>
+      <thead><tr><th>Section</th><th>Label</th><th>Path</th><th>Visible To</th><th>Gate</th></tr></thead>
+      <tbody>
+        <tr><td class="section">Main</td><td>Dashboard Projects</td><td class="path"><code>/dashboard</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>My Projects</td><td class="path"><code>/projects</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Task Flow</td><td class="path"><code>/finance-dashboard</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Status &amp; Blockers</td><td class="path"><code>/bankability-scores</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Challenge Review <span class="flag">NEW</span></td><td class="path"><code>/adversarial-review</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">ENGINEERING</td><td>Cost Basis (CAPEX / LCOF)</td><td class="path"><code>/finance-plant-builder</code></td><td><div class="tags"><span class="tag prod">PROD:ENGINEERING</span><span class="tag tp">TP:ENGINEER</span><span class="tag tp">TP:EQUIPMENT</span></div></td><td></td></tr>
+        <tr><td class="section">ENGINEERING</td><td>Plant Telemetry</td><td class="path"><code>/plant-data</code></td><td><div class="tags"><span class="tag prod">PROD:ENGINEERING</span><span class="tag prod">PROD:OPERATIONS</span><span class="tag tp">TP:ENGINEER</span></div></td><td></td></tr>
+        <tr><td class="section">ENGINEERING</td><td>Production Roadmap</td><td class="path"><code>/producer-bankability</code></td><td><div class="tags"><span class="tag prod">PROD:ENGINEERING</span><span class="tag prod">PROD:OPERATIONS</span><span class="tag tp">TP:ENGINEER</span></div></td><td></td></tr>
+        <tr><td class="section">ENGINEERING</td><td>Evidence Upload</td><td class="path"><code>/reports</code></td><td><div class="tags"><span class="tag prod">PROD:ALL</span><span class="tag tp">TP:CERTIFIER</span></div></td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="tab">
+    <div class="tab-head"><div class="tab-title">Commercial</div><div class="tab-count">10 entries</div></div>
+    <table>
+      <thead><tr><th>Section</th><th>Label</th><th>Path</th><th>Visible To</th><th>Gate</th></tr></thead>
+      <tbody>
+        <tr><td class="section">Main</td><td>Commercial Overview</td><td class="path"><code>/marketplace</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag oft">OFT:COMMERCIAL</span><span class="tag oft">OFT:EXECUTIVE</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Purchase</td><td class="path"><code>/offtaker-supply</code></td><td><div class="tags"><span class="tag oft">OFT:ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Sales <span class="flag">NEW</span></td><td class="path"><code>/finance-demand</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Offtake Quality</td><td class="path"><code>/offtake-quality</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag oft">OFT:COMMERCIAL</span><span class="tag tp">TP:BANK</span></div></td><td><span class="gate-label">G4</span></td></tr>
+        <tr><td class="section">NEGOTIATION</td><td>Matching Engine</td><td class="path"><code>/matching</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag oft">OFT:COMMERCIAL</span></div></td><td></td></tr>
+        <tr><td class="section">NEGOTIATION</td><td>RFQ Management</td><td class="path"><code>/trader-dashboard</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag oft">OFT:COMMERCIAL</span><span class="tag oft">OFT:FINANCE_TREASURY</span></div></td><td></td></tr>
+        <tr><td class="section">NEGOTIATION</td><td>Contracts</td><td class="path"><code>/contracts</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag oft">OFT:ALL</span><span class="tag tp">TP:BANK</span><span class="tag tp">TP:LEGAL</span></div></td><td></td></tr>
+        <tr><td class="section">NEGOTIATION</td><td>Term Sheet Tracker</td><td class="path"><code>/term-sheet</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:COMMERCIAL</span><span class="tag oft">OFT:EXECUTIVE</span><span class="tag oft">OFT:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span><span class="tag tp">TP:LEGAL</span></div></td><td><span class="gate-label">G4</span></td></tr>
+        <tr><td class="section">MARKET DATA</td><td>Counterparties</td><td class="path"><code>/settlement</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag oft">OFT:COMMERCIAL</span></div></td><td></td></tr>
+        <tr><td class="section">MARKET DATA</td><td>GreenMesh</td><td class="path"><code>/capacity</code></td><td><div class="tags"><span class="tag prod">PROD:COMMERCIAL</span><span class="tag prod">PROD:OPERATIONS</span><span class="tag tp">TP:LOGISTICS</span></div></td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="tab">
+    <div class="tab-head"><div class="tab-title">Finance</div><div class="tab-count">22 entries</div></div>
+    <table>
+      <thead><tr><th>Section</th><th>Label</th><th>Path</th><th>Visible To</th><th>Gate</th></tr></thead>
+      <tbody>
+        <tr><td class="section">Main</td><td>Bankability Status</td><td class="path"><code>/bankability-scores</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Sensitivity Analysis</td><td class="path"><code>/dscr-sensitivity</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Price Lineage</td><td class="path"><code>/pricing-lineage</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Capital Stack</td><td class="path"><code>/capital-stack</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:EXECUTIVE</span><span class="tag tp">TP:BANK</span></div></td><td><span class="gate-label">G5</span></td></tr>
+        <tr><td class="section">Main</td><td>Covenants</td><td class="path"><code>/covenants</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Cost Basis (CAPEX / LCOF)</td><td class="path"><code>/finance-plant-builder</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:EXECUTIVE</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Gap Analysis <span class="flag">NEW</span></td><td class="path"><code>/finance-gaps</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:EXECUTIVE</span><span class="tag tp">TP:BANK</span></div></td><td><span class="gate-label">G5</span></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Instrument Catalog <span class="flag">NEW</span></td><td class="path"><code>/finance-instruments</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Instrument Compatibility <span class="flag">NEW</span></td><td class="path"><code>/instrument-compatibility</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:COMMERCIAL</span><span class="tag oft">OFT:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span><span class="tag tp">TP:INSURER</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Package Builder <span class="flag">NEW</span></td><td class="path"><code>/finance-package</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Risk Allocation <span class="flag">NEW</span></td><td class="path"><code>/finance-risk-matrix</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span><span class="tag tp">TP:INSURER</span></div></td><td></td></tr>
+        <tr><td class="section">STRUCTURING</td><td>Structuring Timeline <span class="flag">NEW</span></td><td class="path"><code>/finance-structuring-timeline</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">EXPORT</td><td>Banker's Snapshot</td><td class="path"><code>/bankability-snapshot</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:EXECUTIVE</span><span class="tag tp">TP:BANK</span></div></td><td><span class="gate-label">G8</span></td></tr>
+        <tr><td class="section">EXPORT</td><td>IC Pack Builder</td><td class="path"><code>/ic-pack</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td><span class="gate-label">G10</span></td></tr>
+        <tr><td class="section">GATING</td><td>Insurance Schedule</td><td class="path"><code>/insurance-schedule</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span><span class="tag tp">TP:INSURER</span></div></td><td><span class="gate-label">G7</span></td></tr>
+        <tr><td class="section">GATING</td><td>Coverage Lines (CAR/EAR/DSU/BI)</td><td class="path"><code>/insurance-coverage</code></td><td><div class="tags"><span class="tag tp">TP:INSURER</span><span class="tag prod">PROD:FINANCE_TREASURY</span></div></td><td><span class="gate-label">G7</span></td></tr>
+        <tr><td class="section">GATING</td><td>Asset &amp; Exposure Register</td><td class="path"><code>/insurance-assets</code></td><td><div class="tags"><span class="tag tp">TP:INSURER</span><span class="tag prod">PROD:FINANCE_TREASURY</span></div></td><td></td></tr>
+        <tr><td class="section">EXPORT</td><td>Transfer Readiness</td><td class="path"><code>/transfer-readiness</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">EXPORT</td><td>Data Room</td><td class="path"><code>/data-room</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:COMPLIANCE_LEGAL</span><span class="tag oft">OFT:COMMERCIAL</span><span class="tag tp">TP:BANK</span><span class="tag tp">TP:INSURER</span><span class="tag tp">TP:LEGAL</span><span class="tag tp">TP:CERTIFIER</span></div></td><td><span class="gate-label">G10</span></td></tr>
+        <tr><td class="section">DEAL ROOM</td><td>Approval Queue</td><td class="path"><code>/approval-queue</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:EXECUTIVE</span><span class="tag oft">OFT:EXECUTIVE</span><span class="tag tp">TP:BANK</span></div></td><td><span class="gate-label">G10</span></td></tr>
+        <tr><td class="section">DEAL ROOM</td><td>Commitment Signing</td><td class="path"><code>/commitment-signing</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:COMMERCIAL</span><span class="tag oft">OFT:COMMERCIAL</span><span class="tag oft">OFT:FINANCE_TREASURY</span><span class="tag oft">OFT:EXECUTIVE</span><span class="tag tp">TP:BANK</span></div></td><td><span class="gate-label">G10</span></td></tr>
+        <tr><td class="section">DEAL ROOM</td><td>Commitment Verifier</td><td class="path"><code>/commitment-verifier</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="tab">
+    <div class="tab-head"><div class="tab-title">Compliance</div><div class="tab-count">8 entries</div></div>
+    <table>
+      <thead><tr><th>Section</th><th>Label</th><th>Path</th><th>Visible To</th><th>Gate</th></tr></thead>
+      <tbody>
+        <tr><td class="section">Main</td><td>Certification Readiness</td><td class="path"><code>/cert-readiness</code></td><td><div class="tags"><span class="tag prod">PROD:COMPLIANCE_LEGAL</span><span class="tag prod">PROD:ENGINEERING</span><span class="tag tp">TP:CERTIFIER</span><span class="tag oft">OFT:COMPLIANCE_LEGAL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Certification Distance</td><td class="path"><code>/cert-readiness</code></td><td><div class="tags"><span class="tag prod">PROD:COMPLIANCE_LEGAL</span><span class="tag oft">OFT:COMPLIANCE_LEGAL</span><span class="tag oft">OFT:COMMERCIAL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Evidence Hierarchy</td><td class="path"><code>/evidence-hierarchy</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Verification Status</td><td class="path"><code>/stage-gates</code></td><td><div class="tags"><span class="tag tp">TP:CERTIFIER</span><span class="tag tp">TP:BANK</span><span class="tag prod">PROD:COMPLIANCE_LEGAL</span></div></td><td></td></tr>
+        <tr><td class="section">REGULATORY</td><td>Regulatory Registry</td><td class="path"><code>/regulator-dashboard</code></td><td><div class="tags"><span class="tag prod">PROD:COMPLIANCE_LEGAL</span><span class="tag tp">TP:LEGAL</span></div></td><td></td></tr>
+        <tr><td class="section">REGULATORY</td><td>Decision Twin (RFNBO/RED III)</td><td class="path"><code>/reports</code></td><td><div class="tags"><span class="tag prod">PROD:COMPLIANCE_LEGAL</span><span class="tag prod">PROD:ENGINEERING</span><span class="tag tp">TP:CERTIFIER</span></div></td><td></td></tr>
+        <tr><td class="section">REGULATORY</td><td>Audit Trail</td><td class="path"><code>/reports</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">REGULATORY</td><td>Environmental &amp; ESG</td><td class="path"><code>/reports</code></td><td><div class="tags"><span class="tag prod">PROD:COMPLIANCE_LEGAL</span><span class="tag tp">TP:LEGAL</span></div></td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="tab">
+    <div class="tab-head"><div class="tab-title">Operations</div><div class="tab-count">8 entries</div></div>
+    <table>
+      <thead><tr><th>Section</th><th>Label</th><th>Path</th><th>Visible To</th><th>Gate</th></tr></thead>
+      <tbody>
+        <tr><td class="section">Main</td><td>Project Timeline</td><td class="path"><code>/finance-timeline</code></td><td><div class="tags"><span class="tag all">ALL</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Construction Progress</td><td class="path"><code>/producer-bankability</code></td><td><div class="tags"><span class="tag prod">PROD:ENGINEERING</span><span class="tag prod">PROD:OPERATIONS</span><span class="tag tp">TP:ENGINEER</span></div></td><td></td></tr>
+        <tr><td class="section">Main</td><td>Milestones &amp; Drawdown</td><td class="path"><code>/finance-timeline</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">PORTFOLIO</td><td>CEO Report</td><td class="path"><code>/cfo-report</code></td><td><div class="tags"><span class="tag prod">PROD:FINANCE_TREASURY</span><span class="tag prod">PROD:EXECUTIVE</span><span class="tag prod">PROD:OPERATIONS</span></div></td><td></td></tr>
+        <tr><td class="section">PLANT</td><td>Plant Telemetry</td><td class="path"><code>/plant-data</code></td><td><div class="tags"><span class="tag prod">PROD:OPERATIONS</span><span class="tag prod">PROD:ENGINEERING</span><span class="tag tp">TP:ENGINEER</span></div></td><td></td></tr>
+        <tr><td class="section">PLANT</td><td>Logistics &amp; Shipping</td><td class="path"><code>/capacity</code></td><td><div class="tags"><span class="tag tp">TP:LOGISTICS</span><span class="tag oft">OFT:OPERATIONS</span><span class="tag prod">PROD:OPERATIONS</span></div></td><td></td></tr>
+        <tr><td class="section">PLANT</td><td>Performance Matrix</td><td class="path"><code>/reports</code></td><td><div class="tags"><span class="tag prod">PROD:OPERATIONS</span><span class="tag prod">PROD:ENGINEERING</span><span class="tag tp">TP:ENGINEER</span><span class="tag tp">TP:BANK</span></div></td><td></td></tr>
+        <tr><td class="section">PLANT</td><td>OT Gateway Status</td><td class="path"><code>/ciso-gateways</code></td><td><div class="tags"><span class="tag prod">PROD:OPERATIONS</span></div></td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<h2>CISO Admin Menu</h2>
+<div class="note">
+  The CISO button is always rendered in the TopBar. Its dropdown is password-gated through <code>CISOGate</code> and stores the unlocked state in <code>sessionStorage.gex_ciso_session</code>.
+</div>
+<section class="tab">
+  <div class="tab-head"><div class="tab-title">CISO Admin</div><div class="tab-count">13 entries</div></div>
+  <table>
+    <thead><tr><th>Section</th><th>Label</th><th>Path</th><th>Visible To</th></tr></thead>
+    <tbody>
+      <tr><td class="section">SECURITY</td><td>Security Overview</td><td class="path"><code>/ciso-dashboard</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Access Monitor</td><td class="path"><code>/ciso-access-monitor</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Identity &amp; Access (ABAC)</td><td class="path"><code>/ciso-identity</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Information Barriers</td><td class="path"><code>/ciso-barriers</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Data Residency</td><td class="path"><code>/ciso-residency</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>OT Gateways</td><td class="path"><code>/ciso-gateways</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Communications Monitor</td><td class="path"><code>/ciso-communications</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Gantt Visibility</td><td class="path"><code>/ciso-gantt-config</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Policy Matrix</td><td class="path"><code>/ciso-policy</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Compliance (ISO 27001)</td><td class="path"><code>/ciso-compliance</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">SECURITY</td><td>Event Bus Monitor</td><td class="path"><code>/ciso-dashboard</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">WEBMASTER</td><td>Pricing Curves (Gabillon)</td><td class="path"><code>/ciso-pricing</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+      <tr><td class="section">WEBMASTER</td><td>Forward Curves (Project view)</td><td class="path"><code>/pricing-curves</code></td><td><span class="tag all">ALL after CISO gate</span></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<h2>Construction Notes</h2>
+<div class="note">
+  <strong>Routing:</strong> all listed paths are declared under the authenticated layout in <code>frontend/src/App.tsx</code>, except public onboarding/login paths that are not part of the TopBar menu. Several routes also have nested <code>/finance/*</code> aliases, but the current menu uses the root-level paths shown above.
+</div>
+<div class="note">
+  <strong>gex_pf_engine:</strong> the finance engine remains a backend-side calculation service. It does not define browser menus; finance and pricing screens surface engine-backed workflows through the main platform routes such as <code>/dscr-sensitivity</code>, <code>/finance-plant-builder</code>, <code>/capital-stack</code>, <code>/pricing-lineage</code>, and <code>/ciso-pricing</code>.
+</div>
+<div class="note">
+  <strong>Known config drift:</strong> <code>backend/app/config/menuArchitecture.ts</code> still contains older labels such as <code>Current</code>, <code>Project Overview</code>, <code>Feedstock Offers</code>, and <code>Demand Pipeline</code>, includes <code>pricing-curves</code> under Commercial, and lacks the frontend gate prerequisites added to the current menu.
+</div>
+
+<div class="footer">GreenEarthX Platform - Current menu setup - Function over design</div>
+</body>
+</html>

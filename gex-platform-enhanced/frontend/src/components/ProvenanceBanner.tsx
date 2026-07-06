@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance provenance screens
 /**
  * ProvenanceBanner — R4 (Architectural Reform v6.0)
  *

@@ -1,0 +1,59 @@
+{
+  "_comment": "GEX offtake/contract engine (module 2) inputs. Edit values, not code.",
+  "contract_id": "OFF-ETF-PECOS1-AF",
+  "project_id": "proj_etf_pecos1",
+  "molecule": "green_ammonia",
+  "perspective": "project",
+  "_perspective_note": "'project' = value to the seller/producer. Floor is long-put (good), ceiling is short-call (bad), buyer volume flex is a cost (subtracted).",
+
+  "discounting": {
+    "risk_free_rate": 0.035,
+    "_note": "df(t) = exp(-r t). Used for all contract cashflows."
+  },
+
+  "tenor": {
+    "delivery_years": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "_note": "annual delivery dates (years from valuation). Periods are valued at year-end forwards/paths."
+  },
+
+  "indexation": {
+    "base": 0.0,
+    "spread": 40.0,
+    "beta": 0.85,
+    "_formula": "P_index(S_t) = base + spread + beta * S_t   (S_t = modelled green-fuel price). Linear pass-through; this is the floating leg the options sit on.",
+    "_note": "beta<1 dampens index pass-through; spread is a fixed adder in $/MT. Set beta=1, spread=0, base=0 for a pure index-linked price."
+  },
+
+  "collar": {
+    "enabled": true,
+    "floor": 480.0,
+    "ceiling": 620.0,
+    "_note": "P_paid = min(max(P_index, floor), ceiling). floor protects the project (long put); ceiling caps it (short call). Priced by Monte Carlo on Q-paths, floor and ceiling reported separately."
+  },
+
+  "volume": {
+    "baseline_per_year": 100.0,
+    "min_per_year": 80.0,
+    "max_per_year": 110.0,
+    "total_min": 850.0,
+    "total_max": 1050.0,
+    "take_levels": 3,
+    "volume_grid_points": 26,
+    "_unit": "kT/year (10^3 MT). baseline = nominated take with no flex. min/max = per-period nomination band (swing). total_min = take-or-pay floor over the life; total_max = max cumulative offtake.",
+    "_note": "Volume flex is the buyer's swing option, valued by LSMC on Q-paths. take_levels discretises the per-period control; volume_grid_points discretises the cumulative-take state."
+  },
+
+  "greenmesh_rollup": {
+    "enabled": true,
+    "plant_capacity_per_year": 130.0,
+    "merchant_margin": 0.10,
+    "merchant_horizon_years": 10,
+    "_note": "Plant/enterprise value = sum of contract values + merchant tail. Merchant tail = uncontracted capacity (capacity - baseline take) valued at the Q-forward * merchant_margin, discounted. An investor/offtaker can value the asset as the strip of its contracts plus the merchant residual."
+  },
+
+  "simulation": {
+    "n_paths": 20000,
+    "seed": 20260604,
+    "_note": "Q-measure paths for collar + LSMC. Reuses module 1's simulate_paths(measure='Q'). Deterministic for audit."
+  }
+}

@@ -1,3 +1,4 @@
+// Screen: UI primitive — used across all screens
 import { forwardRef, type InputHTMLAttributes } from 'react'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {

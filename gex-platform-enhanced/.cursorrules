@@ -1,0 +1,73 @@
+You are working in the GreenEarthX Platform v6.1 codebase.
+
+Communication
+- Keep answers structured and concise.
+- Keep code comments as short anchor points, not narration.
+- State assumptions clearly before making architecture-impacting changes.
+
+Scope
+- Treat this directory as the canonical GEX application.
+- Do not try to sync edits to sibling copies such as `co-work/` unless the user explicitly asks.
+- For finance-engine-backed behavior, treat `../gex_pf_engine/backend` as part of the effective system boundary even though it sits outside this folder.
+
+Project map
+- Frontend: `frontend` using Vite, React 18, TypeScript, Tailwind CSS, React Router, TanStack Query.
+- Backend: `backend` using FastAPI and SQLite.
+- Finance engine integration is proxied through the platform backend into `../gex_pf_engine/backend` on port `8001`.
+- `../gex_pf_engine/backend` owns core bankability, financial-model, and pricing engine behavior; the platform backend owns browser-facing orchestration, evidence persistence, and proxy routes.
+
+Architecture rules
+- Preserve the v6.1 navigation model. `frontend/src/config/menuArchitecture.ts` is the single source of truth for menu tabs, items, sections, and visibility rules.
+- Preserve role semantics in `frontend/src/contexts/UserRoleContext.tsx`: `company_type`, `business_function`, `service_type`, `capabilities`, and `sessionTier`.
+- When adding a user-facing page, update route registration in `frontend/src/App.tsx` and update `menuArchitecture.ts` when the page belongs in navigation.
+- Treat the finance-engine boundary as explicit architecture:
+  - `backend/app/api/v1/routes_bankability_proxy.py` proxies to `../gex_pf_engine/backend/app/api/routes_bankability.py`.
+  - `backend/app/api/v1/routes_finance_model.py` proxies to `../gex_pf_engine/backend/app/api/routes_model.py`.
+  - Platform evidence and snapshots stay in the platform backend; the 12-gate evaluation logic stays in `../gex_pf_engine/backend/app/core/bankability_engine.py`.
+  - If a change affects contract shape, gate semantics, state transitions, or model/pricing behavior, inspect and update both sides.
+- Respect product workflow semantics:
+  - Verification states remain `UNVERIFIED`, `SUBMITTED`, `CONFIRMED`, `AUDITED`.
+  - Deal-killers remain non-dismissable and `FATAL` blockers must keep blocking committee, FID, and export flows.
+  - Prefer decision-first workflows over decorative score-first dashboards.
+- Optimize for enterprise green-fuels workflows: bankability, compliance, traceability, approvals, operations, and auditability.
+
+Platform vs engine decision rule
+- Edit `frontend` when the change is UI, routing, interaction flow, role-filtered visibility, or client-side state only.
+- Edit `backend` when the change is orchestration, auth/session behavior, evidence persistence, audit/provenance, approvals/CISO policy, proxying, or browser-facing API shaping.
+- Edit `../gex_pf_engine/backend` when the change is bankability gate logic, persona evaluation, state-machine behavior, capital unlocks, CFADS, covenants, waterfalls, pricing curves, or finance math.
+- Edit both sides when the change crosses `/api/v1/bankability/*`, `/api/v1/finance-model/*`, or any engine-backed request/response contract.
+- If uncertain, keep business math and evaluation logic in `../gex_pf_engine/backend`, and keep persistence, orchestration, and user/workspace concerns in `backend`.
+- Do not patch an engine-side defect by hardcoding compensating logic in `frontend` or `backend` unless the user explicitly wants a temporary workaround.
+
+Frontend conventions
+- Follow strict TypeScript. Prefer explicit interfaces and types. Avoid `any` unless there is no practical alternative.
+- Use `@/` imports where possible.
+- Keep domain code inside the relevant `frontend/src/features/*` area. Promote only shared logic or shared UI to `components`, `hooks`, or `lib`.
+- Prefer reusable hooks and shared API helpers over adding new inline `fetch()` calls inside page components.
+- Favor existing API patterns in `frontend/src/api.ts`, `frontend/src/lib/`, or feature hooks. Do not create duplicate "old", "copy", or parallel API modules.
+- Avoid hardcoded backend hosts in frontend code. Prefer relative `/api/...` paths via the Vite proxy or a centralized helper. Use direct `:8001` calls only when the feature already depends on them and the reason is explicit.
+- Match the existing Tailwind-first visual language unless the user asks for a redesign. Keep labels task-oriented and plain-language.
+
+Backend conventions
+- Add new platform routes under `backend/app/api/v1/` or `backend/app/api/endpoints/`.
+- Register new routers in `backend/app/main.py`.
+- Keep domain logic in `backend/app/core/` or `backend/app/services/`, not in route handlers.
+- Do not rename or move existing API paths that the frontend consumes unless the change is coordinated end-to-end.
+- For engine-owned finance logic, change `../gex_pf_engine/backend/app/core/` or `../gex_pf_engine/backend/app/api/` rather than duplicating behavior in the platform backend.
+- Keep port `8000` as the browser-facing layer and port `8001` as the engine layer. Do not move frontend traffic directly to engine endpoints unless the user explicitly requests that architecture change.
+- When engine contracts change, update the engine route/core logic, the platform proxy, and the consuming frontend/backend caller together.
+
+Quality bar
+- Inspect nearby modules first and mirror the local pattern instead of imposing a new architecture.
+- For frontend changes, validate with `cd frontend && npm run build` when feasible.
+- Run `npm run lint` when the touched area is expected to pass current lint rules.
+- For backend changes, run the lightest relevant validation available and report exactly what was verified.
+- If a change touches engine-backed flows, validate the platform side and engine side separately when feasible.
+- Do not claim tests ran if they did not. If no tests exist, say so and report the validation that was done.
+
+Avoid
+- Bypassing `menuArchitecture.ts` for navigation changes.
+- Weakening audit, provenance, approval, or CISO gates for convenience.
+- Introducing unlabeled demo data into production paths.
+- Re-implementing bankability, model, or pricing logic in the platform backend when it belongs in `../gex_pf_engine/backend`.
+- Touching vendored or generated folders such as `node_modules`, `venv`, or caches unless explicitly requested.

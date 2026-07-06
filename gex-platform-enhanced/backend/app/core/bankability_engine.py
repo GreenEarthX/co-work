@@ -148,9 +148,35 @@ GATE_REGISTRY: list[GateDefinition] = [
         unlocks_state=BankabilityState.TECHNICALLY_PLAUSIBLE,
     ),
     GateDefinition(
-        id="G1_GRID_UTILITIES_REALITY", name="Grid & Utilities Deliverability",
-        required_evidence=["grid_interconnection_study", "queue_position_evidence", "curtailment_assessment", "water_source_plan", "water_permit_pathway_memo"],
-        owners=[Department.ENGINEERING, Department.PROJECT],
+        id="G1_GRID_UTILITIES_REALITY", name="Power, Water & Critical Utility Access",
+        # Superset across power models — mirrors the RUNTIME registry in
+        # gex_pf_engine/backend/app/core/bankability_engine.py (EVIDENCE_META
+        # there scopes items per power_model and escalates severity by phase).
+        # This vendored copy serves routes_gate_registry only; keep in sync.
+        required_evidence=[
+            # A. Power Access (GRID_CONNECTED / HYBRID)
+            "grid_interconnection_study",
+            "queue_position_evidence",
+            "grid_connection_cost_estimate",
+            "connection_date_cod_compatibility_memo",
+            # B. Renewable Power Procurement (GRID_CONNECTED / HYBRID)
+            "ppa_register",
+            "ppa_signed_or_term_sheet_evidence",
+            "ppa_volume_load_coverage_analysis",
+            "ppa_tenor_debt_comparison",
+            # C. Curtailment & Dispatch (ALL power models)
+            "curtailment_assessment",
+            "dispatch_load_factor_production_impact",
+            # D. Water Supply & Permitting (ALL power models)
+            "water_source_plan",
+            "water_permit_pathway_memo",
+            # E. BTM Generation (OFF_GRID_BTM / HYBRID)
+            "btm_generation_asset_evidence",
+            "generation_yield_study",
+            "grid_independence_note",
+            "backup_construction_power_plan",
+        ],
+        owners=[Department.ENGINEERING, Department.PROJECT, Department.FINANCE],
         unlocks_capital=[CapitalType.SEED_VC_ANGEL],
     ),
     GateDefinition(
@@ -356,6 +382,15 @@ class CapitalUnlock(BaseModel):
     best_progress_pct: float
 
 
+class CertaintyDimension(BaseModel):
+    """Decomposed certainty sub-score for a single risk dimension."""
+    dimension: str  # COST, REVENUE, CERTIFICATION, EXECUTION, COUNTERPARTY
+    raw_score: float  # 0.0-1.0
+    verification_weight: float  # from verification.py weights
+    weighted_score: float  # raw_score * verification_weight
+    blocking_flag: bool  # True if this dimension blocks capital eligibility
+
+
 class ProjectBankabilitySnapshot(BaseModel):
     """
     The complete bankability evaluation for a project.
@@ -375,6 +410,8 @@ class ProjectBankabilitySnapshot(BaseModel):
     gate_scores_raw: dict[str, float] = Field(default_factory=dict)
     gate_scores_effective: dict[str, float] = Field(default_factory=dict)
     verification_summary: dict[str, dict[str, int]] = Field(default_factory=dict)
+    # Decomposed certainty stack — 5-axis sub-scores
+    certainty_stack: list[CertaintyDimension] = Field(default_factory=list)
     next_state: Optional[BankabilityState] = None
     gates_blocking_next_state: list[str] = Field(default_factory=list)
     snapshot_hash: str = ""
@@ -634,6 +671,9 @@ class BankabilityEngine:
         verified = sum(1 for e in all_evidence if e.status == EvidenceStatus.VERIFIED)
         overall_pct = round((verified / total) * 100, 1) if total > 0 else 0.0
 
+        # 7. Decomposed certainty stack
+        certainty_stack = self.compute_certainty_stack(gate_results)
+
         snapshot = ProjectBankabilitySnapshot(
             project_id=project_id,
             evaluated_at=now,
@@ -645,6 +685,7 @@ class BankabilityEngine:
             total_evidence=total,
             total_verified=verified,
             overall_completion_pct=overall_pct,
+            certainty_stack=certainty_stack,
             next_state=next_state,
             gates_blocking_next_state=blockers,
         )
@@ -789,6 +830,67 @@ class BankabilityEngine:
             base["next_state"] = snapshot.next_state.value if snapshot.next_state else None
 
         return base
+
+    # ─── DECOMPOSED CERTAINTY STACK ───────────────────────────────────────
+
+    def compute_certainty_stack(
+        self, gate_results: dict[str, GateEvaluation]
+    ) -> list[CertaintyDimension]:
+        """
+        Compute 5 decomposed certainty dimensions from gate evaluation data.
+        Each dimension maps to specific gates and produces a 0-1 score
+        weighted by verification state.
+
+        Dimensions:
+          COST         — G5 (EPC) + G8 (Model) estimate class & cost spread
+          REVENUE      — G4 (Offtake) bankability
+          CERTIFICATION — G2 (Certification path)
+          EXECUTION    — G5 (EPC) + G11 (COD) construction progress
+          COUNTERPARTY — G4 (Offtake) + G7 (Insurance) credit quality
+        """
+        dimensions: list[CertaintyDimension] = []
+
+        # Helper: compute dimension from a set of gate ids
+        def _dim(name: str, gate_ids: list[str], blocking_gate: str) -> CertaintyDimension:
+            scores = []
+            v_weights = []
+            for gid in gate_ids:
+                ge = gate_results.get(gid)
+                if ge:
+                    scores.append(ge.completion_pct / 100.0)
+                    # Average verification weight across this gate's evidence
+                    v_states_for_gate = [
+                        e.verification_state for e in ge.evidence_detail
+                    ]
+                    if v_states_for_gate:
+                        avg_w = sum(VERIFICATION_WEIGHTS[s] for s in v_states_for_gate) / len(v_states_for_gate)
+                    else:
+                        avg_w = VERIFICATION_WEIGHTS[VerificationState.UNVERIFIED]
+                    v_weights.append(avg_w)
+
+            raw = sum(scores) / len(scores) if scores else 0.0
+            v_weight = sum(v_weights) / len(v_weights) if v_weights else VERIFICATION_WEIGHTS[VerificationState.UNVERIFIED]
+            weighted = round(raw * v_weight, 4)
+
+            # Blocking: dimension blocks if its primary gate is incomplete
+            blocking_eval = gate_results.get(blocking_gate)
+            blocking = blocking_eval is not None and not blocking_eval.is_complete
+
+            return CertaintyDimension(
+                dimension=name,
+                raw_score=round(raw, 4),
+                verification_weight=round(v_weight, 4),
+                weighted_score=weighted,
+                blocking_flag=blocking,
+            )
+
+        dimensions.append(_dim("COST", ["G5_EPC_RISK_PRICED", "G8_AUDIT_GRADE_MODEL"], "G8_AUDIT_GRADE_MODEL"))
+        dimensions.append(_dim("REVENUE", ["G4_OFFTAKE_BANKABLE"], "G4_OFFTAKE_BANKABLE"))
+        dimensions.append(_dim("CERTIFICATION", ["G2_CERTIFICATION_PATH_LOCKED"], "G2_CERTIFICATION_PATH_LOCKED"))
+        dimensions.append(_dim("EXECUTION", ["G5_EPC_RISK_PRICED", "G11_COD_STABILIZATION"], "G5_EPC_RISK_PRICED"))
+        dimensions.append(_dim("COUNTERPARTY", ["G4_OFFTAKE_BANKABLE", "G7_INSURANCE_BOUND"], "G4_OFFTAKE_BANKABLE"))
+
+        return dimensions
 
     # ─── AUDIT HASH ─────────────────────────────────────────────────────────
 

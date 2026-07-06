@@ -1,0 +1,408 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1700" font-family="Inter, -apple-system, sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 22px; font-weight: 900; fill: #0f172a; }
+      .subtitle { font-size: 12px; fill: #64748b; }
+      .section-title { font-size: 14px; font-weight: 800; fill: #475569; text-transform: uppercase; letter-spacing: 0.08em; }
+      .svc-label { font-size: 13px; font-weight: 800; fill: #0f172a; }
+      .svc-detail { font-size: 10px; fill: #64748b; }
+      .svc-stat { font-size: 11px; font-weight: 700; fill: #334155; }
+      .stat-unit { font-size: 11px; fill: #94a3b8; }
+      .ctx-tag { font-size: 9px; font-weight: 700; }
+      .arrow-label { font-size: 9px; fill: #94a3b8; font-weight: 600; text-anchor: middle; }
+      .phase-title { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; }
+      .gate-text { font-size: 10px; font-weight: 600; }
+      .screen-text { font-size: 9px; fill: #64748b; }
+      .screen-code { font-size: 9px; fill: #475569; font-family: monospace; }
+      .compare-title { font-size: 12px; font-weight: 800; }
+      .issue-text { font-size: 10px; fill: #475569; }
+      .issue-num { font-size: 10px; font-weight: 900; }
+      .blast-name { font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .blast-desc { font-size: 9px; fill: #94a3b8; }
+      .blast-risk { font-size: 9px; font-weight: 700; }
+      .sprint-num { font-size: 10px; font-weight: 800; fill: #0ea5a0; }
+      .sprint-title { font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .sprint-item { font-size: 9px; fill: #64748b; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="1700" fill="#f8fafc" rx="0"/>
+
+  <!-- ═══════════════════ TITLE ═══════════════════ -->
+  <text x="40" y="40" class="title">GEX Platform — Dependency Map</text>
+  <text x="40" y="58" class="subtitle">gex-platform-enhanced + gex_pf_engine · 3 services · 91 routes · 12 bankability gates</text>
+
+  <!-- ═══════════════════ SECTION 1: SERVICE TOPOLOGY ═══════════════════ -->
+  <text x="40" y="95" class="section-title">1. SERVICE TOPOLOGY</text>
+
+  <!-- Frontend box -->
+  <rect x="260" y="110" width="680" height="80" rx="10" fill="#fff" stroke="#0ea5a0" stroke-width="2"/>
+  <text x="280" y="132" class="svc-label">FRONTEND</text>
+  <rect x="370" y="120" width="36" height="18" rx="4" fill="#ccfbf1"/>
+  <text x="388" y="133" font-size="10" font-weight="600" fill="#0d9488" text-anchor="middle">3000</text>
+  <text x="415" y="132" class="svc-detail">Vite + React 18 + TypeScript + Tailwind</text>
+
+  <!-- Context tags -->
+  <rect x="280" y="143" width="85" height="18" rx="5" fill="#f0fdfa" stroke="#0ea5a0" stroke-width="1"/>
+  <text x="322" y="155" class="ctx-tag" fill="#0d9488" text-anchor="middle">UserRoleContext</text>
+  <rect x="372" y="143" width="78" height="18" rx="5" fill="#eef2ff" stroke="#6366f1" stroke-width="1"/>
+  <text x="411" y="155" class="ctx-tag" fill="#4f46e5" text-anchor="middle">ProjectContext</text>
+  <rect x="457" y="143" width="115" height="18" rx="5" fill="#fffbeb" stroke="#f59e0b" stroke-width="1"/>
+  <text x="514" y="155" class="ctx-tag" fill="#d97706" text-anchor="middle">useVisibleProjects (ABAC)</text>
+  <rect x="579" y="143" width="80" height="18" rx="5" fill="#fef2f2" stroke="#ef4444" stroke-width="1"/>
+  <text x="619" y="155" class="ctx-tag" fill="#dc2626" text-anchor="middle">JWT localStorage</text>
+
+  <!-- Stats -->
+  <text x="280" y="180" class="svc-stat">91 <tspan class="stat-unit">routes</tspan></text>
+  <text x="380" y="180" class="svc-stat">29 <tspan class="stat-unit">features</tspan></text>
+  <text x="480" y="180" class="svc-stat">5 <tspan class="stat-unit">menu tabs</tspan></text>
+
+  <!-- Arrow 1 -->
+  <line x1="600" y1="190" x2="600" y2="215" stroke="#94a3b8" stroke-width="2"/>
+  <polygon points="594,215 606,215 600,223" fill="#94a3b8"/>
+  <text x="600" y="210" class="arrow-label">fetch() + Bearer JWT</text>
+
+  <!-- Backend box -->
+  <rect x="260" y="225" width="680" height="70" rx="10" fill="#fff" stroke="#475569" stroke-width="2"/>
+  <text x="280" y="248" class="svc-label">MAIN BACKEND</text>
+  <rect x="395" y="237" width="36" height="18" rx="4" fill="#334155"/>
+  <text x="413" y="250" font-size="10" font-weight="600" fill="#f8fafc" text-anchor="middle">8000</text>
+  <text x="440" y="248" class="svc-detail">FastAPI + SQLite/PostgreSQL</text>
+  <text x="280" y="265" class="svc-detail">Middleware: CORS → GZip → ABAC (R0-R9 rules, 165 perms × 30 profiles)</text>
+  <text x="280" y="282" class="svc-stat">40 <tspan class="stat-unit">routes</tspan></text>
+  <text x="380" y="282" class="svc-stat">34 <tspan class="stat-unit">core modules</tspan></text>
+  <text x="500" y="282" class="svc-stat">9 <tspan class="stat-unit">DB models</tspan></text>
+
+  <!-- Arrow 2 -->
+  <line x1="600" y1="295" x2="600" y2="320" stroke="#94a3b8" stroke-width="2"/>
+  <polygon points="594,320 606,320 600,328" fill="#94a3b8"/>
+  <text x="600" y="315" class="arrow-label">httpx proxy (bankability, model, pricing)</text>
+
+  <!-- Finance Engine box -->
+  <rect x="260" y="330" width="680" height="60" rx="10" fill="#fff" stroke="#94a3b8" stroke-width="2"/>
+  <text x="280" y="352" class="svc-label">FINANCE ENGINE</text>
+  <rect x="410" y="341" width="36" height="18" rx="4" fill="#e2e8f0"/>
+  <text x="428" y="354" font-size="10" font-weight="600" fill="#475569" text-anchor="middle">8001</text>
+  <text x="455" y="352" class="svc-detail">Isolated — no browser exposure — no callbacks</text>
+  <text x="280" y="370" class="svc-detail">CFADS · Waterfall · Debt sculpting · Gabillon pricing · Bankability scoring</text>
+  <text x="280" y="383" class="svc-stat">4 <tspan class="stat-unit">routes</tspan></text>
+  <text x="355" y="383" class="svc-stat">11 <tspan class="stat-unit">core modules</tspan></text>
+
+  <!-- ═══════════════════ SECTION 2: GATED TIMELINE ═══════════════════ -->
+  <text x="40" y="430" class="section-title">2. SCREEN PATH DEPENDENCIES — GATED TIMELINE</text>
+
+  <!-- Phase 1: Advisory -->
+  <rect x="40" y="445" width="220" height="230" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="55" y="465" class="phase-title" fill="#0d9488">① ADVISORY</text>
+  <rect x="55" y="475" width="190" height="20" rx="5" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+  <text x="65" y="489" class="gate-text" fill="#a16207">G0 Site Rights</text>
+  <rect x="55" y="500" width="190" height="20" rx="5" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+  <text x="65" y="514" class="gate-text" fill="#a16207">G1 Grid Connection</text>
+  <rect x="55" y="525" width="190" height="20" rx="5" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+  <text x="65" y="539" class="gate-text" fill="#a16207">G3 Feedstock &amp; Logistics</text>
+  <rect x="55" y="550" width="190" height="20" rx="5" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+  <text x="65" y="564" class="gate-text" fill="#a16207">G9 Permits &amp; Regulatory</text>
+  <text x="55" y="590" class="screen-text">→ <tspan class="screen-code">/onboarding</tspan></text>
+  <text x="55" y="604" class="screen-text">→ <tspan class="screen-code">/projects</tspan></text>
+  <text x="55" y="618" class="screen-text">→ <tspan class="screen-code">/finance-plant-builder</tspan></text>
+  <text x="55" y="632" class="screen-text">→ <tspan class="screen-code">/stage-gates</tspan></text>
+  <text x="55" y="646" class="screen-text">→ <tspan class="screen-code">/producer-bankability</tspan></text>
+  <text x="55" y="660" class="screen-text">→ <tspan class="screen-code">/reports</tspan></text>
+
+  <!-- Arrow between phases -->
+  <line x1="260" y1="560" x2="275" y2="560" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="273,556 280,560 273,564" fill="#94a3b8"/>
+
+  <!-- Phase 2: Commercial -->
+  <rect x="280" y="445" width="200" height="230" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="295" y="465" class="phase-title" fill="#2563eb">② COMMERCIAL</text>
+  <rect x="295" y="475" width="170" height="20" rx="5" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+  <text x="305" y="489" class="gate-text" fill="#a16207">G4 Binding Offtake ≥70%</text>
+  <text x="295" y="518" class="screen-text">→ <tspan class="screen-code">/marketplace</tspan></text>
+  <text x="295" y="532" class="screen-text">→ <tspan class="screen-code">/offtaker-supply</tspan></text>
+  <text x="295" y="546" class="screen-text">→ <tspan class="screen-code">/matching</tspan></text>
+  <text x="295" y="560" class="screen-text">→ <tspan class="screen-code">/trader-dashboard</tspan></text>
+  <text x="295" y="574" class="screen-text">→ <tspan class="screen-code">/offtake-quality</tspan></text>
+  <text x="295" y="588" class="screen-text">→ <tspan class="screen-code">/term-sheet</tspan></text>
+  <text x="295" y="602" class="screen-text">→ <tspan class="screen-code">/contracts</tspan></text>
+
+  <line x1="480" y1="560" x2="495" y2="560" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="493,556 500,560 493,564" fill="#94a3b8"/>
+
+  <!-- Phase 3: Structuring -->
+  <rect x="500" y="445" width="200" height="230" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="515" y="465" class="phase-title" fill="#7c3aed">③ STRUCTURING</text>
+  <rect x="515" y="475" width="170" height="20" rx="5" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+  <text x="525" y="489" class="gate-text" fill="#a16207">G5 EPC  G6 IE  G7 Insurance</text>
+  <rect x="515" y="500" width="170" height="20" rx="5" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+  <text x="525" y="514" class="gate-text" fill="#b91c1c">G8 Model Audit</text>
+  <text x="515" y="542" class="screen-text">→ <tspan class="screen-code">/capital-stack</tspan></text>
+  <text x="515" y="556" class="screen-text">→ <tspan class="screen-code">/finance-gaps</tspan></text>
+  <text x="515" y="570" class="screen-text">→ <tspan class="screen-code">/insurance-schedule</tspan></text>
+  <text x="515" y="584" class="screen-text">→ <tspan class="screen-code">/finance-risk-matrix</tspan></text>
+  <text x="515" y="598" class="screen-text">→ <tspan class="screen-code">/dscr-sensitivity</tspan></text>
+  <text x="515" y="612" class="screen-text">→ <tspan class="screen-code">/covenants</tspan></text>
+
+  <line x1="700" y1="560" x2="715" y2="560" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="713,556 720,560 713,564" fill="#94a3b8"/>
+
+  <!-- Phase 4: Financial Close -->
+  <rect x="720" y="445" width="200" height="230" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="735" y="465" class="phase-title" fill="#dc2626">④ FINANCIAL CLOSE</text>
+  <rect x="735" y="475" width="170" height="20" rx="5" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+  <text x="745" y="489" class="gate-text" fill="#b91c1c">G10 Close Readiness</text>
+  <rect x="735" y="500" width="170" height="20" rx="5" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+  <text x="745" y="514" class="gate-text" fill="#b91c1c">G11 COD</text>
+  <text x="735" y="542" class="screen-text">→ <tspan class="screen-code">/ic-pack</tspan></text>
+  <text x="735" y="556" class="screen-text">→ <tspan class="screen-code">/approval-queue</tspan></text>
+  <text x="735" y="570" class="screen-text">→ <tspan class="screen-code">/commitment-signing</tspan></text>
+  <text x="735" y="584" class="screen-text">→ <tspan class="screen-code">/commitment-verifier</tspan></text>
+  <text x="735" y="598" class="screen-text">→ <tspan class="screen-code">/data-room</tspan></text>
+
+  <line x1="920" y1="560" x2="935" y2="560" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="933,556 940,560 933,564" fill="#94a3b8"/>
+
+  <!-- Phase 5: Operations -->
+  <rect x="940" y="445" width="220" height="230" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="955" y="465" class="phase-title" fill="#059669">⑤ OPERATIONS</text>
+  <rect x="955" y="475" width="190" height="20" rx="5" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+  <text x="965" y="489" class="gate-text" fill="#15803d">Post-COD (all gates ≥ 80%)</text>
+  <text x="955" y="518" class="screen-text">→ <tspan class="screen-code">/production</tspan></text>
+  <text x="955" y="532" class="screen-text">→ <tspan class="screen-code">/plant-data</tspan></text>
+  <text x="955" y="546" class="screen-text">→ <tspan class="screen-code">/capacity</tspan></text>
+  <text x="955" y="560" class="screen-text">→ <tspan class="screen-code">/transfer-readiness</tspan></text>
+  <text x="955" y="574" class="screen-text">→ <tspan class="screen-code">/finance-timeline</tspan></text>
+
+  <!-- Timeline arrow across bottom -->
+  <line x1="40" y1="690" x2="1140" y2="690" stroke="#e2e8f0" stroke-width="2"/>
+  <polygon points="1138,685 1148,690 1138,695" fill="#e2e8f0"/>
+  <text x="590" y="705" font-size="10" fill="#94a3b8" font-weight="600" text-anchor="middle">PROJECT LIFECYCLE TIMELINE →</text>
+
+  <!-- ═══════════════════ SECTION 3: AS-IS vs TO-BE ═══════════════════ -->
+  <text x="40" y="745" class="section-title">3. AS-IS vs TO-BE</text>
+
+  <!-- AS-IS box -->
+  <rect x="40" y="760" width="555" height="260" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="2"/>
+  <text x="60" y="785" class="compare-title" fill="#b91c1c">AS-IS — Current Problems</text>
+
+  <text x="60" y="810" class="issue-num" fill="#ef4444">1</text>
+  <text x="75" y="810" class="issue-text">19 files import CUSTOMER_PROJECTS directly — no central data service</text>
+  <text x="60" y="830" class="issue-num" fill="#ef4444">2</text>
+  <text x="75" y="830" class="issue-text">HS256 symmetric JWT, no refresh tokens, 30min hard expiry</text>
+  <text x="60" y="850" class="issue-num" fill="#ef4444">3</text>
+  <text x="75" y="850" class="issue-text">x-demo-* headers = role impersonation in dev mode</text>
+  <text x="60" y="870" class="issue-num" fill="#ef4444">4</text>
+  <text x="75" y="870" class="issue-text">No OIDC — can't federate with Tier-1 banks and insurers</text>
+  <text x="60" y="890" class="issue-num" fill="#ef4444">5</text>
+  <text x="75" y="890" class="issue-text">Gate IDs hardcoded in 8+ frontend files</text>
+  <text x="60" y="910" class="issue-num" fill="#ef4444">6</text>
+  <text x="75" y="910" class="issue-text">No workflow enforcement — user can URL-jump anywhere</text>
+  <text x="60" y="930" class="issue-num" fill="#ef4444">7</text>
+  <text x="75" y="930" class="issue-text">40 routes + 34 modules in one FastAPI monolith</text>
+  <text x="60" y="950" class="issue-num" fill="#ef4444">8</text>
+  <text x="75" y="950" class="issue-text">Backend event_bus exists but frontend never subscribes (no real-time)</text>
+  <text x="60" y="975" class="issue-num" fill="#ef4444">9</text>
+  <text x="75" y="975" class="issue-text">ABAC client-side only (advisory) — server does not enforce RLS on projects</text>
+  <text x="60" y="995" class="issue-num" fill="#ef4444">10</text>
+  <text x="75" y="995" class="issue-text">Screens don't know their gate prerequisites — no "locked" state</text>
+
+  <!-- TO-BE box -->
+  <rect x="605" y="760" width="555" height="260" rx="10" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="2"/>
+  <text x="625" y="785" class="compare-title" fill="#15803d">TO-BE — Target Architecture</text>
+
+  <text x="625" y="810" class="issue-num" fill="#22c55e">1</text>
+  <text x="640" y="810" class="issue-text">Single useProjectStore() with ABAC + React Query caching</text>
+  <text x="625" y="830" class="issue-num" fill="#22c55e">2</text>
+  <text x="640" y="830" class="issue-text">RS256 asymmetric JWT + refresh token rotation</text>
+  <text x="625" y="850" class="issue-num" fill="#22c55e">3</text>
+  <text x="640" y="850" class="issue-text">OIDC claims carry role attributes — no header spoofing</text>
+  <text x="625" y="870" class="issue-num" fill="#22c55e">4</text>
+  <text x="640" y="870" class="issue-text">Keycloak/Auth0 federation for partner SSO + MFA</text>
+  <text x="625" y="890" class="issue-num" fill="#22c55e">5</text>
+  <text x="640" y="890" class="issue-text">Gate registry API — frontend reads mapping from server</text>
+  <text x="625" y="910" class="issue-num" fill="#22c55e">6</text>
+  <text x="640" y="910" class="issue-text">Screens show "locked" state when prereq gates below threshold</text>
+  <text x="625" y="930" class="issue-num" fill="#22c55e">7</text>
+  <text x="640" y="930" class="issue-text">Bounded contexts: Auth, Project, Commercial, Finance, Ops</text>
+  <text x="625" y="950" class="issue-num" fill="#22c55e">8</text>
+  <text x="640" y="950" class="issue-text">SSE endpoint → live badges, toasts, dashboard auto-refresh</text>
+  <text x="625" y="975" class="issue-num" fill="#22c55e">9</text>
+  <text x="640" y="975" class="issue-text">Server-side RLS on /projects/visible — authoritative ABAC</text>
+  <text x="625" y="995" class="issue-num" fill="#22c55e">10</text>
+  <text x="640" y="995" class="issue-text">useGateAccess hook + gate-aware navigation guards</text>
+
+  <!-- ═══════════════════ SECTION 4: BLAST RADIUS ═══════════════════ -->
+  <text x="40" y="1065" class="section-title">4. HIGH-COUPLING MODULES — BLAST RADIUS</text>
+
+  <!-- Row 1 -->
+  <rect x="40" y="1080" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="55" y="1100" class="blast-name">auth.py</text>
+  <text x="55" y="1114" class="blast-desc">JWT signing, login, token decode</text>
+  <circle cx="55" cy="1135" r="4" fill="#dc2626"/>
+  <text x="65" y="1139" class="blast-risk" fill="#dc2626">CRITICAL — every endpoint</text>
+
+  <rect x="270" y="1080" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="285" y="1100" class="blast-name">abac.py + middleware</text>
+  <text x="285" y="1114" class="blast-desc">R0-R9 rules, 165 permissions</text>
+  <circle cx="285" cy="1135" r="4" fill="#dc2626"/>
+  <text x="295" y="1139" class="blast-risk" fill="#dc2626">CRITICAL — every HTTP request</text>
+
+  <rect x="500" y="1080" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="515" y="1100" class="blast-name">project_truth.py</text>
+  <text x="515" y="1114" class="blast-desc">Source of truth for project state</text>
+  <circle cx="515" cy="1135" r="4" fill="#dc2626"/>
+  <text x="525" y="1139" class="blast-risk" fill="#dc2626">CRITICAL — killers, tasks, activity</text>
+
+  <rect x="730" y="1080" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="745" y="1100" class="blast-name">UserRoleContext</text>
+  <text x="745" y="1114" class="blast-desc">Global role state (frontend)</text>
+  <circle cx="745" cy="1135" r="4" fill="#dc2626"/>
+  <text x="755" y="1139" class="blast-risk" fill="#dc2626">CRITICAL — every page reads it</text>
+
+  <rect x="960" y="1080" width="200" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="975" y="1100" class="blast-name">config.py</text>
+  <text x="975" y="1114" class="blast-desc">JWT secret, DB URL, flags</text>
+  <circle cx="975" cy="1135" r="4" fill="#dc2626"/>
+  <text x="985" y="1139" class="blast-risk" fill="#dc2626">CRITICAL — all services</text>
+
+  <!-- Row 2 -->
+  <rect x="40" y="1160" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="55" y="1180" class="blast-name">CUSTOMER_PROJECTS</text>
+  <text x="55" y="1194" class="blast-desc">Static project registry (frontend)</text>
+  <circle cx="55" cy="1215" r="4" fill="#f59e0b"/>
+  <text x="65" y="1219" class="blast-risk" fill="#f59e0b">HIGH — 19 files import directly</text>
+
+  <rect x="270" y="1160" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="285" y="1180" class="blast-name">verification.py</text>
+  <text x="285" y="1194" class="blast-desc">Evidence state machine</text>
+  <circle cx="285" cy="1215" r="4" fill="#f59e0b"/>
+  <text x="295" y="1219" class="blast-risk" fill="#f59e0b">HIGH — gates, bankability, certs</text>
+
+  <rect x="500" y="1160" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="515" y="1180" class="blast-name">ProductionRoadmapGantt</text>
+  <text x="515" y="1194" class="blast-desc">Timeline component (frontend)</text>
+  <circle cx="515" cy="1215" r="4" fill="#f59e0b"/>
+  <text x="525" y="1219" class="blast-risk" fill="#f59e0b">HIGH — 5 pages embed it</text>
+
+  <rect x="730" y="1160" width="220" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="745" y="1180" class="blast-name">event_store.py</text>
+  <text x="745" y="1194" class="blast-desc">Immutable audit log</text>
+  <circle cx="745" cy="1215" r="4" fill="#22c55e"/>
+  <text x="755" y="1219" class="blast-risk" fill="#22c55e">MODERATE — audit trail only</text>
+
+  <rect x="960" y="1160" width="200" height="70" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="975" y="1180" class="blast-name">deal_killers.py</text>
+  <text x="975" y="1194" class="blast-desc">Fatal/blocking project flags</text>
+  <circle cx="975" cy="1215" r="4" fill="#22c55e"/>
+  <text x="985" y="1219" class="blast-risk" fill="#22c55e">MODERATE — bankability, tasks</text>
+
+  <!-- ═══════════════════ SECTION 5: SPRINT PLAN ═══════════════════ -->
+  <text x="40" y="1280" class="section-title">5. MIGRATION SPRINT PLAN — NO BIG BANG</text>
+
+  <!-- Sprint 1 -->
+  <rect x="40" y="1295" width="215" height="175" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="55" y="1315" class="sprint-num">SPRINT 1</text>
+  <text x="55" y="1332" class="sprint-title">Auth Foundation</text>
+  <circle cx="60" cy="1350" r="3" fill="#dc2626"/>
+  <text x="70" y="1354" class="sprint-item">RS256 JWT (replace HS256)</text>
+  <circle cx="60" cy="1370" r="3" fill="#dc2626"/>
+  <text x="70" y="1374" class="sprint-item">OIDC discovery endpoint</text>
+  <circle cx="60" cy="1390" r="3" fill="#dc2626"/>
+  <text x="70" y="1394" class="sprint-item">Refresh token rotation</text>
+  <circle cx="60" cy="1410" r="3" fill="#dc2626"/>
+  <text x="70" y="1414" class="sprint-item">Feature flag: ENABLE_OIDC</text>
+  <circle cx="60" cy="1430" r="3" fill="#dc2626"/>
+  <text x="70" y="1434" class="sprint-item">Account page (login history, 2FA)</text>
+  <circle cx="60" cy="1450" r="3" fill="#dc2626"/>
+  <text x="70" y="1454" class="sprint-item">Remove x-demo-* header injection</text>
+
+  <!-- Sprint 2 -->
+  <rect x="265" y="1295" width="215" height="175" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="280" y="1315" class="sprint-num">SPRINT 2</text>
+  <text x="280" y="1332" class="sprint-title">Data Layer</text>
+  <circle cx="285" cy="1350" r="3" fill="#f59e0b"/>
+  <text x="295" y="1354" class="sprint-item">/projects/visible API endpoint</text>
+  <circle cx="285" cy="1370" r="3" fill="#f59e0b"/>
+  <text x="295" y="1374" class="sprint-item">Server-side ABAC project filter</text>
+  <circle cx="285" cy="1390" r="3" fill="#f59e0b"/>
+  <text x="295" y="1394" class="sprint-item">Replace 14 raw CP imports</text>
+  <circle cx="285" cy="1410" r="3" fill="#f59e0b"/>
+  <text x="295" y="1414" class="sprint-item">ProjectContext server validation</text>
+  <circle cx="285" cy="1430" r="3" fill="#f59e0b"/>
+  <text x="295" y="1434" class="sprint-item">React Query cache invalidation</text>
+
+  <!-- Sprint 3 -->
+  <rect x="490" y="1295" width="215" height="175" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="505" y="1315" class="sprint-num">SPRINT 3</text>
+  <text x="505" y="1332" class="sprint-title">Gate Workflow</text>
+  <circle cx="510" cy="1350" r="3" fill="#7c3aed"/>
+  <text x="520" y="1354" class="sprint-item">Gate registry API</text>
+  <circle cx="510" cy="1370" r="3" fill="#7c3aed"/>
+  <text x="520" y="1374" class="sprint-item">Clickable Gantt bars → screens</text>
+  <circle cx="510" cy="1390" r="3" fill="#7c3aed"/>
+  <text x="520" y="1394" class="sprint-item">Menu gate prerequisites</text>
+  <circle cx="510" cy="1410" r="3" fill="#7c3aed"/>
+  <text x="520" y="1414" class="sprint-item">useGateAccess hook</text>
+  <circle cx="510" cy="1430" r="3" fill="#7c3aed"/>
+  <text x="520" y="1434" class="sprint-item">Gate → screen config mapping</text>
+
+  <!-- Sprint 4 -->
+  <rect x="715" y="1295" width="215" height="175" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="730" y="1315" class="sprint-num">SPRINT 4</text>
+  <text x="730" y="1332" class="sprint-title">Screen States</text>
+  <circle cx="735" cy="1350" r="3" fill="#2563eb"/>
+  <text x="745" y="1354" class="sprint-item">Locked-screen empty states</text>
+  <circle cx="735" cy="1370" r="3" fill="#2563eb"/>
+  <text x="745" y="1374" class="sprint-item">Gate-check before navigation</text>
+  <circle cx="735" cy="1390" r="3" fill="#2563eb"/>
+  <text x="745" y="1394" class="sprint-item">Dynamic deal killers from API</text>
+  <circle cx="735" cy="1410" r="3" fill="#2563eb"/>
+  <text x="745" y="1414" class="sprint-item">Bounded context split (backend)</text>
+
+  <!-- Sprint 5 -->
+  <rect x="940" y="1295" width="220" height="175" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="955" y="1315" class="sprint-num">SPRINT 5</text>
+  <text x="955" y="1332" class="sprint-title">Real-Time</text>
+  <circle cx="960" cy="1350" r="3" fill="#059669"/>
+  <text x="970" y="1354" class="sprint-item">SSE /events/stream endpoint</text>
+  <circle cx="960" cy="1370" r="3" fill="#059669"/>
+  <text x="970" y="1374" class="sprint-item">useEventStream hook</text>
+  <circle cx="960" cy="1390" r="3" fill="#059669"/>
+  <text x="970" y="1394" class="sprint-item">Live dashboard auto-refresh</text>
+  <circle cx="960" cy="1410" r="3" fill="#059669"/>
+  <text x="970" y="1414" class="sprint-item">Approval/commitment toasts</text>
+  <circle cx="960" cy="1430" r="3" fill="#059669"/>
+  <text x="970" y="1434" class="sprint-item">Event-driven cache invalidation</text>
+
+  <!-- Sprint arrows -->
+  <line x1="255" y1="1383" x2="265" y2="1383" stroke="#94a3b8" stroke-width="1.5"/>
+  <polygon points="263,1379 270,1383 263,1387" fill="#94a3b8"/>
+  <line x1="480" y1="1383" x2="490" y2="1383" stroke="#94a3b8" stroke-width="1.5"/>
+  <polygon points="488,1379 495,1383 488,1387" fill="#94a3b8"/>
+  <line x1="705" y1="1383" x2="715" y2="1383" stroke="#94a3b8" stroke-width="1.5"/>
+  <polygon points="713,1379 720,1383 713,1387" fill="#94a3b8"/>
+  <line x1="930" y1="1383" x2="940" y2="1383" stroke="#94a3b8" stroke-width="1.5"/>
+  <polygon points="938,1379 945,1383 938,1387" fill="#94a3b8"/>
+
+  <!-- Footer -->
+  <text x="600" y="1500" font-size="10" fill="#94a3b8" text-anchor="middle" font-weight="600">GreenEarthX Platform · Dependency Map v1.0 · Function over design · No big bang</text>
+  <text x="600" y="1516" font-size="9" fill="#cbd5e1" text-anchor="middle">3 services · 91 routes · 40 backend routes · 34 core modules · 12 bankability gates · 5 migration sprints</text>
+
+  <!-- Legend -->
+  <rect x="40" y="1540" width="1120" height="40" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="60" y="1563" font-size="10" font-weight="700" fill="#475569">LEGEND</text>
+  <circle cx="130" cy="1560" r="4" fill="#dc2626"/>
+  <text x="140" y="1564" font-size="9" fill="#64748b">Critical blast radius</text>
+  <circle cx="260" cy="1560" r="4" fill="#f59e0b"/>
+  <text x="270" y="1564" font-size="9" fill="#64748b">High blast radius</text>
+  <circle cx="380" cy="1560" r="4" fill="#22c55e"/>
+  <text x="390" y="1564" font-size="9" fill="#64748b">Moderate blast radius</text>
+  <rect x="490" y="1553" width="40" height="14" rx="4" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+  <text x="540" y="1564" font-size="9" fill="#64748b">Gate in progress</text>
+  <rect x="630" y="1553" width="40" height="14" rx="4" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+  <text x="680" y="1564" font-size="9" fill="#64748b">Gate blocked</text>
+  <rect x="760" y="1553" width="40" height="14" rx="4" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+  <text x="810" y="1564" font-size="9" fill="#64748b">Gate complete</text>
+
+</svg>

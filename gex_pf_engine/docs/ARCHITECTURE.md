@@ -1,206 +1,149 @@
-# GEX Project Finance Engine — Architecture
+# GEX Project Finance Engine — Current Architecture
 
-Version: **v6.0 R2** · Port: **8001**
+Version: **current code review as of 2026-04-08**  
+Runtime port: **8001**
 
----
+## Scope
 
-## Overview
+`gex_pf_engine` is the computation service behind the platform.  
+It is a FastAPI service mounted from [main.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/main.py).
 
-The GEX Project Finance Engine is a Python/FastAPI microservice that provides:
+Current mounted API groups:
+- `/api/v1/model`
+- `/api/v1/bankability`
+- `/api/v1/pricing`
 
-1. **Bankability evaluation** — 12-gate, 9-state lifecycle state machine with verification-weighted scores
-2. **Financial modelling** — CFADS, debt waterfall, DSCR sculpting, covenant checks
-3. **Audit trail** — cryptographic SHA-256 event chain for tamper-evident history
+## Current Role In The Stack
 
-It is called exclusively by the GEX Platform Backend (port 8000). The frontend never contacts this service directly.
+The engine is not the product shell. It provides:
+- bankability evaluation
+- financial model calculations
+- price curve and lineage calculations
 
----
-
-## State Machine
-
-### 9 States
+The browser should not call this service directly. The intended path is:
 
 ```text
-SPECULATIVE
-  → TECHNICALLY_PLAUSIBLE      (G0 + G1 gates cleared)
-  → COMMERCIALLY_PLAUSIBLE     (G2 + G3 gates cleared)
-  → BUILDABLE                  (G4 + G5 gates cleared)
-  → STRUCTURALLY_BANKABLE      (G6 + G7 gates cleared)
-  → CREDIT_APPROVED            (G8 gate cleared)
-  → FINANCEABLE                (G9 + G10 gates cleared)
-  → OPERATIONAL                (G11 gate cleared)
-  → REFINANCING_ELIGIBLE       (all gates AUDITED, DSCR ≥ 1.35 sustained)
+Frontend (3000) -> Platform backend (8000) -> PF engine (8001)
 ```
 
-Transitions are **forward-only**. Regression to a lower state is not supported by the state machine; it is surfaced as a deal-killer flag instead.
+The platform proxy for bankability is in [routes_bankability_proxy.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex-platform-enhanced/backend/app/api/v1/routes_bankability_proxy.py#L1).
 
-### 12 Gates (G0–G11)
+## What Is Actually Implemented
 
-| Gate | Name | Min Effective Score | Gate Owners |
-| --- | --- | --- | --- |
-| G0 | Site Rights & Social License | 0.70 | PRODUCER, EXECUTIVE |
-| G1 | Grid Connection & Water/Utilities | 0.70 | PRODUCER |
-| G2 | Green Certification Pathway | 0.75 | REGULATOR |
-| G3 | Feedstock & Logistics | 0.70 | PRODUCER |
-| G4 | Binding Offtake | 0.80 | FINANCE |
-| G5 | EPC & Construction | 0.75 | PRODUCER, EXECUTIVE |
-| G6 | Independent Engineer Signoff | 0.85 | FINANCE, REGULATOR |
-| G7 | Insurance Package | 0.80 | FINANCE |
-| G8 | Audit-Grade Financial Model | 0.90 | FINANCE |
-| G9 | Permits & Approvals | 0.80 | PRODUCER, REGULATOR |
-| G10 | Financial Close | 0.95 | FINANCE |
-| G11 | Commercial Operations Date | 0.85 | PRODUCER, EXECUTIVE |
+### 1. Bankability engine
 
----
+Live bankability logic is in [bankability_engine.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/bankability_engine.py#L1).
 
-## Verification-Weighted Scores (R2)
+Current semantics:
+- 12 gates
+- 9 states
+- persona-filtered views
+- capital unlock flags
+- regression detection
+- `overall_completion_pct`
 
-Raw evidence scores are multiplied by verification weights before gate evaluation. This prevents unverified self-reported data from unlocking capital or advancing state.
+Current scoring is **binary verified evidence completion**, not verification-weighted scoring.
 
-### Weights
+A gate is complete only when every required evidence item has `status == "VERIFIED"` in [bankability_engine.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/bankability_engine.py#L224).
 
-| Verification State | Weight |
-| --- | --- |
-| UNVERIFIED | 0.25 |
-| SUBMITTED | 0.50 |
-| CONFIRMED | 0.85 |
-| AUDITED | 1.00 |
+This means the engine currently computes:
+- `verified_count`
+- `completion_pct`
+- `is_complete`
 
-### Formula
+It does **not** currently compute:
+- verification weights
+- effective scores
+- threshold-based gate passing
 
-```text
-effective_score = raw_score × mean(verification_weights_for_gate_evidence)
-```
+### 2. Financial model
 
-The state machine evaluates **effective scores**, not raw scores. A gate with raw score 1.0 but all evidence UNVERIFIED yields effective score 0.25 — below every gate threshold.
+Mounted under `/api/v1/model` from [routes_model.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/api/routes_model.py).
 
----
+Core modules present:
+- [cfads.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/cfads.py)
+- [waterfall.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/waterfall.py)
+- [debt/sculpting.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/debt/sculpting.py)
+- [debt/tranche.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/debt/tranche.py)
+- [engine.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/engine.py)
 
-## Persona Views
+### 3. Pricing engine
 
-Each persona sees only the gates relevant to their role:
+Mounted under `/api/v1/pricing` from [routes_pricing.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/api/routes_pricing.py#L1).
 
-| Persona | Gates |
-| --- | --- |
-| PRODUCER | G0, G1, G3, G5, G9, G11 |
-| FINANCE | G4, G6, G7, G8, G10 |
-| REGULATOR | G2, G6, G9 |
-| EXECUTIVE | G0, G5, G11 + portfolio summary |
+Current behaviour:
+- Gabillon-based price curves
+- price lineage support
+- supported molecule aliases
+- offered molecule list loaded from the **platform fuel catalogue DB** when available
+- fallback to the shared JSON seed if the platform DB is unavailable
 
-The `/evaluate/persona` endpoint filters gate_evaluations and capital_unlocks to the requesting persona.
+See:
+- [gabillon.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/gabillon.py)
+- [price_lineage.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/core/price_lineage.py)
+- DB resolution in [routes_pricing.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/api/routes_pricing.py#L34)
 
----
+## What Is Not Accurate In Older Descriptions
 
-## Capital Unlocks
+The following are not the current reality:
+- verification-weighted gate scoring is **not** the active PF engine path
+- the engine is not exposing a mounted audit-chain endpoint today
+- the service is not fully version-aligned internally:
+  - FastAPI app version in [main.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/main.py#L29) is `1.0.0`
+  - `/health` reports `5.1.0` in [main.py](/Users/jean-marie.lamay/GreenEarthX-Front-Jan26/files/gex_pf_engine/backend/app/main.py#L56)
 
-Each state transition releases specific capital tranches:
+## Persistence Model
 
-| State Reached | Capital Event |
-| --- | --- |
-| TECHNICALLY_PLAUSIBLE | Pre-development equity eligible |
-| COMMERCIALLY_PLAUSIBLE | Offtake negotiation funding |
-| BUILDABLE | Development capital, EPC tender |
-| STRUCTURALLY_BANKABLE | Senior debt term sheet eligible |
-| CREDIT_APPROVED | Credit committee mandate |
-| FINANCEABLE | Financial close, drawdown |
-| OPERATIONAL | Operational working capital |
-| REFINANCING_ELIGIBLE | Refi / green bond issuance |
+The PF engine is still mostly stateless:
+- bankability evaluation accepts request payloads
+- financial model routes compute from request data
+- no internal PF-engine-owned SQLite schema is mounted for business state
 
----
+One exception now exists in practice:
+- pricing uses the platform fuel catalogue database as an upstream reference source when present
 
-## Deal-Killer System (R1)
+This makes the engine computationally stateless, but no longer fully isolated from platform reference data.
 
-Eight pre-seeded blockers that halt capital deployment regardless of gate scores:
-
-| ID | Severity | Trigger |
-| --- | --- | --- |
-| DK-001 | FATAL | No site control documented |
-| DK-002 | FATAL | Offtake counterparty < investment grade |
-| DK-003 | FATAL | IE report withheld or not commissioned |
-| DK-004 | FATAL | Insurance gap > 10% of capex |
-| DK-005 | CRITICAL | DSCR < 1.20 in any model year |
-| DK-006 | CRITICAL | Green certification pathway unresolved |
-| DK-007 | CRITICAL | EPC contractor not appointed |
-| DK-008 | CRITICAL | Permits outstanding at financial close |
-
-FATAL blockers prevent all capital unlocks. CRITICAL blockers block the specific gate they are tied to.
-
----
-
-## Module Responsibilities
+## File Layout
 
 ```text
-app/
-├── main.py                    Entry point — FastAPI app, CORS, router mounts
+backend/app/
+├── main.py
 ├── api/
-│   ├── routes_bankability.py  POST /evaluate, POST /evaluate/persona,
-│   │                          GET /gates, GET /rules, GET /health
-│   └── routes_model.py        POST /cfads/calculate, POST /model/lifetime,
-│                              POST /covenants/check, POST /waterfall/execute,
-│                              POST /metrics/calculate, GET /health
+│   ├── routes_bankability.py
+│   ├── routes_model.py
+│   ├── routes_pricing.py
+│   └── routes_bankability_abac.py   present but not mounted
 └── core/
-    ├── bankability_engine.py  State machine, gate evaluation, capital unlocks
-    ├── cfads.py               Cash Flow Available for Debt Service calculator
-    ├── waterfall.py           Senior / junior / mezzanine priority distribution
-    ├── audit.py               SHA-256 chained event log (append-only)
-    ├── verification.py        Verification state enum and weight lookup
+    ├── bankability_engine.py
+    ├── cfads.py
+    ├── waterfall.py
+    ├── audit.py                     present but not mounted through main.py
+    ├── engine.py
+    ├── gabillon.py
+    ├── greenmesh.py
+    ├── price_lineage.py
     └── debt/
-        ├── sculpting.py       DSCR-sculpted repayment schedule generator
-        └── tranche.py         Debt tranche objects (senior, junior, mezz)
+        ├── sculpting.py
+        └── tranche.py
 ```
 
----
+## Current Integrity Review
 
-## Audit Trail
+Strengths:
+- clean service boundary for compute-heavy finance and pricing logic
+- explicit bankability and model APIs
+- no browser coupling
 
-Every state transition and gate evaluation is appended to an in-memory (or persisted) event chain:
+Current gaps:
+- binary verification semantics in PF engine vs weighted scoring in parts of the platform backend
+- version drift in `main.py`
+- `routes_bankability_abac.py` exists but is not part of the mounted runtime path
+- `audit.py` exists but is not part of the current exposed runtime contract
+- `micro_service/` is a local virtualenv/runtime artifact, not architecture source
 
-```text
-event_n.hash = SHA-256(event_n-1.hash + event_n.payload)
-```
+## Canonical Interpretation
 
-This makes retrospective tampering detectable: any change to a historical event invalidates all subsequent hashes.
+As of now, `gex_pf_engine` should be described as:
 
-The `GET /api/v1/bankability/audit/{project_id}` endpoint returns the full chain with verification status for each link.
-
----
-
-## Financial Model
-
-### CFADS Calculator (`cfads.py`)
-
-Inputs: revenue assumptions, opex, capex schedule, tax, working capital movements.
-Output: period-by-period cash flow available for debt service.
-
-### Waterfall Engine (`waterfall.py`)
-
-Distributes CFADS according to priority:
-
-```text
-1. Senior debt service (interest + scheduled principal)
-2. Debt service reserve account top-up
-3. Junior / mezzanine debt service
-4. Equity distributions (if DSCR ≥ lock-up threshold)
-```
-
-### Debt Sculpting (`debt/sculpting.py`)
-
-Generates a repayment schedule where each period's principal is sized so that DSCR equals the target ratio (typically 1.30), rather than using flat amortisation.
-
-### Covenant Check (`routes_model.py → covenants/check`)
-
-Evaluates DSCR and LLCR against thresholds:
-
-| Covenant | Default Threshold |
-| --- | --- |
-| DSCR (annual) | ≥ 1.20 (lock-up), ≥ 1.10 (default trigger) |
-| LLCR | ≥ 1.30 |
-
----
-
-## Key Design Decisions
-
-- **No external database** — state is passed in request bodies; persistence is the caller's responsibility (platform backend owns the evidence store).
-- **Stateless per request** — each `/evaluate` call receives full evidence array and returns full evaluation; no session state held between calls.
-- **SQLite-free** — this service has no database of its own; it is a pure computation engine.
-- **Port isolation** — always on 8001, never exposed to the browser directly; all calls are proxied through the platform backend on 8000.
+> a FastAPI computation service for bankability, finance-model, and pricing calculations, consumed through the platform backend, with binary verified-evidence completion logic and partial integration to platform reference data.

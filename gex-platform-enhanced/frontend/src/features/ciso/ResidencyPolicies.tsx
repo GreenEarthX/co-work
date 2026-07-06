@@ -1,3 +1,4 @@
+// Screen: Residency policies screen (/ciso-residency)
 /**
  * ResidencyPolicies — CISO view for Domain 5: Data Residency Policy Layer.
  * Shows per-data-category jurisdiction constraints and recent residency checks.

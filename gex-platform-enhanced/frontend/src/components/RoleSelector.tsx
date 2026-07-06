@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// Screen: Shared component — Login / role-switching screens
+import { useState } from 'react';
 import { useUserRole } from '@/contexts/UserRoleContext';
 import type { CompanyType, ServiceType, BusinessFunction } from '@/contexts/UserRoleContext';
 
@@ -11,7 +12,7 @@ export function RoleSelector({ onComplete }: { onComplete?: () => void }) {
   const [userName, setUserName] = useState(role.user_name);
 
   const COMPANY_TYPES: { value: CompanyType; label: string; desc: string }[] = [
-    { value: 'PRODUCER', label: 'Producer', desc: 'We produce green fuel molecules (H₂, NH₃, SAF, e-MeOH)' },
+    { value: 'PRODUCER', label: 'Producer', desc: 'We produce GreenEarthX molecules (e-Methane, e-Methanol, e-NH3, HVO, SAF, e-Gasoline, e-LG, e-Naphtha)' },
     { value: 'OFFTAKER', label: 'Offtaker / Buyer', desc: 'We buy or offtake green fuel molecules' },
     { value: 'THIRD_PARTY', label: 'Service Provider', desc: 'We provide services to producers or offtakers' },
   ];

@@ -1,8 +1,11 @@
+// Screen: Login screen (/login)
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Leaf, Eye, EyeOff, ArrowRight, ChevronRight } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, ChevronRight } from 'lucide-react';
 import { useUserRole } from '@/contexts/UserRoleContext';
 import type { UserRole } from '@/contexts/UserRoleContext';
+
+const AUTH_API_BASE_URL = '/api/v1';
 
 // ─── Demo credentials ────────────────────────────────────────────────────────
 // Full GEX Ecosystem — sourced from gex_complete_ecosystem.json
@@ -81,10 +84,37 @@ const DEMO_USERS: Record<string, DemoUser> = {
       user_name: 'Claudia Nunez',
     },
   },
+  // ── PRODUCERS — ETFuels ─────────────────────────────────────────────────────
+  'thierry.groell@etfuels.com': {
+    token: 'demo-token-thierry-groell',
+    title: 'SVP Trading & Capital Strategy · ETFuels',
+    group: 'Producers',
+    role: {
+      company_type: 'PRODUCER',
+      service_type: null,
+      business_function: 'FINANCE_TREASURY',
+      company_name: 'ETFuels SA',
+      user_name: 'Thierry Groell',
+      capabilities: ['PRODUCE', 'SELL', 'TRADE'],
+    },
+  },
+  'felix.leworthy@etfuels.com': {
+    token: 'demo-token-felix-leworthy',
+    title: 'Co-Founder & CCO · ETFuels',
+    group: 'Producers',
+    role: {
+      company_type: 'PRODUCER',
+      service_type: null,
+      business_function: 'COMMERCIAL',
+      company_name: 'ETFuels SA',
+      user_name: 'Felix Leworthy',
+      capabilities: ['PRODUCE', 'SELL', 'TRADE'],
+    },
+  },
   // ── OFFTAKERS ──────────────────────────────────────────────────────────────
   'karl.tish@brementhree.com': {
     token: 'demo-token-karl-tish',
-    title: 'CEO · BremenThree AG',
+    title: 'CEO · BremenThree AG (Prosumer)',
     group: 'Offtakers',
     role: {
       company_type: 'OFFTAKER',
@@ -92,11 +122,17 @@ const DEMO_USERS: Record<string, DemoUser> = {
       business_function: 'EXECUTIVE',
       company_name: 'BremenThree AG',
       user_name: 'Karl Tish',
+      capabilities: ['OFFTAKE', 'PRODUCE', 'SELL'],
+      credit_rating: 'A-',
+      credit_rating_source: 'S&P',
+      export_licenses: ['DE'],
+      token_ready: true,
+      transformation_license: true,
     },
   },
   'frank.sabak@brementhree.com': {
     token: 'demo-token-frank-sabak',
-    title: 'Purchasing · BremenThree AG',
+    title: 'Purchasing · BremenThree AG (Prosumer)',
     group: 'Offtakers',
     role: {
       company_type: 'OFFTAKER',
@@ -104,11 +140,17 @@ const DEMO_USERS: Record<string, DemoUser> = {
       business_function: 'COMMERCIAL',
       company_name: 'BremenThree AG',
       user_name: 'Frank Sabak',
+      capabilities: ['OFFTAKE', 'PRODUCE', 'SELL'],
+      credit_rating: 'A-',
+      credit_rating_source: 'S&P',
+      export_licenses: ['DE'],
+      token_ready: true,
+      transformation_license: true,
     },
   },
   'luc.marchand@rotterdamofftake4.com': {
     token: 'demo-token-luc-marchand',
-    title: 'CFO · RotterdamOfftake4 AG',
+    title: 'CFO · RotterdamOfftake4 AG (End-buyer)',
     group: 'Offtakers',
     role: {
       company_type: 'OFFTAKER',
@@ -116,6 +158,12 @@ const DEMO_USERS: Record<string, DemoUser> = {
       business_function: 'FINANCE_TREASURY',
       company_name: 'RotterdamOfftake4 AG',
       user_name: 'Luc Marchand',
+      capabilities: ['OFFTAKE'],
+      credit_rating: 'BBB+',
+      credit_rating_source: 'HOUSE_BANK',
+      export_licenses: ['NL', 'DE', 'BE'],
+      token_ready: true,
+      aggregation_limit_mt: 10000,
     },
   },
   // ── BANKERS ────────────────────────────────────────────────────────────────
@@ -194,6 +242,14 @@ const GROUP_META: Record<DemoGroup, { label: string }> = {
   Insurers: { label: 'Insurance' },
 };
 
+interface LoginResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_at?: string;
+  email: string;
+  role: UserRole;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function LoginPage() {
@@ -211,18 +267,38 @@ export function LoginPage() {
     setError('');
     setLoading(true);
 
-    // Simulate network latency
-    await new Promise((r) => setTimeout(r, 600));
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const match = DEMO_USERS[email.toLowerCase()];
-    if (!match || password !== DEMO_PASSWORD) {
-      setError('Invalid credentials. Use one of the demo accounts below with password demo1234.');
+    try {
+      const response = await fetch(`${AUTH_API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, password }),
+      });
+
+      const payload = await response.json().catch(() => null) as LoginResponse | { detail?: string } | null;
+
+      if (!response.ok || !payload || !('access_token' in payload)) {
+        setError(
+          payload && 'detail' in payload && payload.detail
+            ? payload.detail
+            : 'Invalid credentials. Use one of the demo accounts below with password demo1234.',
+        );
+        return;
+      }
+
+      login({
+        token: payload.access_token,
+        refreshToken: payload.refresh_token ?? '',
+        expiresAt: payload.expires_at ?? '',
+        email: payload.email,
+      }, payload.role);
+      navigate('/projects');
+    } catch {
+      setError('Authentication service unavailable. Check the backend on port 8000.');
+    } finally {
       setLoading(false);
-      return;
     }
-
-    login({ token: match.token, email }, match.role);
-    navigate('/dashboard');
   };
 
   const handleGuest = () => {
@@ -239,15 +315,11 @@ export function LoginPage() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-xl border flex items-center justify-center"
-            style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
-          >
-            <Leaf className="w-5 h-5" style={{ color: 'var(--brand)' }} />
-          </div>
-          <span className="text-lg font-semibold tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>
-            GreenEarthX
-          </span>
+          <img
+            src="/GreenEarthX-updated.png"
+            alt="GreenEarthX"
+            className="h-12 w-auto object-contain"
+          />
         </div>
 
         {/* Headline */}
@@ -265,7 +337,7 @@ export function LoginPage() {
           </h1>
           <p className="text-[1.05rem] leading-8 max-w-lg" style={{ color: 'var(--text-secondary)' }}>
             Bankability assessment, capital structuring, and compliance
-            for H₂, NH₃, SAF and e-MeOH projects — from speculative to
+            for H₂, NH₃, e-NG ,HVO, and e-MeOH projects — from speculative to
             financial close.
           </p>
 
@@ -306,15 +378,13 @@ export function LoginPage() {
             boxShadow: '0 18px 40px rgba(22, 33, 29, 0.06)',
           }}
         >
-          {/* Mobile logo */}
-          <div className="flex items-center gap-2 mb-10 lg:hidden">
-            <div
-              className="w-9 h-9 rounded-xl border flex items-center justify-center"
-              style={{ background: 'var(--surface-muted)', borderColor: 'var(--border)' }}
-            >
-              <Leaf className="w-4 h-4" style={{ color: 'var(--brand)' }} />
-            </div>
-            <span className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>GreenEarthX</span>
+          {/* GEX logo */}
+          <div className="flex items-center justify-start mb-10">
+            <img
+              src="/GreenEarthX-updated.png"
+              alt="GreenEarthX"
+              className="h-12 w-auto object-contain"
+            />
           </div>
 
           <h2 className="text-3xl font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Welcome back</h2>

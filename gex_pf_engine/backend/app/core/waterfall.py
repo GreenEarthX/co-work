@@ -1,10 +1,13 @@
 """
 Cash Flow Waterfall - Payment Priority Logic
-Manages distribution of CFADS across reserves, debt tranches, and equity
+Manages distribution of CFADS across reserves, debt tranches, and equity.
+Supports concessional (DFI) tranches with grace periods via debt.tranche.
 """
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 from dataclasses import dataclass
+
+from .debt.tranche import Tranche, TrancheType, FinancingStructure
 
 
 class Priority(Enum):
@@ -308,6 +311,172 @@ class CashFlowWaterfall:
         
         annual_payment = principal * (rate * (1 + rate) ** tenor) / ((1 + rate) ** tenor - 1)
         return annual_payment
+
+
+    @staticmethod
+    def create_from_financing_structure(
+        cfads: float,
+        structure: FinancingStructure,
+        year: int = 1,
+    ) -> Dict:
+        """
+        Create waterfall from a FinancingStructure (supports concessional/DFI).
+        Uses Tranche.annual_debt_service(year) which respects grace periods.
+
+        Args:
+            cfads: Annual CFADS for this year
+            structure: FinancingStructure with typed tranches
+            year: Project year (1-indexed) — affects grace period logic
+
+        Returns:
+            Waterfall execution with concessional metrics
+        """
+        waterfall = CashFlowWaterfall()
+        total_annual_debt = 0.0
+        tranche_details = []
+
+        for t in structure.tranches:
+            annual_service = t.annual_debt_service(year)
+            total_annual_debt += annual_service
+            in_grace = year <= t.grace_period_years
+
+            waterfall.add_debt(
+                t.name,
+                principal=0,
+                interest=annual_service,
+                seniority=t.seniority_rank,
+            )
+            tranche_details.append({
+                "name": t.name,
+                "type": t.tranche_type.value,
+                "amount": t.amount,
+                "rate": t.rate,
+                "annual_service": annual_service,
+                "in_grace_period": in_grace,
+                "is_concessional": t.is_concessional,
+                "dfi_provider": t.dfi_provider.value if t.dfi_provider else None,
+            })
+
+        # DSRA = 6 months of total debt service
+        dsra_required = total_annual_debt / 2
+        if dsra_required > 0:
+            waterfall.add_reserve("DSRA", dsra_required, priority=1)
+
+        result = waterfall.execute(cfads)
+
+        # DSCR
+        dscr = cfads / total_annual_debt if total_annual_debt > 0 else float('inf')
+
+        result["year"] = year
+        result["tranche_details"] = tranche_details
+        result["total_annual_debt_service"] = total_annual_debt
+        result["dsra_required"] = dsra_required
+        result["dscr"] = round(dscr, 3)
+        result["blended_wacc"] = round(structure.blended_wacc(), 5)
+        result["blended_debt_cost"] = round(structure.blended_debt_cost(), 5)
+        result["concessional_share"] = round(structure.concessional_share, 4)
+        result["catalytic_ratio"] = round(structure.catalytic_ratio, 2) if structure.catalytic_ratio != float('inf') else None
+        result["financing_summary"] = structure.to_dict()
+
+        return result
+
+
+    @staticmethod
+    def create_multi_currency_waterfall(
+        cfads_by_currency: Dict[str, float],
+        structure: FinancingStructure,
+        year: int = 1,
+    ) -> Dict:
+        """
+        Multi-currency waterfall. Converts all CFADS to base currency
+        using the FinancingStructure's base_currency, then runs waterfall.
+
+        Args:
+            cfads_by_currency: e.g. {"EUR": 20_000_000, "USD": 5_000_000}
+            structure: FinancingStructure with FX rates on tranches
+            year: Project year
+
+        Returns:
+            Waterfall execution with FX breakdown
+        """
+        # Sum CFADS in base currency (assumes cfads_by_currency keys match tranche currencies)
+        # For now, treat all amounts as already in base currency
+        total_cfads_base = sum(cfads_by_currency.values())
+
+        result = CashFlowWaterfall.create_from_financing_structure(
+            cfads=total_cfads_base,
+            structure=structure,
+            year=year,
+        )
+        result["cfads_by_currency"] = cfads_by_currency
+        result["base_currency"] = structure.base_currency
+        return result
+
+
+class CashSweep:
+    """
+    Post-waterfall excess cash sweep mechanism.
+    Applies lock-up tests (DSCR floor, LLCR floor) before
+    allowing equity distributions.
+    """
+
+    def __init__(
+        self,
+        dscr_lock_up: float = 1.10,
+        dscr_default: float = 1.05,
+        llcr_lock_up: float = 1.15,
+        sweep_pct: float = 0.50,
+    ):
+        self.dscr_lock_up = dscr_lock_up
+        self.dscr_default = dscr_default
+        self.llcr_lock_up = llcr_lock_up
+        self.sweep_pct = sweep_pct
+
+    def apply(self, waterfall_result: Dict, llcr: float = 999.0) -> Dict:
+        """
+        Apply sweep/lock-up logic to waterfall output.
+
+        Returns updated result with:
+          - sweep_applied: bool
+          - equity_distribution: float (may be reduced)
+          - sweep_to_debt: float (excess redirected to prepayment)
+          - lock_up_triggered: bool
+          - default_triggered: bool
+        """
+        dscr = waterfall_result.get("dscr", float("inf"))
+        excess = waterfall_result.get("remaining_for_equity", 0)
+
+        default_triggered = dscr < self.dscr_default
+        lock_up_triggered = dscr < self.dscr_lock_up or llcr < self.llcr_lock_up
+
+        if default_triggered:
+            # All cash trapped — no equity distribution
+            equity_dist = 0.0
+            sweep_to_debt = excess
+        elif lock_up_triggered:
+            # Partial sweep — excess cash prepays debt
+            sweep_to_debt = excess * self.sweep_pct
+            equity_dist = excess - sweep_to_debt
+        else:
+            # No constraint — full equity distribution
+            equity_dist = excess
+            sweep_to_debt = 0.0
+
+        waterfall_result["cash_sweep"] = {
+            "dscr_lock_up_threshold": self.dscr_lock_up,
+            "dscr_default_threshold": self.dscr_default,
+            "llcr_lock_up_threshold": self.llcr_lock_up,
+            "actual_dscr": round(dscr, 3) if dscr != float("inf") else None,
+            "actual_llcr": round(llcr, 3) if llcr != 999.0 else None,
+            "lock_up_triggered": lock_up_triggered,
+            "default_triggered": default_triggered,
+            "sweep_pct": self.sweep_pct,
+            "sweep_to_debt_prepayment": round(sweep_to_debt, 2),
+            "equity_distribution": round(equity_dist, 2),
+        }
+        waterfall_result["remaining_for_equity"] = round(equity_dist, 2)
+
+        return waterfall_result
 
 
 if __name__ == "__main__":

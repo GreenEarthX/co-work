@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance commitment screens
 /**
  * CommitmentStatusBadge — visual badge for the capital commitment lifecycle.
  * States: NONE → INDICATIVE → TERM_SHEET → CREDIT_APPROVED → LEGAL_COMPLETE → DRAWN

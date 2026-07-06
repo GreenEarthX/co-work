@@ -1,3 +1,4 @@
+// Screen: Shared component — Finance dashboard, CISO dashboard screens
 /**
  * TaskRouter — R6 (Architectural Reform v6.0)
  *
@@ -14,12 +15,8 @@
  * The DealKillerBanner renders above this component when killers are active.
  */
 
-import { useState, useEffect, type ElementType } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  CheckCircle, Circle, Lock, Zap, ArrowRight, ChevronDown,
-  Target,
-} from 'lucide-react'
 import { DealKillerBanner, useActiveKillers } from './DealKillerBanner'
 import { AdversarialReviewEntryCard } from './AdversarialReviewEntryCard'
 
@@ -56,50 +53,17 @@ interface TaskRouterProps {
   onShowSidebar?: () => void
 }
 
-// ─── Step icon & styles ───────────────────────────────────────────────────────
+// ─── Step style — slate body, color reserved for a 2-px left band only ──
 
 const STEP_CONFIG: Record<StepStatus, {
-  Icon: ElementType
-  containerClass: string
-  titleClass: string
-  iconClass: string
-  badge: string
+  bandClass: string         // left-edge tone (the only color in the row)
+  chipToneClass: string     // small status chip inside the row
+  label: string             // short uppercase status label
 }> = {
-  DONE: {
-    Icon: CheckCircle,
-    containerClass: 'border-green-200 bg-green-50',
-    titleClass:     'text-green-800',
-    iconClass:      'text-green-600',
-    badge:          'bg-green-100 text-green-700',
-  },
-  IN_PROGRESS: {
-    Icon: Zap,
-    containerClass: 'border-blue-300 bg-blue-50 ring-1 ring-blue-200',
-    titleClass:     'text-blue-800',
-    iconClass:      'text-blue-600',
-    badge:          'bg-blue-100 text-blue-700',
-  },
-  BLOCKED: {
-    Icon: Lock,
-    containerClass: 'border-red-200 bg-red-50',
-    titleClass:     'text-red-800',
-    iconClass:      'text-red-500',
-    badge:          'bg-red-100 text-red-700',
-  },
-  NOT_STARTED: {
-    Icon: Circle,
-    containerClass: 'border-gray-200 bg-white',
-    titleClass:     'text-gray-700',
-    iconClass:      'text-gray-300',
-    badge:          'bg-gray-100 text-gray-500',
-  },
-}
-
-const STATUS_LABELS: Record<StepStatus, string> = {
-  DONE:        '✓ Done',
-  IN_PROGRESS: '⚡ In progress',
-  BLOCKED:     '🔒 Blocked',
-  NOT_STARTED: '○ Not started',
+  DONE:        { bandClass: 'border-l-emerald-600', chipToneClass: 'border-l-emerald-600 text-emerald-800 dark:text-emerald-300', label: 'DONE' },
+  IN_PROGRESS: { bandClass: 'border-l-sky-600',     chipToneClass: 'border-l-sky-600     text-sky-800     dark:text-sky-300',     label: 'IN PROGRESS' },
+  BLOCKED:     { bandClass: 'border-l-red-700',     chipToneClass: 'border-l-red-700     text-red-800     dark:text-red-300',     label: 'BLOCKED' },
+  NOT_STARTED: { bandClass: 'border-l-slate-400',   chipToneClass: 'border-l-slate-400   text-slate-500   dark:text-slate-400',   label: 'NOT STARTED' },
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -124,7 +88,7 @@ export function TaskRouter({ actorType, projectId, projectName, onShowSidebar }:
   }
 
   return (
-    <div className="space-y-4 max-w-2xl">
+    <div className="space-y-2 max-w-2xl">
       {/* Deal-Killer Banner — always first */}
       <DealKillerBanner killers={killers} projectName={projectName} />
 
@@ -136,107 +100,116 @@ export function TaskRouter({ actorType, projectId, projectName, onShowSidebar }:
       />
 
       {/* Objective header */}
-      <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
-        <Target className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-        <div>
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-0.5">Objective</p>
-          <p className="text-sm font-semibold text-gray-800">{flow.objective}</p>
-          {projectName && <p className="text-xs text-gray-400 mt-0.5">{projectName}</p>}
+      <section className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+        <header className="border-b border-slate-200 dark:border-slate-800 px-2 py-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-slate-600 dark:text-slate-400">Objective</span>
+        </header>
+        <div className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-2 px-2 py-1.5">
+          <div className="min-w-0">
+            <p className="font-mono text-[12px] font-semibold text-slate-900 dark:text-slate-100 leading-snug truncate">
+              {flow.objective}
+            </p>
+            {projectName && (
+              <p className="font-mono text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{projectName}</p>
+            )}
+          </div>
+          <OverallChip status={flow.overall_status} />
         </div>
-        <OverallBadge status={flow.overall_status} />
-      </div>
+      </section>
 
-      {/* Step cards */}
-      <div className="space-y-2">
-        {flow.steps.map(step => {
-          const cfg = STEP_CONFIG[step.status]
-          return (
-            <div
-              key={step.number}
-              className={`rounded-lg border px-4 py-3 transition-all ${cfg.containerClass}`}
-            >
-              <div className="flex items-start gap-3">
-                {/* Step number + icon */}
-                <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                  <cfg.Icon className={`w-4 h-4 ${cfg.iconClass}`} />
-                  <span className="text-[10px] text-gray-400 font-mono">{step.number}</span>
-                </div>
+      {/* Step rows */}
+      <section className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+        <header className="border-b border-slate-200 dark:border-slate-800 px-2 py-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-slate-600 dark:text-slate-400">Steps</span>
+        </header>
+        <ol className="divide-y divide-slate-100 dark:divide-slate-900">
+          {flow.steps.map(step => {
+            const cfg = STEP_CONFIG[step.status]
+            return (
+              <li
+                key={step.number}
+                className={`border-l-2 grid grid-cols-[32px_minmax(0,1fr)_110px_64px] items-center gap-2 px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-900 ${cfg.bandClass}`}
+              >
+                <span className="font-mono text-[10px] tabular-nums text-slate-500 dark:text-slate-400">
+                  {String(step.number).padStart(2, '0')}
+                </span>
 
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className={`text-sm font-semibold ${cfg.titleClass}`}>{step.title}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${cfg.badge}`}>
-                      {STATUS_LABELS[step.status]}
-                    </span>
+                <div className="min-w-0">
+                  <div className="font-mono text-[11px] font-semibold text-slate-900 dark:text-slate-100 truncate">
+                    {step.title}
                   </div>
-                  <p className="text-xs text-gray-500">{step.description}</p>
-
+                  <div className="font-mono text-[10px] text-slate-500 dark:text-slate-400 leading-snug truncate">
+                    {step.description}
+                  </div>
                   {step.status_detail && (
-                    <p className={`text-xs mt-1 font-medium ${cfg.titleClass}`}>
+                    <div className="font-mono text-[10px] text-slate-700 dark:text-slate-300 truncate">
                       {step.status_detail}
-                    </p>
+                    </div>
                   )}
-
                   {step.blocked_by.length > 0 && (
-                    <ul className="mt-1 space-y-0.5">
+                    <ul className="mt-0.5 font-mono text-[10px] text-slate-700 dark:text-slate-300 leading-snug">
                       {step.blocked_by.map((b, i) => (
-                        <li key={i} className="text-xs text-red-600 flex items-start gap-1">
-                          <span className="flex-shrink-0">•</span> {b}
-                        </li>
+                        <li key={i}>· {b}</li>
                       ))}
                     </ul>
                   )}
                 </div>
 
-                {/* Navigate CTA (only for IN_PROGRESS) */}
-                {step.status === 'IN_PROGRESS' && (
+                <span
+                  className={`justify-self-start inline-flex h-[15px] items-center justify-center border border-l-2 border-slate-300 bg-white dark:bg-slate-950 px-1 font-mono text-[8px] font-bold uppercase tracking-[0.08em] leading-none whitespace-nowrap ${cfg.chipToneClass}`}
+                >
+                  {cfg.label}
+                </span>
+
+                {step.status === 'IN_PROGRESS' ? (
                   <button
                     onClick={() => navigate(step.page)}
-                    className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 underline underline-offset-2"
+                    className="justify-self-end font-mono text-[10px] uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:underline whitespace-nowrap"
                   >
-                    Go <ArrowRight className="w-3 h-3" />
+                    open →
                   </button>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+                ) : <span />}
+              </li>
+            )
+          })}
+        </ol>
+      </section>
 
-      {/* Next action button */}
+      {/* Next action — slate bar, no rounding */}
       {flow.next_action && (
         <button
           onClick={() => navigate(flow.next_action_page)}
-          className="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors"
+          className="w-full flex items-center justify-between border border-slate-900 dark:border-slate-100 bg-slate-900 dark:bg-slate-100 text-slate-50 dark:text-slate-900 px-2 py-1.5 font-mono text-[11px] uppercase tracking-[0.08em] hover:bg-slate-800 dark:hover:bg-slate-200"
         >
           <span>{flow.next_action}</span>
-          <ArrowRight className="w-4 h-4" />
+          <span>→</span>
         </button>
       )}
 
-      {/* Sidebar toggle */}
+      {/* Sidebar toggle — mono link */}
       {onShowSidebar && (
         <button
           onClick={onShowSidebar}
-          className="w-full text-xs text-gray-400 hover:text-gray-600 flex items-center justify-center gap-1 py-1"
+          className="w-full font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 py-0.5"
         >
-          Show full navigation <ChevronDown className="w-3 h-3" />
+          show full navigation ▾
         </button>
       )}
     </div>
   )
 }
 
-// ─── Overall status badge ─────────────────────────────────────────────────────
+// ─── Overall status chip — same chip pattern as the dashboard rows ────────
 
-function OverallBadge({ status }: { status: string }) {
-  const cfg =
-    status === 'READY'       ? 'bg-green-100 text-green-700 border-green-300' :
-    status === 'CONDITIONAL' ? 'bg-amber-100 text-amber-700 border-amber-300' :
-                               'bg-red-100 text-red-700 border-red-300'
+function OverallChip({ status }: { status: string }) {
+  const tone =
+    status === 'READY'       ? 'border-l-emerald-600 text-emerald-800 dark:text-emerald-300' :
+    status === 'CONDITIONAL' ? 'border-l-amber-600   text-amber-800   dark:text-amber-300' :
+                               'border-l-red-700     text-red-800     dark:text-red-300'
   return (
-    <span className={`ml-auto flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${cfg}`}>
+    <span
+      className={`justify-self-end inline-flex h-[15px] items-center justify-center border border-l-2 border-slate-300 bg-white dark:bg-slate-950 px-1 font-mono text-[8px] font-bold uppercase tracking-[0.08em] leading-none whitespace-nowrap ${tone}`}
+    >
       {status}
     </span>
   )

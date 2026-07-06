@@ -53,17 +53,49 @@ ACTOR_TYPES = [
     "LOGISTICS_OPERATOR", "TECHNOLOGY_PROVIDER", "EXECUTIVE",
 ]
 
+CAPABILITIES = ["OFFTAKE", "PRODUCE", "SELL", "TRADE", "CERTIFY", "FINANCE", "INSURE"]
+
 CLEARANCE_LEVELS = ["STANDARD", "CONFIDENTIAL", "RESTRICTED"]
 
 CERTIFICATIONS = ["ISO_27001", "SOC2_TYPE_II", "GDPR_DPO", "ISO_14064", "RED_III"]
 
-GEX_PROJECTS = [
-    {"id": "proj_bremen_h2",           "name": "Bremen Green Hydrogen Plant",   "molecule": "H2",        "location": "Bremen, DE"},
-    {"id": "proj_rotterdam_nh3",        "name": "Rotterdam Green Ammonia",       "molecule": "NH3",       "location": "Rotterdam, NL"},
-    {"id": "proj_sansebastian_emethanol","name": "Project Helios e-Methanol",    "molecule": "e-Methanol","location": "San Sebastián, ES"},
-    {"id": "proj_wales_saf",            "name": "Celtic Green SAF Complex",      "molecule": "SAF",       "location": "Neath Port Talbot, GB"},
-    {"id": "proj_lehavre_eng",          "name": "Le Havre e-Gas Hub",            "molecule": "e-NG",      "location": "Le Havre, FR"},
+CREDIT_RATINGS = [
+    "NR", "D", "C", "CC",
+    "CCC-", "CCC", "CCC+",
+    "B-", "B", "B+",
+    "BB-", "BB", "BB+",
+    "BBB-", "BBB", "BBB+",
+    "A-", "A", "A+",
+    "AA-", "AA", "AA+",
+    "AAA",
+    "GEX-1", "GEX-2", "GEX-3", "GEX-4", "GEX-5",
 ]
+
+GEX_PROJECTS = [
+    {"id": "proj_bremen_h2",              "name": "Bremen Green Hydrogen Plant",     "molecule": "H2",        "location": "Bremen, DE"},
+    {"id": "proj_rotterdam_nh3",          "name": "Rotterdam Green Ammonia",         "molecule": "NH3",       "location": "Rotterdam, NL"},
+    {"id": "proj_sansebastian_emethanol", "name": "Project Helios e-Methanol",       "molecule": "e-Methanol","location": "San Sebastián, ES"},
+    {"id": "proj_wales_saf",              "name": "Celtic Green SAF Complex",        "molecule": "SAF",       "location": "Neath Port Talbot, GB"},
+    {"id": "proj_lehavre_eng",            "name": "Le Havre e-Gas Hub",              "molecule": "e-NG",      "location": "Le Havre, FR"},
+    {"id": "proj_hamburgone_emethanol",   "name": "HamburgOne e-Methanol Plant",     "molecule": "e-Methanol","location": "Hamburg, DE"},
+    {"id": "proj_madrid2_sansebastian",   "name": "Madrid2 San-Sebastián e-Methanol","molecule": "e-Methanol","location": "San Sebastián, ES"},
+]
+
+# Projects visible per company (owner + associated)
+_COMPANY_PROJECT_IDS: dict[str, list[str]] = {
+    "bp_global_energy":   ["proj_bremen_h2", "proj_rotterdam_nh3", "proj_sansebastian_emethanol",
+                           "proj_wales_saf", "proj_lehavre_eng"],
+    "hamburgone_com":     ["proj_hamburgone_emethanol"],
+    "nordlb":             ["proj_hamburgone_emethanol", "proj_madrid2_sansebastian"],
+    "brementhree_ag":     ["proj_hamburgone_emethanol"],
+    "heliosnord_gmbh":    ["proj_bremen_h2"],
+    "allianz":            ["proj_bremen_h2", "proj_sansebastian_emethanol",
+                           "proj_lehavre_eng", "proj_hamburgone_emethanol"],
+    "zurich_versicherung_ag": ["proj_rotterdam_nh3", "proj_sansebastian_emethanol",
+                               "proj_wales_saf", "proj_lehavre_eng"],
+    "siemens_energy":     ["proj_bremen_h2", "proj_hamburgone_emethanol"],
+    "abn_amro":           ["proj_madrid2_sansebastian"],
+}
 
 # Simulated users for the demo company
 _BP_USERS = [
@@ -74,10 +106,17 @@ _BP_USERS = [
         "role": "Head of Trading — Green Fuels",
         "clearance_level": "CONFIDENTIAL",
         "actor_type_per_project": {
-            "proj_bremen_h2": "OFFTAKER",
-            "proj_rotterdam_nh3": "OFFTAKER",
-            "proj_lehavre_eng": "OFFTAKER",
+            "proj_bremen_h2": ["OFFTAKER", "PRODUCER"],
+            "proj_rotterdam_nh3": ["OFFTAKER"],
+            "proj_lehavre_eng": ["OFFTAKER"],
         },
+        "capabilities": ["OFFTAKE", "PRODUCE", "SELL", "TRADE"],
+        "credit_rating": "A",
+        "credit_rating_source": "S&P",
+        "export_licenses": ["DE", "NL", "FR", "GB"],
+        "token_ready": True,
+        "transformation_license": True,
+        "aggregation_limit_mt": None,
         "nda_signed_with": ["GreenEarthX_Admin", "proj_bremen_operator"],
         "certifications": ["ISO_27001"],
         "last_active": "2026-03-16T08:14:22Z",
@@ -91,9 +130,16 @@ _BP_USERS = [
         "role": "Project Finance Manager",
         "clearance_level": "RESTRICTED",
         "actor_type_per_project": {
-            "proj_wales_saf": "COMMERCIAL_BANKER",
-            "proj_sansebastian_emethanol": "DFI",
+            "proj_wales_saf": ["COMMERCIAL_BANKER"],
+            "proj_sansebastian_emethanol": ["DFI"],
         },
+        "capabilities": ["FINANCE"],
+        "credit_rating": "AA-",
+        "credit_rating_source": "S&P",
+        "export_licenses": [],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
         "nda_signed_with": ["GreenEarthX_Admin", "proj_wales_operator", "proj_helios_operator"],
         "certifications": ["ISO_27001", "SOC2_TYPE_II"],
         "last_active": "2026-03-15T17:45:01Z",
@@ -107,9 +153,16 @@ _BP_USERS = [
         "role": "Regulatory Affairs Specialist",
         "clearance_level": "STANDARD",
         "actor_type_per_project": {
-            "proj_bremen_h2": "REGULATOR",
-            "proj_sansebastian_emethanol": "CERTIFIER",
+            "proj_bremen_h2": ["REGULATOR"],
+            "proj_sansebastian_emethanol": ["CERTIFIER"],
         },
+        "capabilities": ["CERTIFY"],
+        "credit_rating": "NR",
+        "credit_rating_source": "GEX",
+        "export_licenses": [],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
         "nda_signed_with": ["GreenEarthX_Admin"],
         "certifications": ["ISO_14064", "RED_III"],
         "last_active": "2026-03-16T09:02:55Z",
@@ -123,9 +176,16 @@ _BP_USERS = [
         "role": "SAF Production Lead",
         "clearance_level": "CONFIDENTIAL",
         "actor_type_per_project": {
-            "proj_wales_saf": "PRODUCER",
-            "proj_lehavre_eng": "PRODUCER",
+            "proj_wales_saf": ["PRODUCER"],
+            "proj_lehavre_eng": ["PRODUCER"],
         },
+        "capabilities": ["PRODUCE", "SELL"],
+        "credit_rating": "A",
+        "credit_rating_source": "S&P",
+        "export_licenses": ["GB", "FR"],
+        "token_ready": True,
+        "transformation_license": True,
+        "aggregation_limit_mt": None,
         "nda_signed_with": ["GreenEarthX_Admin", "proj_wales_operator"],
         "certifications": ["ISO_14064"],
         "last_active": "2026-03-14T11:30:00Z",
@@ -139,6 +199,13 @@ _BP_USERS = [
         "role": "IT Security Analyst",
         "clearance_level": "RESTRICTED",
         "actor_type_per_project": {},
+        "capabilities": [],
+        "credit_rating": "NR",
+        "credit_rating_source": "GEX",
+        "export_licenses": [],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
         "nda_signed_with": ["GreenEarthX_Admin"],
         "certifications": ["ISO_27001", "SOC2_TYPE_II", "GDPR_DPO"],
         "last_active": "2026-03-16T10:00:00Z",
@@ -147,26 +214,207 @@ _BP_USERS = [
     },
 ]
 
+_HAMBURGONE_USERS = [
+    {
+        "user_id": "usr_h1_01",
+        "name": "Lisa Friedrich",
+        "email": "l.friedrich@hamburgone.com",
+        "role": "CEO / CFO",
+        "clearance_level": "RESTRICTED",
+        "actor_type_per_project": {
+            "proj_hamburgone_emethanol": ["PRODUCER", "EXECUTIVE"],
+        },
+        "capabilities": ["PRODUCE", "FINANCE"],
+        "credit_rating": "A-",
+        "credit_rating_source": "GEX",
+        "export_licenses": ["DE"],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
+        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
+        "certifications": ["ISO_27001"],
+        "last_active": "2026-03-28T09:15:00Z",
+        "kyc_status": "VERIFIED",
+        "mfa_enabled": True,
+    },
+    {
+        "user_id": "usr_h1_02",
+        "name": "Mark Puntz",
+        "email": "m.puntz@hamburgone.com",
+        "role": "Chief Engineer",
+        "clearance_level": "CONFIDENTIAL",
+        "actor_type_per_project": {
+            "proj_hamburgone_emethanol": ["EPC_CONTRACTOR"],
+        },
+        "capabilities": ["PRODUCE"],
+        "credit_rating": "NR",
+        "credit_rating_source": "GEX",
+        "export_licenses": [],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
+        "nda_signed_with": ["GreenEarthX_Admin"],
+        "certifications": ["ISO_14064"],
+        "last_active": "2026-03-27T14:30:00Z",
+        "kyc_status": "VERIFIED",
+        "mfa_enabled": True,
+    },
+    {
+        "user_id": "usr_h1_03",
+        "name": "Lucie Mertz",
+        "email": "l.mertz@hamburgone.com",
+        "role": "CCO",
+        "clearance_level": "CONFIDENTIAL",
+        "actor_type_per_project": {
+            "proj_hamburgone_emethanol": ["PRODUCER"],
+        },
+        "capabilities": ["PRODUCE", "SELL"],
+        "credit_rating": "NR",
+        "credit_rating_source": "GEX",
+        "export_licenses": ["DE"],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
+        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
+        "certifications": [],
+        "last_active": "2026-03-29T11:00:00Z",
+        "kyc_status": "VERIFIED",
+        "mfa_enabled": False,
+    },
+    {
+        "user_id": "usr_h1_04",
+        "name": "Frank Sabak",
+        "email": "f.sabak@hamburgone.com",
+        "role": "IT Security / CISO",
+        "clearance_level": "CONFIDENTIAL",
+        "actor_type_per_project": {
+            "proj_hamburgone_emethanol": ["PRODUCER"],
+        },
+        "capabilities": [],
+        "credit_rating": "NR",
+        "credit_rating_source": "GEX",
+        "export_licenses": [],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
+        "nda_signed_with": ["GreenEarthX_Admin"],
+        "certifications": ["ISO_27001", "GDPR_DPO"],
+        "last_active": "2026-03-30T08:00:00Z",
+        "kyc_status": "VERIFIED",
+        "mfa_enabled": True,
+    },
+]
+
+_NORDLB_USERS = [
+    {
+        "user_id": "usr_nordlb_01",
+        "name": "Henrik Vost",
+        "email": "h.vost@nordlb.de",
+        "role": "Head of Structured Lending",
+        "clearance_level": "CONFIDENTIAL",
+        "actor_type_per_project": {
+            "proj_hamburgone_emethanol": ["COMMERCIAL_BANKER", "DFI"],
+            "proj_madrid2_sansebastian": ["COMMERCIAL_BANKER"],
+        },
+        "capabilities": ["FINANCE"],
+        "credit_rating": "AA",
+        "credit_rating_source": "S&P",
+        "export_licenses": ["DE", "ES"],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
+        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
+        "certifications": ["ISO_27001", "SOC2_TYPE_II"],
+        "last_active": "2026-03-29T16:45:00Z",
+        "kyc_status": "VERIFIED",
+        "mfa_enabled": True,
+    },
+]
+
+_BREMENTHREE_USERS = [
+    {
+        "user_id": "usr_bt_01",
+        "name": "Kai Bergmann",
+        "email": "k.bergmann@brementhree.de",
+        "role": "Head of Procurement — Green Fuels",
+        "clearance_level": "CONFIDENTIAL",
+        "actor_type_per_project": {
+            "proj_hamburgone_emethanol": ["OFFTAKER"],
+        },
+        "capabilities": ["OFFTAKE"],
+        "credit_rating": "BBB+",
+        "credit_rating_source": "S&P",
+        "export_licenses": [],
+        "token_ready": False,
+        "transformation_license": False,
+        "aggregation_limit_mt": None,
+        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
+        "certifications": [],
+        "last_active": "2026-03-25T10:30:00Z",
+        "kyc_status": "VERIFIED",
+        "mfa_enabled": True,
+    },
+]
+
+# ── Company registry ──────────────────────────────────────────────────────────
+
+_COMPANY_DISPLAY_NAMES: dict[str, str] = {
+    "bp_global_energy":       "BP Global Energy",
+    "hamburgone_com":         "HamburgOne.com",
+    "nordlb":                 "NordLB",
+    "brementhree_ag":         "BremenThree AG",
+    "heliosnord_gmbh":        "HeliosNord GmbH",
+    "allianz":                "Allianz",
+    "zurich_versicherung_ag": "Zürich Versicherung AG",
+    "siemens_energy":         "Siemens Energy",
+    "abn_amro":               "ABN-AMRO",
+}
+
+_COMPANY_USERS: dict[str, list] = {
+    "bp_global_energy":   _BP_USERS,
+    "hamburgone_com":     _HAMBURGONE_USERS,
+    "nordlb":             _NORDLB_USERS,
+    "brementhree_ag":     _BREMENTHREE_USERS,
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _company_from_header(x_demo_company: Optional[str]) -> str:
+    """Normalise the company slug coming from the frontend header.
+
+    The frontend sends the raw company_name (e.g. "HamburgOne.com") slugified
+    to lowercase with non-alphanumeric chars replaced by underscores.
+    Fall back to 'bp_global_energy' for backward compatibility.
+    """
     return x_demo_company or "bp_global_energy"
+
+
+def _get_company_data(company_id: str) -> tuple[str, list, list]:
+    """Return (display_name, users, scoped_projects) for a company key."""
+    display_name = _COMPANY_DISPLAY_NAMES.get(company_id, company_id.replace("_", " ").title())
+    users = _COMPANY_USERS.get(company_id, [])
+    project_ids = _COMPANY_PROJECT_IDS.get(company_id, [p["id"] for p in GEX_PROJECTS])
+    scoped_projects = [p for p in GEX_PROJECTS if p["id"] in project_ids]
+    return display_name, users, scoped_projects
 
 
 def _gen_access_events(company_id: str, count: int = 50):
     """Generate deterministic-looking ABAC event log for the given company."""
     users = [u for u in _BP_USERS]
-    resource_types = ["EVIDENCE", "FINANCIAL_MODEL", "CONTRACT", "PLANT_TECHNICAL", "MARKETPLACE"]
-    actions = ["READ", "WRITE", "EXPORT", "VERIFY", "SHARE"]
-    rules = ["R1", "R3", "R4", "R5", "R6"]
+    resource_types = ["EVIDENCE", "FINANCIAL_MODEL", "CONTRACT", "PLANT_TECHNICAL", "MARKETPLACE", "TRADE"]
+    actions = ["READ", "WRITE", "EXPORT", "VERIFY", "SHARE", "BUY", "SELL"]
+    rules = ["R1", "R3", "R4", "R5", "R6", "R7", "R8", "R9"]
     denial_reasons = [
         "User is not a stakeholder on this project",
         "Evidence sensitivity=CONFIDENTIAL, company not in shared_with",
         "Not a mandated lender/insurer or data owner",
         "Only assigned certifiers can verify evidence",
         "Clearance STANDARD insufficient for sensitivity RESTRICTED",
+        "Entity lacks OFFTAKE capability for BUY action",
+        "Credit quality insufficient: BB+ (HOUSE_BANK) < required A-",
+        "Export restricted: destination FR not in licensed regions [DE]",
     ]
 
     events = []
@@ -206,40 +454,44 @@ def get_ciso_overview(x_demo_company: Optional[str] = Header(default=None)):
     Security posture KPIs for the client company's CISO dashboard.
     """
     company_id = _company_from_header(x_demo_company)
+    display_name, company_users, _ = _get_company_data(company_id)
+    # Fall back to BP users for event log generation (events are synthetic)
     events = _gen_access_events(company_id, 50)
     deny_events = [e for e in events if e["decision"] == "DENY"]
     last_24h = events[:28]  # ~last 24 h (every 3 min, 28 × 3 min ≈ 84 min window)
 
+    user_list = company_users if company_users else _BP_USERS  # fallback for event stats
+
     # MFA adoption
-    mfa_on  = sum(1 for u in _BP_USERS if u["mfa_enabled"])
-    mfa_pct = round(mfa_on / len(_BP_USERS) * 100)
+    mfa_on  = sum(1 for u in user_list if u["mfa_enabled"])
+    mfa_pct = round(mfa_on / len(user_list) * 100) if user_list else 0
 
     # KYC
-    kyc_ok  = sum(1 for u in _BP_USERS if u["kyc_status"] == "VERIFIED")
+    kyc_ok  = sum(1 for u in user_list if u["kyc_status"] == "VERIFIED")
 
     # ABAC coverage: users with at least one actor_type assignment
-    abac_assigned = sum(1 for u in _BP_USERS if u["actor_type_per_project"])
+    abac_assigned = sum(1 for u in user_list if u["actor_type_per_project"])
 
     # Compute a simple security score
     mfa_score       = mfa_pct * 0.30
-    kyc_score       = (kyc_ok / len(_BP_USERS)) * 100 * 0.25
-    abac_score      = (abac_assigned / len(_BP_USERS)) * 100 * 0.25
+    kyc_score       = (kyc_ok / len(user_list)) * 100 * 0.25 if user_list else 0
+    abac_score      = (abac_assigned / len(user_list)) * 100 * 0.25 if user_list else 0
     deny_rate       = len(deny_events) / max(len(events), 1)
     vigilance_score = min(deny_rate * 500, 20)  # up to 20 pts for having denials (means policy is active)
     total_score     = round(mfa_score + kyc_score + abac_score + vigilance_score)
 
     return {
         "company_id": company_id,
-        "company_name": "BP Global Energy",
+        "company_name": display_name,
         "security_score": total_score,
         "score_label": "Good" if total_score >= 75 else ("Fair" if total_score >= 50 else "At Risk"),
         "kpis": {
-            "total_users": len(_BP_USERS),
+            "total_users": len(user_list),
             "mfa_enabled_pct": mfa_pct,
             "kyc_verified": kyc_ok,
-            "kyc_pending": len(_BP_USERS) - kyc_ok,
+            "kyc_pending": len(user_list) - kyc_ok,
             "abac_assigned": abac_assigned,
-            "abac_unassigned": len(_BP_USERS) - abac_assigned,
+            "abac_unassigned": len(user_list) - abac_assigned,
         },
         "events_24h": {
             "total": len(last_24h),
@@ -248,11 +500,11 @@ def get_ciso_overview(x_demo_company: Optional[str] = Header(default=None)):
             "deny_rate_pct": round(len([e for e in last_24h if e["decision"] == "DENY"]) / max(len(last_24h), 1) * 100, 1),
         },
         "abac_phase": {
-            "current": 2,
+            "current": 3,
             "phases": [
-                {"phase": 1, "label": "R1–R3: Stakeholder + Evidence", "status": "active"},
+                {"phase": 1, "label": "R0–R3: Guest gate + Stakeholder + Evidence", "status": "active"},
                 {"phase": 2, "label": "R4–R6: Financial + Export + Write", "status": "active"},
-                {"phase": 3, "label": "Context: State, jurisdiction, time-windows", "status": "planned"},
+                {"phase": 3, "label": "R7–R9: Trade Policy — Capability + Credit + Geofence", "status": "active"},
             ],
         },
         "alerts": [
@@ -312,19 +564,28 @@ def get_access_log(
 
 @router.get("/users")
 def list_users(x_demo_company: Optional[str] = Header(default=None)):
-    """List all users of the client company with their ABAC attributes."""
-    _company_from_header(x_demo_company)
+    """List users and projects scoped to the requesting company."""
+    company_id = _company_from_header(x_demo_company)
+    _, company_users, scoped_projects = _get_company_data(company_id)
     return {
-        "users": _BP_USERS,
-        "projects": GEX_PROJECTS,
+        "users": company_users,
+        "projects": scoped_projects,
     }
 
 
 class UserAttributeUpdate(BaseModel):
     clearance_level: Optional[str] = None
-    actor_type_per_project: Optional[dict] = None
+    actor_type_per_project: Optional[dict] = None   # {project_id: [actor_type, …]}
     nda_signed_with: Optional[list] = None
     certifications: Optional[list] = None
+    # Prosumer / trade attributes
+    capabilities: Optional[list] = None              # ["OFFTAKE", "PRODUCE", "SELL", …]
+    credit_rating: Optional[str] = None              # "A-", "GEX-4", etc.
+    credit_rating_source: Optional[str] = None       # "GEX" | "S&P" | "HOUSE_BANK"
+    export_licenses: Optional[list] = None           # ["DE", "NL", …]
+    token_ready: Optional[bool] = None
+    transformation_license: Optional[bool] = None
+    aggregation_limit_mt: Optional[float] = None
 
 
 @router.patch("/users/{user_id}/attributes")
@@ -337,19 +598,34 @@ def update_user_attributes(
     Update ABAC attributes for a specific user.
     Only the client's CISO (same company) may call this endpoint.
     """
-    _company_from_header(x_demo_company)
+    company_id = _company_from_header(x_demo_company)
+    _, company_users, _ = _get_company_data(company_id)
 
-    user = next((u for u in _BP_USERS if u["user_id"] == user_id), None)
+    user = next((u for u in company_users if u["user_id"] == user_id), None)
     if not user:
-        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"User {user_id} not found in company {company_id}",
+        )
 
     # Validate values
     if body.clearance_level and body.clearance_level not in CLEARANCE_LEVELS:
         raise HTTPException(status_code=422, detail=f"clearance_level must be one of {CLEARANCE_LEVELS}")
     if body.actor_type_per_project:
-        for pid, atype in body.actor_type_per_project.items():
-            if atype not in ACTOR_TYPES:
-                raise HTTPException(status_code=422, detail=f"Unknown actor_type: {atype}")
+        for pid, atypes in body.actor_type_per_project.items():
+            # Accept list or single string (back-compat)
+            types_list = atypes if isinstance(atypes, list) else [atypes]
+            for atype in types_list:
+                if atype not in ACTOR_TYPES:
+                    raise HTTPException(status_code=422, detail=f"Unknown actor_type: {atype}")
+    if body.capabilities:
+        for cap in body.capabilities:
+            if cap not in CAPABILITIES:
+                raise HTTPException(status_code=422, detail=f"Unknown capability: {cap}. Must be one of {CAPABILITIES}")
+    if body.credit_rating and body.credit_rating not in CREDIT_RATINGS:
+        raise HTTPException(status_code=422, detail=f"Unknown credit_rating: {body.credit_rating}")
+    if body.credit_rating_source and body.credit_rating_source not in ("GEX", "S&P", "HOUSE_BANK"):
+        raise HTTPException(status_code=422, detail="credit_rating_source must be GEX, S&P, or HOUSE_BANK")
 
     # Apply (in-memory only for demo)
     updated = dict(user)
@@ -361,6 +637,20 @@ def update_user_attributes(
         updated["nda_signed_with"] = body.nda_signed_with
     if body.certifications is not None:
         updated["certifications"] = body.certifications
+    if body.capabilities is not None:
+        updated["capabilities"] = body.capabilities
+    if body.credit_rating is not None:
+        updated["credit_rating"] = body.credit_rating
+    if body.credit_rating_source is not None:
+        updated["credit_rating_source"] = body.credit_rating_source
+    if body.export_licenses is not None:
+        updated["export_licenses"] = body.export_licenses
+    if body.token_ready is not None:
+        updated["token_ready"] = body.token_ready
+    if body.transformation_license is not None:
+        updated["transformation_license"] = body.transformation_license
+    if body.aggregation_limit_mt is not None:
+        updated["aggregation_limit_mt"] = body.aggregation_limit_mt
 
     return {
         "status": "updated",
@@ -444,13 +734,16 @@ def get_compliance(x_demo_company: Optional[str] = Header(default=None)):
                 "status": "partial",
                 "cert_expiry": None,
                 "domains": [
+                    {"domain": "R0 — Guest Gate",                "score": 100, "controls": 1, "passed": 1},
                     {"domain": "R1 — Stakeholder Gate",          "score": 100, "controls": 1, "passed": 1},
                     {"domain": "R2 — Gate Visibility Matrix",    "score": 100, "controls": 1, "passed": 1},
                     {"domain": "R3 — Evidence Sensitivity",      "score": 100, "controls": 1, "passed": 1},
                     {"domain": "R4 — Financial Model Protection","score": 100, "controls": 1, "passed": 1},
                     {"domain": "R5 — Write Permissions",         "score": 100, "controls": 1, "passed": 1},
                     {"domain": "R6 — Export & Share Control",    "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "Phase 3 — Context Attributes",   "score": 0,   "controls": 3, "passed": 0},
+                    {"domain": "R7 — Capability Gate (Prosumer)","score": 100, "controls": 1, "passed": 1},
+                    {"domain": "R8 — Credit Quality Gate",       "score": 100, "controls": 1, "passed": 1},
+                    {"domain": "R9 — Geofence + Tokenization",  "score": 100, "controls": 3, "passed": 3},
                     {"domain": "MFA Enforcement",                "score": 60,  "controls": 5, "passed": 3},
                     {"domain": "Audit Trail Completeness",       "score": 55,  "controls": 4, "passed": 2},
                 ],
@@ -488,9 +781,21 @@ def get_policy_matrix(x_demo_company: Optional[str] = Header(default=None)):
             "CONFIDENTIAL": "CONFIDENTIAL+",
             "RESTRICTED":   "RESTRICTED only",
         },
+        "trade_policy": {
+            "R7_capability_map": {
+                "BUY": "OFFTAKE",
+                "SELL": "SELL",
+                "PRODUCE": "PRODUCE",
+                "TRANSFORM": "PRODUCE",
+            },
+            "R8_credit_ratings": CREDIT_RATINGS,
+            "R9_constraints": ["export_licenses (geofence)", "token_ready", "aggregation_limit_mt", "transformation_license"],
+        },
         "actor_types": ACTOR_TYPES,
+        "capabilities": CAPABILITIES,
         "clearance_levels": CLEARANCE_LEVELS,
         "certifications": CERTIFICATIONS,
+        "credit_ratings": CREDIT_RATINGS,
     }
 
 
@@ -739,6 +1044,77 @@ def get_residency_audit_log(x_demo_company: Optional[str] = Header(default=None)
         ],
         "blocked_count_24h": 1,
         "allowed_count_24h": 12,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trade Policy Simulation (R7-R9)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TradePolicySimRequest(BaseModel):
+    """Simulate a trade policy decision for a given user and trade context."""
+    user_id: str
+    action: str           # BUY | SELL | PRODUCE | TRANSFORM
+    molecule: str = ""    # H2 | NH3 | SAF | eMeOH
+    destination: str = "" # ISO-3166 alpha-2
+    required_rating: str = "NR"
+    volume_mt: float = 0
+    is_tokenized: bool = False
+
+
+@router.post("/simulate-trade-policy")
+def simulate_trade_policy(
+    body: TradePolicySimRequest,
+    x_demo_company: Optional[str] = Header(default=None),
+):
+    """
+    CISO can preview what would happen if a user attempted a trade action.
+    Runs rules R7 (capability), R8 (credit), R9 (geofence + tokenization)
+    against the demo user's attributes and returns the ABAC decision.
+    """
+    _company_from_header(x_demo_company)
+
+    user = next((u for u in _BP_USERS if u["user_id"] == body.user_id), None)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {body.user_id} not found")
+
+    from app.core.abac import (
+        UserAttributes, TradeContext, TradeAction, Capability,
+        ClearanceLevel, evaluate_trade_policy,
+    )
+
+    user_attrs = UserAttributes(
+        user_id=user["user_id"],
+        company_id="bp_global_energy",
+        actor_type_per_project={},
+        clearance_level=ClearanceLevel(user.get("clearance_level", "STANDARD")),
+        capabilities={Capability(c) for c in user.get("capabilities", [])},
+        credit_rating=user.get("credit_rating", "NR"),
+        credit_rating_source=user.get("credit_rating_source", "GEX"),
+        export_licenses=user.get("export_licenses", []),
+        token_ready=user.get("token_ready", False),
+        transformation_license=user.get("transformation_license", False),
+        aggregation_limit_mt=user.get("aggregation_limit_mt"),
+    )
+
+    trade_ctx = TradeContext(
+        action=TradeAction(body.action),
+        molecule=body.molecule,
+        destination=body.destination,
+        required_rating=body.required_rating,
+        volume_mt=body.volume_mt,
+        is_tokenized=body.is_tokenized,
+    )
+
+    decision = evaluate_trade_policy(user_attrs, trade_ctx)
+
+    return {
+        "user_id": body.user_id,
+        "user_name": user["name"],
+        "decision": decision.decision.value,
+        "rules_evaluated": decision.rules_evaluated,
+        "denial_reason": decision.denial_reason,
+        "attributes_snapshot": decision.attributes_snapshot,
     }
 
 

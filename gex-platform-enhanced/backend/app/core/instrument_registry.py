@@ -36,6 +36,11 @@ class InstrumentType(str, Enum):
     CONCESSIONAL_LOAN = "CONCESSIONAL_LOAN"
     GRANT = "GRANT"
     GREEN_BOND = "GREEN_BOND"
+    ESG_LINKED_BOND = "ESG_LINKED_BOND"           # Returns dependent on ESG KPIs
+    SUSTAINABILITY_LINKED_LOAN = "SLL"             # Loan with ESG-linked margin ratchet
+    GREEN_REVENUE_BOND = "GREEN_REVENUE_BOND"      # Revenue-backed, predetermined proceeds
+    GREEN_PROJECT_BOND = "GREEN_PROJECT_BOND"      # Single-project, ring-fenced proceeds
+    GREEN_SECURITIZED_BOND = "GREEN_SECURITIZED"   # Pool of sustainability projects
     PERFORMANCE_GUARANTEE = "PERFORMANCE_GUARANTEE"
     BLENDED_FINANCE = "BLENDED_FINANCE"
 
@@ -65,6 +70,38 @@ class RiskCategory(str, Enum):
     CERTIFICATION = "CERTIFICATION"
 
 
+class ProceedsType(str, Enum):
+    """From ICMA Green Bond Principles — determines information architecture"""
+    USE_OF_PROCEEDS = "USE_OF_PROCEEDS"       # Predetermined allocation to green projects
+    GENERAL_PURPOSE = "GENERAL_PURPOSE"       # No predetermined use — ESG-linked via KPIs
+    REVENUE_BACKED = "REVENUE_BACKED"         # Returns stem from project revenue
+    SECURITIZED = "SECURITIZED"               # Backed by pool of green assets
+
+
+class BondFramework(str, Enum):
+    """Validated framework references instead of free text"""
+    ICMA_GBP_2021 = "ICMA_GBP_2021"          # ICMA Green Bond Principles 2021
+    EU_GBS = "EU_GBS"                          # EU Green Bond Standard
+    CBI = "CBI"                                # Climate Bonds Initiative
+    ICMA_SBP = "ICMA_SBP"                      # ICMA Social Bond Principles
+    ICMA_SLB = "ICMA_SLB"                      # ICMA Sustainability-Linked Bond Principles
+    ICMA_SBG = "ICMA_SBG"                      # ICMA Sustainability Bond Guidelines
+    LMA_SLLP = "LMA_SLLP"                      # LMA Sustainability-Linked Loan Principles
+    NONE = "NONE"
+
+
+@dataclass
+class ESGMetric:
+    """KPI for ESG-linked instruments — returns depend on these"""
+    kpi_name: str                              # e.g. "GHG Intensity Reduction"
+    target_value: float                        # e.g. 50.0 (50% reduction)
+    target_unit: str                           # e.g. "% reduction vs baseline"
+    measurement_date: str                      # e.g. "2028-12-31"
+    penalty_bps: int = 0                       # Rate step-up if KPI missed
+    reward_bps: int = 0                        # Rate step-down if KPI exceeded
+    verification_agent: str = ""               # e.g. "DNV", "S&P Global Ratings"
+
+
 @dataclass
 class Instrument:
     id: str
@@ -89,6 +126,11 @@ class Instrument:
     regulatory_risk_score: int = 0  # 0-100, quantified political/regulatory risk impact
     cross_border_applicable: bool = False
     tax_stacking_risk: str = ""  # e.g., "45V/RFNBO conflict if both claimed"
+    proceeds_type: ProceedsType = ProceedsType.GENERAL_PURPOSE
+    bond_framework: BondFramework = BondFramework.NONE
+    esg_metrics: list[ESGMetric] = field(default_factory=list)
+    required_certifications: list[str] = field(default_factory=list)  # e.g. ["RFNBO", "RED_III"]
+    required_audit_nodes: list[str] = field(default_factory=list)     # Typed verifiers: "DNV", "S&P", "IE"
     source: str = ""
     active: bool = True
 
@@ -231,7 +273,19 @@ class InstrumentRegistry:
 
 _EU = ["EU", "FR", "DE", "NL", "ES", "IT", "BE", "AT", "PT", "IE", "GB"]
 _GLOBAL = ["GLOBAL"]
-_ALL_MOLECULES = ["H2", "NH3", "SAF", "E_METHANOL", "E_NG"]
+_ALL_MOLECULES = [
+    "E_METHANE",
+    "E_METHANOL",
+    "E_NH3",
+    "HVO",
+    "SAF",
+    "E_GASOLINE",
+    "E_LG",
+    "E_NAPHTHA",
+    "H2",
+    "NH3",
+    "E_NG",
+]
 _ALL_STAGES = ["SPECULATIVE", "TECHNICALLY_PLAUSIBLE", "COMMERCIALLY_PLAUSIBLE", "BUILDABLE",
                "STRUCTURALLY_BANKABLE", "CREDIT_APPROVED", "FINANCEABLE", "OPERATIONAL"]
 _FID_STAGES = ["BUILDABLE", "STRUCTURALLY_BANKABLE", "CREDIT_APPROVED", "FINANCEABLE"]
@@ -569,7 +623,119 @@ SEED_INSTRUMENTS = [
         cost_bps=0,
         effective_rate_reduction_bps=25,
         requirements=["ICMA GBP framework", "Second-party opinion", "Annual impact reporting"],
+        proceeds_type=ProceedsType.USE_OF_PROCEEDS,
+        bond_framework=BondFramework.ICMA_GBP_2021,
+        required_certifications=["RFNBO"],
+        required_audit_nodes=["SPO_PROVIDER"],
         source="Taghizadeh-Hesary 2022 — optimal 56/44 bank/bond split",
+    ),
+    # ── ESG-Linked / Sustainability-Linked Instruments ── (from the chart)
+    Instrument(
+        id="ESG_LINKED_BOND_GENERIC",
+        name="ESG-Linked Bond — Sustainability-Linked Principles",
+        type=InstrumentType.ESG_LINKED_BOND,
+        provider="Capital markets (project-specific)",
+        provider_type=ProviderType.COMMERCIAL,
+        jurisdictions=_GLOBAL,
+        eligible_molecules=_ALL_MOLECULES,
+        eligible_stages=_FID_STAGES + _POST_FID,
+        risks_addressed=[RiskCategory.INTEREST_RATE, RiskCategory.ENVIRONMENTAL],
+        max_coverage_pct=0.50,
+        cost_bps=10,
+        effective_rate_reduction_bps=15,
+        requirements=["ICMA SLB Principles", "SPT framework", "Annual KPI reporting", "External verification"],
+        proceeds_type=ProceedsType.GENERAL_PURPOSE,
+        bond_framework=BondFramework.ICMA_SLB,
+        esg_metrics=[
+            ESGMetric(kpi_name="GHG Intensity Reduction", target_value=50.0, target_unit="% vs 2020 baseline",
+                      measurement_date="2030-12-31", penalty_bps=25, reward_bps=0, verification_agent="DNV"),
+        ],
+        source="ICMA Sustainability-Linked Bond Principles 2023",
+    ),
+    Instrument(
+        id="SLL_MARGIN_RATCHET",
+        name="Sustainability-Linked Loan — Margin Ratchet",
+        type=InstrumentType.SUSTAINABILITY_LINKED_LOAN,
+        provider="Commercial banks (syndicated)",
+        provider_type=ProviderType.COMMERCIAL,
+        jurisdictions=_GLOBAL,
+        eligible_molecules=_ALL_MOLECULES,
+        eligible_stages=_FID_STAGES + _POST_FID,
+        risks_addressed=[RiskCategory.INTEREST_RATE, RiskCategory.ENVIRONMENTAL],
+        max_coverage_pct=0.60,
+        cost_bps=5,
+        effective_rate_reduction_bps=20,
+        requirements=["LMA SLLP framework", "SPT with measurable KPIs", "Annual sustainability report"],
+        proceeds_type=ProceedsType.GENERAL_PURPOSE,
+        bond_framework=BondFramework.LMA_SLLP,
+        esg_metrics=[
+            ESGMetric(kpi_name="Renewable Energy Share", target_value=95.0, target_unit="%",
+                      measurement_date="2029-06-30", penalty_bps=15, reward_bps=10, verification_agent="S&P Global"),
+        ],
+        source="LMA Sustainability-Linked Loan Principles 2023",
+    ),
+    # ── Green Bond sub-types (from ICMA GBP — 4 variants in the chart) ──
+    Instrument(
+        id="GREEN_REVENUE_BOND",
+        name="Green Revenue Bond — Project Cash Flow Backed",
+        type=InstrumentType.GREEN_REVENUE_BOND,
+        provider="Capital markets (project-specific)",
+        provider_type=ProviderType.COMMERCIAL,
+        jurisdictions=_GLOBAL,
+        eligible_molecules=_ALL_MOLECULES,
+        eligible_stages=_POST_FID,
+        risks_addressed=[RiskCategory.INTEREST_RATE, RiskCategory.OFFTAKE],
+        min_project_size_eur=100_000_000,
+        max_coverage_pct=0.40,
+        cost_bps=5,
+        effective_rate_reduction_bps=30,
+        requirements=["ICMA GBP framework", "Revenue stream from green project", "Impact reporting", "Second-party opinion"],
+        proceeds_type=ProceedsType.REVENUE_BACKED,
+        bond_framework=BondFramework.ICMA_GBP_2021,
+        required_certifications=["RFNBO"],
+        required_audit_nodes=["SPO_PROVIDER", "IMPACT_AUDITOR"],
+        source="ICMA Green Bond Principles 2021 — Type 2: Green Revenue Bond",
+    ),
+    Instrument(
+        id="GREEN_PROJECT_BOND",
+        name="Green Project Bond — Single Asset Ring-Fenced",
+        type=InstrumentType.GREEN_PROJECT_BOND,
+        provider="Capital markets (project-specific)",
+        provider_type=ProviderType.COMMERCIAL,
+        jurisdictions=_GLOBAL,
+        eligible_molecules=_ALL_MOLECULES,
+        eligible_stages=["CREDIT_APPROVED", "FINANCEABLE"],
+        risks_addressed=[RiskCategory.CONSTRUCTION, RiskCategory.INTEREST_RATE],
+        min_project_size_eur=150_000_000,
+        max_coverage_pct=0.35,
+        cost_bps=10,
+        effective_rate_reduction_bps=35,
+        requirements=["ICMA GBP framework", "Ring-fenced SPV", "IE report", "Audit-grade financial model", "Second-party opinion"],
+        proceeds_type=ProceedsType.USE_OF_PROCEEDS,
+        bond_framework=BondFramework.ICMA_GBP_2021,
+        required_certifications=["RFNBO", "RED_III"],
+        required_audit_nodes=["IE", "SPO_PROVIDER", "MODEL_AUDITOR"],
+        source="ICMA Green Bond Principles 2021 — Type 3: Green Project Bond",
+    ),
+    Instrument(
+        id="GREEN_SECURITIZED_BOND",
+        name="Green Securitized Bond — Asset Pool Backed",
+        type=InstrumentType.GREEN_SECURITIZED_BOND,
+        provider="Capital markets (portfolio)",
+        provider_type=ProviderType.COMMERCIAL,
+        jurisdictions=_GLOBAL,
+        eligible_molecules=_ALL_MOLECULES,
+        eligible_stages=_POST_FID,
+        risks_addressed=[RiskCategory.INTEREST_RATE, RiskCategory.COUNTERPARTY],
+        min_project_size_eur=250_000_000,
+        max_coverage_pct=0.30,
+        cost_bps=15,
+        effective_rate_reduction_bps=20,
+        requirements=["ICMA GBP framework", "Multiple green assets in pool", "Pool-level impact reporting", "Rating agency assessment"],
+        proceeds_type=ProceedsType.SECURITIZED,
+        bond_framework=BondFramework.ICMA_GBP_2021,
+        required_audit_nodes=["RATING_AGENCY", "SPO_PROVIDER"],
+        source="ICMA Green Bond Principles 2021 — Type 4: Green Securitized Bond",
     ),
     # ── Blended Finance ──
     Instrument(
