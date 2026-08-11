@@ -1,0 +1,186 @@
+{
+  "version": "2026-04-07",
+  "description": "Canonical GreenEarthX fuel catalogue for product-facing availability, legacy aliases, and attributed measures.",
+  "fuels": [
+    {
+      "id": "E_METHANE",
+      "label": "e-Methane",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["e-NG", "E_NG", "e-methane", "e_methane", "emethane"],
+      "applications": ["Grid injection", "Industrial heat", "Shipping and logistics fuel"],
+      "measures": {
+        "trading_unit": "MWh",
+        "price_unit": "EUR/MWh",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 13.9,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "E_METHANOL",
+      "label": "e-Methanol",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["CH3OH", "e-methanol", "e_methanol", "emethanol"],
+      "applications": ["Chemical feedstock", "Shipping fuel", "Fuel blending"],
+      "measures": {
+        "trading_unit": "t",
+        "price_unit": "EUR/t",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 5.5,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "E_NH3",
+      "label": "e-NH3",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["NH3", "e-nh3", "e_nh3", "enh3"],
+      "applications": ["Fertilizer", "Shipping fuel", "Energy carrier"],
+      "measures": {
+        "trading_unit": "t",
+        "price_unit": "EUR/t",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 5.2,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "HVO",
+      "label": "HVO",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["hvo"],
+      "applications": ["Road transport", "Heavy-duty fleets", "Drop-in diesel replacement"],
+      "measures": {
+        "trading_unit": "t",
+        "price_unit": "EUR/t",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 12.2,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "SAF",
+      "label": "SAF",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["saf"],
+      "applications": ["Aviation", "Military"],
+      "measures": {
+        "trading_unit": "t",
+        "price_unit": "EUR/t",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 11.9,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "E_GASOLINE",
+      "label": "e-Gasoline",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["e-gasoline", "e_gasoline", "egasoline"],
+      "applications": ["Transport fuels", "Blending"],
+      "measures": {
+        "trading_unit": "t",
+        "price_unit": "EUR/t",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 12.0,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "E_LG",
+      "label": "e-LG",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["e-lg", "e_lg", "elg"],
+      "applications": ["Industrial energy", "Logistics fuel"],
+      "measures": {
+        "trading_unit": "MWh",
+        "price_unit": "EUR/MWh",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 13.0,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "E_NAPHTHA",
+      "label": "e-Naphtha",
+      "offered": true,
+      "status": "active_catalog",
+      "legacy_aliases": ["e-naphtha", "e_naphtha", "enaphtha"],
+      "applications": ["Petrochemical feedstock", "Fuel blending", "Steam cracker input"],
+      "measures": {
+        "trading_unit": "t",
+        "price_unit": "EUR/t",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 12.0,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "H2",
+      "label": "H2",
+      "offered": false,
+      "status": "legacy_operational",
+      "legacy_aliases": ["hydrogen", "h2"],
+      "applications": ["Industry", "Transport", "Ammonia production"],
+      "measures": {
+        "trading_unit": "kg",
+        "price_unit": "EUR/kg",
+        "mass_unit": "kg",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 33.3,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    },
+    {
+      "id": "NH3",
+      "label": "NH3",
+      "offered": false,
+      "status": "legacy_operational",
+      "legacy_aliases": ["ammonia", "nh3"],
+      "applications": ["Fertilizer", "Shipping fuel", "Energy carrier"],
+      "measures": {
+        "trading_unit": "t",
+        "price_unit": "EUR/t",
+        "mass_unit": "t",
+        "energy_unit": "kWh",
+        "specific_energy_unit": "kWh/kg",
+        "specific_energy_value": 5.2,
+        "capacity_unit": "MTPD",
+        "emissions_unit": "kgCO2e/kg"
+      }
+    }
+  ]
+}

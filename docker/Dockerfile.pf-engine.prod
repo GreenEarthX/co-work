@@ -1,0 +1,16 @@
+# ── GEX Finance Engine – Production Image ───────────────────────────────
+# Build context is the docker/ folder so shared data files are reachable.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY gex_pf_engine/backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY gex_pf_engine/backend/ .
+# Runtime data file that lives outside the engine tree in the dev checkout
+COPY gex_fuel_catalog.json /app/gex_fuel_catalog.json
+
+EXPOSE 8001
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
