@@ -1,0 +1,73 @@
+# ── GEX Platform — run the full stack from Docker Hub ───────────────────
+# No source code needed. Requires only Docker Desktop.
+#
+#   docker compose -f gex-demo-compose.yml up -d
+#   → open http://localhost:8080
+#
+#   docker compose -f gex-demo-compose.yml down        (stop)
+#   docker compose -f gex-demo-compose.yml pull        (get latest)
+# ────────────────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_USER: gex_user
+      POSTGRES_PASSWORD: gex_password_dev
+      POSTGRES_DB: gex_platform
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gex_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [gex_net]
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [gex_net]
+
+  # NOTE: service MUST be named "backend" — the frontend's nginx
+  # proxies /api/ to http://backend:8000
+  backend:
+    image: jmlamay/gex-backend:v1.2.3
+    environment:
+      DATABASE_URL: postgresql://gex_user:gex_password_dev@postgres:5432/gex_platform
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: demo_secret_not_for_production
+      ENVIRONMENT: development
+      PF_ENGINE_URL: http://pf_engine:8001
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis:    {condition: service_healthy}
+    networks: [gex_net]
+
+  pf_engine:
+    image: jmlamay/gex-pf-engine:v1.2.3
+    environment:
+      ENVIRONMENT: development
+    networks: [gex_net]
+
+  frontend:
+    image: jmlamay/gex-frontend:v1.2.3
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks: [gex_net]
+
+networks:
+  gex_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
