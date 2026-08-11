@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from app.core.request_tenant import bind_from_request, reset_current_company
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -66,6 +68,20 @@ class ABACMiddleware(BaseHTTPMiddleware):
         self.phase = phase
 
     async def dispatch(self, request: Request, call_next):
+        """Wrapper that guarantees the request-scoped tenant is unbound again.
+
+        The bind happens in _extract_user, where the verified payload first
+        exists; the token is parked on request.state so this finally can find it
+        whichever branch of _dispatch returned.
+        """
+        try:
+            return await self._dispatch(request, call_next)
+        finally:
+            token = getattr(request.state, "_gex_tenant_token", None)
+            if token is not None:
+                reset_current_company(token)
+
+    async def _dispatch(self, request: Request, call_next):
         path = request.url.path
 
         # Only intercept API routes — everything else passes through
@@ -294,6 +310,13 @@ class ABACMiddleware(BaseHTTPMiddleware):
             return None
 
         request.state.auth_user_payload = payload
+        # Also under the name db/session.py reads. These were different
+        # attributes, so most Depends(get_db) sites resolved the tenant to
+        # 'GUEST' — see app/core/request_tenant.py.
+        request.state.user_payload = payload
+        # Bind the tenant for this request so the shim accessors — which have no
+        # Request to read — scope to the same caller as Depends(get_db).
+        request.state._gex_tenant_token = bind_from_request(request)
         return self._user_from_payload(payload)
 
     @staticmethod

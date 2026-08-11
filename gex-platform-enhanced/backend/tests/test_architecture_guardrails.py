@@ -293,9 +293,67 @@ def test_no_new_raw_sqlite_connections():
     sites may only DECREASE. Baseline frozen 2026-07-06. When you migrate a
     module to the SQLAlchemy/Postgres layer, lower the baseline. Never raise it.
     """
-    BASELINE = 98  # `sqlite3.connect` occurrences in app/ on 2026-07-06
+    # 98 on 2026-07-06. Auth slice (2026-08-07) removed the call sites in
+    # core/auth.py and core/refresh_tokens.py; both now go through
+    # core/db_backend.auth_connection(), the slice's single SQLite entry point,
+    # which is itself one site. Net: 98 → 97.
+    BASELINE = 97
     count = sum(src.count("sqlite3.connect") for _, src in _py_sources())
     assert count <= BASELINE, (
         f"{count} raw sqlite3.connect sites (baseline {BASELINE}) — new code "
         "must use the app.db.session layer, not raw SQLite"
+    )
+
+
+def test_pg_support_is_the_only_postgres_connect_site_in_the_suite():
+    """
+    An unreachable database must SKIP, never FAIL (added 2026-08-10).
+
+    Before `tests/pg_support.py`, seven files each had their own `_pg()` and 24
+    call sites guarded PostgreSQL access with nothing but a DSN *string* check:
+
+        if not (os.environ.get("DATABASE_URL") or "").startswith("postgres"):
+
+    That does not check whether anything is listening. Helpers that caught the
+    connection error skipped; raw `psycopg2.connect` call sites raised it and
+    failed. With the container stopped the suite reported *8 failed, 209 passed,
+    70 skipped* — an outage that reads exactly like a regression, which wastes
+    the reviewer's attention on the one thing that is not a code defect.
+
+    Now: 0 failed, 209 passed, 78 skipped.
+
+    This is enforced over the AST, not the text, because the explanation above
+    contains both offending patterns verbatim and an earlier generation of these
+    guardrails repeatedly matched its own prose.
+    """
+    import ast
+
+    # This file is excluded because it is the scanner: the detector below
+    # necessarily contains a literal `.startswith("postgres")`, so including it
+    # makes the guardrail flag itself. It holds no PostgreSQL tests.
+    SCANNER = Path(__file__).name
+
+    offenders = []
+    for path in sorted((BACKEND / "tests").glob("test_*.py")):
+        if path.name == SCANNER:
+            continue
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            # psycopg2.connect(...)
+            if (isinstance(f, ast.Attribute) and f.attr == "connect"
+                    and isinstance(f.value, ast.Name) and f.value.id == "psycopg2"):
+                offenders.append(f"{path.name}:{node.lineno} psycopg2.connect()")
+            # <dsn>.startswith("postgres")
+            if (isinstance(f, ast.Attribute) and f.attr == "startswith"
+                    and node.args and isinstance(node.args[0], ast.Constant)
+                    and str(node.args[0].value).startswith("postgres")):
+                offenders.append(f"{path.name}:{node.lineno} DSN-string guard")
+
+    assert not offenders, (
+        "PostgreSQL must be reached only through tests/pg_support.py, so that an "
+        "absent or unreachable database always reads as a skip:\n  "
+        + "\n  ".join(offenders)
     )

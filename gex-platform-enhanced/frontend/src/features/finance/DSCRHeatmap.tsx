@@ -54,88 +54,21 @@ interface SensitivityDataset {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STATIC FALLBACK (used when trading book has no data yet)
+// NO CLIENT-SIDE FALLBACK — BY DESIGN
 // ═══════════════════════════════════════════════════════════════
-
-const PROJECT_BASE_DSCR: Record<string, number> = {
-  proj_lehavre_eng:            1.58,
-  proj_bremen_h2:              1.34,
-  proj_sansebastian_emethanol: 1.22,
-  proj_rotterdam_nh3:          1.05,
-  proj_wales_saf:              0.98,
-}
-
-function generateSensitivityData(projectId: string): SensitivityDataset {
-  const base = PROJECT_BASE_DSCR[projectId] ?? 1.20
-
-  const elasticities: Record<SensitivityFactor, number[]> = {
-    power_price:    [-0.14, -0.07, 0, +0.07, +0.14],
-    efficiency:     [+0.18, +0.09, 0, -0.06, -0.10],
-    capex:          [+0.12, +0.06, 0, -0.07, -0.15],
-    cod_delay:      [+0.05, +0.02, 0, -0.06, -0.13],
-    curtailment:    [+0.08, +0.04, 0, -0.05, -0.10],
-    logistics_cost: [+0.04, +0.02, 0, -0.04, -0.08],
-    interest_rate:  [+0.16, +0.08, 0, -0.08, -0.17],
-  }
-
-  const factorMeta: Record<SensitivityFactor, { label: string; unit: string; deltaLabels: string[] }> = {
-    power_price:    { label: 'Power Price',       unit: '€/MWh', deltaLabels: ['-20%', '-10%', 'Base', '+10%', '+20%'] },
-    efficiency:     { label: 'System Efficiency', unit: '%',     deltaLabels: ['-5pp', '-2.5pp', 'Base', '+2.5pp', '+5pp'] },
-    capex:          { label: 'CapEx',             unit: '€M',    deltaLabels: ['-20%', '-10%', 'Base', '+10%', '+20%'] },
-    cod_delay:      { label: 'COD Delay',         unit: 'months',deltaLabels: ['-6m', '-3m', 'Base', '+3m', '+6m'] },
-    curtailment:    { label: 'Curtailment',       unit: '%',     deltaLabels: ['-20%', '-10%', 'Base', '+10%', '+20%'] },
-    logistics_cost: { label: 'Logistics Cost',    unit: '€/kg',  deltaLabels: ['-20%', '-10%', 'Base', '+10%', '+20%'] },
-    interest_rate:  { label: 'Interest Rate',     unit: 'bps',   deltaLabels: ['-150bps', '-75bps', 'Base', '+75bps', '+150bps'] },
-  }
-
-  const sensitivityRows: SensitivityRow[] = (Object.keys(elasticities) as SensitivityFactor[]).map(factor => {
-    const meta = factorMeta[factor]
-    return {
-      factor,
-      label: meta.label,
-      unit: meta.unit,
-      deltas: [-20, -10, 0, 10, 20],
-      deltaLabels: meta.deltaLabels,
-      values: elasticities[factor].map(e => Math.max(0.60, parseFloat((base + e).toFixed(2)))),
-    }
-  })
-
-  const powerDeltas = [-20, -10, 0, 10, 20]
-  const effDeltas   = [5, 2.5, 0, -2.5, -5]
-  const heatmapCells: HeatmapCell[] = []
-  for (const pd of powerDeltas) {
-    for (const ed of effDeltas) {
-      const dscr = Math.max(0.60, parseFloat((base + (pd / 10) * (-0.07) + (ed / 2.5) * 0.06).toFixed(2)))
-      heatmapCells.push({ powerDelta: pd, effDelta: ed, dscr })
-    }
-  }
-
-  const covenantFloor = 1.20
-  const headroom = base - covenantFloor
-  const breached = base < covenantFloor
-  const floorPowerPrice = parseFloat((65 * (1 + (headroom / 0.007) / 100)).toFixed(1))
-  const minEfficiency   = parseFloat((72 - headroom / 0.02).toFixed(1))
-  const maxCapexOverrun = parseFloat((headroom / 0.015).toFixed(1))
-  const maxRateBps      = base >= covenantFloor ? Math.round((base - covenantFloor) / (0.08 / 75)) : 0
-
-  const breakevenMetrics: BreakevenMetric[] = [
-    { label: 'Floor power price',  value: `€${floorPowerPrice}/MWh`, description: `Max power price before DSCR < ${covenantFloor}x`, breached },
-    { label: 'Min system efficiency', value: `${minEfficiency}%`, description: `Min electrolyser efficiency before covenant breach`, breached },
-    { label: 'Max CapEx overrun',  value: breached ? 'Already breached' : `+${maxCapexOverrun.toFixed(0)}%`, description: `Max CapEx overrun before DSCR < ${covenantFloor}x`, breached },
-    { label: 'Max rate rise',      value: breached ? 'Already breached' : `+${maxRateBps}bps`, description: `Max rate increase before DSCR < ${covenantFloor}x`, breached },
-  ]
-
-  const monthlySeries: MonthlyDSCR[] = Array.from({ length: 36 }, (_, i) => {
-    const month = i + 1
-    const rampFactor = month <= 6 ? 0.75 + (month / 6) * 0.25 : 1.0
-    const seasonal = 1 + 0.03 * Math.sin((month / 12) * 2 * Math.PI)
-    const trend = 1 + (month / 36) * 0.04
-    const noise = Math.sin(month * 2.7 + 1.3) * 0.015
-    return { month, dscr: Math.max(0.70, parseFloat((base * rampFactor * seasonal * trend + noise).toFixed(2))) }
-  })
-
-  return { baseDSCR: base, sensitivityRows, heatmapCells, breakevenMetrics, monthlySeries, isLive: false }
-}
+// This screen used to synthesise a sensitivity dataset locally when the API
+// was unavailable: a hardcoded base-DSCR lookup, seven hand-tuned elasticity
+// arrays, and an ADDITIVE 5x5 grid (base + pd*-0.07 + ed*0.06). Two defects
+// followed and both reached a lender's screen:
+//
+//   1. the single-factor table showed a power-price RISE improving DSCR while
+//      the grid showed the opposite — on the same page;
+//   2. an additive grid understates the worst corner, the one direction a
+//      credit committee cannot tolerate.
+//
+// A sensitivity surface a lender cannot distinguish from engine output is
+// worse than an empty state, so there is deliberately nothing to fall back to.
+// The model now lives once, server-side, in services/dscr_sensitivity.py.
 
 // ═══════════════════════════════════════════════════════════════
 // API RESPONSE → SensitivityDataset adapter
@@ -541,9 +474,52 @@ export function DSCRHeatmap() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const data: SensitivityDataset = apiData && !isError
-    ? adaptApiResponse(apiData)
-    : generateSensitivityData(selectedProjectId)
+  // No local fallback: an unavailable model shows an empty state, never a
+  // synthesised surface a lender could mistake for engine output.
+  const data: SensitivityDataset | null =
+    apiData && !isError ? adaptApiResponse(apiData) : null
+
+  if (isLoading) {
+    return (
+      <div className="p-8 flex items-center gap-3 text-slate-500">
+        <RefreshCw className="h-4 w-4 animate-spin" />
+        <span className="text-sm">Computing sensitivity from the project cashflow basis…</span>
+      </div>
+    )
+  }
+
+  if (!data) {
+    return (
+      <div className="p-8">
+        <div className="max-w-2xl rounded-lg border border-amber-200 bg-amber-50 p-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Sensitivity unavailable for this project
+              </h2>
+              <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                DSCR sensitivity is derived from the project&apos;s cashflow basis. This
+                project has no cashflow projection yet, or the finance model engine
+                is unreachable.
+              </p>
+              <p className="mt-3 text-sm text-slate-600 leading-relaxed">
+                No figures are shown rather than estimated ones: a sensitivity surface
+                that cannot be traced to a cashflow basis is not a lender-usable number.
+              </p>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="mt-4 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const baseDSCRStyle =
     data.baseDSCR >= 1.30 ? 'text-green-700 bg-green-50 border-green-200' :

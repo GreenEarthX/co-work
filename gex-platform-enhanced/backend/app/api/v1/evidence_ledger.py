@@ -55,11 +55,38 @@ class EvidenceCategory(str, Enum):
     SOVEREIGN     = "SOVEREIGN"
 
 
-class VerificationState(str, Enum):
-    UNVERIFIED = "UNVERIFIED"
-    SUBMITTED  = "SUBMITTED"
-    CONFIRMED  = "CONFIRMED"
-    AUDITED    = "AUDITED"
+# Assurance axis — imported, NOT redefined (ADR 2026-07-29). This module used to
+# declare its own identical copy; one definition, one meaning.
+from app.core.verification import VerificationState  # noqa: E402
+
+
+class ClaimState(str, Enum):
+    """
+    Lifecycle axis — mirrors the truth-stack ClaimState (the canonical evidence
+    vocabulary in app/core/vocabulary.py).
+
+    Deliberately SEPARATE from VerificationState: they are orthogonal.
+    VerificationState answers "how well-checked is this artifact" (and carries
+    the gate-scoring weight). ClaimState answers "what is the status of the
+    assertion it supports". An artifact can be AUDITED and SUPERSEDED at the
+    same time — both true, on different axes. Collapsing them loses information.
+    """
+
+    ASSERTED   = "asserted"
+    SUBMITTED  = "submitted"
+    VERIFIED   = "verified"
+    SATISFIED  = "satisfied"
+    WAIVED     = "waived"
+    EXPIRED    = "expired"
+    REJECTED   = "rejected"
+    FAILED     = "failed"
+    SUPERSEDED = "superseded"
+
+
+# Claim states that no longer support a gate (F2 — the ledger can now record these).
+CLAIM_TERMINAL_INVALID = frozenset({
+    ClaimState.EXPIRED, ClaimState.REJECTED, ClaimState.FAILED, ClaimState.SUPERSEDED,
+})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -73,8 +100,20 @@ class EvidenceCreate(BaseModel):
     category: EvidenceCategory
     document_ref: str = Field(..., description="File/upload reference")
     verification_state: VerificationState = VerificationState.UNVERIFIED
+    claim_state: ClaimState = ClaimState.ASSERTED
     reviewer_id: Optional[str] = None
     submitted_by: str
+    verified_by: Optional[str] = Field(
+        None,
+        description="Who moved assurance beyond UNVERIFIED. Required for "
+                    "SUBMITTED/CONFIRMED/AUDITED, and must differ from submitted_by.",
+    )
+    valid_until: Optional[str] = Field(
+        None, description="ISO date after which this evidence lapses (F2/R3)."
+    )
+    superseded_by: Optional[str] = Field(
+        None, description="evidence_id of the entry that replaces this one."
+    )
 
 
 class EvidenceResponse(BaseModel):
@@ -85,12 +124,20 @@ class EvidenceResponse(BaseModel):
     category: str
     document_ref: str
     verification_state: str
+    claim_state: str
     reviewer_id: Optional[str]
     submitted_by: str
+    verified_by: Optional[str]
+    valid_until: Optional[str]
+    superseded_by: Optional[str]
     hash: str
     prev_hash: Optional[str]
     timestamp: str
     chain_intact: bool
+    # Presentation comes from the canonical registry — never hardcoded here.
+    verification_label: Optional[str] = None
+    claim_label: Optional[str] = None
+    is_currently_valid: Optional[bool] = None
 
 
 class DensityCell(BaseModel):
@@ -117,10 +164,21 @@ class ChainVerification(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    """
+    Connection for the hash-chained ledger — SQLite or PostgreSQL by
+    configuration (EVIDENCE_DB_BACKEND).
+
+    The chain itself is backend-agnostic: _compute_hash/_verify_single are pure
+    functions over row values, so the same digest is produced either side. That
+    is verified, not assumed — tests/test_evidence_slice.py builds a chain in
+    PostgreSQL, validates it, then tampers and confirms detection.
+    """
+    from app.core.db_backend import evidence_connection, evidence_is_postgres
+
+    conn = evidence_connection()
+    if not evidence_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -129,9 +187,16 @@ def get_db():
 
 def init_db():
     """
-    Create evidence_ledger table (append-only, no update/delete).
-    Call from app/main.py startup alongside other init_db() calls.
+    Create the evidence_ledger table (append-only, no update/delete).
+
+    SQLite only. On PostgreSQL the schema is owned by alembic (migration 034),
+    which also enables RLS — a CREATE TABLE IF NOT EXISTS here would either
+    no-op or, worse, create an unprotected table without policies.
     """
+    from app.core.db_backend import evidence_is_postgres
+
+    if evidence_is_postgres():
+        return
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS evidence_ledger (
@@ -141,9 +206,19 @@ def init_db():
             entity_id          TEXT NOT NULL,
             category           TEXT NOT NULL,
             document_ref       TEXT NOT NULL,
+            -- Assurance axis: how well-checked the artifact is (drives gate weight)
             verification_state TEXT NOT NULL DEFAULT 'UNVERIFIED',
+            -- Lifecycle axis: status of the assertion the artifact supports (F2)
+            claim_state        TEXT NOT NULL DEFAULT 'asserted',
             reviewer_id        TEXT,
             submitted_by       TEXT NOT NULL,
+            -- Custody: who moved assurance forward. Mandatory above UNVERIFIED
+            -- and inside the hash — chain of custody without the custodian is
+            -- not chain of custody (F3).
+            verified_by        TEXT,
+            -- Expiry / supersession, so the immutable store can record them (F2/R3)
+            valid_until        TEXT,
+            superseded_by      TEXT,
             hash               TEXT NOT NULL,
             prev_hash          TEXT,
             timestamp          TEXT NOT NULL
@@ -167,9 +242,23 @@ def _now() -> str:
 
 
 def _compute_hash(evidence_id: str, entity_id: str, category: str,
-                  document_ref: str, prev_hash: Optional[str], timestamp: str) -> str:
-    """SHA-256 hash chain: hash = SHA-256(evidence_id + entity_id + category + document_ref + prev_hash + timestamp)."""
-    content = f"{evidence_id}{entity_id}{category}{document_ref}{prev_hash or ''}{timestamp}"
+                  document_ref: str, prev_hash: Optional[str], timestamp: str,
+                  verification_state: str = "", claim_state: str = "",
+                  submitted_by: str = "", verified_by: Optional[str] = None) -> str:
+    """
+    SHA-256 hash chain.
+
+    The digest covers the assurance state, the claim state, and BOTH actors —
+    not just the document reference (ADR 2026-07-29). Previously an entry's
+    verification_state or submitted_by could be edited in place without
+    breaking the chain, which made the tamper-evidence partial: the artifact
+    was protected, the assurance claim about it was not.
+    """
+    content = (
+        f"{evidence_id}{entity_id}{category}{document_ref}"
+        f"{prev_hash or ''}{timestamp}"
+        f"{verification_state}{claim_state}{submitted_by}{verified_by or ''}"
+    )
     return hashlib.sha256(content.encode()).hexdigest()
 
 
@@ -177,7 +266,9 @@ def _verify_single(row, expected_prev_hash: Optional[str]) -> bool:
     """Verify a single entry's hash and chain link."""
     computed = _compute_hash(
         row["evidence_id"], row["entity_id"], row["category"],
-        row["document_ref"], row["prev_hash"], row["timestamp"]
+        row["document_ref"], row["prev_hash"], row["timestamp"],
+        row["verification_state"], row["claim_state"],
+        row["submitted_by"], row["verified_by"],
     )
     if computed != row["hash"]:
         return False
@@ -186,7 +277,19 @@ def _verify_single(row, expected_prev_hash: Optional[str]) -> bool:
     return True
 
 
+def _is_lapsed(valid_until: Optional[str], now: Optional[str] = None) -> bool:
+    """True once the validity date has passed — a controlled document past
+    revalidation is invalid, not merely old (R3)."""
+    if not valid_until:
+        return False
+    return (now or _now()) > valid_until
+
+
 def _row_to_response(row, chain_intact: bool = True) -> dict:
+    from app.core.vocabulary import display_label
+
+    claim = row["claim_state"]
+    lapsed = _is_lapsed(row["valid_until"])
     return {
         "evidence_id": row["evidence_id"],
         "project_id": row["project_id"],
@@ -195,12 +298,24 @@ def _row_to_response(row, chain_intact: bool = True) -> dict:
         "category": row["category"],
         "document_ref": row["document_ref"],
         "verification_state": row["verification_state"],
+        "claim_state": claim,
         "reviewer_id": row["reviewer_id"],
         "submitted_by": row["submitted_by"],
+        "verified_by": row["verified_by"],
+        "valid_until": row["valid_until"],
+        "superseded_by": row["superseded_by"],
         "hash": row["hash"],
         "prev_hash": row["prev_hash"],
         "timestamp": row["timestamp"],
         "chain_intact": chain_intact,
+        "verification_label": display_label("evidence_state", claim),
+        "claim_label": display_label("evidence_state", claim),
+        # Lapsed evidence stops supporting a gate even before an EXPIRED entry
+        # is appended — expiry propagates rather than waiting to be noticed.
+        "is_currently_valid": (
+            not lapsed
+            and ClaimState(claim) not in CLAIM_TERMINAL_INVALID
+        ),
     }
 
 
@@ -217,6 +332,22 @@ def append_evidence(ev: EvidenceCreate, db: sqlite3.Connection = Depends(get_db)
     evidence_id = str(uuid.uuid4())
     now = _now()
 
+    # ── Custody rules (F3 / R2, ADR 2026-07-29) ──────────────────────────────
+    # Assurance beyond UNVERIFIED is a claim about who checked the artifact.
+    # Recording it without the checker is what made chain of custody incomplete.
+    if ev.verification_state != VerificationState.UNVERIFIED and not ev.verified_by:
+        raise HTTPException(
+            400,
+            f"verification_state={ev.verification_state.value} requires verified_by — "
+            "an assurance level cannot be recorded without the party asserting it.",
+        )
+    # Segregation of duties: the submitter cannot be their own verifier.
+    if ev.verified_by and ev.verified_by == ev.submitted_by:
+        raise HTTPException(
+            400,
+            "verified_by must differ from submitted_by (segregation of duties).",
+        )
+
     # Get previous hash for chain continuity (project-scoped chain)
     prev = db.execute(
         "SELECT hash FROM evidence_ledger WHERE project_id=? ORDER BY timestamp DESC LIMIT 1",
@@ -226,19 +357,22 @@ def append_evidence(ev: EvidenceCreate, db: sqlite3.Connection = Depends(get_db)
 
     entry_hash = _compute_hash(
         evidence_id, ev.entity_id, ev.category.value,
-        ev.document_ref, prev_hash, now
+        ev.document_ref, prev_hash, now,
+        ev.verification_state.value, ev.claim_state.value,
+        ev.submitted_by, ev.verified_by,
     )
 
     db.execute("""
         INSERT INTO evidence_ledger
         (evidence_id, project_id, entity_type, entity_id, category,
-         document_ref, verification_state, reviewer_id, submitted_by,
-         hash, prev_hash, timestamp)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         document_ref, verification_state, claim_state, reviewer_id, submitted_by,
+         verified_by, valid_until, superseded_by, hash, prev_hash, timestamp)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         evidence_id, ev.project_id, ev.entity_type, ev.entity_id,
         ev.category.value, ev.document_ref, ev.verification_state.value,
-        ev.reviewer_id, ev.submitted_by,
+        ev.claim_state.value, ev.reviewer_id, ev.submitted_by,
+        ev.verified_by, ev.valid_until, ev.superseded_by,
         entry_hash, prev_hash, now
     ))
     db.commit()

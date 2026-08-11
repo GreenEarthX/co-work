@@ -51,6 +51,7 @@ PUBLIC_ROUTES: dict[str, str] = {
     "/api/v1/model/health": "finance model probe",
     "/api/v1/decision-twin/health": "decision twin probe",
     "/api/v1/auth/login": "credential exchange — must be reachable unauthenticated",
+    "/api/v1/account/register": "self-service registration — no account exists yet. Creates a PENDING account ONLY; grants nothing until a GEX employee completes vetting (see core/account_lifecycle.py). Rate-limit before GA.",
     "/api/v1/auth/refresh": "token refresh — authenticates via refresh token in body",
     "/api/v1/auth/jwks": "public signing keys for token verification by other services",
     "/api/v1/auth/oidc-discovery": "public OIDC metadata",
@@ -154,3 +155,7 @@ async def require_authenticated(request: Request) -> None:
 
     request.state.user_payload = payload
     request.state.auth_user_payload = payload
+    # Routes authenticated by this dependency rather than by the middleware must
+    # bind the tenant too, or the shim would see no caller.
+    from app.core.request_tenant import bind_from_request
+    bind_from_request(request)

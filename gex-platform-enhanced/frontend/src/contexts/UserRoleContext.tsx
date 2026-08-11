@@ -19,6 +19,8 @@ export interface UserRole {
   business_function: BusinessFunction;
   company_name: string;
   user_name: string;
+  /** Job title shown under the user name in the identity banner (falls back to business_function) */
+  user_title?: string;
   /** Optional URL for the company logo shown in TopBar */
   company_logo_url?: string;
   // ── Prosumer / trade attributes (Phase 3) ──

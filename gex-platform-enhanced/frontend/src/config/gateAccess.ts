@@ -136,3 +136,57 @@ export function getVisibleGateShortIds(role: UserRole): Set<string> {
 export function canAccessGate(role: UserRole, gateId: string): boolean {
   return getVisibleCanonicalGates(role).has(normalizeGateId(gateId));
 }
+
+// ─── Gate the verb, not the view ─────────────────────────────────────────────
+// Gate-completion locks previously hid whole screens from everyone. For a
+// sponsor that is a useful discipline: it stops them producing a committee pack
+// over an unaudited model. For a LENDER it inverts the purpose of the tool —
+// a credit officer's job is to assess how far a project is from bankable, and
+// the gate they were being held behind (G8 model audit) is the SPONSOR's action,
+// not theirs. Their own workspace was gated on the borrower's progress.
+//
+// The distinction that resolves it:
+//
+//   EMIT routes  — produce an artifact or a commitment that leaves the building.
+//                  These stay locked for EVERY actor, including the bank. A
+//                  lender positively wants a system that refuses to export an
+//                  IC pack over a fatal blocker.
+//   READ routes  — diagnostic surfaces. A permitted actor whose job is to
+//                  assess readiness sees these regardless of gate completion,
+//                  with a banner stating the gate position so nothing is
+//                  implied to be committee-ready.
+//
+// Deliberately narrow: this changes the capital-side assessors only. Insurers,
+// certifiers, engineers and producers are untouched — extend to them only with
+// the same "does this actor assess, or does this actor emit?" test, one at a time.
+
+/** Routes that create an artifact or a commitment. Locked for all actors. */
+export const EMIT_ROUTES: ReadonlySet<string> = new Set([
+  "/ic-pack",            // produces a committee-ready pack
+  "/approval-queue",     // approvals are decisions, not readings
+  "/commitment-signing", // signing binds capital
+]);
+
+export function isEmitRoute(path: string): boolean {
+  return EMIT_ROUTES.has(path);
+}
+
+/**
+ * Actors whose job is to ASSESS readiness rather than to declare it.
+ * They must be able to diagnose an unready project — that is the work.
+ */
+export function isReadinessAssessor(role: UserRole): boolean {
+  // A lender is modelled as THIRD_PARTY + service_type BANK. DFI/ECA are not
+  // yet distinct ServiceTypes; when they are added, list them here — the test
+  // is "does this actor assess readiness rather than declare it?".
+  return role.service_type === "BANK";
+}
+
+/**
+ * True when a gate-locked screen should be shown WITH a readiness banner
+ * rather than replaced by a padlock.
+ */
+export function shouldViewLockedScreen(role: UserRole, path: string): boolean {
+  if (isEmitRoute(path)) return false;   // never bypass an emit gate
+  return isReadinessAssessor(role);
+}

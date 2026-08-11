@@ -253,7 +253,7 @@ flowchart TD
   classDef gap stroke:#64748b,stroke-width:1.5px,stroke-dasharray:2 3,color:#64748b;
 ```
 
-### Door↔screen coherence — 5 mismatch(es), 16 route-name drift
+### Door↔screen coherence — 5 mismatch(es), 17 route-name drift
 
 - ⚠ Projects · "Task Flow"  →  /finance-dashboard  (FinanceDashboardPage)
 - ⚠ Projects · "Status & Blockers"  →  /bankability-scores  (BankabilityScorePage)
@@ -265,7 +265,7 @@ flowchart TD
   with its label (the screen is *Delivery & Settlement*; no counterparty/credit
   module exists). Now corrected — the door is **Delivery & Settlement**, and
   counterparty/credit is tracked below as a CTRM gap rather than implied by a door.
-- **Route-name drift (16):** URL ≠ label on legacy paths. Deferred —
+- **Route-name drift (17):** URL ≠ label on legacy paths. Deferred —
   URL renames break deep links; do via a canonical-route alias registry (ticket).
 
 ### CTRM completeness — what GEX Commercial *is*

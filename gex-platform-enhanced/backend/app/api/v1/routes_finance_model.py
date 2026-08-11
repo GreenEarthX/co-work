@@ -21,7 +21,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from app.services.engine_auth import engine_auth_headers
 
 from app.api.v1.routes_entitlements import require_finance_entitlement
 
@@ -103,11 +105,27 @@ async def _require_release_ready(project_id: Optional[str]) -> dict:
     return {"gate": "RELEASE_READY", "base_case_claim": st["claim_id"]}
 
 
-async def _call_model(path: str, method: str = "GET", json_data=None):
+async def _call_model(path: str, method: str = "GET", json_data=None,
+                      request: Optional["Request"] = None):
+    """
+    Proxy to the PF engine (:8001). The engine verifies GEX platform JWTs, so
+    every call must carry the caller's bearer or a platform service token —
+    see app/services/engine_auth.py. Without it the engine answers 401 and the
+    failure surfaces to the user as "engine unavailable", which is wrong and
+    sends debugging in the wrong direction.
+    """
     url = f"{MODEL_ENGINE_URL}/api/v1/model{path}"
+    headers = engine_auth_headers(request)
     try:
         async with httpx.AsyncClient(timeout=ENGINE_TIMEOUT) as client:
-            resp = await (client.post(url, json=json_data) if method == "POST" else client.get(url))
+            resp = await (client.post(url, json=json_data, headers=headers)
+                          if method == "POST" else client.get(url, headers=headers))
+            if resp.status_code in (401, 403):
+                raise HTTPException(
+                    status_code=502,
+                    detail="Finance model engine refused the call (authorization not "
+                           "propagated) — this is an auth failure, not an outage.",
+                )
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=f"Model engine error: {resp.text}")
             return resp.json()
@@ -115,6 +133,32 @@ async def _call_model(path: str, method: str = "GET", json_data=None):
         raise HTTPException(status_code=503, detail="Finance model engine unavailable (port 8001)")
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Finance model engine timeout")
+
+
+# ─── DSCR sensitivity surface ────────────────────────────────────────────────
+# The model lives in app/services/dscr_sensitivity.py so that this route, the
+# DSCRAggregator and the frontend all describe the same surface. It previously
+# existed three times with two different sign conventions.
+from app.services.dscr_sensitivity import compute_sensitivity
+
+
+@router.post("/sensitivity")
+async def dscr_sensitivity(body: dict, project_id: Optional[str] = None):
+    """
+    DSCR sensitivity: single-factor table, two-factor surface and break-even
+    floors — all derived from one cashflow identity, so the tables cannot
+    disagree about the sign or magnitude of a shock.
+
+    Body (optional; defaults are illustrative structural parameters, not deal
+    terms): revenue, opex_power, opex_other, debt_service, base_efficiency_pct,
+    debt_share_of_capex, debt_service_pct_per_100bps, covenant_floor,
+    target_dscr, power_deltas[], efficiency_deltas[].
+    """
+    covenant_floor = float(body.get("covenant_floor", 1.20))
+    target_dscr = float(body.get("target_dscr", 1.30))
+    payload = compute_sensitivity(body, covenant_floor=covenant_floor, target_dscr=target_dscr)
+    gate = await _require_release_ready(project_id)
+    return _governed(payload, {"sensitivity_inputs": body, "covenant_floor": covenant_floor}, gate=gate)
 
 
 @router.get("/health")
@@ -219,6 +263,7 @@ from fastapi import Query
 )
 async def dscr_heatmap(
     asset_id: str,
+    request: Request,
     from_date: Optional[str] = Query(default=None),
     to_date: Optional[str] = Query(default=None),
     annual_debt_service: Optional[float] = Query(
@@ -246,8 +291,18 @@ async def dscr_heatmap(
 
     try:
         projection = await cashflow_client.fetch_projection(
-            asset_id=asset_id, from_date=fd, to_date=td,
+            asset_id=asset_id, from_date=fd, to_date=td, request=request,
         )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            # Do not relabel an internal auth failure as a downstream outage —
+            # that is what made this present as "engine unavailable" before.
+            raise HTTPException(
+                status_code=502,
+                detail="Trading book refused the internal cashflow call "
+                       "(authorization not propagated). DSCR cannot be computed.",
+            )
+        raise HTTPException(status_code=502, detail=f"Trading book error: {e}")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Trading book error: {e}")
 

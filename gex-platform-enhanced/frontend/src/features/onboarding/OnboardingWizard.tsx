@@ -93,6 +93,91 @@ const ENTRY_OPTIONS: Array<{
 
 const ENTRY_MOLECULES = ['e-Methane', 'e-Methanol', 'e-NH3', 'HVO', 'SAF', 'e-Gasoline', 'e-LG', 'e-Naphtha'] as const;
 
+// ── Step 1 professional intake: controlled jurisdictions + RFNBO-gating inputs ──
+const JURISDICTIONS: Array<{ group: string; countries: string[] }> = [
+  { group: 'European Union', countries: ['Germany', 'France', 'Italy', 'Spain', 'Netherlands', 'Belgium', 'Portugal', 'Denmark', 'Sweden', 'Finland', 'Poland', 'Austria', 'Ireland', 'Greece', 'Romania', 'Czechia', 'Other EU'] },
+  { group: 'Other Europe', countries: ['United Kingdom', 'Norway', 'Switzerland'] },
+  { group: 'Americas', countries: ['United States', 'Canada', 'Chile', 'Brazil'] },
+  { group: 'Africa & MENA', countries: ['Morocco', 'Egypt', 'Saudi Arabia', 'UAE', 'South Africa'] },
+  { group: 'Asia-Pacific', countries: ['Australia', 'India', 'Japan'] },
+  { group: 'Other', countries: ['Other'] },
+];
+const EU_SET = new Set(JURISDICTIONS[0].countries);
+
+const POWER_BASIS_OPTIONS = [
+  { value: 'off_grid', label: 'Off-grid / behind-the-meter (dedicated renewables)' },
+  { value: 'ppa', label: 'Grid + additional-renewables PPA' },
+  { value: 'grid', label: 'Grid power (guarantees of origin)' },
+  { value: 'hybrid', label: 'Hybrid' },
+];
+
+const OFFTAKE_STATUS_OPTIONS = [
+  { value: 'none', label: 'None yet — exploring' },
+  { value: 'discussion', label: 'In discussion' },
+  { value: 'loi', label: 'LOI / term sheet' },
+  { value: 'binding', label: 'Binding offtake agreement' },
+];
+
+// Live "clues" — each ties an input to what GEX will actually do with it. Honest,
+// specific, and a window into the depth behind the doorway (eligibility → gates
+// → capital release). Empty string => no clue yet.
+const MOLECULE_NOTES: Record<string, string> = {
+  'e-Methanol': 'e-Methanol is “organic basic chemicals” (NACE 20.14) — on the EU restricted-sector list, so EU public/concessional capital is available only via the EU-Taxonomy carve-out. GEX screens exactly this.',
+  'e-NH3': 'Green ammonia is “fertilisers & nitrogen” (NACE 20.15) — restricted-sector by default; unlocked for EU capital through the EU-Taxonomy carve-out. GEX screens it for you.',
+  'SAF': 'SAF runs through ReFuelEU / CORSIA and RFNBO (RED III). GEX tracks the certification chain and grades the evidence behind each claim.',
+  'e-Methane': 'e-Methane must evidence RFNBO status (RED III) and a compliant CO₂ source. GEX carries both as capital-release conditions, not checkboxes.',
+  'e-Gasoline': 'A drop-in e-fuel — eligibility hinges on RFNBO power and CO₂ sourcing. GEX maps the evidence a certifier and a lender each need.',
+  'e-Naphtha': 'e-Naphtha is a chemical feedstock — likely restricted-sector; EU capital via the Taxonomy carve-out. GEX screens the pathway.',
+  'e-LG': 'Liquefied e-gas — RFNBO status plus CO₂ provenance drive eligibility. GEX tracks both through to the certificate.',
+  'HVO': 'HVO is a biofuel — RED III feedstock sustainability and ILUC rules dominate. GEX grades the chain-of-custody evidence.',
+};
+function moleculeNote(m: string): string {
+  return MOLECULE_NOTES[m] || 'GEX will screen this pathway’s RFNBO / RED III eligibility and the evidence it needs.';
+}
+function jurisdictionNote(c: string): string {
+  if (!c) return '';
+  if (EU_SET.has(c)) return `In the EU, RED III (RFNBO), the EU Taxonomy and state-aid limits set eligibility. GEX screens the restricted-sector list and the Taxonomy carve-out for ${c === 'Other EU' ? 'your EU member state' : c}.`;
+  if (c === 'United States') return 'In the US, 45V / 45Z drive the incentive stack. GEX maps the equivalent eligibility and the evidence it rests on.';
+  if (c === 'United Kingdom') return 'The UK runs its own RTFO / SAF mandate rather than RED III. GEX maps the applicable regime and its proofs.';
+  return `GEX will map ${c}’s renewable-fuel regime and the evidence required to bank a project there.`;
+}
+function powerNote(p: string): string {
+  if (p === 'off_grid') return 'Dedicated off-grid renewables simplify additionality and drop grid-connection gates — a cleaner RFNBO story.';
+  if (p === 'ppa') return 'A PPA supports additionality, but RED III temporal (hourly from 2030) and geographic correlation still apply. GEX tracks them as gates.';
+  if (p === 'grid') return 'Grid power needs cancelled guarantees of origin plus temporal/geographic correlation to count as renewable — the hardest RFNBO test.';
+  if (p === 'hybrid') return 'A hybrid supply means correlation is evidenced per source. GEX keeps the accounting auditable.';
+  return '';
+}
+function offtakeNote(o: string): string {
+  if (o === 'none') return 'Offtake is the bankability anchor — lenders size debt off contracted volume, tenor and buyer credit. GEX treats it as a capital-release condition, and shows announced vs committed honestly.';
+  if (o === 'discussion') return 'Early interest is directional, not bankable. GEX distinguishes “indicative” from “committed” so nobody over-reads it.';
+  if (o === 'loi') return 'An LOI / term sheet is progress but conditional. GEX tracks the conditions precedent that turn it into bankable offtake.';
+  if (o === 'binding') return 'A binding offtake is a strong bankability signal. GEX grades the buyer’s credit and the contract’s CPs.';
+  return '';
+}
+
+// ── Step 3 (certification) clues — same discipline: tie each input to a real gate ──
+function renewableNote(pct: number): string {
+  if (pct >= 100) return 'Fully renewable power is the cleanest RFNBO story — you still need cancelled guarantees of origin plus temporal (hourly from 2030) and geographic correlation. GEX carries each as a gate.';
+  if (pct >= 90) return 'Near-fully renewable — but RED III counts renewable electricity only where correlation and additionality are evidenced. GEX flags the shortfall hours.';
+  return 'Below ~90% renewable, RFNBO status is at risk — grey grid hours don’t count. GEX shows exactly which hours fail correlation.';
+}
+function ghgNote(target: number): string {
+  if (target === null || target === undefined || Number.isNaN(target)) return '';
+  return 'RFNBO needs roughly a 70% GHG saving vs the fossil comparator (~28.2 gCO₂e/MJ). GEX runs your pathway’s LCA against the current Delegated Act — the threshold is an input that moves with fuel and vintage, not a constant.';
+}
+function certsNotes(certs: string[], country: string): string[] {
+  const notes: string[] = [];
+  const isEU = EU_SET.has(country);
+  if (certs.includes('RED_III') || certs.includes('RFNBO')) notes.push('RED III / RFNBO turns on additionality plus temporal & geographic power correlation — GEX carries each as a capital-release condition, not a checkbox.');
+  if (certs.includes('45V')) {
+    if (isEU) notes.push('45V is a US production credit — for an EU project it doesn’t apply; RED III / RFNBO is your track. GEX won’t let a mismatched scheme inflate the read.');
+    else notes.push('45V pays by GHG tier (kg CO₂e/kg H₂) and needs US siting and a placed-in-service window — GEX checks the tier and the timing.');
+  }
+  if (certs.includes('CORSIA')) notes.push('CORSIA applies to aviation SAF — GEX maps it to ReFuelEU Aviation where relevant.');
+  return notes;
+}
+
 const ENTRY_ROLE_PRESETS: Record<EntryObjective, UserRole> = {
   PROJECT_REALITY: {
     company_type: 'PRODUCER',
@@ -159,6 +244,8 @@ const OnboardingWizard: React.FC = () => {
     capacity_mtpd: '',
     location: '',
     country: '',
+    power_basis: '',
+    offtake_status: '',
     production_start_year: 2027,
     production_end_year: 2042
   });
@@ -772,13 +859,14 @@ const OnboardingWizard: React.FC = () => {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full mb-4">
             <Sparkles className="w-5 h-5" />
-            <span className="text-sm font-medium">Free Project Viability Assessment</span>
+            <span className="text-sm font-medium">Project orientation — indicative, not a verdict</span>
           </div>
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Is Your Green Fuel Project Viable?
+            Where does your green-fuel project stand today?
           </h1>
           <p className="text-lg text-gray-600">
-            Get instant feedback on market demand, financing, and certification eligibility
+            A first, directional read on eligibility, demand and financing — we show what’s known,
+            what’s assumed, and what you’d need to prove.
           </p>
         </div>
 
@@ -792,16 +880,20 @@ const OnboardingWizard: React.FC = () => {
           {currentStep === 1 && (
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Tell us about your project</h2>
-              <p className="text-gray-600 mb-6">We'll instantly check market demand</p>
+              <p className="text-gray-600 mb-6">
+                A few facts. Each one tells GEX something specific about eligibility, power and offtake —
+                watch the notes appear as you fill them in.
+              </p>
 
               <div className="space-y-6">
+                {/* Molecule / pathway */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    What molecule are you producing?
+                    What molecule / pathway are you producing?
                   </label>
                   <select
                     value={step1Data.molecule}
-                    onChange={(e) => setStep1Data({...step1Data, molecule: e.target.value})}
+                    onChange={(e) => setStep1Data({ ...step1Data, molecule: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     {ENTRY_MOLECULES.map((molecule) => (
@@ -810,15 +902,86 @@ const OnboardingWizard: React.FC = () => {
                   </select>
                 </div>
 
+                {/* Jurisdiction (controlled — sets the regime) + city */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Daily Capacity (MTPD)
+                      Country <span className="text-gray-400 font-normal">— sets the regulatory regime</span>
+                    </label>
+                    <select
+                      value={step1Data.country}
+                      onChange={(e) => setStep1Data({ ...step1Data, country: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      <option value="">Select country…</option>
+                      {JURISDICTIONS.map((g) => (
+                        <optgroup key={g.group} label={g.group}>
+                          {g.countries.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Location (City) <span className="text-gray-400 font-normal">— optional</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={step1Data.location}
+                      onChange={(e) => setStep1Data({ ...step1Data, location: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g., Hamburg"
+                    />
+                  </div>
+                </div>
+
+                {/* Power basis + offtake status — the RFNBO / bankability gates */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Power basis <span className="text-gray-400 font-normal">— drives RFNBO status</span>
+                    </label>
+                    <select
+                      value={step1Data.power_basis}
+                      onChange={(e) => setStep1Data({ ...step1Data, power_basis: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select power basis…</option>
+                      {POWER_BASIS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Offtake status <span className="text-gray-400 font-normal">— the bankability anchor</span>
+                    </label>
+                    <select
+                      value={step1Data.offtake_status}
+                      onChange={(e) => setStep1Data({ ...step1Data, offtake_status: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select offtake status…</option>
+                      {OFFTAKE_STATUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Scale + timing */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Daily capacity <span className="text-gray-400 font-normal">— tonnes of product / day (MTPD)</span>
                     </label>
                     <input
                       type="number"
                       value={step1Data.capacity_mtpd}
-                      onChange={(e) => setStep1Data({...step1Data, capacity_mtpd: e.target.value})}
+                      onChange={(e) => setStep1Data({ ...step1Data, capacity_mtpd: e.target.value })}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="e.g., 50"
                       required
@@ -826,56 +989,57 @@ const OnboardingWizard: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Production Start Year
+                      Target production start
                     </label>
                     <input
                       type="number"
                       value={step1Data.production_start_year}
-                      onChange={(e) => setStep1Data({...step1Data, production_start_year: parseInt(e.target.value)})}
+                      onChange={(e) => setStep1Data({ ...step1Data, production_start_year: parseInt(e.target.value) })}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       min="2025"
-                      max="2035"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Location (City)
-                    </label>
-                    <input
-                      type="text"
-                      value={step1Data.location}
-                      onChange={(e) => setStep1Data({...step1Data, location: e.target.value})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="e.g., Hamburg"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Country
-                    </label>
-                    <input
-                      type="text"
-                      value={step1Data.country}
-                      onChange={(e) => setStep1Data({...step1Data, country: e.target.value})}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="e.g., Germany"
-                      required
+                      max="2040"
                     />
                   </div>
                 </div>
               </div>
 
+              {/* Live clues — what GEX reads from each answer (a window into the depth behind the doorway) */}
+              {(() => {
+                const clues = [
+                  moleculeNote(step1Data.molecule),
+                  jurisdictionNote(step1Data.country),
+                  powerNote(step1Data.power_basis),
+                  offtakeNote(step1Data.offtake_status),
+                ].filter(Boolean);
+                return clues.length ? (
+                  <div className="mt-6 rounded-lg border border-blue-100 bg-blue-50/70 p-4">
+                    <div className="flex items-center gap-2 text-blue-800 font-medium text-sm mb-2">
+                      <Sparkles className="w-4 h-4" /> What GEX reads from this
+                    </div>
+                    <ul className="space-y-2 text-sm text-gray-700">
+                      {clues.map((c, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="text-blue-500 mt-0.5">•</span>
+                          <span>{c}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null;
+              })()}
+
+              <p className="mt-4 text-xs text-gray-500 leading-relaxed">
+                This is a first orientation, not a verdict — indicative only. Behind this doorway, GEX turns
+                each answer into evidence-graded gates, a lender-readable capital-release model, and a full
+                audit trail — nothing it can’t stand behind.
+              </p>
+
               <button
                 onClick={submitStep1}
-                disabled={loading || !step1Data.capacity_mtpd || !step1Data.location || !step1Data.country}
-                className="mt-8 w-full flex items-center justify-center gap-2 px-6 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium text-lg"
+                disabled={loading || !step1Data.capacity_mtpd || !step1Data.country}
+                className="mt-6 w-full flex items-center justify-center gap-2 px-6 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium text-lg"
               >
-                {loading ? 'Checking Market Demand...' : 'Check Market Demand'}
+                {loading ? 'Analysing…' : 'See your first read'}
                 <ArrowRight className="w-5 h-5" />
               </button>
             </div>
@@ -918,6 +1082,67 @@ const OnboardingWizard: React.FC = () => {
                       </p>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Your first read — eligibility / RFNBO power / offtake, from Step 1 answers */}
+              {demandResult && (demandResult.eligibility || demandResult.power_basis || demandResult.offtake) && (
+                <div className="mb-8 p-6 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-5 h-5 text-blue-600" />
+                    <h3 className="text-lg font-bold text-slate-900">
+                      Your first read <span className="text-sm font-normal text-slate-500">— indicative, from your Step 1 answers</span>
+                    </h3>
+                  </div>
+                  <div className="space-y-4">
+                    {demandResult.eligibility && (
+                      <div className="flex items-start gap-3">
+                        <Award className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <div className="text-sm font-medium text-slate-800 flex flex-wrap items-center gap-2">
+                            Eligibility · {demandResult.eligibility.jurisdiction}
+                            {demandResult.eligibility.restricted_sector && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                restricted-sector{demandResult.eligibility.carve_out_available ? ' · Taxonomy carve-out' : ''}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-slate-600 mt-0.5">{demandResult.eligibility.note}</div>
+                        </div>
+                      </div>
+                    )}
+                    {demandResult.power_basis && demandResult.power_basis.value !== 'not_stated' && (
+                      <div className="flex items-start gap-3">
+                        <TrendingUp className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                            RFNBO power
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 capitalize">
+                              {String(demandResult.power_basis.rfnbo_strength).replace('_', ' ')}
+                            </span>
+                          </div>
+                          <div className="text-sm text-slate-600 mt-0.5">{demandResult.power_basis.note}</div>
+                        </div>
+                      </div>
+                    )}
+                    {demandResult.offtake && demandResult.offtake.value !== 'not_stated' && (
+                      <div className="flex items-start gap-3">
+                        <DollarSign className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                            Offtake
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 capitalize">
+                              {String(demandResult.offtake.status).replace('_', ' ')}
+                            </span>
+                          </div>
+                          <div className="text-sm text-slate-600 mt-0.5">{demandResult.offtake.note}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-4 text-xs text-slate-400">
+                    Indicative only — GEX turns each of these into an evidence-graded gate as the project progresses.
+                  </p>
                 </div>
               )}
 
@@ -1068,8 +1293,10 @@ const OnboardingWizard: React.FC = () => {
                 </div>
               )}
 
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Certification & Subsidies</h2>
-              <p className="text-gray-600 mb-6">Check which subsidies you qualify for</p>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Certification &amp; eligibility</h2>
+              <p className="text-gray-600 mb-6">
+                What your pathway would need to prove — indicative, not an eligibility ruling. Watch the notes as you go.
+              </p>
 
               <div className="space-y-6">
                 <div>
@@ -1107,7 +1334,8 @@ const OnboardingWizard: React.FC = () => {
                     placeholder="e.g., 0.45"
                   />
                   <p className="text-sm text-gray-500 mt-1">
-                    Lower is better. For H2: &lt;0.45 qualifies for max 45V credit
+                    Lower is better. RFNBO needs ~70% saving vs fossil (~28.2 gCO₂e/MJ); 45V pays by GHG tier.
+                    GEX checks your LCA against the live Delegated Act.
                   </p>
                 </div>
 
@@ -1151,7 +1379,36 @@ const OnboardingWizard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex gap-4 mt-8">
+              {/* Live clues — what GEX reads from your certification inputs */}
+              {(() => {
+                const clues = [
+                  renewableNote(step3Data.electricity_renewable_percentage),
+                  ghgNote(step3Data.ghg_intensity_target),
+                  ...certsNotes(step3Data.target_certifications, step1Data.country),
+                ].filter(Boolean);
+                return clues.length ? (
+                  <div className="mt-6 rounded-lg border border-blue-100 bg-blue-50/70 p-4">
+                    <div className="flex items-center gap-2 text-blue-800 font-medium text-sm mb-2">
+                      <Sparkles className="w-4 h-4" /> What GEX reads from this
+                    </div>
+                    <ul className="space-y-2 text-sm text-gray-700">
+                      {clues.map((c, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="text-blue-500 mt-0.5">•</span>
+                          <span>{c}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null;
+              })()}
+
+              <p className="mt-4 text-xs text-gray-500 leading-relaxed">
+                Indicative only — a first read of what your pathway would need to prove, not an eligibility ruling.
+                GEX turns each of these into an evidence-graded certification gate, checked against the live rules.
+              </p>
+
+              <div className="flex gap-4 mt-6">
                 <button
                   onClick={() => setCurrentStep(2)}
                   className="flex items-center gap-2 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -1164,7 +1421,7 @@ const OnboardingWizard: React.FC = () => {
                   disabled={loading || step3Data.target_certifications.length === 0}
                   className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 font-medium text-lg"
                 >
-                  {loading ? 'Generating Report...' : 'Generate Viability Report'}
+                  {loading ? 'Building your report…' : 'See your indicative report'}
                   <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
@@ -1174,21 +1431,118 @@ const OnboardingWizard: React.FC = () => {
           {/* STEP 4: Final Report */}
           {currentStep === 4 && finalReport && (
             <div>
-              {/* Viability Score Hero */}
-              <div className="text-center mb-8 p-8 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-full mb-4">
-                  <Award className="w-5 h-5" />
-                  <span className="text-sm font-medium">Your Viability Score</span>
+              {/* Lead with the decisive reads — eligibility / RFNBO power / offtake */}
+              {(() => {
+                const r = finalReport.readiness || finalReport.market_assessment || {};
+                const elig = r.eligibility;
+                const power = r.rfnbo_power || r.power_basis;
+                const offtake = r.offtake;
+                if (!elig && !power && !offtake) return null;
+                // Coaching — every read carries a concrete next move, not just a verdict.
+                const eligMove = elig && (
+                  elig.restricted_sector
+                    ? (elig.carve_out_available
+                        ? 'Assemble the EU-Taxonomy alignment pack — substantial contribution + DNSH. GEX hands you the checklist and grades each item.'
+                        : 'Confirm a Taxonomy route before any drawdown. GEX flags exactly which criterion is blocking and how to clear it.')
+                    : 'You are clear on jurisdiction — keep it evidenced as RED III and the delegated acts move. GEX tracks that for you.'
+                );
+                const powerMove = power && power.value !== 'not_stated' && (
+                  String(power.rfnbo_strength).includes('strong')
+                    ? 'Lock your PPA / additionality evidence — it is your RFNBO backbone. GEX pins it to the certification gate.'
+                    : 'Move toward a compliant PPA — additionality plus temporal & geographic correlation. GEX shows what qualifies before you sign.'
+                );
+                const offtakeMove = offtake && offtake.value !== 'not_stated' && (
+                  offtake.status === 'binding'
+                    ? 'Strong signal. GEX grades the buyer credit and the contract CPs so a lender can actually rely on it.'
+                    : 'Firm this toward a binding offtake — the single biggest bankability lever. GEX tracks every CP to financial close.'
+                );
+                const Move = ({ text }: { text: any }) => (
+                  <div className="text-sm text-blue-700 mt-1.5 flex items-start gap-1.5">
+                    <ArrowRight className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                    <span><span className="font-semibold">Your next move:</span> {text}</span>
+                  </div>
+                );
+                return (
+                  <div className="mb-6 p-6 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Sparkles className="w-5 h-5 text-blue-600" />
+                      <h3 className="text-lg font-bold text-slate-900">Where you stand — and your next moves</h3>
+                    </div>
+                    <p className="text-sm text-slate-500 mb-4">
+                      Eligibility, RFNBO power and offtake are what decide viability. Here's your read on each — and the one move that advances it. GEX turns every one into an evidence-graded gate.
+                    </p>
+                    <div className="space-y-4">
+                      {elig && (
+                        <div className="flex items-start gap-3">
+                          <Award className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium text-slate-800 flex flex-wrap items-center gap-2">
+                              Eligibility · {elig.jurisdiction}
+                              {elig.restricted_sector && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                  restricted-sector{elig.carve_out_available ? ' · Taxonomy carve-out' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-slate-600 mt-0.5">{elig.note}</div>
+                            {eligMove && <Move text={eligMove} />}
+                          </div>
+                        </div>
+                      )}
+                      {power && power.value !== 'not_stated' && (
+                        <div className="flex items-start gap-3">
+                          <TrendingUp className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                              RFNBO power
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 capitalize">
+                                {String(power.rfnbo_strength).replace('_', ' ')}
+                              </span>
+                            </div>
+                            <div className="text-sm text-slate-600 mt-0.5">{power.note}</div>
+                            {powerMove && <Move text={powerMove} />}
+                          </div>
+                        </div>
+                      )}
+                      {offtake && offtake.value !== 'not_stated' && (
+                        <div className="flex items-start gap-3">
+                          <DollarSign className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                              Offtake
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 capitalize">
+                                {String(offtake.status).replace('_', ' ')}
+                              </span>
+                            </div>
+                            <div className="text-sm text-slate-600 mt-0.5">{offtake.note}</div>
+                            {offtakeMove && <Move text={offtakeMove} />}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Indicative orientation score — demoted, honest (not a verdict) */}
+              <div className="mb-8 p-5 bg-white border border-gray-200 rounded-2xl flex items-center gap-6">
+                <div className="text-center flex-shrink-0">
+                  <div className="text-4xl font-bold text-slate-800">
+                    {finalReport.viability_score}<span className="text-xl text-slate-400">/100</span>
+                  </div>
+                  <div className="text-xs text-slate-500 capitalize">
+                    {finalReport.viability_level.replace(/_/g, ' ')}
+                  </div>
                 </div>
-                <div className="text-6xl font-bold text-purple-900 mb-2">
-                  {finalReport.viability_score}/100
+                <div className="flex-1">
+                  <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">
+                    Orientation signal · a light directional read — not GEX's internal grade
+                  </div>
+                  <p className="text-slate-700 text-sm">{finalReport.recommendation}</p>
+                  <p className="text-xs text-slate-400 mt-1.5">
+                    Inside, GEX doesn't score you — it grades the evidence behind every gate, and follows each to financial close.
+                  </p>
                 </div>
-                <div className="text-xl text-purple-700 font-medium mb-4 capitalize">
-                  {finalReport.viability_level.replace('_', ' ')}
-                </div>
-                <p className="text-purple-900 text-lg">
-                  {finalReport.recommendation}
-                </p>
               </div>
 
               {/* Certification Results */}
@@ -1252,7 +1606,7 @@ const OnboardingWizard: React.FC = () => {
 
               {/* Next Steps */}
               <div className="mb-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Recommended Next Steps</h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Your next moves</h3>
                 <div className="space-y-3">
                   {finalReport.next_steps.map((step: any, i: number) => (
                     <div key={i} className={`p-4 rounded-lg border ${
@@ -1276,6 +1630,47 @@ const OnboardingWizard: React.FC = () => {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* What GEX does next — the enticement */}
+              <div
+                className="mb-6 p-6 rounded-2xl text-white"
+                style={{ background: 'linear-gradient(135deg, #005c9e 0%, #0a3d62 100%)' }}
+              >
+                <h3 className="text-lg font-bold mb-1">This orientation is the doorway — here's what happens inside GEX</h3>
+                <p className="text-sm text-blue-100 mb-4">
+                  Everything above was a read from four answers. GEX takes the same project and carries it, evidenced, all the way to the money.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3 mb-5">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-5 h-5 text-emerald-300 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="text-sm font-semibold">Every claim becomes evidence</div>
+                      <div className="text-xs text-blue-100">Each read above turns into an evidence-graded gate, tracked from today to financial close.</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <TrendingUp className="w-5 h-5 text-emerald-300 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="text-sm font-semibold">Protect your cheapest capital</div>
+                      <div className="text-xs text-blue-100">Clear eligibility and Taxonomy early so concessional and DFI money stays on the table.</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <FileText className="w-5 h-5 text-emerald-300 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="text-sm font-semibold">A lender-readable pack</div>
+                      <div className="text-xs text-blue-100">Not a data room — the story lenders and DFIs sign against, cutting weeks off diligence.</div>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => window.location.href = '/projects/new'}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-white text-[#005c9e] rounded-lg hover:bg-blue-50 font-semibold"
+                >
+                  Build your project on GEX
+                  <ArrowRight className="w-5 h-5" />
+                </button>
               </div>
 
               {/* Contact Form */}

@@ -105,6 +105,12 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/terms": "finance",
     "/api/v1/settlements": "finance",
     "/api/v1/trading-book": "finance",
+    "/api/v1/account": "platform",
+    "/api/v1/billing": "platform",
+    # Producer/offtaker discovery. Domain authorization decides who may WRITE here;
+    # per-interest confidentiality is decided separately in app.core.open_interest,
+    # which a platform admin does NOT bypass.
+    "/api/v1/open-interest": "marketplace",
     "/api/v1/tokens": "finance",
     "/api/v1/ic-pack": "finance",
     "/api/v1/dfi-criteria": "finance",
@@ -159,6 +165,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/comms": "platform",
     "/api/v1/task-flow": "platform",
     "/api/v1/workflow": "platform",
+    "/api/v1/vocabulary": "platform",
 }
 
 

@@ -29,6 +29,29 @@ logger = logging.getLogger("gex.wae")
 
 _DB_PATH = settings.SQLITE_DB_PATH
 
+def _gov_conn(db_path: str):
+    """
+    Slice-6b-4 connection — SQLite or PostgreSQL by configuration
+    (GOVERNANCE_DB_BACKEND).
+
+    `db_path` is honoured only on SQLite; these functions accept it for
+    testability and it has no meaning against PostgreSQL.
+    """
+    from app.core.db_backend import (PLATFORM_ADMIN, governance_connection,
+                                     governance_is_postgres)
+
+    if governance_is_postgres():
+        # Explicit admin: these rules are read WHILE deciding whether an
+        # action is permitted, so they cannot be filtered by that decision.
+        return governance_connection(company_id=PLATFORM_ADMIN)
+    import sqlite3 as _s
+
+    conn = _s.connect(db_path)
+    conn.row_factory = _s.Row
+    return conn
+
+
+
 
 # ═══════════════════════════════════════════════════════════════
 # ENUMS
@@ -194,7 +217,15 @@ WAE_BYPASS = {
 
 def init_wae_db(db_path: str = _DB_PATH) -> None:
     """Create WAE tables if they don't exist."""
-    con = sqlite3.connect(db_path)
+    from app.core.db_backend import governance_is_postgres
+
+    # SQLite only. On PostgreSQL the schema is owned by alembic (migration 042),
+    # which also declares the CHECK constraints and the four distinct RLS policy
+    # shapes. This function uses executescript(), which does not exist on the
+    # PostgreSQL adapter, so it would error rather than silently no-op.
+    if governance_is_postgres():
+        return
+    con = _gov_conn(db_path)
     cur = con.cursor()
 
     cur.executescript("""
@@ -269,8 +300,7 @@ def _find_policy(action_type: str, amount: Optional[float] = None,
                  volume: Optional[float] = None,
                  db_path: str = _DB_PATH) -> Optional[dict]:
     """Find the active policy matching action_type and thresholds."""
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
     cur.execute(
         "SELECT * FROM approval_policies WHERE action_type = ? AND active = 1 LIMIT 1",
@@ -352,7 +382,7 @@ def evaluate_authorization(
     expires_at = (now + timedelta(hours=timeout_h)).isoformat()
 
     try:
-        con = sqlite3.connect(db_path)
+        con = _gov_conn(db_path)
         cur = con.cursor()
         cur.execute(
             """INSERT INTO approval_requests
@@ -397,8 +427,7 @@ def record_decision(
     Record an APPROVE or REJECT decision for a pending request.
     Returns updated request state including whether quorum is reached.
     """
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
 
     # Fetch request
@@ -462,8 +491,7 @@ def get_pending_approvals(
     project_id: Optional[str] = None,
     db_path: str = _DB_PATH,
 ) -> list[dict]:
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
     if project_id:
         cur.execute(
@@ -483,8 +511,7 @@ def get_pending_approvals(
 
 
 def get_request(request_id: str, db_path: str = _DB_PATH) -> Optional[dict]:
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
     cur.execute("SELECT * FROM approval_requests WHERE id = ?", (request_id,))
     row = cur.fetchone()
@@ -501,8 +528,7 @@ def get_request(request_id: str, db_path: str = _DB_PATH) -> Optional[dict]:
 
 
 def get_audit_trail(resource_id: str, db_path: str = _DB_PATH) -> list[dict]:
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
     cur.execute(
         "SELECT * FROM approval_requests WHERE resource_id = ? ORDER BY created_at DESC",

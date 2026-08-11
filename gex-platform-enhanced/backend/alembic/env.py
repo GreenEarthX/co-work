@@ -17,8 +17,23 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Allow DATABASE_URL env var to override alembic.ini setting
-database_url = os.getenv("DATABASE_URL")
+# Credential selection — ALEMBIC_DATABASE_URL wins over DATABASE_URL.
+#
+# Migrations need DDL; the runtime must not have it. From migration 045 the two
+# are different roles:
+#
+#     ALEMBIC_DATABASE_URL -> gex_owner / gex_user   (DDL, migrations only)
+#     DATABASE_URL         -> gex_app                (runtime, RLS applies)
+#
+# The precedence matters in both directions. Pointing DATABASE_URL at the
+# unprivileged runtime role must not break migrations; and a migration must
+# never quietly run with the runtime credential, because DDL is not subject to
+# RLS and would become an exfiltration path.
+#
+# NOTE: pydantic's `env_file` populates `settings`, NOT os.environ. Alembic
+# reads os.getenv, so backend/.env does NOT reach this file — the variable has
+# to be exported into the process environment.
+database_url = os.getenv("ALEMBIC_DATABASE_URL") or os.getenv("DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 

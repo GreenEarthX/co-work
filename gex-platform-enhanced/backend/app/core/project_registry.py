@@ -18,7 +18,13 @@ import unicodedata
 from dataclasses import dataclass
 
 
-def company_slug(name: str) -> str:
+def company_slug(name: str | None) -> str:
+    # Callers pass payload.get("company_name", "") — which yields None when the
+    # key is PRESENT and null (service identities), not the "" default. The
+    # trailing `or "unknown_company"` already signals this is meant to tolerate
+    # junk input; None was the one case it crashed on.
+    if not name:
+        return "unknown_company"
     normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
     slug = re.sub(r"[^a-z0-9]+", "_", normalized.lower()).strip("_")
     return slug or "unknown_company"
@@ -218,51 +224,39 @@ VALID_PHASES = ("development", "construction", "commissioning", "operating")
 VALID_FINANCING_MODELS = ("PROJECT_FINANCE", "BALANCE_SHEET")
 
 
-def ensure_context_tables(conn: _sqlite3.Connection) -> None:
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS project_context (
-            project_id TEXT PRIMARY KEY,
-            power_model TEXT NOT NULL,
-            phase TEXT NOT NULL,
-            financing_model TEXT NOT NULL,
-            updated_by TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
-    # Append-only audit of context changes — control functions audit
-    # transitions, not just states.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS project_context_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT NOT NULL,
-            field TEXT NOT NULL,
-            old_value TEXT,
-            new_value TEXT NOT NULL,
-            actor TEXT NOT NULL,
-            at TEXT NOT NULL
-        )
-    """)
-    conn.commit()
+def ensure_context_tables(conn: "_sqlite3.Connection") -> None:
+    """
+    RETIRED 2026-08-07 — explicit no-op, deliberately not deleted.
+
+    project_context and project_context_events are canonical in PostgreSQL
+    (migration 033). This used to CREATE TABLE IF NOT EXISTS the SQLite copies;
+    because IF NOT EXISTS is silent, any surviving caller would recreate them
+    and split context truth again — which is exactly what happened between the
+    033 migration and this change, with create_project writing Postgres while
+    PATCH /context wrote SQLite.
+    """
+    return None
 
 
 def get_effective_context(project_id: str | None) -> ProjectPhysicalContext | None:
-    """DB-stored context wins; the in-code seed is the fallback."""
+    """
+    Stored context wins; the in-code seed is the fallback.
+
+    Reads the CANONICAL PostgreSQL project_context (migration 033), which moved
+    there with `projects` so that create_project stays atomic. The SQLite copy
+    is retired — while both existed, this endpoint and create_project were
+    writing different stores.
+    """
+    from app.core.projects_store import fetch_context
+
     normalized = normalize_project_id(project_id)
     if not normalized:
         return None
-    try:
-        conn = _sqlite3.connect(_DB_PATH)
-        conn.row_factory = _sqlite3.Row
-        ensure_context_tables(conn)
-        row = conn.execute(
-            "SELECT power_model, phase, financing_model FROM project_context WHERE project_id = ?",
-            (normalized,),
-        ).fetchone()
-        conn.close()
-        if row:
-            return ProjectPhysicalContext(row["power_model"], row["phase"], row["financing_model"])
-    except _sqlite3.Error:
-        pass
+    row = fetch_context(normalized)
+    if row:
+        return ProjectPhysicalContext(
+            row["power_model"], row["phase"], row["financing_model"]
+        )
     return PROJECT_PHYSICAL.get(normalized)
 
 
@@ -280,48 +274,48 @@ def normalize_project_id(project_id: str | None) -> str | None:
 # (ABAC, context, gates, packages) without a code edit. This is the fix for the
 # "master data lives in a TypeScript file" gap.
 
-def ensure_project_table(conn: _sqlite3.Connection) -> None:
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS projects (
-            project_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            molecule TEXT,
-            country TEXT,
-            location TEXT,
-            capacity_mtpd REAL,
-            capex_eur REAL,
-            owner_company_name TEXT NOT NULL,
-            power_model TEXT,
-            financing_model TEXT,
-            phase TEXT,
-            created_by TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-    """)
-    conn.commit()
+def ensure_project_table(conn: "_sqlite3.Connection") -> None:
+    """
+    RETIRED 2026-08-07 — kept as an explicit no-op, not deleted.
+
+    This used to CREATE TABLE IF NOT EXISTS a SQLite `projects` table whose
+    shape collided with the canonical PostgreSQL one (migration 020): company
+    NAME instead of a tenant FK, no RLS. The ruling was that the PostgreSQL
+    shape wins.
+
+    It is a no-op rather than a deletion because IF NOT EXISTS is silent — any
+    caller still invoking it would quietly recreate the second table and
+    re-open the collision. Failing to create is the safe behaviour; the
+    canonical store is app/core/projects_store.py.
+    """
+    return None
 
 
 def _runtime_profile(project_id: str) -> ProjectAccessProfile | None:
-    try:
-        conn = _sqlite3.connect(_DB_PATH)
-        conn.row_factory = _sqlite3.Row
-        ensure_project_table(conn)
-        row = conn.execute(
-            "SELECT name, owner_company_name, country FROM projects WHERE project_id = ?",
-            (project_id,),
-        ).fetchone()
-        conn.close()
-        if row:
-            return ProjectAccessProfile(
-                project_id=project_id,
-                project_name=row["name"],
-                owner_company_name=row["owner_company_name"],
-                associated_company_names=(),
-                jurisdiction=row["country"] or "",
-            )
-    except _sqlite3.Error:
-        pass
-    return None
+    """
+    Runtime project lookup against the CANONICAL projects table.
+
+    Collision resolved 2026-08-07: the PostgreSQL shape wins (migration 033).
+    There is no longer a second `projects` table in SQLite with its own shape.
+
+    NOTE on jurisdiction: this returns `country` ("DE"), not the row's
+    `jurisdiction` ("EU"). The pre-migration code did the same — the two were
+    conflated — and downstream ABAC compares against country values. Changing
+    it here would silently alter authorization, so the behaviour is preserved
+    deliberately and the columns are now separate so it CAN be untangled.
+    """
+    from app.core.projects_store import fetch_project
+
+    row = fetch_project(project_id)
+    if not row:
+        return None
+    return ProjectAccessProfile(
+        project_id=project_id,
+        project_name=row["project_name"],
+        owner_company_name=row["owner_company_name"],
+        associated_company_names=(),
+        jurisdiction=row["country"] or "",
+    )
 
 
 def get_project_profile(project_id: str | None) -> ProjectAccessProfile | None:
@@ -337,17 +331,12 @@ def visible_project_ids_for_company(company_name: str) -> list[str]:
     for project_id, profile in PROJECT_ACCESS_PROFILES.items():
         if company_id in profile.stakeholder_company_ids:
             visible.append(project_id)
-    # Runtime-created projects owned by this company.
-    try:
-        conn = _sqlite3.connect(_DB_PATH)
-        conn.row_factory = _sqlite3.Row
-        ensure_project_table(conn)
-        for r in conn.execute("SELECT project_id, owner_company_name FROM projects").fetchall():
-            if company_slug(r["owner_company_name"]) == company_id and r["project_id"] not in visible:
-                visible.append(r["project_id"])
-        conn.close()
-    except _sqlite3.Error:
-        pass
+    # Runtime-created projects owned by this company, from the canonical store.
+    from app.core.projects_store import project_ids_owned_by
+
+    for pid in project_ids_owned_by(company_id):
+        if pid not in visible:
+            visible.append(pid)
     return visible
 
 
@@ -373,38 +362,31 @@ def create_project(
 ) -> str:
     """
     Create a runtime project and seed its physical/financing context in one
-    transaction. The seeded context lands in the SAME project_context store the
-    PATCH endpoint writes, so the bankability engine, ABAC and finance views see
-    the premise the moment the project exists — no code edit, no second step.
-    Returns the generated project_id.
+    transaction. Returns the generated project_id.
+
+    Collision resolved 2026-08-07: this writes the CANONICAL PostgreSQL
+    `projects` table (migration 020/033), not the retired SQLite one. The
+    owner is resolved to a tenant id — the old table stored a company *name*
+    with no FK, so an owner could be a string that matched nothing.
+
+    project_context and project_context_events moved with it (033) precisely
+    so this stays atomic: all three writes are one transaction in one store.
     """
-    from datetime import datetime, timezone
+    from app.core.projects_store import create_project as _create
 
     project_id = _gen_project_id(name)
-    now = datetime.now(timezone.utc).isoformat()
-    conn = _sqlite3.connect(_DB_PATH)
-    try:
-        ensure_project_table(conn)
-        ensure_context_tables(conn)
-        conn.execute(
-            """INSERT INTO projects (project_id, name, molecule, country, location,
-                  capacity_mtpd, capex_eur, owner_company_name, power_model,
-                  financing_model, phase, created_by, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (project_id, name, molecule, country, location, capacity_mtpd, capex_eur,
-             owner_company_name, power_model, financing_model, phase, created_by, now),
-        )
-        conn.execute(
-            """INSERT INTO project_context (project_id, power_model, phase, financing_model, updated_by, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (project_id, power_model, phase, financing_model, created_by, now),
-        )
-        conn.execute(
-            "INSERT INTO project_context_events (project_id, field, old_value, new_value, actor, at) VALUES (?, ?, ?, ?, ?, ?)",
-            (project_id, "project", None, "created", created_by, now),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    return project_id
+    return _create(
+        project_id=project_id,
+        name=name,
+        molecule=molecule,
+        location=location,
+        country=country,
+        capacity_mtpd=capacity_mtpd,
+        capex_eur=capex_eur,
+        owner_tenant_id=company_slug(owner_company_name),
+        power_model=power_model,
+        financing_model=financing_model,
+        phase=phase,
+        created_by=created_by,
+    )
 

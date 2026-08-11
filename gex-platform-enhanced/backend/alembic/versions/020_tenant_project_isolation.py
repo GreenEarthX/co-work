@@ -34,8 +34,15 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+# RE-PARENTED 2026-08-07 (slice 3). Was "011", which chained this behind
+# 010_verification_state — a revision that ALTERs bankability_evidence, a table
+# from an unmigrated slice, so `upgrade head` died on a fresh database. This
+# revision creates tenants/projects/project_access and needs none of that; it
+# needs identity to exist first. Re-parented onto the auth slice (030), which
+# is the true logical dependency (project_users maps auth_users.user_id).
+# Safe: 020 had never been applied anywhere — only 030 was in alembic_version.
 revision: str = "020"
-down_revision: Union[str, None] = "011"
+down_revision: Union[str, None] = "030"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -99,7 +106,11 @@ def upgrade() -> None:
         sa.Column("capex_eur",       sa.Numeric(18, 2)),
         sa.Column("capacity_mtpd",   sa.Numeric(10, 4)),
         sa.Column("completion_date", sa.Date),
-        sa.Column("metadata_json",   postgresql.JSONB, server_default="'{}'"),
+        # server_default="'{}'" renders as DEFAULT '''{}''' — alembic
+        # quotes the string, so the literal quotes are doubled and Postgres
+        # rejects it as invalid JSON. sa.text() emits the expression verbatim.
+        sa.Column("metadata_json",   postgresql.JSONB,
+                  server_default=sa.text("'{}'::jsonb")),
         sa.Column("is_active",       sa.Boolean, nullable=False, server_default="true"),
         sa.Column("created_at",      sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("now()")),

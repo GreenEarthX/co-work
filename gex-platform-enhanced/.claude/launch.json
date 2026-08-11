@@ -20,9 +20,10 @@
       "name": "tea_engine",
       "runtimeExecutable": "env",
       "runtimeArgs": [
-        "SUPABASE_URL=https://demo.invalid",
-        "SUPABASE_JWT_SECRET=dev_secret_key_change_in_production",
-        "SUPABASE_JWT_AUDIENCE=gex-platform",
+        "GEX_JWT_SECRET=dev_secret_key_change_in_production",
+        "GEX_JWT_ISSUER=https://api.greenearthx.com",
+        "GEX_JWT_AUDIENCE=gex-platform",
+        "TEA_STUB=0",
         "backend/venv/bin/python", "-m", "uvicorn", "tea_engine.main:app",
         "--host", "0.0.0.0", "--port", "8002"
       ],

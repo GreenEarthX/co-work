@@ -74,13 +74,25 @@ class CertificationKnowledgeBase:
                             "mandatory": True
                         }
                     ],
-                    "fossil_comparators": {
-                        "H2": 94.0,
-                        "NH3": 2.6,
-                        "SAF": 3.0,
-                        "CH3OH": 0.69,
-                        "HVO": 3.1,
-                    }
+                    # RED III applies ONE transport-fuel fossil comparator,
+                    # E_F(comp) = 94 gCO2e/MJ, to ALL renewable fuels (molecule-
+                    # independent). The wizard captures GHG intensity per-kg of fuel,
+                    # so it is converted to gCO2e/MJ with the fuel's lower heating
+                    # value (LHV) below, then screened for >=70% saving (i.e.
+                    # <= 28.2 gCO2e/MJ). This is why e-methanol, e-ammonia, e-naphtha,
+                    # e-kerosene … are all supported, not only H2.
+                    "fossil_comparator_gco2e_per_mj": 94.0,
+                    "fuel_lhv_mj_per_kg": {
+                        "H2": 120.0, "e-H2": 120.0, "Hydrogen": 120.0,
+                        "NH3": 18.6, "e-NH3": 18.6, "e-Ammonia": 18.6, "Ammonia": 18.6,
+                        "CH3OH": 19.9, "e-Methanol": 19.9, "Methanol": 19.9,
+                        "CH4": 50.0, "e-Methane": 50.0, "e-NG": 50.0, "e-LNG": 50.0,
+                        "e-Naphtha": 44.0, "Naphtha": 44.0,
+                        "e-Gasoline": 43.4, "Gasoline": 43.4,
+                        "HVO": 44.0, "e-Diesel": 44.0, "Diesel": 44.0,
+                        "SAF": 43.0, "e-Kerosene": 43.0, "e-SAF": 43.0, "Jet": 43.0,
+                        "e-LG": 46.0, "LPG": 46.0,
+                    },
                 },
                 
                 "renewable_electricity": {
@@ -278,40 +290,56 @@ class DecisionTwin:
             "subsidy_value": None
         }
         
-        # Check 1: GHG Intensity
-        fossil_comparator = rules["eligibility_criteria"]["ghg_intensity"]["fossil_comparators"].get(molecule)
-        if not fossil_comparator:
-            result["status"] = EligibilityStatus.INELIGIBLE.value
-            result["failures"].append({
-                "check": "Molecule Support",
-                "reason": f"Molecule {molecule} not supported",
-                "severity": "critical"
-            })
-            return result
-        
-        ghg_savings = (fossil_comparator - ghg_intensity) / fossil_comparator
+        # Check 1: GHG Intensity — RED III screens GHG intensity in gCO2e/MJ against
+        # the single transport-fuel comparator E_F(comp)=94 gCO2e/MJ (molecule-
+        # independent). The wizard captures intensity per-kg of fuel, so convert it
+        # with the fuel's LHV; every molecule with a known (or defaulted) LHV is
+        # screened — no molecule is rejected as "unsupported".
+        ghg_rules = rules["eligibility_criteria"]["ghg_intensity"]
+        comparator_mj = ghg_rules.get("fossil_comparator_gco2e_per_mj", 94.0)
         ghg_required = 0.70
-        
+        threshold_mj = comparator_mj * (1 - ghg_required)  # <= 28.2 gCO2e/MJ
+
+        lhv = ghg_rules.get("fuel_lhv_mj_per_kg", {}).get(molecule)
+        lhv_defaulted = lhv is None
+        if lhv_defaulted:
+            lhv = 43.0  # default liquid e-fuel LHV (MJ/kg) when molecule is unknown
+
+        # ghg_intensity is kgCO2e per kg of fuel -> gCO2e per MJ
+        ghg_intensity_mj = (ghg_intensity * 1000.0) / lhv
+        ghg_savings = (comparator_mj - ghg_intensity_mj) / comparator_mj
+
         ghg_check = {
             "check": "GHG Savings",
-            "required": f">={ghg_required * 100}%",
+            "required": f">={ghg_required * 100:.0f}% vs {comparator_mj:.0f} gCO2e/MJ",
             "actual": f"{ghg_savings * 100:.1f}%",
             "passed": ghg_savings >= ghg_required,
             "details": {
-                "fossil_comparator": fossil_comparator,
-                "actual_ghg": ghg_intensity,
-                "savings_percentage": ghg_savings * 100
+                "fossil_comparator_gco2e_per_mj": comparator_mj,
+                "ghg_intensity_kgco2e_per_kg": ghg_intensity,
+                "ghg_intensity_gco2e_per_mj": round(ghg_intensity_mj, 1),
+                "fuel_lhv_mj_per_kg": lhv,
+                "threshold_gco2e_per_mj": round(threshold_mj, 1),
+                "savings_percentage": round(ghg_savings * 100, 1),
             }
         }
+        if lhv_defaulted:
+            result["warnings"].append({
+                "check": "GHG Savings",
+                "reason": f"No heating value on file for '{molecule}'; used a default "
+                          f"{lhv:.0f} MJ/kg. GEX pins the exact LHV from your pathway.",
+            })
         result["checks"].append(ghg_check)
-        
+
         if not ghg_check["passed"]:
+            threshold_kg = threshold_mj * lhv / 1000.0
             result["status"] = EligibilityStatus.INELIGIBLE.value
             result["failures"].append({
                 "check": "GHG Savings",
                 "reason": f"Only {ghg_savings*100:.1f}% savings (need >=70%)",
                 "severity": "critical",
-                "gap": f"Reduce GHG by {ghg_intensity - (fossil_comparator * 0.30):.2f} kg CO2e/kg"
+                "gap": f"Cut GHG intensity to <= {threshold_kg:.2f} kgCO2e/kg "
+                       f"(now {ghg_intensity:.2f}) — i.e. <= {threshold_mj:.1f} gCO2e/MJ",
             })
         
         # Check 2: Renewable Electricity

@@ -11,9 +11,11 @@
  *   </GateLock>
  */
 
-import { Lock, ArrowRight } from 'lucide-react'
+import { Lock, ArrowRight, AlertTriangle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGateAccess, type GateRequirement } from '@/hooks/useGateAccess'
+import { useUserRole, type UserRole } from '@/contexts/UserRoleContext'
+import { isEmitRoute, shouldViewLockedScreen } from '@/config/gateAccess'
 
 interface GateLockProps {
   /** The route path of this screen (used to look up gate_prerequisite). */
@@ -33,16 +35,77 @@ const GATE_RESOLVE_ROUTES: Record<string, string> = {
 
 export function GateLock({ path, children }: GateLockProps) {
   const { getGateRequirement } = useGateAccess()
+  const { role } = useUserRole()
   const req = getGateRequirement(path)
 
   if (!req || !req.isLocked) return <>{children}</>
 
-  return <LockedScreen requirement={req} />
+  // Gate the verb, not the view. A readiness assessor (lender) sees a
+  // diagnostic screen with its gate position stated, rather than a padlock —
+  // assessing an unready project is their job, and the gate they were held
+  // behind belongs to the sponsor. EMIT routes stay locked for everyone.
+  if (shouldViewLockedScreen(role, path)) {
+    return (
+      <>
+        <ReadinessBanner requirement={req} />
+        {children}
+      </>
+    )
+  }
+
+  return <LockedScreen requirement={req} isEmit={isEmitRoute(path)} role={role} />
 }
 
-function LockedScreen({ requirement }: { requirement: GateRequirement }) {
+/**
+ * Shown above a diagnostic screen an assessor is reading ahead of its gate.
+ * The figures are visible; the banner prevents them being mistaken for
+ * committee-ready output.
+ */
+function ReadinessBanner({ requirement }: { requirement: GateRequirement }) {
+  return (
+    <div className="mx-6 mt-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+        <p className="text-sm text-slate-700 leading-relaxed">
+          <span className="font-semibold">
+            Pre-{requirement.gateShortId}: {requirement.gateName} is {requirement.completionPct}%
+            complete
+          </span>{' '}
+          (this screen is normally released at {requirement.threshold}%). Figures below are shown
+          for assessment and are <span className="font-semibold">not committee-ready</span>.
+          Closing this gate is the sponsor&apos;s action.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function LockedScreen({
+  requirement,
+  isEmit = false,
+  role,
+}: {
+  requirement: GateRequirement
+  isEmit?: boolean
+  role?: UserRole
+}) {
   const navigate = useNavigate()
   const resolveRoute = GATE_RESOLVE_ROUTES[requirement.gateShortId]
+
+  // An emit gate is not a defect to be worked around — it is the control a
+  // lender wants to exist. Say so plainly rather than implying the screen is
+  // merely unfinished.
+  const heading = isEmit ? 'Not yet releasable' : 'Screen Locked'
+  const body = isEmit
+    ? `This produces an artefact that leaves the platform. It is released once ${requirement.gateShortId}: ${requirement.gateName} reaches ${requirement.threshold}% — the control that prevents a committee-ready document being issued over an open gate.`
+    : `This screen requires ${requirement.gateShortId}: ${requirement.gateName} to reach ${requirement.threshold}% completion before it becomes actionable.`
+
+  // Never tell a lender to "Work on G8" — closing the sponsor's gate is not
+  // their action. Point them at the evidence instead.
+  const isAssessor = role?.service_type === 'BANK'
+  const ctaLabel = isAssessor
+    ? `Review ${requirement.gateShortId} evidence`
+    : `Work on ${requirement.gateShortId}`
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-8">
@@ -61,12 +124,11 @@ function LockedScreen({ requirement }: { requirement: GateRequirement }) {
         </div>
 
         <h2 className="text-lg font-bold mb-2" style={{ color: 'var(--text, #0f172a)' }}>
-          Screen Locked
+          {heading}
         </h2>
 
         <p className="text-sm mb-4" style={{ color: 'var(--text-muted, #64748b)' }}>
-          This screen requires <span className="font-semibold">{requirement.gateShortId}: {requirement.gateName}</span> to
-          reach {requirement.threshold}% completion before it becomes actionable.
+          {body}
         </p>
 
         {/* Progress bar */}
@@ -95,7 +157,7 @@ function LockedScreen({ requirement }: { requirement: GateRequirement }) {
               color: '#fff',
             }}
           >
-            Work on {requirement.gateShortId}
+            {ctaLabel}
             <ArrowRight className="w-4 h-4" />
           </button>
         )}

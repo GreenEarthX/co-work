@@ -33,7 +33,35 @@ class Settings(BaseSettings):
     GEX_DEMO_MODE: bool = True
     
     # Database — PostgreSQL is the committed system of record (ADR 2026-07-06).
-    DATABASE_URL: str = "postgresql://gex_user:gex_password_dev@localhost:5432/gex_platform"
+    #
+    # RUNTIME credential. From migration 045 this is `gex_app`: no SUPERUSER, no
+    # BYPASSRLS, no CREATE on schema public — so RLS actually constrains the
+    # application. Pointing this at a superuser makes every policy decorative.
+    DATABASE_URL: str = "postgresql://gex_app:gex_app_password_dev@localhost:5432/gex_platform"
+    # MIGRATOR credential — DDL only, read by alembic/env.py, which prefers it
+    # over DATABASE_URL. Declared here because Settings forbids extra inputs and
+    # this legitimately appears in .env. Alembic itself reads os.getenv, so it
+    # must also be EXPORTED to reach a migration run.
+    ALEMBIC_DATABASE_URL: str = ""
+    # Which store the auth slice reads/writes: "sqlite" | "postgres".
+    # Declared here (not just os.getenv) so it can live in .env — Settings
+    # forbids extra inputs, and pydantic does not export .env into os.environ.
+    AUTH_DB_BACKEND: str = "sqlite"
+    # Which store the evidence/bankability slice uses: "sqlite" | "postgres".
+    # Separate from AUTH_DB_BACKEND so slices flip independently.
+    EVIDENCE_DB_BACKEND: str = "sqlite"
+    # Which store slice 5 (capital bridge + development packages) uses.
+    CAPITAL_DB_BACKEND: str = "sqlite"
+    # Which store slice 6 (marketplace / trading tail) uses.
+    MARKET_DB_BACKEND: str = "sqlite"
+    # Which store slice 6b-1 (entitlements) uses.
+    ENTITLEMENT_DB_BACKEND: str = "sqlite"
+    # Which store slice 6b-2 (the platform event ledger) uses.
+    EVENTSTORE_DB_BACKEND: str = "sqlite"
+    # Which store slice 6b-3 (fuel reference data) uses.
+    FUELREF_DB_BACKEND: str = "sqlite"
+    # Which store slice 6b-4 (governance / access control) uses.
+    GOVERNANCE_DB_BACKEND: str = "sqlite"
     # Transitional SQLite store. THE ONLY database file in the system.
     # Doctrine: no hidden database, no relative path, no second database,
     # no module-owned path. Modules must use settings.SQLITE_DB_PATH — never

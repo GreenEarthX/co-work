@@ -45,7 +45,13 @@ CREDIT_ORDINAL: dict[str, int] = {
 
 @dataclass
 class OfftakeContract:
-    """Single offtake agreement."""
+    """Single offtake agreement.
+
+    CANONICAL demand-side commitment object — see
+    `app.core.vocabulary.COMMITMENT_OBJECT_ROLES`. The long-term offtake agreement is
+    the tenet of the platform, so this is the object every other commitment-shaped
+    module defers to on the demand side.
+    """
     counterparty_name: str
     counterparty_rating: str          # S&P scale: "AA", "BBB+", etc.
     contracted_volume_tpa: float      # Tonnes per annum
@@ -54,6 +60,15 @@ class OfftakeContract:
     take_or_pay: bool = False
     cfd_protected: bool = False       # Contract-for-Difference protection
     corporate_floor: bool = False     # Corporate guarantee on floor
+    # Absolute calendar year of first delivery, because that is how contracts are
+    # written. None means "starts at COD", the common early-stage case.
+    #
+    # Without this, contracts cannot be placed on a timeline and no expiry-aware
+    # metric is derivable — which is why a portfolio whose bulk volume expires in
+    # year 4 of a 15-year debt rates AA here. This field makes the fix POSSIBLE; it
+    # does not itself fix the scoring, which still reads max(tenor_years). See
+    # docs/contract-debt-coverage-spec.md and the contract-debt coverage engine.
+    start_year: Optional[int] = None
 
 
 @dataclass

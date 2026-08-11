@@ -1,19 +1,11 @@
 // Screen: API client (no screen)
 // API Client for GreenEarthX Platform
-const API_BASE_URL = "/api/v1";
+// Bearer token comes from lib/authToken — the single reader of the stored
+// session. Without it, /api/v1/bankability/* and /finance-model/* return 401
+// and the list silently fails to load.
+import { getAuthHeader as authHeader } from "@/lib/authToken";
 
-// Pull the bearer token from the stored session so EVERY shared-client call is
-// authenticated. Without this, /api/v1/bankability/* and /finance-model/* return
-// 401 — the list silently fails to load and action buttons become dead-ends.
-function authHeader(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem("gex_auth_session");
-    const token = raw ? (JSON.parse(raw) as { token?: string }).token : null;
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  } catch {
-    return {};
-  }
-}
+const API_BASE_URL = "/api/v1";
 
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const url = `${API_BASE_URL}${endpoint}`;

@@ -38,7 +38,10 @@ from decimal import Decimal
 from typing import Optional
 
 import httpx
+from fastapi import Request
 from pydantic import BaseModel, Field
+
+from app.services.engine_auth import engine_auth_headers
 
 logger = logging.getLogger("gex.cashflow_client")
 
@@ -49,6 +52,14 @@ TRADING_BOOK_URL = os.getenv(
 # When trading_book is co-located on the platform backend (port 8000),
 # this client calls self. If trading_book is later split into a separate
 # service, update GEX_TRADING_BOOK_URL to point to that service.
+#
+# AUTH: because this is a real HTTP call, it crosses the auth boundary exactly
+# like an outbound engine call — `require_authenticated` is a global dependency
+# and does not care that the caller is the backend itself. Every request here
+# must carry the caller's bearer (preferred: preserves user identity end-to-end
+# and keeps the trading book's own per-project authorization meaningful) or a
+# platform service token. Omitting it produced silent 401s that surfaced to the
+# user as "Trading book error".
 REQUEST_TIMEOUT = 30.0
 
 
@@ -112,6 +123,7 @@ class CashflowClient:
         from_date: Optional[date] = None,
         to_date: Optional[date] = None,
         granularity: str = "monthly",
+        request: Optional[Request] = None,
     ) -> CashflowProjectionDTO:
         params: dict = {"granularity": granularity}
         if from_date:
@@ -122,27 +134,40 @@ class CashflowClient:
         url = f"{self.base_url}/projects/{asset_id}/cashflows"
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             try:
-                resp = await client.get(url, params=params)
+                resp = await client.get(url, params=params,
+                                        headers=engine_auth_headers(request))
                 resp.raise_for_status()
                 return CashflowProjectionDTO(**resp.json())
             except httpx.ConnectError:
                 logger.error("Trading book unreachable at %s", self.base_url)
                 raise
             except httpx.HTTPStatusError as e:
-                logger.error("Trading book HTTP %s: %s", e.response.status_code, e.response.text[:200])
+                if e.response.status_code in (401, 403):
+                    # Name the real cause: this is an auth failure on an internal
+                    # hop, not the trading book being down or the project missing.
+                    logger.error(
+                        "Trading book rejected the internal call with %s — the caller's "
+                        "bearer was not forwarded or the service token was refused. "
+                        "url=%s", e.response.status_code, url,
+                    )
+                else:
+                    logger.error("Trading book HTTP %s: %s",
+                                 e.response.status_code, e.response.text[:200])
                 raise
 
-    async def fetch_contracts(self, asset_id: str) -> list[dict]:
+    async def fetch_contracts(self, asset_id: str,
+                              request: Optional[Request] = None) -> list[dict]:
         url = f"{self.base_url}/projects/{asset_id}/contracts"
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=engine_auth_headers(request))
             resp.raise_for_status()
             return resp.json()
 
-    async def health(self) -> dict:
+    async def health(self, request: Optional[Request] = None) -> dict:
         async with httpx.AsyncClient(timeout=5.0) as client:
             try:
-                resp = await client.get(f"{self.base_url}/health")
+                resp = await client.get(f"{self.base_url}/health",
+                                        headers=engine_auth_headers(request))
                 resp.raise_for_status()
                 return resp.json()
             except Exception:

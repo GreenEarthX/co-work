@@ -48,13 +48,30 @@ def _iso(dt: datetime) -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """
+    Slice-6b-1 connection — SQLite or PostgreSQL by configuration
+    (ENTITLEMENT_DB_BACKEND). The SQL is unchanged; the shim translates
+    placeholders and sets the RLS tenant context.
+    """
+    from app.core.db_backend import PLATFORM_ADMIN, entitlement_connection
+
+    # Explicit admin: entitlement rows are read WHILE deciding what a caller
+    # may see, so they cannot be filtered by that decision without circularity.
+    return entitlement_connection(company_id=PLATFORM_ADMIN)
 
 
 def init_entitlements_db() -> None:
-    """Create the entitlement + audit tables. Call from main.py startup."""
+    """
+    Create the entitlement + audit tables. Call from main.py startup.
+
+    SQLite only — on PostgreSQL the schema is owned by alembic (migration 037),
+    which also declares the action CHECK and the RLS policies. Creating the
+    tables from here would bypass both.
+    """
+    from app.core.db_backend import entitlement_is_postgres
+
+    if entitlement_is_postgres():
+        return
     conn = _conn()
     try:
         conn.execute(

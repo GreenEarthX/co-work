@@ -33,8 +33,13 @@ def upgrade() -> None:
         sa.Column("source_scope", sa.Text, nullable=False, server_default="GEX_PUBLIC_PREFILL"),
         sa.Column("access_tier", sa.Text, nullable=False, server_default="STAKEHOLDER"),
         sa.Column("backend_store", sa.Text, nullable=False, server_default="project_profile_intelligence"),
-        sa.Column("linked_records", postgresql.JSONB, server_default="'[]'"),
-        sa.Column("metadata_json", postgresql.JSONB, server_default="'{}'"),
+        # sa.text(), not a quoted string: alembic quotes the string so a literal
+        # "'[]'" renders as DEFAULT '''[]''' and Postgres rejects it as
+        # invalid JSON. Same bug as 020 — neither had ever been applied.
+        sa.Column("linked_records", postgresql.JSONB,
+                  server_default=sa.text("'[]'::jsonb")),
+        sa.Column("metadata_json", postgresql.JSONB,
+                  server_default=sa.text("'{}'::jsonb")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
     )

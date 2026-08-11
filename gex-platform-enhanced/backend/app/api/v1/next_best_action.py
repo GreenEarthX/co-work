@@ -22,6 +22,8 @@ Mount in main.py:
 from __future__ import annotations
 
 import os
+
+from app.services.engine_auth import engine_auth_headers
 import sqlite3
 from typing import Any, Optional
 
@@ -73,7 +75,10 @@ def _rows(db, sql: str, args: tuple = ()) -> list:
 async def _required_cert_claims(fuel_id: str) -> tuple[list[str], str]:
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
-            r = await client.get(f"{TEA_ENGINE_URL}/tea/regime/{fuel_id}")
+            r = await client.get(
+                f"{TEA_ENGINE_URL}/tea/regime/{fuel_id}",
+                headers=engine_auth_headers(),
+            )
         if r.status_code == 200:
             g = r.json()["certification_gate"]
             return g["required_cert_claims"], "tea_engine"

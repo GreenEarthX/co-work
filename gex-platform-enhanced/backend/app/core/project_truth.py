@@ -271,10 +271,14 @@ def _load_runtime_evidence_stats(project_id: str) -> dict[str, Any]:
     if not _db_exists():
         return {}
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    from app.core.db_backend import evidence_connection, evidence_is_postgres
+
+    conn = evidence_connection()
     try:
-        if not _table_exists(conn, "bankability_evidence"):
+        # The table-existence probe is SQLite-specific (sqlite_master). On
+        # PostgreSQL the table is guaranteed by migration 034, so skip it
+        # rather than issue a query that would simply error.
+        if not evidence_is_postgres() and not _table_exists(conn, "bankability_evidence"):
             return {}
 
         rows = conn.execute(

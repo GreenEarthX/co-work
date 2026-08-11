@@ -17,13 +17,21 @@ from app.core.config import settings
 DB_PATH = settings.SQLITE_DB_PATH
 
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _get_conn():
+    """Same store as app.core.auth — refresh tokens are part of the auth slice
+    and must follow it across backends (core/db_backend.py)."""
+    from app.core.db_backend import auth_connection
+
+    return auth_connection(DB_PATH)
 
 
 def ensure_refresh_token_table() -> None:
+    # On Postgres the schema is owned by alembic revision 030 (branch
+    # "auth_slice"); this SQLite DDL must not run there. One owner per schema.
+    from app.core.db_backend import is_postgres
+
+    if is_postgres():
+        return
     conn = _get_conn()
     try:
         conn.execute(

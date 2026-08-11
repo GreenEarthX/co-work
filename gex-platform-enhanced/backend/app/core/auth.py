@@ -11,6 +11,7 @@ This replaces the frontend-only token illusion with:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -54,6 +55,8 @@ _SIGN_KEY: str = _PRIVATE_KEY or settings.SECRET_KEY
 _VERIFY_KEY: str = _PUBLIC_KEY or settings.SECRET_KEY
 
 DB_PATH = settings.SQLITE_DB_PATH
+logger = logging.getLogger("gex.auth")
+
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
@@ -249,13 +252,39 @@ DEMO_USER_SEEDS: list[dict[str, Any]] = [
 ]
 
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _get_conn():
+    """
+    Connection to whichever store the auth slice is pointed at
+    (AUTH_DB_BACKEND: sqlite | postgres). The SQL below is unchanged and runs
+    against both — see core/db_backend.py for why the shim exists.
+    """
+    from app.core.db_backend import auth_connection
+
+    return auth_connection(DB_PATH)
 
 
-def _ensure_tables(conn: sqlite3.Connection) -> None:
+def auth_db_connection() -> sqlite3.Connection:
+    """
+    Connection to the store that owns `auth_users`.
+
+    Public because other modules legitimately need to read/write account rows
+    (account vetting), and they must NOT open their own path to this table —
+    a module-owned database path is exactly what the data-layer doctrine
+    forbids. One owner, one accessor.
+    """
+    init_auth_db()
+    return _get_conn()
+
+
+def _ensure_tables(conn) -> None:
+    # On Postgres the schema is owned by alembic (revision 030, branch
+    # "auth_slice"). Running this SQLite DDL there would either fail on
+    # `datetime('now')` defaults or, worse, half-succeed and diverge from the
+    # migration. One owner per schema.
+    from app.core.db_backend import is_postgres
+
+    if is_postgres():
+        return
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS auth_users (
@@ -317,7 +346,54 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_roles_user ON auth_user_project_roles(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_login_history_user ON auth_login_history(user_id)")
     _ensure_column(conn, "auth_users", "is_platform_admin", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_account_lifecycle_columns(conn)
     conn.commit()
+
+
+def _ensure_account_lifecycle_columns(conn: sqlite3.Connection) -> None:
+    """
+    Vetting-before-trust columns (see core/account_lifecycle.py).
+
+    NOTE the default: **PENDING**. `auth_users` originally defaulted
+    `kyc_status` to 'VERIFIED' and `is_active` to 1, so any row that came into
+    existence was fully trusted by construction. New accounts now start
+    untrusted and can only be advanced by a named GEX employee.
+    """
+    from app.core.account_lifecycle import AccountState
+
+    _ensure_column(
+        conn, "auth_users", "account_state",
+        f"TEXT NOT NULL DEFAULT '{AccountState.PENDING.value}'",
+    )
+    for col in ("registered_at", "phone_verified_at", "phone_verified_by",
+                "agreement_signed_at", "agreement_ref", "activated_at",
+                "activated_by", "vetting_note"):
+        _ensure_column(conn, "auth_users", col, "TEXT")
+
+    # ── Grandfathering ──────────────────────────────────────────────────────
+    # The 17 seeded accounts predate this policy and are how the running
+    # platform is used. Locking them out would be a regression, so they are
+    # moved to ACTIVE — but HONESTLY: phone_verified_at / agreement_ref stay
+    # NULL because no call was made and no agreement was signed. They are
+    # marked so an audit can tell a grandfathered account from a vetted one,
+    # and so nothing later mistakes the absence of evidence for a lost record.
+    grandfathered = conn.execute(
+        "UPDATE auth_users SET account_state = ?, activated_by = ?, "
+        # No datetime('now') here: it is SQLite-only, and this statement now
+        # runs against Postgres too. Every pre-existing row qualifies anyway —
+        # the policy post-dates all of them.
+        "vetting_note = ? WHERE account_state = ? AND is_active = 1",
+        (AccountState.ACTIVE.value, "SEED_GRANDFATHERED",
+         "Pre-dates the vetting policy of 2026-08-07. No telephone verification "
+         "and no signed usage agreement are on file. Re-vet before relying on "
+         "this account's status.", AccountState.PENDING.value),
+    ).rowcount
+    if grandfathered:
+        logger.warning(
+            "Account lifecycle: grandfathered %d pre-policy account(s) to ACTIVE "
+            "without vetting evidence. They are marked SEED_GRANDFATHERED.",
+            grandfathered,
+        )
 
 
 def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_sql: str) -> None:
@@ -456,8 +532,12 @@ def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> None:
         for actor_type in actor_types:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO auth_user_project_roles (user_id, project_id, actor_type)
+                -- Standard upsert, not SQLite's INSERT OR REPLACE: both
+                -- SQLite (>=3.24) and Postgres support ON CONFLICT, so one
+                -- statement serves both backends.
+                INSERT INTO auth_user_project_roles (user_id, project_id, actor_type)
                 VALUES (?, ?, ?)
+                ON CONFLICT (user_id, project_id, actor_type) DO NOTHING
                 """,
                 (user_id, project_id, actor_type),
             )
@@ -479,8 +559,13 @@ def _load_user_by_email(email: str) -> sqlite3.Row | None:
     init_auth_db()
     conn = _get_conn()
     try:
+        # NOT filtered by is_active. `account_state` is the authoritative gate
+        # (core/account_lifecycle.py) and authenticate_user enforces it. Filtering
+        # here made an un-vetted account indistinguishable from a non-existent
+        # one, so a registered applicant got "Invalid credentials" instead of
+        # "awaiting vetting" — and the 403 branch was unreachable.
         return conn.execute(
-            "SELECT * FROM auth_users WHERE email = ? AND is_active = 1",
+            "SELECT * FROM auth_users WHERE email = ?",
             (email.lower(),),
         ).fetchone()
     finally:
@@ -507,12 +592,44 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
     return pwd_context.verify(plain_password, password_hash)
 
 
+class AccountNotActive(Exception):
+    """Credentials were correct but the account is not vetted. Never a 500."""
+
+    def __init__(self, state: str) -> None:
+        self.state = state
+        super().__init__(f"account is {state}, not ACTIVE")
+
+
 def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
+    """
+    Verify credentials AND vetting status.
+
+    Credentials alone are not trust (policy 2026-08-07). An account that has
+    registered but not been vetted by a GEX employee holds a valid password and
+    still cannot log in. The password check runs FIRST and unconditionally, so
+    the vetting refusal cannot be used to enumerate which addresses are
+    registered — a wrong password looks the same either way.
+    """
+    from app.core.account_lifecycle import can_login
+
     user = _load_user_by_email(email)
     if not user:
         return None
     if not verify_password(password, user["password_hash"]):
         return None
+
+    state = user["account_state"] if "account_state" in user.keys() else None
+    # Belt and braces: `is_active` is the legacy flag the vetting endpoints keep
+    # in sync. If the two ever disagree, refuse — a row that is ACTIVE by state
+    # but deactivated by flag is a contradiction, and contradictions fail closed.
+    legacy_active = bool(user["is_active"]) if "is_active" in user.keys() else True
+    if not can_login(state) or not legacy_active:
+        logger.warning(
+            "login refused for %s — account_state=%s (credentials were valid)",
+            email, state,
+        )
+        raise AccountNotActive(str(state))
+
     return _user_record_to_payload(user)
 
 
@@ -553,6 +670,11 @@ def _user_record_to_payload(user: sqlite3.Row) -> dict[str, Any]:
         "is_platform_admin": bool(user["is_platform_admin"]),
     }
     return payload
+
+
+# Company identity carried by platform service tokens. Deliberately not a valid
+# company slug so it can never match a real company in an ABAC project check.
+PLATFORM_SERVICE_COMPANY_ID = "__platform_service__"
 
 
 def create_service_token(service_name: str = "gex-backend", ttl_minutes: int = 5) -> str:
@@ -663,6 +785,48 @@ def build_jwks() -> dict:
 
 def get_user_payload_from_token(token: str) -> dict[str, Any]:
     claims = decode_access_token(token)
+
+    # Platform service tokens (create_service_token) carry a deliberately
+    # minimal claim set — no company, no user profile. They must not be forced
+    # through the user-shaped extraction below: `claims["company_id"]` raises
+    # KeyError, which the ABAC middleware surfaces as a bare 500. Every key the
+    # user payload defines is present here with a safe default so downstream
+    # consumers can treat both shapes uniformly.
+    # domain_authorization.check_domain_access() recognises the identity via
+    # session_tier == "service"; keep that claim, do not invent an identity.
+    if claims.get("session_tier") == "service":
+        subject = claims["sub"]
+        return {
+            "user_id": subject,
+            "email": claims.get("email"),
+            # An explicit, non-colliding sentinel rather than None or a derived
+            # slug: a service token has no company, and ABAC must not be able to
+            # match it against any real company's projects. Fails closed, and is
+            # unmistakable in an audit log.
+            "company_id": PLATFORM_SERVICE_COMPANY_ID,
+            "company_name": "GEX Platform Service",
+            "company_type": None,
+            "service_type": None,
+            "business_function": claims.get("business_function", "SERVICE"),
+            "user_name": subject,
+            "company_logo_url": None,
+            "session_tier": "service",
+            "clearance_level": "STANDARD",
+            "jurisdiction": "",
+            "kyc_status": "N/A",
+            "nda_signed_with": [],
+            "assigned_audits": [],
+            "actor_type_per_project": {},
+            "capabilities": [],
+            "credit_rating": "NR",
+            "credit_rating_source": "GEX",
+            "export_licenses": [],
+            "token_ready": False,
+            "transformation_license": False,
+            "aggregation_limit_mt": None,
+            "is_platform_admin": False,
+        }
+
     return {
         "user_id": claims["sub"],
         "email": claims["email"],
@@ -672,6 +836,7 @@ def get_user_payload_from_token(token: str) -> dict[str, Any]:
         "service_type": claims.get("service_type"),
         "business_function": claims["business_function"],
         "user_name": claims["user_name"],
+        "session_tier": claims.get("session_tier"),
         "company_logo_url": claims.get("company_logo_url"),
         "clearance_level": claims.get("clearance_level", "STANDARD"),
         "jurisdiction": claims.get("jurisdiction", ""),

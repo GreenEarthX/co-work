@@ -51,7 +51,26 @@ async def auth_health():
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest, request: Request) -> LoginResponse:
-    response = issue_login_response(body.email.strip().lower(), body.password, ip_address=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"))
+    from app.core.auth import AccountNotActive
+
+    try:
+        response = issue_login_response(body.email.strip().lower(), body.password, ip_address=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"))
+    except AccountNotActive as exc:
+        # 403, not 401: the credentials were correct. Telling the applicant
+        # their account is awaiting vetting is deliberate — they should chase
+        # GEX, not their password. This is only reachable AFTER a correct
+        # password, so it leaks nothing about which addresses are registered.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "account_not_active",
+                "account_state": exc.state,
+                "reason": "This account is not yet active. A GEX representative "
+                          "must complete onboarding — a telephone verification "
+                          "and the signed software usage agreement — before "
+                          "access is granted.",
+            },
+        ) from exc
     if not response:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

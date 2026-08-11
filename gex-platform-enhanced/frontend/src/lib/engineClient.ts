@@ -24,7 +24,7 @@
  * than silently failing. That mirrors how backendClient handles missing
  * Supabase config.
  */
-import { supabase } from "@/integrations/supabase/client";
+import { getAuthToken } from "@/lib/authToken";
 
 // ---------------------------------------------------------------------------
 // Types — mirror the Pydantic models in gex_pf_engine/main.py exactly.
@@ -120,11 +120,12 @@ export function isEngineConfigured(): boolean {
 }
 
 async function authHeader(): Promise<Record<string, string>> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) {
-    throw new EngineUnauthenticated(`session error: ${error.message}`);
-  }
-  const token = data.session?.access_token;
+  // GEX is the token issuer — NOT Supabase GoTrue. This previously read
+  // supabase.auth.getSession() from integrations/supabase/client.ts, which is a
+  // stub that always returns a truthy `error`, so every call threw
+  // EngineUnauthenticated("session error: Supabase not configured — stub
+  // client") before a request was ever made. The message blamed the engine.
+  const token = getAuthToken();
   if (!token) {
     throw new EngineUnauthenticated();
   }

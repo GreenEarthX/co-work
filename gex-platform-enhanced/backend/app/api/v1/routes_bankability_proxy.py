@@ -40,9 +40,16 @@ class EvidenceUpdateRequest(BaseModel):
 
 
 def _get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    """
+    Connection for the evidence/bankability slice — SQLite or PostgreSQL by
+    configuration (EVIDENCE_DB_BACKEND). The SQL in this module is unchanged;
+    the shim translates placeholders and sets the RLS tenant context.
+    """
+    from app.core.db_backend import evidence_connection, evidence_is_postgres
+
+    conn = evidence_connection()
+    if not evidence_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 

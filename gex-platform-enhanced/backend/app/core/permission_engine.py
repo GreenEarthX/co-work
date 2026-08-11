@@ -1166,9 +1166,14 @@ _OVERRIDE_DB_PATH = settings.SQLITE_DB_PATH
 
 
 def _override_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(_OVERRIDE_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """
+    Slice-6b-4 connection — SQLite or PostgreSQL by configuration
+    (GOVERNANCE_DB_BACKEND).
+    """
+    from app.core.db_backend import PLATFORM_ADMIN, governance_connection
+
+    # Explicit admin: permission rules are read WHILE deciding permission.
+    return governance_connection(company_id=PLATFORM_ADMIN)
 
 
 def _ensure_override_table(conn: sqlite3.Connection) -> None:
@@ -1191,6 +1196,14 @@ def _ensure_override_table(conn: sqlite3.Connection) -> None:
 
 
 def init_permission_override_store() -> None:
+    from app.core.db_backend import governance_is_postgres
+
+    # SQLite only. On PostgreSQL the schema is owned by alembic (migration 042),
+    # which also declares the CHECK constraints and the four distinct RLS policy
+    # shapes. This function uses executescript(), which does not exist on the
+    # PostgreSQL adapter, so it would error rather than silently no-op.
+    if governance_is_postgres():
+        return
     conn = _override_conn()
     try:
         _ensure_override_table(conn)

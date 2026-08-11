@@ -6,6 +6,7 @@ import {
   ProjectInFocusSelector,
   ProjectTruthChain,
 } from "@/components/dashboard/ProjectTruthChain";
+import { DashSection, SectionMeta } from "@/components/dashboard/DashSection";
 import MoleculeLineage from "@/features/pricing/MoleculeLineage";
 import { RefreshCw, Filter, ChevronRight, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +25,28 @@ interface ProjectFlow {
   stage3_market: number;
   stage3_matched: number;
   capacityIds: string[];
+}
+
+
+// ─── Deal-killer counting ────────────────────────────────────────────────────
+// This tile previously reported `overall_completion < 40` — i.e. it counted
+// PROJECTS BELOW A COMPLETION THRESHOLD and labelled them deal-killers. A
+// project at 52% therefore reported "DEAL KILLERS 0" while the Critical Path
+// screen, reading the same project's gate blockers, reported "3 fatal · 1
+// critical". Two screens in the same workspace disagreeing on the number a
+// credit committee cares about most is the fastest way to lose an analyst.
+//
+// Count the blocking items themselves, from the gates that carry them — the
+// same source the blocker-isolation view uses.
+function countBlockingItems(projects: { bankability: { gates: { is_complete: boolean; blocking_items: string[] }[] } }[]): number {
+  return projects.reduce(
+    (total, p) =>
+      total +
+      (p.bankability?.gates ?? [])
+        .filter((g) => !g.is_complete)
+        .reduce((n, g) => n + (g.blocking_items?.length ?? 0), 0),
+    0,
+  )
 }
 
 export function DashboardPage() {
@@ -209,18 +232,31 @@ export function DashboardPage() {
             ? "regulator"
             : "producer";
 
-  return (
-    <div className="space-y-6">
-      {/* CLIENT JOURNEY START */}
-      <div className="flex justify-start">
-        <ProjectInFocusSelector />
-      </div>
+  const blockingCount = countBlockingItems(scopedVisibleProjects);
 
-      {/* DECISION-FIRST ENTRY */}
+  return (
+    <div className="space-y-3">
+      {/* CLIENT JOURNEY START — identity banner, always visible */}
+      <ProjectInFocusSelector />
+
+      {/* DECISION-FIRST ENTRY — the headline answer, never collapsed */}
       <DecisionFirstEntry />
 
       {/* PROJECT TRUTH FRONT DOOR */}
-      <ProjectTruthChain />
+      <DashSection
+        id="truth-chain"
+        title="Project truth chain"
+        defaultOpen
+        meta={
+          <SectionMeta
+            value={blockingCount}
+            label="blocking"
+            tone={blockingCount > 0 ? "bad" : "neutral"}
+          />
+        }
+      >
+        <ProjectTruthChain />
+      </DashSection>
 
       {/* HEADER WITH FILTERS */}
       <div className="flex items-center justify-between">
@@ -356,9 +392,7 @@ export function DashboardPage() {
                     ) / scopedVisibleProjects.length,
                   )
                 : 0;
-            const dealKillers = scopedVisibleProjects.filter(
-              (p) => p.bankability.overall_completion < 40,
-            ).length;
+            const dealKillers = countBlockingItems(scopedVisibleProjects);
 
             return [
               {
@@ -516,7 +550,16 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* PROJECT CARDS */}
+      {/* PROJECT CARDS — the longest block, so collapsed by default */}
+      {!loading && filteredProjects.length > 0 && (
+      <DashSection
+        id="project-cards"
+        title="Project detail"
+        meta={
+          <SectionMeta value={filteredProjects.length} label="projects" />
+        }
+      >
+      <div className="space-y-4">
       {filteredProjects.map((project) => (
         <div
           key={project.name}
@@ -824,10 +867,15 @@ export function DashboardPage() {
           </div>
         </div>
       ))}
+      </div>
+      </DashSection>
+      )}
 
       {/* GREEN FUEL THREAD — Hidalgo crystallization view */}
       {!loading && scopedVisibleProjects.length > 0 && (
-        <GreenFuelThread projects={scopedVisibleProjects} />
+        <DashSection id="green-fuel-thread" title="Green fuel thread">
+          <GreenFuelThread projects={scopedVisibleProjects} />
+        </DashSection>
       )}
 
       {/* INFORMATION LINEAGE — Bloomberg view for Finance/Bank roles */}
@@ -836,12 +884,13 @@ export function DashboardPage() {
           role.service_type === "BANK" ||
           role.service_type === "INSURER" ||
           role.business_function === "EXECUTIVE") && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <DashSection id="molecule-lineage" title="Information lineage">
             <MoleculeLineage compact />
-          </div>
+          </DashSection>
         )}
 
       {/* READINESS SUMMARY — role-contextual */}
+      <DashSection id="readiness-summary" title="Readiness summary">
       <div className="bg-stone-50 rounded-xl border border-stone-200 p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -946,9 +995,7 @@ export function DashboardPage() {
               const ready = scopedVisibleProjects.filter(
                 (p) => p.bankability.overall_completion >= 70,
               ).length;
-              const dealKillers = scopedVisibleProjects.filter(
-                (p) => p.bankability.overall_completion < 40,
-              ).length;
+              const dealKillers = countBlockingItems(scopedVisibleProjects);
               return [
                 {
                   label: "Avg Bankability",
@@ -1016,11 +1063,12 @@ export function DashboardPage() {
           ))}
         </div>
       </div>
+      </DashSection>
 
       {/* ── Production Roadmap Gantt ─────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mt-2">
+      <DashSection id="production-roadmap" title="Production roadmap">
         <ProductionRoadmapGantt workspaceId={roadmapWorkspace} compact />
-      </div>
+      </DashSection>
     </div>
   );
 }

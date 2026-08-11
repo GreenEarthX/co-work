@@ -51,7 +51,8 @@ class CFADSCalculator:
         """
         
         # 1. PRODUCTION REVENUE
-        annual_production_kg = production_volume_mtpd * period_days
+        # production_volume_mtpd is metric TONNES/day → ×1000 to get kg (price/opex are per kg)
+        annual_production_kg = production_volume_mtpd * 1000 * period_days
         base_revenue = annual_production_kg * offtake_price_eur_kg
         
         # 2. SUBSIDY REVENUE
@@ -161,7 +162,7 @@ class CFADSCalculator:
         for contract in contracts:
             volume = contract.get('volume_mtpd', 0)
             price = contract.get('price_eur_kg', 0)
-            annual_kg = volume * 365
+            annual_kg = volume * 1000 * 365  # volume in MTPD (tonnes/day) → kg
             revenue = annual_kg * price
             
             contract_revenues.append({

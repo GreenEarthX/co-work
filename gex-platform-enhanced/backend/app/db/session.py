@@ -37,21 +37,37 @@ def _async_url(url: str) -> str:
     return url
 
 
-_engine = create_async_engine(
-    _async_url(settings.DATABASE_URL),
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    # Echo SQL only in debug mode — avoids leaking tenant data to logs in prod
-    echo=settings.DEBUG and settings.ENVIRONMENT == "development",
-)
+# Engines are built LAZILY. Constructing them at import time resolves the
+# dialect's DBAPI immediately, so importing this module raised
+# ModuleNotFoundError('asyncpg') in any deployment without the async driver —
+# which meant the *synchronous* path below could not be used either, and this
+# module was unimportable everywhere. During the strangler migration most code
+# is still sync; it must not be blocked by the async driver.
+_engine = None
+_AsyncSessionLocal = None
 
-AsyncSessionLocal = async_sessionmaker(
-    _engine,
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False,
-)
+
+def get_async_engine():
+    global _engine, _AsyncSessionLocal
+    if _engine is None:
+        _engine = create_async_engine(
+            _async_url(settings.DATABASE_URL),
+            pool_size=10,
+            max_overflow=20,
+            pool_pre_ping=True,
+            # Echo SQL only in debug mode — avoids leaking tenant data to logs in prod
+            echo=settings.DEBUG and settings.ENVIRONMENT == "development",
+        )
+        _AsyncSessionLocal = async_sessionmaker(
+            _engine, expire_on_commit=False, autoflush=False, autocommit=False,
+        )
+    return _engine
+
+
+def AsyncSessionLocal(*args, **kwargs):
+    """Session factory — builds the engine on first use."""
+    get_async_engine()
+    return _AsyncSessionLocal(*args, **kwargs)
 
 
 # ── Tenant context extraction ─────────────────────────────────────────────────
@@ -64,12 +80,11 @@ def _company_id_from_request(request: Request) -> Optional[str]:
     after verifying the JWT.  If no auth header is present the request is
     treated as a guest (returns None → RLS will apply 'GUEST' sentinel).
     """
-    payload = getattr(request.state, "user_payload", None)
-    if payload is None:
-        return None
-    if payload.get("is_platform_admin"):
-        return "PLATFORM_ADMIN"
-    return payload.get("company_id")
+    from app.core.request_tenant import company_from_payload, payload_from_request
+
+    # Reads BOTH state attribute names and applies the one shared derivation
+    # rule, so this path and the shim path always agree on who the caller is.
+    return company_from_payload(payload_from_request(request))
 
 
 # ── Dependency ────────────────────────────────────────────────────────────────
@@ -127,18 +142,29 @@ def _sanitise_company_id(value: str) -> str:
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-_sync_engine = create_engine(
-    settings.DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-)
+_sync_engine = None
+_SyncSessionLocal = None
 
-SyncSessionLocal = sessionmaker(
-    _sync_engine,
-    autocommit=False,
-    autoflush=False,
-)
+
+def get_sync_engine():
+    """Lazily-built sync engine. See the note on the async engine above."""
+    global _sync_engine, _SyncSessionLocal
+    if _sync_engine is None:
+        _sync_engine = create_engine(
+            settings.DATABASE_URL,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+        )
+        _SyncSessionLocal = sessionmaker(
+            _sync_engine, autocommit=False, autoflush=False,
+        )
+    return _sync_engine
+
+
+def SyncSessionLocal(*args, **kwargs):
+    get_sync_engine()
+    return _SyncSessionLocal(*args, **kwargs)
 
 
 def get_sync_db_for_company(company_id: str):

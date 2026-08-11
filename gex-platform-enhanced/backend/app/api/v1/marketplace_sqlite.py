@@ -23,7 +23,15 @@ router = APIRouter()
 DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
-    """Get database connection"""
+    """
+    Slice-6 connection — SQLite or PostgreSQL by configuration
+    (MARKET_DB_BACKEND). The SQL is unchanged; the shim translates
+    placeholders and sets the RLS tenant context.
+    """
+    from app.core.db_backend import market_connection, market_is_postgres
+
+    if market_is_postgres():
+        return market_connection()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn

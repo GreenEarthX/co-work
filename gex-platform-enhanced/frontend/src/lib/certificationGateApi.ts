@@ -2,16 +2,9 @@
 // Regime-forked certification gate — reads the project's PERSISTED claims from the
 // ledger and evaluates the gate for the fuel's pathway_class (RFNBO vs advanced
 // biofuel). Backed by backend GET /api/v1/tea/certification-gate/{projectId}.
-const API_PREFIX = '/api/v1/tea'
+import { getAuthToken } from '@/lib/authToken'
 
-function authToken(): string | null {
-  try {
-    const saved = localStorage.getItem('gex_auth_session')
-    return saved ? (JSON.parse(saved).token ?? null) : null
-  } catch {
-    return null
-  }
-}
+const API_PREFIX = '/api/v1/tea'
 
 export interface CertificationGate {
   fuel_id: string
@@ -36,7 +29,7 @@ export async function fetchCertificationGate(
   fuelId: string,
   pathwayId?: string,
 ): Promise<CertificationGateResult> {
-  const token = authToken()
+  const token = getAuthToken()
   const q = new URLSearchParams({ fuel_id: fuelId })
   if (pathwayId) q.set('pathway_id', pathwayId)
   const res = await fetch(`${API_PREFIX}/certification-gate/${encodeURIComponent(projectId)}?${q}`, {

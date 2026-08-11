@@ -449,11 +449,17 @@ def get_db():
     different worker threads. Without this, summary/list calls intermittently
     raise "SQLite objects created in a thread can only be used in that same
     thread". The connection is still per-request (not shared concurrently).
+
+    Slice-5 connection — SQLite or PostgreSQL by configuration
+    (CAPITAL_DB_BACKEND). The append-only event chain is backend-agnostic: the
+    digest is computed in Python over row values, so it reproduces either side.
     """
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    from app.core.db_backend import capital_connection, capital_is_postgres
+
+    conn = capital_connection()
+    if not capital_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:

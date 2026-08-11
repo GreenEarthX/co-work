@@ -42,14 +42,38 @@ from app.core.model_governance import (
 logger = logging.getLogger("gex.routes.pricing")
 router = APIRouter()
 
-LEGACY_CATALOG_PATH = Path(__file__).resolve().parents[4] / "gex_fuel_catalog.json"
+def _ancestor(levels: int) -> Path | None:
+    """parents[levels], or None when the tree is shallower (e.g. in a container)."""
+    parents = Path(__file__).resolve().parents
+    return parents[levels] if len(parents) > levels else None
+
+
+def _resolve_legacy_catalog_path() -> Path:
+    """Locate gex_fuel_catalog.json across dev-checkout and container layouts."""
+    override = os.getenv("GEX_FUEL_CATALOG_PATH")
+    if override:
+        return Path(override)
+
+    parents = Path(__file__).resolve().parents
+    candidates = [
+        *(p / "gex_fuel_catalog.json" for p in parents[:5]),
+        Path("/app/gex_fuel_catalog.json"),  # container: WORKDIR /app
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return Path("/app/gex_fuel_catalog.json")
+
+
+LEGACY_CATALOG_PATH = _resolve_legacy_catalog_path()
 
 
 def _resolve_platform_db_path() -> str | None:
+    dev_root = _ancestor(4)
     candidates = [
         os.getenv("GEX_PLATFORM_DB_PATH"),
-        str(Path(__file__).resolve().parents[4] / "gex-platform-enhanced" / "backend" / "gex_platform.db"),
-        str(Path(__file__).resolve().parents[2] / "gex_platform.db"),
+        str(dev_root / "gex-platform-enhanced" / "backend" / "gex_platform.db") if dev_root else None,
+        str(_ancestor(2) / "gex_platform.db") if _ancestor(2) else None,
     ]
     for candidate in candidates:
         if candidate and Path(candidate).exists() and Path(candidate).stat().st_size > 0:

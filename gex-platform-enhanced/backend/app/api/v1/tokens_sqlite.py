@@ -5,7 +5,7 @@ EVENT-DRIVEN: Inherits correlation_id for chain of custody
 """
 from typing import List, Optional
 from enum import Enum
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import sqlite3
 import json
@@ -24,7 +24,15 @@ router = APIRouter()
 DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
-    """Get database connection"""
+    """
+    Slice-6 connection — SQLite or PostgreSQL by configuration
+    (MARKET_DB_BACKEND). The SQL is unchanged; the shim translates
+    placeholders and sets the RLS tenant context.
+    """
+    from app.core.db_backend import market_connection, market_is_postgres
+
+    if market_is_postgres():
+        return market_connection()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -51,11 +59,33 @@ class CertificationPathway(str, Enum):
 
 
 class TokenLifecycleState(str, Enum):
+    """
+    Token lifecycle. The green attribute is NOT separable from the molecule
+    token — it travels as an attribute of the token, and it is *claimed* exactly
+    once, at retirement. Every state below is defined in terms of that claim.
+
+    MINTED    — capacity tokenised. Claim exists, unallocated.
+    RESERVED  — held against a prospective buyer. Claim intact, not committed.
+    MATCHED   — bound to a contract. Claim committed but not delivered.
+    SETTLED   — molecule delivered. Claim live and claimable by the holder.
+    RETIRED   — molecule consumed, claim MADE. The green attribute is spent.
+                Terminal for claim purposes: no path leaves RETIRED for any
+                claimable state (see CLAIMABLE_STATES / the guardrail test).
+    ANNULLED  — the token WAS valid and its claim is now annulled with cause
+                (erroneous retirement, disputed delivery). Terminal, and NOT
+                claimable: annulment corrects the record, it never returns the
+                claim to circulation. Remedy for a genuinely undelivered
+                molecule is a compensating issuance, not resurrection.
+    VOIDED    — issued in error, NEVER valid. Available only before delivery
+                (pre-SETTLED). Once a molecule has settled, the delivery is a
+                fact and the remedy is ANNULLED, not VOIDED.
+    """
     MINTED = "MINTED"
     RESERVED = "RESERVED"
     MATCHED = "MATCHED"
     SETTLED = "SETTLED"
     RETIRED = "RETIRED"
+    ANNULLED = "ANNULLED"
     VOIDED = "VOIDED"
 
 
@@ -66,15 +96,95 @@ class TokenVerificationState(str, Enum):
     AUDITED = "AUDITED"
 
 
-# Valid lifecycle state transitions
+# ── The claim invariant ─────────────────────────────────────────────────────
+# States in which the token still carries a live, claimable green attribute.
+# The whole anti-double-count guarantee reduces to one property:
+#   no path out of RETIRED reaches any of these.
+# tests/test_token_lifecycle.py proves it by graph reachability, so the property
+# survives future edits to the table below.
+CLAIMABLE_STATES: frozenset[TokenLifecycleState] = frozenset({
+    TokenLifecycleState.MINTED,
+    TokenLifecycleState.RESERVED,
+    TokenLifecycleState.MATCHED,
+    TokenLifecycleState.SETTLED,
+})
+
+# Terminal — no exit at all. Mirrors ClaimState.SUPERSEDED in the truth stack.
+TERMINAL_STATES: frozenset[TokenLifecycleState] = frozenset({
+    TokenLifecycleState.ANNULLED,
+    TokenLifecycleState.VOIDED,
+})
+
+# Valid lifecycle state transitions.
+# RETIRED keeps exactly one exit — to ANNULLED — so a genuine error stays
+# correctable. ANNULLED is terminal and not claimable, so correcting the record
+# never puts the green claim back in circulation.
 TOKEN_TRANSITIONS: dict[TokenLifecycleState, list[TokenLifecycleState]] = {
     TokenLifecycleState.MINTED:   [TokenLifecycleState.RESERVED, TokenLifecycleState.VOIDED],
     TokenLifecycleState.RESERVED: [TokenLifecycleState.MATCHED, TokenLifecycleState.MINTED, TokenLifecycleState.VOIDED],
     TokenLifecycleState.MATCHED:  [TokenLifecycleState.SETTLED, TokenLifecycleState.VOIDED],
-    TokenLifecycleState.SETTLED:  [TokenLifecycleState.RETIRED, TokenLifecycleState.VOIDED],
-    TokenLifecycleState.RETIRED:  [TokenLifecycleState.VOIDED],
+    # SETTLED: delivery is a fact — it cannot be "never valid", so no VOIDED.
+    TokenLifecycleState.SETTLED:  [TokenLifecycleState.RETIRED, TokenLifecycleState.ANNULLED],
+    TokenLifecycleState.RETIRED:  [TokenLifecycleState.ANNULLED],
+    TokenLifecycleState.ANNULLED: [],
     TokenLifecycleState.VOIDED:   [],
 }
+
+# ── Authority for the two claim-touching operations ─────────────────────────
+# Annulment of a made claim is the highest-scrutiny action in the platform: it
+# is the only operation that reaches a spent green attribute. Treated as a
+# waiver-class action — named authority, mandatory rationale, segregation of
+# duties, and a durable record.
+#
+# NOTE: /api/v1/tokens maps to the "finance" domain, whose write policy admits
+# business functions {FINANCE_TREASURY, EXECUTIVE} and service types
+# {BANK, DFI, INSURER}. Annulment authority is deliberately NARROWER than that
+# outer gate, and both must pass. REGISTRY is listed here as the intended
+# registry-operator authority but does not currently satisfy the finance domain
+# policy — flagged rather than silently widened in core/domain_authorization.py.
+ANNULMENT_AUTHORITY_FUNCTIONS: frozenset[str] = frozenset({"EXECUTIVE"})
+ANNULMENT_AUTHORITY_SERVICE_TYPES: frozenset[str] = frozenset({"REGISTRY"})
+MIN_ANNULMENT_RATIONALE_CHARS = 20
+
+
+# Accountability columns for the two claim-touching operations. Additive and
+# idempotent — the tokens table predates them and carries no rows to migrate.
+_LIFECYCLE_COLUMNS = {
+    # Pre-existing gap: the shipped tokens table never had these two, so the
+    # retire path would have failed on "no such column: retirement_event_id".
+    "retirement_event_id": "TEXT",
+    "carbon_attribution_event_id": "TEXT",
+    "retired_by": "TEXT",
+    "retired_at": "TEXT",
+    "retirement_evidence_ref": "TEXT",
+    "annulment_event_id": "TEXT",
+    "annulled_by": "TEXT",
+    "annulled_at": "TEXT",
+    "annulment_reason": "TEXT",
+    "annulment_authority_ref": "TEXT",
+    "supersedes_retirement_event_id": "TEXT",
+}
+
+
+def _ensure_lifecycle_columns(conn) -> None:
+    """
+    Add the retirement/annulment accountability columns if absent.
+
+    SQLite only — PRAGMA is not PostgreSQL, and on PostgreSQL the schema is
+    owned by alembic (migration 036), which also declares the lifecycle CHECK
+    constraint and the RLS policy. Running DDL from here would bypass both.
+    """
+    from app.core.db_backend import market_is_postgres
+
+    if market_is_postgres():
+        return
+    existing = {r["name"] for r in conn.execute("PRAGMA table_info(tokens)").fetchall()}
+    if not existing:
+        return  # table not created yet — creator owns the schema
+    for col, coltype in _LIFECYCLE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE tokens ADD COLUMN {col} {coltype}")
+    conn.commit()
 
 
 def _compute_provenance_hash(token_id: str, data: dict) -> str:
@@ -136,21 +246,126 @@ class TokenResponse(BaseModel):
     retirement_event_id: Optional[str] = None
     carbon_attribution_event_id: Optional[str] = None
     verification_state: Optional[str] = "UNVERIFIED"
+    # Retirement / annulment accountability. Annulment fields are populated on
+    # the SAME row as the retirement it corrects — the retirement is never
+    # erased, so a consumption certificate issued against retirement_event_id
+    # is discoverable as superseded by whoever relied on it.
+    retired_by: Optional[str] = None
+    retired_at: Optional[str] = None
+    retirement_evidence_ref: Optional[str] = None
+    annulment_event_id: Optional[str] = None
+    annulled_by: Optional[str] = None
+    annulled_at: Optional[str] = None
+    annulment_reason: Optional[str] = None
+    annulment_authority_ref: Optional[str] = None
+    supersedes_retirement_event_id: Optional[str] = None
 
 
 class TokenTransition(BaseModel):
     new_state: str
-    changed_by: str = "system"
     justification: str = ""
+    # Required to reach RETIRED: retirement asserts the molecule was consumed,
+    # so it must name the evidence for that consumption. Same discipline as
+    # development packages refusing EVIDENCED without evidence_refs.
+    consumption_evidence_ref: Optional[str] = None
+    # Required to reach ANNULLED: who authorised it and on what grounds.
+    annulment_authority_ref: Optional[str] = None
+
+
+def _actor_identity(request) -> tuple[str, dict]:
+    """
+    The acting identity for a lifecycle change. There is no anonymous actor:
+    a state change on the object that carries the green claim is attributable
+    or it does not happen. `require_authenticated` (global dependency) has
+    already populated request.state.user_payload.
+    """
+    payload = getattr(request.state, "user_payload", None) or {}
+    actor = payload.get("sub") or payload.get("user_id") or payload.get("email")
+    if not actor:
+        raise HTTPException(
+            status_code=401,
+            detail="An attributable identity is required to change token lifecycle state",
+        )
+    return str(actor), payload
+
+
+def _guard_retirement(transition: "TokenTransition") -> None:
+    """Retirement is the moment the green claim is made — it must be evidenced."""
+    ref = (transition.consumption_evidence_ref or "").strip()
+    if not ref:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "retirement_evidence_required",
+                "reason": "Retirement asserts the molecule was consumed and claims the "
+                          "green attribute. It requires consumption_evidence_ref.",
+            },
+        )
+
+
+def _guard_annulment(transition: "TokenTransition", payload: dict,
+                     actor: str, retired_by: Optional[str]) -> None:
+    """
+    Waiver-class guard: authority + rationale + segregation of duties.
+    Annulment does not restore the claim; it records that a made claim is void.
+    """
+    fn = payload.get("business_function")
+    st = payload.get("service_type")
+    if fn not in ANNULMENT_AUTHORITY_FUNCTIONS and st not in ANNULMENT_AUTHORITY_SERVICE_TYPES:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "annulment_authority_required",
+                "reason": f"business function {fn!r} / service type {st!r} may not annul a "
+                          f"token claim (allowed functions: {sorted(ANNULMENT_AUTHORITY_FUNCTIONS)}, "
+                          f"service types: {sorted(ANNULMENT_AUTHORITY_SERVICE_TYPES)})",
+            },
+        )
+
+    rationale = (transition.justification or "").strip()
+    if len(rationale) < MIN_ANNULMENT_RATIONALE_CHARS:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "annulment_rationale_required",
+                "reason": f"Annulling a claim requires a written rationale of at least "
+                          f"{MIN_ANNULMENT_RATIONALE_CHARS} characters.",
+            },
+        )
+
+    if not (transition.annulment_authority_ref or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "annulment_authority_ref_required",
+                "reason": "Annulment requires annulment_authority_ref naming the approval "
+                          "under which it is made.",
+            },
+        )
+
+    # Segregation of duties — the party that made the claim cannot unmake it.
+    if retired_by and retired_by == actor:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "annulment_segregation_of_duties",
+                "reason": "The actor who retired this token may not annul the retirement.",
+            },
+        )
 
 
 @router.post("/", response_model=TokenResponse, status_code=201)
-async def create_token(token: TokenCreate, user_id: str = "system"):
+async def create_token(token: TokenCreate, request: Request):
     """
     Tokenise capacity - convert production capacity into tradeable tokens
     EVENT-DRIVEN: Inherits correlation_id from capacity for chain of custody
+
+    Minting is where the green claim enters circulation, so it is attributable
+    for the same reason retirement is — an anonymous origin breaks the chain
+    the retirement guards protect.
     """
     try:
+        user_id, _ = _actor_identity(request)
         conn = get_db_connection()
         cursor = conn.cursor()
         
@@ -288,6 +503,7 @@ async def create_token(token: TokenCreate, user_id: str = "system"):
             "lifecycle_state": row['lifecycle_state'] if 'lifecycle_state' in row.keys() else "MINTED",
             "provenance_hash": row['provenance_hash'] if 'provenance_hash' in row.keys() else provenance_hash,
             "retirement_event_id": row['retirement_event_id'] if 'retirement_event_id' in row.keys() else None,
+            **{c: (row[c] if c in row.keys() else None) for c in _LIFECYCLE_COLUMNS},
             "carbon_attribution_event_id": row['carbon_attribution_event_id'] if 'carbon_attribution_event_id' in row.keys() else None,
             "verification_state": row['verification_state'] if 'verification_state' in row.keys() else "UNVERIFIED",
         }
@@ -391,6 +607,7 @@ async def get_token(token_id: str):
             "lifecycle_state": row['lifecycle_state'] if 'lifecycle_state' in row.keys() else "MINTED",
             "provenance_hash": row['provenance_hash'] if 'provenance_hash' in row.keys() else None,
             "retirement_event_id": row['retirement_event_id'] if 'retirement_event_id' in row.keys() else None,
+            **{c: (row[c] if c in row.keys() else None) for c in _LIFECYCLE_COLUMNS},
             "carbon_attribution_event_id": row['carbon_attribution_event_id'] if 'carbon_attribution_event_id' in row.keys() else None,
             "verification_state": row['verification_state'] if 'verification_state' in row.keys() else "UNVERIFIED",
         }
@@ -403,19 +620,23 @@ async def get_token(token_id: str):
 
 
 @router.post("/{token_id}/transition", status_code=200)
-async def transition_token(token_id: str, transition: TokenTransition, user_id: str = "system"):
+async def transition_token(token_id: str, transition: TokenTransition, request: Request):
     """
-    Advance token lifecycle state.
-    Valid transitions:
-      MINTED -> RESERVED, VOIDED
-      RESERVED -> MATCHED, MINTED (unlist), VOIDED
-      MATCHED -> SETTLED, VOIDED
-      SETTLED -> RETIRED, VOIDED
-      RETIRED -> VOIDED
-      VOIDED -> (terminal)
+    Advance token lifecycle state. See TokenLifecycleState for what each state
+    asserts about the green claim; TOKEN_TRANSITIONS is the authoritative table
+    (this docstring deliberately does not restate it — it drifted before).
+
+    Two operations touch the green claim and carry extra guards:
+      · RETIRED  — makes the claim. Requires consumption_evidence_ref.
+      · ANNULLED — annuls a made claim. Requires named authority, a written
+                   rationale, an authority reference, and an actor other than
+                   the one who retired the token. Does NOT restore the claim.
     """
     try:
+        actor, payload = _actor_identity(request)
+
         conn = get_db_connection()
+        _ensure_lifecycle_columns(conn)
         cursor = conn.cursor()
 
         cursor.execute("SELECT * FROM tokens WHERE id = ?", (token_id,))
@@ -439,53 +660,123 @@ async def transition_token(token_id: str, transition: TokenTransition, user_id: 
         valid_next = TOKEN_TRANSITIONS.get(current_state, [])
         if new_state not in valid_next:
             conn.close()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid transition: {current_state.value} -> {new_state.value}. "
-                       f"Valid: {[s.value for s in valid_next]}"
+            reason = (
+                f"Invalid transition: {current_state.value} -> {new_state.value}. "
+                f"Valid: {[s.value for s in valid_next]}"
             )
+            if current_state == TokenLifecycleState.RETIRED:
+                reason += (
+                    " — the green claim on this token has been made and is spent. "
+                    "An erroneous retirement is corrected by ANNULLED (which does not "
+                    "restore the claim); an undelivered molecule is remedied by a "
+                    "compensating issuance."
+                )
+            raise HTTPException(status_code=400, detail=reason)
+
+        # ── Claim-touching guards ───────────────────────────────────────────
+        retired_by = row["retired_by"] if "retired_by" in row.keys() else None
+        try:
+            if new_state == TokenLifecycleState.RETIRED:
+                _guard_retirement(transition)
+            elif new_state == TokenLifecycleState.ANNULLED:
+                _guard_annulment(transition, payload, actor, retired_by)
+        except HTTPException:
+            conn.close()
+            raise
 
         now = datetime.now(timezone.utc).isoformat()
-
-        # Update lifecycle state
-        cursor.execute(
-            "UPDATE tokens SET lifecycle_state = ? WHERE id = ?",
-            (new_state.value, token_id)
+        prior_retirement_event_id = (
+            row["retirement_event_id"] if "retirement_event_id" in row.keys() else None
         )
 
-        # If retiring, store retirement event id
-        if new_state == TokenLifecycleState.RETIRED:
-            retirement_event_id = str(uuid.uuid4())
-            cursor.execute(
-                "UPDATE tokens SET retirement_event_id = ? WHERE id = ?",
-                (retirement_event_id, token_id)
-            )
+        # ── Event FIRST, projection second ──────────────────────────────────
+        # This module is event-sourced: the event is the fact, the tokens row is
+        # a read model. append_event() opens its OWN connection, so it must not
+        # run inside an open write transaction on `conn` — SQLite permits one
+        # writer, and the append fails with "database is locked". create_token
+        # already orders it this way; transition_token did not, which meant no
+        # transition that reached the UPDATE could ever complete.
+        retirement_event_id = (
+            str(uuid.uuid4()) if new_state == TokenLifecycleState.RETIRED else None
+        )
+        annulment_event_id = (
+            str(uuid.uuid4()) if new_state == TokenLifecycleState.ANNULLED else None
+        )
 
-        # Emit event
         correlation_id = row['correlation_id'] if 'correlation_id' in row.keys() else f"TOK-{token_id[:8]}"
+        event_data = {
+            "from_state": current_state.value,
+            "to_state": new_state.value,
+            # append_event() promotes exactly these two payload keys into the
+            # dedicated platform_events.previous_state / .new_state columns
+            # (note the asymmetric names it looks for), so a lifecycle audit
+            # does not have to parse payload JSON. from_state/to_state above
+            # are kept for existing consumers.
+            "previous_state": current_state.value,
+            "new_status": new_state.value,
+            "changed_by": actor,
+            "justification": transition.justification,
+        }
+        if new_state == TokenLifecycleState.RETIRED:
+            # The retirement event id IS the consumption certificate reference.
+            event_data["retirement_event_id"] = retirement_event_id
+            event_data["consumption_evidence_ref"] = transition.consumption_evidence_ref
+        elif new_state == TokenLifecycleState.ANNULLED:
+            # Append-only correction: the retirement record is NOT erased. The
+            # annulment supersedes it, so anything issued at retirement (the
+            # consumption certificate) is discoverable as no longer relied upon.
+            event_data.update({
+                "annulment_event_id": annulment_event_id,
+                "annulment_authority_ref": transition.annulment_authority_ref,
+                "supersedes_retirement_event_id": prior_retirement_event_id,
+                "claim_restored": False,
+            })
         append_event(
             event_type=f"token.{new_state.value.lower()}",
             aggregate_type="token",
             aggregate_id=token_id,
-            data={
-                "from_state": current_state.value,
-                "to_state": new_state.value,
-                "changed_by": transition.changed_by,
-                "justification": transition.justification,
-            },
-            user_id=transition.changed_by,
+            data=event_data,
+            user_id=actor,
             correlation_id=correlation_id,
         )
+
+        # ── Projection ──────────────────────────────────────────────────────
+        cursor.execute(
+            "UPDATE tokens SET lifecycle_state = ? WHERE id = ?",
+            (new_state.value, token_id)
+        )
+        if new_state == TokenLifecycleState.RETIRED:
+            cursor.execute(
+                "UPDATE tokens SET retirement_event_id = ?, retired_by = ?, "
+                "retired_at = ?, retirement_evidence_ref = ? WHERE id = ?",
+                (retirement_event_id, actor, now,
+                 (transition.consumption_evidence_ref or "").strip(), token_id)
+            )
+        elif new_state == TokenLifecycleState.ANNULLED:
+            cursor.execute(
+                "UPDATE tokens SET annulment_event_id = ?, annulled_by = ?, "
+                "annulled_at = ?, annulment_reason = ?, annulment_authority_ref = ?, "
+                "supersedes_retirement_event_id = ? WHERE id = ?",
+                (annulment_event_id, actor, now, transition.justification.strip(),
+                 (transition.annulment_authority_ref or "").strip(),
+                 prior_retirement_event_id, token_id)
+            )
 
         conn.commit()
         conn.close()
 
-        return {
+        result = {
             "token_id": token_id,
             "previous_state": current_state.value,
             "new_state": new_state.value,
             "transitioned_at": now,
+            "changed_by": actor,
+            "claim_claimable": new_state in CLAIMABLE_STATES,
         }
+        if annulment_event_id:
+            result["annulment_event_id"] = annulment_event_id
+            result["claim_restored"] = False
+        return result
 
     except HTTPException:
         raise

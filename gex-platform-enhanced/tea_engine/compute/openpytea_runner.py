@@ -31,6 +31,12 @@ except Exception:  # pragma: no cover
     openpytea = None  # type: ignore
     _HAS_OPENPYTEA = False
 
+if _HAS_OPENPYTEA:
+    # Completes openpytea's CEPCI series where its own cost correlations
+    # reference years its data file omits (see cepci_extension for the why).
+    # Import for side effect, before any Equipment is constructed.
+    from tea_engine import cepci_extension  # noqa: F401
+
 
 def _stub_allowed() -> bool:
     return os.getenv("TEA_STUB", "0") == "1"
@@ -108,10 +114,56 @@ def _nameplate_kg_per_day(req: TEAComputeRequest) -> float:
     return _nameplate_t_per_year(req) * 1000.0 / 365.0
 
 
+def _correlation_index() -> dict[tuple[str, str], None]:
+    """(category, type) pairs OpenPyTEA can actually cost, from its own CSV."""
+    import csv
+    import glob
+    import os
+
+    import openpytea
+
+    pkg = os.path.dirname(openpytea.__file__)
+    matches = glob.glob(os.path.join(pkg, "**", "cost_correlations.csv"), recursive=True)
+    if not matches:
+        return {}
+    with open(matches[0]) as fh:
+        return {(r["category"], r["type"]): None for r in csv.DictReader(fh)}
+
+
+def _validate_equipment(units) -> None:
+    """Reject an uncostable equipment spec BEFORE OpenPyTEA raises KeyError.
+
+    OpenPyTEA validates `material` itself and raises ValueError with the valid
+    options (→ 422). It does NOT do the same for category/type: an unknown pair
+    escapes as a bare KeyError telling the caller to 'add a row to the CSV' —
+    engine-internal advice that reached the API as an opaque 500. Same class of
+    bad input, so it gets the same clean answer.
+    """
+    index = _correlation_index()
+    if not index:
+        return  # cannot introspect — let OpenPyTEA speak for itself
+
+    for u in units:
+        if (u.category, u.equipment_type) in index:
+            continue
+        valid_types = sorted(t for c, t in index if c == u.category)
+        if valid_types:
+            raise ValueError(
+                f"Unknown equipment_type {u.equipment_type!r} for category "
+                f"{u.category!r} (unit {u.id!r}). Valid options are: {valid_types}"
+            )
+        raise ValueError(
+            f"Unknown equipment category {u.category!r} (unit {u.id!r}). "
+            f"Valid options are: {sorted({c for c, _ in index})}"
+        )
+
+
 def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float]:
     """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop)."""
     from openpytea.equipment import Equipment
     from openpytea.plant import Plant
+
+    _validate_equipment(units)
 
     equipment = [
         Equipment(

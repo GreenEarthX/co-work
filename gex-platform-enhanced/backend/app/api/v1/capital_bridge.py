@@ -327,10 +327,17 @@ class CapitalBridgeCompute(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    """
+    Slice-5 connection — SQLite or PostgreSQL by configuration
+    (CAPITAL_DB_BACKEND). The SQL in this module is unchanged; the shim
+    translates placeholders and sets the RLS tenant context.
+    """
+    from app.core.db_backend import capital_connection, capital_is_postgres
+
+    conn = capital_connection()
+    if not capital_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -341,7 +348,15 @@ def init_db():
     """
     Unified DB init. Creates all 7 CapitalBridge tables in gex_platform.db
     alongside projects, auth_users, fuel_catalog.
+
+    SQLite only. On PostgreSQL the schema is owned by alembic (migration 035),
+    which also enables RLS — CREATE TABLE IF NOT EXISTS here would either no-op
+    or create unprotected tables with no policies.
     """
+    from app.core.db_backend import capital_is_postgres
+
+    if capital_is_postgres():
+        return
     conn = sqlite3.connect(DB_PATH)
 
     # ── project_control: full CONTROL sheet (one row per project) ──────────
@@ -580,16 +595,46 @@ def get_fuel_defaults(fuel_type: FuelType, db: sqlite3.Connection = Depends(get_
 
 def _compute_production(control: dict) -> dict:
     """
-    H2 annual production = MW × 8760 × availability ÷ (SEC × 1000)  [tonnes]
-    Product annual production = H2 × yield ratio
-    Matches Excel CONTROL R16, R18.
+    Annual production and revenue from the CONTROL sheet inputs.
+
+        energy   = MW × 8760 h × availability            [MWh/yr]
+        energy   × 1000                                  [kWh/yr]
+        H2       = kWh ÷ SEC(kWh/kg)                     [kg/yr]
+        H2       ÷ 1000                                  [t/yr]
+        product  = H2 × yield ratio                      [t/yr]
+        revenue  = product × offtake price               [EUR/yr]
+
+    Reduces to `MW × 8760 × availability ÷ SEC` tonnes of H2.
+
+    FIXED 2026-08-08 — was wrong by a factor of 1000.
+    The previous implementation divided MWh by a kWh/kg figure without
+    converting, then divided by 1000 again:
+
+        h2_annual   = (mw * 8760 * avail) / sec     # labelled "kg", was not
+        h2_annual_t = h2_annual / 1000
+
+    A 300 MW plant at 95% with SEC 55 therefore reported 45.4 t/yr of hydrogen
+    and EUR 160k of revenue, instead of 45,392.7 t/yr and ~EUR 160M. The error
+    propagated into EBITDA and every capital-stack figure downstream. The old
+    docstring carried the same mistake (`÷ (SEC × 1000)`), so the intent was
+    wrong rather than the transcription.
+
+    Each intermediate now names its unit, because the original error was
+    exactly a conflation of MWh with kWh in an unnamed intermediate.
+
+    No stored data needed reconciling: these values are DERIVED on read
+    (`d.update(_compute_production(d))`), never persisted.
     """
     mw    = control["nameplate_mw"]
     avail = control["availability_factor"]
     sec   = control["specific_energy_kwh_per_kg_h2"]  # kWh / kg
     yield_ratio = control["product_yield_t_per_t_h2"]
-    h2_annual = (mw * 8760.0 * avail) / (sec)      # kg H2 / yr
-    h2_annual_t = h2_annual / 1000.0               # tonnes H2 / yr
+
+    energy_mwh = mw * 8760.0 * avail                 # MWh / yr
+    energy_kwh = energy_mwh * 1000.0                 # kWh / yr
+    h2_annual_kg = energy_kwh / sec                  # kg H2 / yr
+    h2_annual_t = h2_annual_kg / 1000.0              # t H2 / yr
+
     product_annual_t = h2_annual_t * yield_ratio
     price = control["offtake_price_eur_per_t"]
     revenue = product_annual_t * price

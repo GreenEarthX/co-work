@@ -8,6 +8,7 @@
     "audit:ways": "node scripts/audit-causal-ways.mjs",
     "test": "vitest run",
     "build": "node scripts/audit-menu.mjs --check && node scripts/audit-causal-ways.mjs --check && tsc && vite build",
+    "build:docker": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css}\""

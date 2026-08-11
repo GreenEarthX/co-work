@@ -21,9 +21,15 @@ DB_PATH = settings.SQLITE_DB_PATH
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """
+    Slice-6b-2 connection — SQLite or PostgreSQL by configuration
+    (EVENTSTORE_DB_BACKEND).
+    """
+    from app.core.db_backend import PLATFORM_ADMIN, eventstore_connection
+
+    # Explicit admin: the audit ledger must be able to record an event for any
+    # project, including one the acting tenant cannot read.
+    return eventstore_connection(company_id=PLATFORM_ADMIN)
 
 
 def _json_dump(value: Any) -> str:
@@ -40,11 +46,33 @@ def _row_json(row: sqlite3.Row, key: str, fallback: Any) -> Any:
         return fallback
 
 
+# Arbitrary but FIXED application-wide key for the append lock. Any other
+# advisory-lock user must not reuse it.
+_APPEND_LOCK_KEY = 8_143_552_901
+
+
+def _is_postgres() -> bool:
+    from app.core.db_backend import eventstore_is_postgres
+
+    return eventstore_is_postgres()
+
+
 def _table_columns(conn: sqlite3.Connection) -> set[str]:
     return {row["name"] for row in conn.execute("PRAGMA table_info(platform_events)")}
 
 
 def _ensure_platform_event_schema(conn: sqlite3.Connection) -> None:
+    """
+    Additive SQLite migrations for the ledger.
+
+    SQLite only — on PostgreSQL the schema is owned by alembic (migration 039),
+    which also declares the RLS policy and the unique constraint that makes a
+    forked chain impossible. Running PRAGMA/ALTER from here would bypass both.
+    """
+    from app.core.db_backend import eventstore_is_postgres
+
+    if eventstore_is_postgres():
+        return
     columns = _table_columns(conn)
     if "correlation_id" not in columns:
         conn.execute("ALTER TABLE platform_events ADD COLUMN correlation_id TEXT")
@@ -62,6 +90,18 @@ def _ensure_platform_event_schema(conn: sqlite3.Connection) -> None:
 
 
 def init_event_store() -> None:
+    """
+    Create the SQLite event ledger.
+
+    SQLite ONLY. On PostgreSQL the schema is owned by alembic (migration 039),
+    which also declares the RLS policy and the UNIQUE constraint on
+    previous_hash that makes a forked chain impossible. This DDL is SQLite
+    dialect (AUTOINCREMENT) and errors outright on PostgreSQL.
+    """
+    from app.core.db_backend import eventstore_is_postgres
+
+    if eventstore_is_postgres():
+        return
     conn = _get_conn()
     try:
         conn.execute(
@@ -172,6 +212,25 @@ def _append_event_row(
     conn = _get_conn()
     try:
         _ensure_platform_event_schema(conn)
+
+        # ── Serialise appenders ─────────────────────────────────────────────
+        # The chain is GLOBAL and this is a read-then-write: read the last
+        # event_hash, then INSERT it as previous_hash. Without a lock, two
+        # concurrent appends read the same predecessor and FORK the chain.
+        #
+        # SQLite hides this by serialising writers. PostgreSQL does not —
+        # measured on 12 concurrent appends BEFORE this lock existed: 3 were
+        # rejected by the unique constraint (i.e. events LOST) and 1 fork still
+        # got through at the NULL root, because SQL UNIQUE permits many NULLs.
+        # A rejected audit event is as unacceptable as a forked one.
+        #
+        # A transaction-scoped advisory lock serialises only event appends and
+        # releases automatically on commit or rollback. The unique constraint
+        # and the partial root index stay as backstops — this is the mechanism
+        # that makes them never fire.
+        if _is_postgres():
+            conn.execute("SELECT pg_advisory_xact_lock(%s)" % _APPEND_LOCK_KEY)
+
         last_row = conn.execute(
             "SELECT event_hash FROM platform_events ORDER BY id DESC LIMIT 1"
         ).fetchone()

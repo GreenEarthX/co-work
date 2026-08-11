@@ -16,6 +16,8 @@ import os
 from typing import Any
 
 import httpx
+
+from app.services.engine_auth import engine_auth_headers
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.v1.routes_entitlements import require_finance_entitlement
@@ -28,12 +30,17 @@ ENGINE_TIMEOUT = 30.0
 
 async def _call_engine(path: str, method: str = "GET", json_data=None):
     url = f"{ENGINE_URL}{path}"
+    # The engine verifies platform JWTs (ADR 2026-07-06). Every outbound call
+    # must carry an identity or it is refused — an unauthenticated proxy call
+    # surfaces to the user as "engine unavailable", which is indistinguishable
+    # from the engine being down and sends you looking in the wrong place.
+    headers = engine_auth_headers()
     try:
         async with httpx.AsyncClient(timeout=ENGINE_TIMEOUT) as client:
             if method == "POST":
-                resp = await client.post(url, json=json_data)
+                resp = await client.post(url, json=json_data, headers=headers)
             else:
-                resp = await client.get(url)
+                resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=f"Pricing engine error: {resp.text}")
             return resp.json()

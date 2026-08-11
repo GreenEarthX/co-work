@@ -144,8 +144,10 @@ class DSCRAggregator:
         total_ds = sum(p.debt_service for p in periods)
 
         heatmap = self._build_heatmap(base_dscr, total_revenue, total_opex, total_ds)
-        sensitivity = self._build_sensitivity_rows(base_dscr)
-        breakevens = self._build_breakevens(base_dscr)
+        sensitivity = self._build_sensitivity_rows(
+            base_dscr, total_revenue, total_opex, total_ds)
+        breakevens = self._build_breakevens(
+            base_dscr, total_revenue, total_opex, total_ds)
         monthly = self._build_monthly_series(periods)
 
         ds_source = "contract_lines"
@@ -238,6 +240,37 @@ class DSCRAggregator:
 
     # ── Heatmap grid ──────────────────────────────────────────────
 
+    # ── Sensitivity: delegated to the single shared model ─────────
+    # These three builders previously carried their own additive grid and two
+    # hand-tuned elasticity tables whose power-price sign disagreed with the
+    # grid's. Everything now derives from app/services/dscr_sensitivity.py so
+    # the rows are literally slices of the surface.
+
+    def _sensitivity_params(
+        self,
+        total_revenue: Decimal,
+        total_opex: Decimal,
+        total_ds: Decimal,
+    ) -> dict:
+        """
+        Map real cashflow aggregates onto the sensitivity model's terms.
+
+        `total_opex` arrives negative in the projection convention; the model
+        wants positive cost terms. The power/non-power split is an assumption
+        (power dominates e-fuel OPEX) and is surfaced as `power_opex_share` so a
+        caller can override it rather than discover it by reading this code.
+        """
+        from app.services.dscr_sensitivity import normalise_params
+
+        opex_total = abs(float(total_opex))
+        power_share = float(getattr(self, "power_opex_share", 0.73))
+        return normalise_params({
+            "revenue": float(total_revenue),
+            "opex_power": opex_total * power_share,
+            "opex_other": opex_total * (1.0 - power_share),
+            "debt_service": float(total_ds),
+        })
+
     def _build_heatmap(
         self,
         base_dscr: float,
@@ -245,134 +278,76 @@ class DSCRAggregator:
         total_opex: Decimal,
         total_ds: Decimal,
     ) -> list[HeatmapCell]:
-        power_deltas = [-20, -10, 0, 10, 20]
-        eff_deltas = [5.0, 2.5, 0.0, -2.5, -5.0]
-        cells = []
+        from app.services.dscr_sensitivity import surface
 
-        for pd in power_deltas:
-            for ed in eff_deltas:
-                if total_ds > ZERO and total_revenue != ZERO:
-                    price_factor = Decimal(1) + Decimal(str(pd)) / Decimal(100)
-                    eff_factor = Decimal(1) + Decimal(str(ed)) / Decimal(100)
-                    stressed_rev = total_revenue * price_factor * eff_factor
-                    stressed_cfads = stressed_rev + total_opex
-                    dscr = float(stressed_cfads / total_ds)
-                else:
-                    power_effect = (pd / 10) * (-0.07)
-                    eff_effect = (ed / 2.5) * 0.06
-                    dscr = max(0.60, base_dscr + power_effect + eff_effect)
+        if total_ds <= ZERO or total_revenue == ZERO:
+            # No cashflow basis: return nothing rather than a plausible-looking
+            # grid. A fabricated surface is what a credit analyst cannot detect.
+            return []
 
-                cells.append(HeatmapCell(
-                    power_delta=pd,
-                    eff_delta=ed,
-                    dscr=round(max(0.60, dscr), 2),
-                ))
+        p = self._sensitivity_params(total_revenue, total_opex, total_ds)
+        return [
+            HeatmapCell(
+                power_delta=c["powerDelta"],
+                eff_delta=c["effDelta"],
+                dscr=round(c["dscr"], 2),
+            )
+            for c in surface(p)
+        ]
 
-        return cells
+    def _build_sensitivity_rows(
+        self,
+        base: float,
+        total_revenue: Decimal = ZERO,
+        total_opex: Decimal = ZERO,
+        total_ds: Decimal = ZERO,
+    ) -> list[SensitivityRow]:
+        from app.services.dscr_sensitivity import single_factor_rows
 
-    # ── Sensitivity rows ──────────────────────────────────────────
+        if total_ds <= ZERO or total_revenue == ZERO:
+            return []
 
-    def _build_sensitivity_rows(self, base: float) -> list[SensitivityRow]:
-        elasticities = {
-            "power_price":    (
-                "Power Price", "€/MWh",
-                ["-20%", "-10%", "Base", "+10%", "+20%"],
-                [-0.14, -0.07, 0, 0.07, 0.14],
-            ),
-            "efficiency":     (
-                "System Efficiency", "%",
-                ["-5pp", "-2.5pp", "Base", "+2.5pp", "+5pp"],
-                [0.18, 0.09, 0, -0.06, -0.10],
-            ),
-            "capex":          (
-                "CapEx", "€M",
-                ["-20%", "-10%", "Base", "+10%", "+20%"],
-                [0.12, 0.06, 0, -0.07, -0.15],
-            ),
-            "cod_delay":      (
-                "COD Delay", "months",
-                ["-6m", "-3m", "Base", "+3m", "+6m"],
-                [0.05, 0.02, 0, -0.06, -0.13],
-            ),
-            "curtailment":    (
-                "Curtailment", "%",
-                ["-20%", "-10%", "Base", "+10%", "+20%"],
-                [0.08, 0.04, 0, -0.05, -0.10],
-            ),
-            "logistics_cost": (
-                "Logistics Cost", "€/kg",
-                ["-20%", "-10%", "Base", "+10%", "+20%"],
-                [0.04, 0.02, 0, -0.04, -0.08],
-            ),
-            "interest_rate":  (
-                "Interest Rate", "bps",
-                ["-150bps", "-75bps", "Base", "+75bps", "+150bps"],
-                [0.16, 0.08, 0, -0.08, -0.17],
-            ),
-        }
-
-        rows = []
-        for factor, (label, unit, delta_labels, deltas) in elasticities.items():
-            rows.append(SensitivityRow(
-                factor=factor,
-                label=label,
-                unit=unit,
-                delta_labels=delta_labels,
-                values=[round(max(0.60, base + d), 2) for d in deltas],
-            ))
-        return rows
+        p = self._sensitivity_params(total_revenue, total_opex, total_ds)
+        return [
+            SensitivityRow(
+                factor=r["factor"],
+                label=r["label"],
+                unit=r["unit"],
+                delta_labels=r["deltaLabels"],
+                values=[round(v, 2) for v in r["values"]],
+            )
+            for r in single_factor_rows(p)
+        ]
 
     # ── Breakeven metrics ─────────────────────────────────────────
 
-    def _build_breakevens(self, base: float) -> list[BreakevenMetric]:
-        floor = float(self.covenant_floor)
-        headroom = base - floor
-        breached = base < floor
+    def _build_breakevens(
+        self,
+        base: float,
+        total_revenue: Decimal = ZERO,
+        total_opex: Decimal = ZERO,
+        total_ds: Decimal = ZERO,
+    ) -> list[BreakevenMetric]:
+        """
+        Break-evens are SOLVED against the same model, not derived from assumed
+        'DSCR per unit' coefficients. The old constants (0.007/pct power,
+        0.02/pp efficiency…) encoded a linear world and disagreed with the grid.
+        """
+        from app.services.dscr_sensitivity import break_even_metrics
 
-        dscr_per_pct_power = 0.007
-        dscr_per_pp_eff = 0.02
-        dscr_per_pct_capex = 0.015
-        dscr_per_bps = 0.08 / 75
+        if total_ds <= ZERO or total_revenue == ZERO:
+            return []
 
-        max_power_pct = headroom / dscr_per_pct_power if not breached else 0
-        base_power = 65.0
-        floor_power = base_power * (1 + max_power_pct / 100)
-
-        min_eff_drop = headroom / dscr_per_pp_eff if not breached else 0
-        base_eff = 72.0
-        min_eff = base_eff - min_eff_drop
-
-        max_capex_pct = headroom / dscr_per_pct_capex if not breached else 0
-        max_rate_bps = int(headroom / dscr_per_bps) if not breached else 0
-
+        p = self._sensitivity_params(total_revenue, total_opex, total_ds)
         return [
             BreakevenMetric(
-                label="Floor power price",
-                value=f"€{floor_power:.1f}/MWh",
-                description=f"Max power price before DSCR < {floor}x",
-                breached=breached,
-            ),
-            BreakevenMetric(
-                label="Min system efficiency",
-                value=f"{min_eff:.1f}%",
-                description=f"Minimum efficiency before DSCR < {floor}x",
-                breached=breached,
-            ),
-            BreakevenMetric(
-                label="Max CapEx overrun",
-                value=f"+{max_capex_pct:.0f}%" if not breached else "Already breached",
-                description=f"Maximum CapEx overrun before DSCR < {floor}x",
-                breached=breached,
-            ),
-            BreakevenMetric(
-                label="Max rate rise",
-                value=f"+{max_rate_bps}bps" if not breached else "Already breached",
-                description=f"Maximum rate increase before DSCR < {floor}x",
-                breached=breached,
-            ),
+                label=m["label"],
+                value=m["value"],
+                description=m["description"],
+                breached=m["breached"],
+            )
+            for m in break_even_metrics(p, float(self.covenant_floor))
         ]
-
-    # ── Monthly series ────────────────────────────────────────────
 
     def _build_monthly_series(self, periods: list[PeriodDSCR]) -> list[dict]:
         return [

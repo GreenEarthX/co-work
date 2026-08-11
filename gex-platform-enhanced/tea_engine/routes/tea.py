@@ -10,7 +10,16 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from tea_engine.auth.gex_jwt import AuthenticatedUser, get_current_user
+# TEA is an internal compute service: it is called BOTH by a signed-in user
+# (via the platform's /api/v1/tea proxy, which forwards their bearer) AND by
+# the platform itself machine-to-machine with a service token. Using the
+# user-only dependency here refused every backend call with
+# "service token not accepted on user endpoint" — which surfaced to the user
+# as "TEA engine unavailable".
+from tea_engine.auth.gex_jwt import (
+    AuthenticatedUser,
+    get_current_user_or_service as get_current_user,
+)
 from tea_engine.compute import run_sensitivity, run_tea
 from tea_engine.models import TEAComputeRequest, TEAResult, TEASensitivityResult
 import tea_engine.regimes as regimes
@@ -38,6 +47,16 @@ def compute(
         return run_tea(request)
     except ValueError as e:        # undefined / scaffold-only process function
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    except KeyError as e:
+        # OpenPyTEA raises bare KeyError for inputs it cannot resolve (an
+        # unknown category/type pair, a cost_year outside the CEPCI series).
+        # These are BAD INPUT, not server faults — they were surfacing as
+        # opaque 500s. _validate_equipment catches the common cases first; this
+        # is the backstop so no input can produce a 500.
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"OpenPyTEA could not resolve the equipment specification: {e}",
+        ) from e
     except NotImplementedError as e:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
     except RuntimeError as e:
@@ -105,6 +124,11 @@ def sensitivity(
         return run_sensitivity(request)
     except ValueError as e:        # undefined / scaffold-only process function
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    except KeyError as e:          # same bad-input class as /compute
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"OpenPyTEA could not resolve the equipment specification: {e}",
+        ) from e
     except NotImplementedError as e:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
     except RuntimeError as e:

@@ -30,6 +30,29 @@ logger = logging.getLogger("gex.css")
 
 _DB_PATH = settings.SQLITE_DB_PATH
 
+def _gov_conn(db_path: str):
+    """
+    Slice-6b-4 connection — SQLite or PostgreSQL by configuration
+    (GOVERNANCE_DB_BACKEND).
+
+    `db_path` is honoured only on SQLite; these functions accept it for
+    testability and it has no meaning against PostgreSQL.
+    """
+    from app.core.db_backend import (PLATFORM_ADMIN, governance_connection,
+                                     governance_is_postgres)
+
+    if governance_is_postgres():
+        # Explicit admin: these rules are read WHILE deciding whether an
+        # action is permitted, so they cannot be filtered by that decision.
+        return governance_connection(company_id=PLATFORM_ADMIN)
+    import sqlite3 as _s
+
+    conn = _s.connect(db_path)
+    conn.row_factory = _s.Row
+    return conn
+
+
+
 # In production: HSM/KMS-backed private keys. Dev: HMAC-SHA256 with per-user secret.
 _DEV_MASTER_SECRET = b"gex_dev_signing_secret_2026_change_in_production"
 
@@ -62,7 +85,15 @@ class SignedCommitment:
 # ═══════════════════════════════════════════════════════════════
 
 def init_css_db(db_path: str = _DB_PATH) -> None:
-    con = sqlite3.connect(db_path)
+    from app.core.db_backend import governance_is_postgres
+
+    # SQLite only. On PostgreSQL the schema is owned by alembic (migration 042),
+    # which also declares the CHECK constraints and the four distinct RLS policy
+    # shapes. This function uses executescript(), which does not exist on the
+    # PostgreSQL adapter, so it would error rather than silently no-op.
+    if governance_is_postgres():
+        return
+    con = _gov_conn(db_path)
     cur = con.cursor()
     cur.executescript("""
         CREATE TABLE IF NOT EXISTS commitment_records (
@@ -179,7 +210,7 @@ def sign_commitment(
     record_hash = _hash_record(partial)
 
     try:
-        con = sqlite3.connect(db_path)
+        con = _gov_conn(db_path)
         cur = con.cursor()
         cur.execute(
             """INSERT INTO commitment_records
@@ -220,8 +251,7 @@ def countersign(
     """
     Counterparty acceptance signature. Required for bilateral commitments (trades, PPAs).
     """
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
 
     cur.execute("SELECT * FROM commitment_records WHERE commitment_id = ?", (commitment_id,))
@@ -257,8 +287,7 @@ def verify_commitment(commitment_id: str, db_path: str = _DB_PATH) -> dict:
     Verify all signatures and record hash for a commitment.
     Used by CISO and audit trail views.
     """
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
     cur.execute("SELECT * FROM commitment_records WHERE commitment_id = ?", (commitment_id,))
     rec = cur.fetchone()
@@ -303,8 +332,7 @@ def verify_commitment(commitment_id: str, db_path: str = _DB_PATH) -> dict:
 
 def get_commitments_for_project(project_id: str, db_path: str = _DB_PATH) -> list[dict]:
     try:
-        con = sqlite3.connect(db_path)
-        con.row_factory = sqlite3.Row
+        con = _gov_conn(db_path)
         cur = con.cursor()
         cur.execute(
             "SELECT * FROM commitment_records WHERE project_id = ? ORDER BY created_at DESC",

@@ -9,6 +9,8 @@ GET /api/v1/projects/visible
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
@@ -17,6 +19,7 @@ from app.core.project_registry import (
     PROJECT_ACCESS_PROFILES,
     ProjectAccessProfile,
     company_slug,
+    get_effective_context,
     visible_project_ids_for_company,
 )
 
@@ -217,15 +220,18 @@ class VisibleProject(BaseModel):
     molecule: str
     location: str
     country: str
-    lat: float
-    lng: float
+    # Optional because runtime-created projects (the /projects/new on-ramp)
+    # never collected coordinates or a blurb. Returning null is honest — a
+    # default of 0.0/0.0 would drop a map pin in the Gulf of Guinea.
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     capacity_mtpd: float
     capacity_mt_year: int
     capex_eur: float
     status: str
     phase: str
-    completion_date: str
-    description: str
+    completion_date: str = ""
+    description: str = ""
     owner_company: str
     associated_companies: list[str]
     jurisdiction: str
@@ -243,16 +249,47 @@ class ProjectProfileIntelligence(BaseModel):
 
 
 def _profile_to_visible(profile: ProjectAccessProfile) -> VisibleProject | None:
+    """
+    Render a project for the map/list.
+
+    Static demo projects come from _PROJECT_META. Runtime projects have no
+    entry there — before the collision was resolved they were simply dropped,
+    so a project created through /projects/new never appeared in the very list
+    it was created for. They are now built from the canonical PostgreSQL row,
+    which carries name/molecule/location/country/capacity/capex/status.
+    """
     meta = _PROJECT_META.get(profile.project_id)
-    if not meta:
+    if meta:
+        return VisibleProject(
+            id=profile.project_id,
+            owner_company=profile.owner_company_name,
+            associated_companies=list(profile.associated_company_names),
+            jurisdiction=profile.jurisdiction,
+            capacity_mt_year=capacity_mtpd_to_mt_year(meta["capacity_mtpd"]),
+            **meta,
+        )
+
+    from app.core.projects_store import fetch_project
+
+    row = fetch_project(profile.project_id)
+    if not row:
         return None
+    capacity = float(row.get("capacity_mtpd") or 0.0)
+    ctx = get_effective_context(profile.project_id)
     return VisibleProject(
         id=profile.project_id,
+        name=row["project_name"],
+        molecule=row.get("molecule") or "",
+        location=row.get("location") or "",
+        country=row.get("country") or "",
+        capacity_mtpd=capacity,
+        capacity_mt_year=capacity_mtpd_to_mt_year(capacity),
+        capex_eur=float(row.get("capex_eur") or 0.0),
+        status=row.get("status") or "development",
+        phase=ctx.phase if ctx else "development",
         owner_company=profile.owner_company_name,
         associated_companies=list(profile.associated_company_names),
         jurisdiction=profile.jurisdiction,
-        capacity_mt_year=capacity_mtpd_to_mt_year(meta["capacity_mtpd"]),
-        **meta,
     )
 
 
@@ -277,6 +314,15 @@ def _visible_ids_from_jwt(payload: dict) -> list[str]:
                 visible.append(pid)
                 continue
         if is_associated:
+            visible.append(pid)
+
+    # Runtime-created projects owned by this company. The loop above only walks
+    # the STATIC registry, so without this a project created through the
+    # on-ramp was invisible to its own creator.
+    from app.core.projects_store import project_ids_owned_by
+
+    for pid in project_ids_owned_by(company_id):
+        if pid not in visible:
             visible.append(pid)
 
     return visible
@@ -540,11 +586,9 @@ async def patch_project_context(
     Every field change is written to the append-only project_context_events
     audit table (who, what, old → new, when).
     """
-    import sqlite3
-    from datetime import datetime, timezone
     from app.core.project_registry import (
         VALID_FINANCING_MODELS, VALID_PHASES, VALID_POWER_MODELS,
-        _DB_PATH, ensure_context_tables, get_effective_context, get_project_profile,
+        get_effective_context, get_project_profile,
         normalize_project_id,
     )
 
@@ -580,34 +624,29 @@ async def patch_project_context(
     current = get_effective_context(project_id)
     normalized = normalize_project_id(project_id)
     actor = payload.get("email", "unknown")
-    now = datetime.now(timezone.utc).isoformat()
     new_ctx = {
         "power_model": updates.get("power_model", current.power_model if current else "GRID_CONNECTED"),
         "phase": updates.get("phase", current.phase if current else "development"),
         "financing_model": updates.get("financing_model", current.financing_model if current else "PROJECT_FINANCE"),
     }
 
-    conn = sqlite3.connect(_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    ensure_context_tables(conn)
-    conn.execute(
-        """INSERT INTO project_context (project_id, power_model, phase, financing_model, updated_by, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(project_id) DO UPDATE SET
-             power_model=excluded.power_model, phase=excluded.phase,
-             financing_model=excluded.financing_model,
-             updated_by=excluded.updated_by, updated_at=excluded.updated_at""",
-        (normalized, new_ctx["power_model"], new_ctx["phase"], new_ctx["financing_model"], actor, now),
+    # Canonical store (PostgreSQL, migration 033). The state write and its
+    # audit events commit together — see projects_store.update_context.
+    from app.core.projects_store import update_context
+
+    changes = [
+        (field, getattr(current, field, None) if current else None, new_value)
+        for field, new_value in updates.items()
+        if (getattr(current, field, None) if current else None) != new_value
+    ]
+    now = update_context(
+        project_id=normalized,
+        power_model=new_ctx["power_model"],
+        phase=new_ctx["phase"],
+        financing_model=new_ctx["financing_model"],
+        actor=actor,
+        changes=changes,
     )
-    for field, new_value in updates.items():
-        old_value = getattr(current, field, None) if current else None
-        if old_value != new_value:
-            conn.execute(
-                "INSERT INTO project_context_events (project_id, field, old_value, new_value, actor, at) VALUES (?, ?, ?, ?, ?, ?)",
-                (normalized, field, old_value, new_value, actor, now),
-            )
-    conn.commit()
-    conn.close()
 
     return {"project_id": project_id, **new_ctx, "updated_by": actor, "updated_at": now}
 
@@ -615,8 +654,7 @@ async def patch_project_context(
 @router.get("/{project_id}/context/events")
 async def get_project_context_events(project_id: str, authorization: str | None = Header(default=None)):
     """Append-only audit trail of context changes. Owner company + admin only."""
-    import sqlite3
-    from app.core.project_registry import _DB_PATH, ensure_context_tables, get_project_profile, normalize_project_id
+    from app.core.project_registry import get_project_profile, normalize_project_id
 
     payload = _require_user(authorization)
     profile = get_project_profile(project_id)
@@ -626,15 +664,10 @@ async def get_project_context_events(project_id: str, authorization: str | None 
     if not (bool(payload.get("is_platform_admin")) or company_id == profile.owner_company_id):
         raise HTTPException(status_code=404, detail="Project not found")
 
-    conn = sqlite3.connect(_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    ensure_context_tables(conn)
-    rows = conn.execute(
-        "SELECT field, old_value, new_value, actor, at FROM project_context_events WHERE project_id = ? ORDER BY id DESC LIMIT 200",
-        (normalize_project_id(project_id),),
-    ).fetchall()
-    conn.close()
-    return {"project_id": project_id, "events": [dict(r) for r in rows]}
+    from app.core.projects_store import fetch_context_events
+
+    events = fetch_context_events(normalize_project_id(project_id))
+    return {"project_id": project_id, "events": events}
 
 
 # ── Project on-ramp: create a real project (the bridge's first stop) ─────────
@@ -708,7 +741,9 @@ async def create_project_endpoint(
         molecule=body.molecule.strip(),
         location=body.location.strip(),
         country=body.country.strip().upper(),
-        lat=0.0, lng=0.0,
+        # lat/lng omitted deliberately: the on-ramp does not collect
+        # coordinates, and 0.0/0.0 is a map pin in the Gulf of Guinea.
+
         capacity_mtpd=body.capacity_mtpd,
         capacity_mt_year=capacity_mtpd_to_mt_year(body.capacity_mtpd),
         capex_eur=body.capex_eur,
@@ -723,40 +758,38 @@ async def create_project_endpoint(
 
 
 def _runtime_visible_projects(company_id: str, is_admin: bool) -> list[VisibleProject]:
-    """Runtime-created projects (from the `projects` table) as VisibleProject rows."""
-    import sqlite3
-    from app.core.project_registry import _DB_PATH, ensure_project_table
+    """
+    Runtime-created projects (the /projects/new on-ramp) as VisibleProject rows.
+
+    Reads the CANONICAL PostgreSQL `projects` table. This previously queried the
+    SQLite copy and swallowed sqlite3.Error into an empty list — so after that
+    table was retired, every runtime project silently vanished from the list it
+    had just been created for, with no error anywhere. The store logs its own
+    failures; this no longer hides them.
+    """
+    from app.core.project_registry import get_effective_context
+    from app.core.projects_store import list_projects
 
     out: list[VisibleProject] = []
-    try:
-        conn = sqlite3.connect(_DB_PATH)
-        conn.row_factory = sqlite3.Row
-        ensure_project_table(conn)
-        rows = conn.execute("SELECT * FROM projects").fetchall()
-        conn.close()
-    except sqlite3.Error:
-        return out
-    for r in rows:
-        if not is_admin and company_slug(r["owner_company_name"]) != company_id:
-            continue
-        cap = r["capacity_mtpd"] or 0.0
+    for r in list_projects(owner_tenant_id=None if is_admin else company_id):
+        cap = float(r.get("capacity_mtpd") or 0.0)
+        ctx = get_effective_context(r["project_id"])
         out.append(VisibleProject(
             id=r["project_id"],
-            name=r["name"],
-            molecule=r["molecule"] or "",
-            location=r["location"] or "",
-            country=r["country"] or "",
-            lat=0.0, lng=0.0,
+            name=r["project_name"],
+            molecule=r.get("molecule") or "",
+            location=r.get("location") or "",
+            country=r.get("country") or "",
+            # lat/lng stay None: the on-ramp never collected coordinates. The
+            # old code sent 0.0/0.0, which puts a map pin in the Gulf of Guinea.
             capacity_mtpd=cap,
             capacity_mt_year=capacity_mtpd_to_mt_year(cap),
-            capex_eur=r["capex_eur"] or 0.0,
-            status=r["phase"] or "development",
-            phase=r["phase"] or "development",
-            completion_date="",
-            description="",
-            owner_company=r["owner_company_name"],
+            capex_eur=float(r.get("capex_eur") or 0.0),
+            status=r.get("status") or "development",
+            phase=ctx.phase if ctx else (r.get("status") or "development"),
+            owner_company=r.get("owner_company_name") or "",
             associated_companies=[],
-            jurisdiction=r["country"] or "",
+            jurisdiction=r.get("country") or "",
         ))
     return out
 

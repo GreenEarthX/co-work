@@ -28,6 +28,29 @@ logger = logging.getLogger("gex.sod")
 
 _DB_PATH = settings.SQLITE_DB_PATH
 
+def _gov_conn(db_path: str):
+    """
+    Slice-6b-4 connection — SQLite or PostgreSQL by configuration
+    (GOVERNANCE_DB_BACKEND).
+
+    `db_path` is honoured only on SQLite; these functions accept it for
+    testability and it has no meaning against PostgreSQL.
+    """
+    from app.core.db_backend import (PLATFORM_ADMIN, governance_connection,
+                                     governance_is_postgres)
+
+    if governance_is_postgres():
+        # Explicit admin: these rules are read WHILE deciding whether an
+        # action is permitted, so they cannot be filtered by that decision.
+        return governance_connection(company_id=PLATFORM_ADMIN)
+    import sqlite3 as _s
+
+    conn = _s.connect(db_path)
+    conn.row_factory = _s.Row
+    return conn
+
+
+
 
 # ═══════════════════════════════════════════════════════════════
 # ENUMS
@@ -137,7 +160,15 @@ for _p in SOD_CONFLICT_PAIRS:
 
 def init_sod_db(db_path: str = _DB_PATH) -> None:
     """Create SoD tables if they don't exist."""
-    con = sqlite3.connect(db_path)
+    from app.core.db_backend import governance_is_postgres
+
+    # SQLite only. On PostgreSQL the schema is owned by alembic (migration 042),
+    # which also declares the CHECK constraints and the four distinct RLS policy
+    # shapes. This function uses executescript(), which does not exist on the
+    # PostgreSQL adapter, so it would error rather than silently no-op.
+    if governance_is_postgres():
+        return
+    con = _gov_conn(db_path)
     cur = con.cursor()
 
     cur.executescript("""
@@ -202,8 +233,7 @@ def check_sod(
         # No rules touch this action — always clear
         return SoDResult(outcome=SoDOutcome.CLEAR)
 
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
 
     for pair in conflicting_pairs:
@@ -268,7 +298,7 @@ def record_action(
     Called AFTER the DB write succeeds, so only committed actions are logged.
     """
     try:
-        con = sqlite3.connect(db_path)
+        con = _gov_conn(db_path)
         cur = con.cursor()
         cur.execute(
             """INSERT INTO sod_action_log (id, user_id, action_type, resource_id, project_id)
@@ -282,8 +312,7 @@ def record_action(
 
 
 def get_conflict_pairs(active_only: bool = True, db_path: str = _DB_PATH) -> list[dict]:
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _gov_conn(db_path)
     cur = con.cursor()
     if active_only:
         cur.execute("SELECT * FROM sod_conflict_pairs WHERE active = 1")

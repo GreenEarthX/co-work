@@ -103,15 +103,30 @@ export function ProjectInFocusSelector() {
     return null;
   }
 
+  const selected = visibleProjects.find((p) => p.id === selectedProjectId);
+
+  // Banner facts — the label and the choice read as one line, and the spare
+  // horizontal space carries the project's identity rather than sitting empty.
+  const facts = selected
+    ? [
+        selected.molecule,
+        selected.capacity_kt_yr != null
+          ? `${selected.capacity_kt_yr} kt/yr`
+          : null,
+        [selected.location, selected.country].filter(Boolean).join(", "),
+        selected.status,
+      ].filter(Boolean)
+    : [`${visibleProjects.length} projects in scope`];
+
   return (
-    <label className="flex w-full max-w-[360px] flex-col gap-2 text-sm text-slate-600">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+    <label className="flex w-full cursor-pointer items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
+      <span className="shrink-0 text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
         Project in Focus
       </span>
       <select
         value={selectedProjectId}
         onChange={(event) => setSelectedProjectId(event.target.value)}
-        className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-bold text-slate-900"
+        className="min-w-0 max-w-[460px] shrink cursor-pointer truncate border-0 bg-transparent p-0 text-2xl font-black text-slate-900 focus:outline-none focus:ring-0"
       >
         <option value={ALL_PROJECTS_ID}>All Projects</option>
         {visibleProjects.map((project) => (
@@ -120,6 +135,14 @@ export function ProjectInFocusSelector() {
           </option>
         ))}
       </select>
+      <span className="ml-auto hidden min-w-0 items-center gap-2 truncate text-xs text-slate-500 md:flex">
+        {facts.map((fact, i) => (
+          <span key={fact} className="flex items-center gap-2 truncate">
+            {i > 0 && <span className="text-slate-300">·</span>}
+            <span className="truncate uppercase tracking-[0.08em]">{fact}</span>
+          </span>
+        ))}
+      </span>
     </label>
   );
 }

@@ -11,6 +11,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 # 2. Internal application imports (always available)
 from app.api.v1 import capacity_sqlite as capacity
 from app.api.v1 import audit
+# Canonical vocabulary (ADR 2026-07-29) — imported directly, not guarded:
+# if the semantic registry cannot load, the platform must not start with
+# screens rendering raw internal enum names.
+from app.api.v1 import routes_vocabulary
 from app.api.v1 import trader_rfqs
 from app.api.v1 import marketplace_analytics
 from app.api.v1 import onboarding
@@ -628,6 +632,30 @@ if HAS_BANKABILITY_PROXY:
     app.include_router(routes_bankability_proxy.router, prefix="/api/v1/bankability", tags=["Bankability Proxy"])
 
 if HAS_TRADING_BOOK:
+    # Bind trading_book to the CANONICAL database (doctrine: no module-owned
+    # database path). Its api.py ships a placeholder get_db that builds its own
+    # engine from DATABASE_URL, defaulting to postgresql+psycopg://localhost/gex
+    # — a database that does not exist here. The override the module's own
+    # docstring calls for was never installed, so every trading-book request
+    # failed: 401 before auth-by-default forwarded a token, 500 after.
+    from app.trading_book.api import get_db as _tb_get_db
+    from app.trading_book.models import Base as _TBBase
+    from sqlalchemy import create_engine as _create_engine
+    from sqlalchemy.orm import sessionmaker as _sessionmaker
+
+    _tb_engine = _create_engine(
+        f"sqlite+pysqlite:///{settings.SQLITE_DB_PATH}",
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=True,
+    )
+    _TBBase.metadata.create_all(_tb_engine)
+    _TBSession = _sessionmaker(bind=_tb_engine, autoflush=False, expire_on_commit=False)
+
+    def _canonical_tb_db():
+        with _TBSession() as session:
+            yield session
+
+    app.dependency_overrides[_tb_get_db] = _canonical_tb_db
     app.include_router(trading_book_router, prefix="/api/v1/trading-book", tags=["Trading Book (B1)"])
 
 if HAS_GATE_REGISTRY:
@@ -688,6 +716,27 @@ if HAS_DATA_ROOM:
 
 if HAS_TERMS:
     app.include_router(routes_terms.router, prefix="/api/v1/terms", tags=["Bankability — Term Sheet Tracker"])
+
+# Canonical vocabulary — router carries its own /api/v1/vocabulary prefix.
+app.include_router(routes_vocabulary.router)
+
+# Account vetting — registration creates PENDING only; a GEX employee must
+# complete telephone verification + usage agreement before ACTIVE.
+from app.api.v1 import routes_account_vetting
+app.include_router(
+    routes_account_vetting.router, prefix="/api/v1/account", tags=["Account Vetting"]
+)
+
+# Client commercial agreement and invoicing — records invoices, never moves money.
+# Routers carry their own prefixes; both are mapped in domain_authorization.py, without
+# which writes fail closed.
+from app.api.v1 import routes_client_billing
+app.include_router(routes_client_billing.router, prefix="/api/v1")
+
+# Producer/offtaker open interest. Viewer identity is derived server-side; a caller
+# cannot supply the company or credit rating that a publisher's rule is evaluated against.
+from app.api.v1 import routes_open_interest
+app.include_router(routes_open_interest.router, prefix="/api/v1")
 
 if HAS_ADVERSARIAL_REVIEWS:
     app.include_router(routes_adversarial_reviews.router, prefix="/api/v1", tags=["Adversarial Reviews"])

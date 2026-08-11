@@ -1,0 +1,1 @@
+Curtailment assessment v0.1 — grid node congestion + load profile (demo upload via UI path)

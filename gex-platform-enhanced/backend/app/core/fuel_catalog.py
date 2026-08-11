@@ -11,16 +11,57 @@ from typing import Any
 from app.core.config import settings
 
 DB_PATH = settings.SQLITE_DB_PATH
-LEGACY_CATALOG_PATH = Path(__file__).resolve().parents[4] / "gex_fuel_catalog.json"
+
+
+def _resolve_legacy_catalog_path() -> Path:
+    """Locate gex_fuel_catalog.json across host and container layouts.
+
+    On a dev checkout the file sits four levels above this module; in the
+    Docker image the backend is the root, so it is copied alongside /app.
+    """
+    override = os.getenv("GEX_FUEL_CATALOG_PATH")
+    if override:
+        return Path(override)
+
+    here = Path(__file__).resolve()
+    candidates = [
+        # dev checkout: <workspace>/gex-platform-enhanced/backend/app/core/
+        *(p / "gex_fuel_catalog.json" for p in here.parents[:5]),
+        # container: WORKDIR /app
+        Path("/app/gex_fuel_catalog.json"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    # nothing found — return the dev-layout path so errors stay readable
+    return here.parents[min(4, len(here.parents) - 1)] / "gex_fuel_catalog.json"
+
+
+LEGACY_CATALOG_PATH = _resolve_legacy_catalog_path()
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """
+    Slice-6b-3 connection — SQLite or PostgreSQL by configuration
+    (FUELREF_DB_BACKEND).
+    """
+    from app.core.db_backend import fuelref_connection
+
+    return fuelref_connection()
 
 
 def _ensure_tables(conn: sqlite3.Connection) -> None:
+    """
+    SQLite only. On PostgreSQL the schema is owned by alembic (migration 041),
+    which also carries the real FK (fuel_unit_conversions -> fuel_catalog,
+    ON DELETE CASCADE), the UNIQUE(fuel_id, from_unit, to_unit) rule and the
+    RLS policies. CREATE TABLE IF NOT EXISTS here would silently no-op or, on
+    a fresh database, create unprotected tables without any of them.
+    """
+    from app.core.db_backend import fuelref_is_postgres
+
+    if fuelref_is_postgres():
+        return
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS fuel_catalog (

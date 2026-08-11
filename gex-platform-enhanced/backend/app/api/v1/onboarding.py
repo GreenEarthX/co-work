@@ -15,7 +15,13 @@ from app.core.fuel_catalog import find_fuel, load_fuel_catalog, offered_molecule
 router = APIRouter()
 
 # Configuration
-FINANCE_ENGINE_URL = "http://localhost:8001/api/v1/model"  # Finance microservice
+import os
+
+from app.services.engine_auth import engine_auth_headers
+
+# Env-var'd: a hardcoded localhost breaks inside Docker, where the engine is
+# reachable as pf_engine:8001.
+FINANCE_ENGINE_URL = os.getenv("GEX_ENGINE_URL", "http://localhost:8001") + "/api/v1/model"
 
 
 # ============================================================================
@@ -26,10 +32,12 @@ class Step1ProjectBasics(BaseModel):
     """Step 1: Basic project information"""
     molecule: str  # Product-facing catalogue values or legacy aliases
     capacity_mtpd: float
-    location: str
+    location: str = ""
     country: str
+    power_basis: Optional[str] = None      # off_grid | ppa | grid | hybrid — drives RFNBO status
+    offtake_status: Optional[str] = None   # none | discussion | loi | binding — bankability anchor
     production_start_year: int
-    production_end_year: int
+    production_end_year: int = 2042
 
 
 class Step2Economics(BaseModel):
@@ -90,12 +98,14 @@ async def check_market_demand(project: Step1ProjectBasics):
         fuel = find_fuel(project.molecule)
         molecule_key = fuel["id"] if fuel else project.molecule
         molecule_label = fuel["label"] if fuel else project.molecule
-        molecule_demand = demand_signals.get(molecule_key, {
-            "active_rfqs": 0,
-            "avg_price_eur_kg": 0,
-            "demand_level": "unknown",
-            "trend": "unknown"
-        })
+        # demand_signals is keyed by product label; find_fuel gives an id, so fall
+        # back to the label and the raw input before defaulting to "unknown".
+        molecule_demand = (
+            demand_signals.get(molecule_key)
+            or demand_signals.get(molecule_label)
+            or demand_signals.get(project.molecule)
+            or {"active_rfqs": 0, "avg_price_eur_kg": 0, "demand_level": "unknown", "trend": "unknown"}
+        )
         
         # Regional demand factors
         regional_multiplier = 1.0
@@ -107,7 +117,56 @@ async def check_market_demand(project: Step1ProjectBasics):
         # Timeline feasibility
         years_to_production = project.production_start_year - datetime.now().year
         timeline_assessment = "aggressive" if years_to_production < 3 else "feasible" if years_to_production < 5 else "conservative"
-        
+
+        # ── Eligibility (jurisdiction + molecule) — uses the real EU exclusion screen ──
+        EU_COUNTRIES = {"Germany", "France", "Italy", "Spain", "Netherlands", "Belgium", "Portugal",
+                        "Denmark", "Sweden", "Finland", "Poland", "Austria", "Ireland", "Greece",
+                        "Romania", "Czechia", "Other EU"}
+        MOLECULE_NACE = {"e-Methanol": "20.14", "e-NH3": "20.15", "e-Naphtha": "20.14"}
+        is_eu = project.country in EU_COUNTRIES
+        nace = MOLECULE_NACE.get(molecule_key) or MOLECULE_NACE.get(project.molecule)
+        if is_eu and nace:
+            try:
+                from app.api.v1 import eligibility_policy as elig
+                screen = elig.screen_nace(nace)
+            except Exception:
+                screen = {"excluded": True, "carveout_available": True}
+            eligibility = {
+                "jurisdiction": "EU — RED III / EU Taxonomy",
+                "nace": nace,
+                "restricted_sector": bool(screen.get("excluded")),
+                "carve_out_available": screen.get("carveout_available"),
+                "note": (f"{molecule_label} is on the EU restricted-sector list (NACE {nace}); EU public / "
+                         "concessional capital is available only via the EU-Taxonomy carve-out. GEX screens exactly this.")
+                        if screen.get("excluded") else "Not on the EU restricted-sector list.",
+            }
+        elif is_eu:
+            eligibility = {"jurisdiction": "EU — RED III / EU Taxonomy", "restricted_sector": False,
+                           "note": "RFNBO eligibility runs through RED III; GEX grades the evidence behind each claim."}
+        else:
+            eligibility = {"jurisdiction": f"{project.country or 'Not stated'} — mapped by GEX",
+                           "note": "GEX maps the applicable renewable-fuel regime and the evidence a lender needs."}
+
+        # ── Power basis → RFNBO strength ──
+        POWER_RFNBO = {
+            "off_grid": ("strong", "Dedicated off-grid renewables — additionality is clean; grid-connection gates drop away."),
+            "ppa": ("conditional", "A PPA supports additionality, but RED III temporal (hourly from 2030) and geographic correlation still apply."),
+            "grid": ("hard", "Grid power needs cancelled guarantees of origin plus temporal / geographic correlation to count as renewable."),
+            "hybrid": ("mixed", "Hybrid supply — correlation is evidenced per source."),
+        }
+        pb = (project.power_basis or "").strip()
+        rfnbo_strength, power_note = POWER_RFNBO.get(pb, ("not_stated", "Add a power basis to see the RFNBO read."))
+
+        # ── Offtake status → bankability signal ──
+        OFFTAKE_SIGNAL = {
+            "none": ("unsecured", "Offtake is the bankability anchor — lenders size debt off contracted volume, tenor and buyer credit."),
+            "discussion": ("early", "Early interest is directional, not bankable."),
+            "loi": ("conditional", "An LOI / term sheet is progress but conditional on CPs."),
+            "binding": ("secured", "A binding offtake is a strong bankability signal — GEX grades the buyer’s credit and CPs."),
+        }
+        ost = (project.offtake_status or "").strip()
+        offtake_state, offtake_note = OFFTAKE_SIGNAL.get(ost, ("not_stated", "Add offtake status to see the bankability read."))
+
         return {
             "molecule": molecule_label,
             "market_demand": {
@@ -118,6 +177,9 @@ async def check_market_demand(project: Step1ProjectBasics):
                 "regional_strength": regional_multiplier,
                 "assessment": "Strong demand" if regional_multiplier > 1.1 else "Moderate demand"
             },
+            "eligibility": eligibility,
+            "power_basis": {"value": pb or "not_stated", "rfnbo_strength": rfnbo_strength, "note": power_note},
+            "offtake": {"value": ost or "not_stated", "status": offtake_state, "note": offtake_note},
             "timeline": {
                 "years_to_production": years_to_production,
                 "assessment": timeline_assessment,
@@ -132,7 +194,7 @@ async def check_market_demand(project: Step1ProjectBasics):
                     "development": 3
                 }
             },
-            "next_step_recommendation": "Market looks promising! Let's check economics..."
+            "next_step_recommendation": "Indicative only — a first read, not a viability verdict. Next: economics, then how GEX turns these answers into evidence-graded gates."
         }
         
     except Exception as e:
@@ -154,7 +216,7 @@ async def check_bankability(
     """
     try:
         # Calculate annual production
-        annual_production_kg = basics.capacity_mtpd * 365
+        annual_production_kg = basics.capacity_mtpd * 1000 * 365  # MTPD (tonnes/day) → kg
         
         # Estimate subsidies (will be refined in Step 3)
         estimated_subsidies = {}
@@ -168,6 +230,7 @@ async def check_bankability(
         async with httpx.AsyncClient() as client:
             cfads_response = await client.post(
                 f"{FINANCE_ENGINE_URL}/cfads/calculate",
+                headers=engine_auth_headers(),
                 json={
                     "production_mtpd": basics.capacity_mtpd,
                     "offtake_price_eur_kg": economics.target_offtake_price_eur_kg,
@@ -280,7 +343,7 @@ async def check_certification_eligibility(
     RFNBO is evaluated inline (not yet in DecisionTwin).
     """
     try:
-        annual_production_kg = basics.capacity_mtpd * 365
+        annual_production_kg = basics.capacity_mtpd * 1000 * 365  # MTPD (tonnes/day) → kg
         eligible: List[Dict] = []
         ineligible: List[Dict] = []
         subsidy_value: Dict[str, float] = {}
@@ -427,47 +490,50 @@ async def complete_onboarding(submission: CompleteOnboarding):
             submission.step3
         )
         
-        # Calculate overall viability score (0-100)
+        # ── Orientation signal (0-100) ────────────────────────────────────────
+        # A LIGHT, prospect-facing directional read, built transparently from the
+        # SAME decisive reads the report leads with — eligibility, offtake, RFNBO
+        # power and market demand — so the number and the coaching always agree.
+        # It deliberately does NOT hinge on the finance engine's DSCR or the RED III
+        # twin (H2-only today); those are the internal, evidence-graded grade that
+        # lives behind the login. Orientation ≠ internal grade — by design.
+        elig = demand_check.get("eligibility", {}) or {}
+        offt = demand_check.get("offtake", {}) or {}
+        powr = demand_check.get("power_basis", {}) or {}
+        demand_level = (demand_check.get("market_demand", {}) or {}).get("level")
+        # dscr is read (safely) only to tailor the next-steps below, not to score.
+        dscr = (bankability_check.get("financial_metrics", {}) or {}).get("dscr", 0)
+
         score = 0
-        
-        # Market demand (30 points)
-        if demand_check["market_demand"]["level"] == "very_high":
-            score += 30
-        elif demand_check["market_demand"]["level"] == "high":
+        # Eligibility / jurisdiction clarity (max 25) — a clear regulatory path.
+        if elig.get("restricted_sector"):
+            score += 18 if elig.get("carve_out_available") else 6
+        elif elig.get("jurisdiction") and "not stated" not in str(elig.get("jurisdiction", "")).lower():
             score += 25
-        elif demand_check["market_demand"]["level"] == "medium":
-            score += 15
-        
-        # Bankability (40 points)
-        dscr = bankability_check["financial_metrics"]["dscr"]
-        if dscr >= 1.4:
-            score += 40
-        elif dscr >= 1.3:
-            score += 35
-        elif dscr >= 1.2:
-            score += 25
-        elif dscr >= 1.0:
-            score += 15
-        
-        # Certification (30 points)
-        cert_score = (
-            certification_check["summary"]["total_eligible"] * 10
-        )
-        score += min(cert_score, 30)
-        
-        # Overall assessment
-        if score >= 80:
-            viability = "highly_viable"
-            recommendation = "Excellent project! Proceed to full listing."
-        elif score >= 60:
-            viability = "viable"
-            recommendation = "Promising project. Upload FEED study to list on marketplace."
-        elif score >= 40:
-            viability = "potentially_viable"
-            recommendation = "Some challenges exist. Consider optimizing economics or certification."
         else:
-            viability = "requires_improvement"
-            recommendation = "Significant improvements needed before marketplace listing."
+            score += 8
+        # Offtake — the single biggest bankability lever (max 30).
+        score += {"secured": 30, "conditional": 20, "early": 10, "unsecured": 4}.get(offt.get("status"), 4)
+        # RFNBO power basis (max 25).
+        score += {"strong": 25, "conditional": 16, "mixed": 14, "hard": 8}.get(powr.get("rfnbo_strength"), 4)
+        # Market demand for the molecule/region (max 20).
+        score += {"very_high": 20, "high": 16, "medium": 11, "emerging": 7}.get(demand_level, 6)
+
+        score = max(0, min(round(score), 100))
+
+        # Coaching, not a verdict — where you stand AND the next move.
+        if score >= 80:
+            viability = "on_track"
+            recommendation = "You're most of the way there on paper. Prove the eligibility, power and offtake evidence and this becomes a lender-ready story — GEX takes you gate by gate."
+        elif score >= 60:
+            viability = "promising"
+            recommendation = "Good momentum — a couple of decisive tests still need evidence. Clear those and you're in bankable territory. GEX shows exactly which, and grades each as you go."
+        elif score >= 40:
+            viability = "shaping_up"
+            recommendation = "You're taking shape. A few decisive tests are unproven or at risk — the good news is each has a clear next move, and GEX walks you through them."
+        else:
+            viability = "early"
+            recommendation = "Early days — and that's fine. GEX turns 'I have an idea' into 'here's what to prove first', one gate at a time. Start with the moves below."
         
         # Generate report
         report = {
@@ -475,7 +541,15 @@ async def complete_onboarding(submission: CompleteOnboarding):
             "viability_score": score,
             "viability_level": viability,
             "recommendation": recommendation,
-            
+
+            # The decisive reads — what the report leads with (from Step 1 answers)
+            "readiness": {
+                "eligibility": demand_check.get("eligibility"),
+                "rfnbo_power": demand_check.get("power_basis"),
+                "offtake": demand_check.get("offtake"),
+                "note": "Indicative orientation — GEX turns each of these into an evidence-graded gate. Not a verdict, not credit-approved.",
+            },
+
             "project_summary": {
                 "molecule": submission.step1.molecule,
                 "capacity_mtpd": submission.step1.capacity_mtpd,
