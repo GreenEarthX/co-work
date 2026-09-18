@@ -24,11 +24,37 @@ product intent, stale on infrastructure, and **not** auto-loaded.
 on this machine; `55432` is a socat forwarder to the GEX container. Do not
 "correct" it to 5432 — you will read or migrate the wrong database.
 
-**There are two `gex_pf_engine` directories.** `../gex_pf_engine` (sibling) is
-the one serving `:8001`. `./gex_pf_engine` is an in-repo copy. Editing the copy
-changes nothing at runtime.
+**`gex_pf_engine` and `deal_engine` are DIFFERENT services, not copies.**
+`../gex_pf_engine` (sibling) is the Gabillon project-finance engine serving
+`:8001` — cfads.py, waterfall.py, debt/sculpting.py. `./deal_engine` (renamed
+2026-09-09 from `gex_pf_engine`, which is why the confusion existed) computes
+deals — pre-COD, phases, ratios, COD test, TEA adapter. **They share not one
+module name.** `deal_engine` has no launch.json entry and no caller: dormant,
+not dead. Do not delete either as "the duplicate".
 
-Run servers via the Browser pane / `.claude/launch.json`, not `Bash`.
+### Starting the services
+
+Frontend, backend and TEA engine have `.claude/launch.json` entries — start those via the
+Browser pane, not `Bash`.
+
+**The PF engine has NO launch.json entry.** It is a sibling repo with its own virtualenv
+and this is the agreed sequence — do not substitute another venv, port or path:
+
+```bash
+cd files/gex_pf_engine/backend
+source ../micro_service/bin/activate     # gex_pf_engine/micro_service, not a repo venv
+uvicorn pf_engine.main:app --reload --port 8001
+```
+
+**The package moved 2026-09-09: `app` → `pf_engine`**, so the command is
+`pf_engine.main:app`, not `app.main:app`. Both repos previously had a top-level
+package called `app`; whichever imported first won and the other's submodules
+became unreachable. The sibling was renamed because it is 19 files against the
+platform's 152. Nothing else about the sequence changed.
+
+`micro_service` lives inside `gex_pf_engine/`, is excluded from `sync-to-docker.sh`, and is
+the only interpreter this service runs under. If a future note says "run servers via
+launch.json", it does not apply here — there is nothing there to run.
 
 ---
 

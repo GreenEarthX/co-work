@@ -122,8 +122,10 @@ async def require_authenticated(request: Request) -> None:
         request.state, "user_payload", None
     )
 
+    presented_credential = False
     if payload is None:
         auth_header = request.headers.get("authorization", "")
+        presented_credential = bool(auth_header)
         if auth_header.lower().startswith("bearer "):
             token = auth_header.split(" ", 1)[1].strip()
             try:
@@ -133,9 +135,12 @@ async def require_authenticated(request: Request) -> None:
             except ValueError:
                 payload = None
 
-    if payload is None and settings.GEX_DEMO_MODE:
-        # Demo fallback — cannot exist in production: config.py refuses to
-        # start with GEX_DEMO_MODE=True outside development.
+    if payload is None and not presented_credential and settings.GEX_DEMO_MODE:
+        # Demo fallback — only when NO Authorization header was sent. A presented
+        # credential that failed stays a 401, never whichever seeded user
+        # x-demo-user names (HANDOFF §8.11; same rule in ABACMiddleware).
+        # Cannot exist in production: config.py refuses to start with
+        # GEX_DEMO_MODE=True outside development.
         demo_user = request.headers.get("x-demo-user", "").strip()
         if demo_user:
             from app.core.auth import get_user_payload_by_email

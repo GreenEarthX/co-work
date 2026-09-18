@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from app.core.debt.sculpting import DebtSculptor, SculptingConstraints
-from app.core.debt.tranche import DFIProvider, FinancingStructure, Tranche, TrancheType
+from pf_engine.core.debt.sculpting import DebtSculptor, SculptingConstraints
+from pf_engine.core.debt.tranche import DFIProvider, FinancingStructure, Tranche, TrancheType
 
 
 def senior(amount=200_000_000.0, rate=0.05, tenor=15, grace=0, **kw) -> Tranche:
@@ -62,23 +62,53 @@ def test_debt_service_is_zero_beyond_tenor():
     assert t.annual_debt_service(11) == 0.0
 
 
-def test_dscr_is_infinite_after_maturity_and_poisons_the_summary():
-    """DEFECT: once debt service reaches zero, DSCR is float('inf').
+def test_horizon_longer_than_the_debt_life_is_REJECTED():
+    """
+    FIXED 2026-09-09. Was: DSCR became float('inf') after maturity, avg_dscr and
+    max_dscr were poisoned to inf, and the summary would not serialise as strict
+    JSON. The advice here used to be "callers must clamp the horizon" — which
+    every caller then had to remember, and the one that forgot got `Infinity`
+    in a payload.
 
-    min_dscr survives (inf never wins a min), but avg_dscr and max_dscr become inf, and
-    `Infinity` is not valid strict JSON — a client that parses strictly will reject the
-    payload. Callers must clamp the horizon to the debt life or filter the series.
+    The engine now refuses the input instead. Sculpting past final maturity is
+    not a harder question, it is a meaningless one: with no debt service,
+    CFADS / 0 is undefined, and an average across those years says nothing.
+
+    Trimming silently would have been worse — the caller would get a summary
+    over a period they never asked about.
     """
     fin = structure(senior(tenor=10))
-    result = DebtSculptor(fin).sculpt([50_000_000.0] * 15)  # horizon exceeds tenor
 
-    assert result["sculpted_profile"][10]["dscr"] == float("inf")
-    assert math.isinf(result["summary"]["avg_dscr"])
-    assert math.isinf(result["summary"]["max_dscr"])
-    assert math.isfinite(result["summary"]["min_dscr"])
+    with pytest.raises(ValueError) as exc:
+        DebtSculptor(fin).sculpt([50_000_000.0] * 15)   # horizon exceeds tenor
 
-    with pytest.raises(ValueError):
-        json.dumps(result["summary"], allow_nan=False)
+    msg = str(exc.value)
+    assert "15 years exceeds the debt life of 10 years" in msg
+    assert "undefined" in msg and "not infinite" in msg
+    assert "Pass the first 10 CFADS values" in msg, (
+        "the error must say what to pass instead — an error that only says 'no' "
+        "reads as the engine not understanding the question"
+    )
+
+
+def test_a_horizon_matching_the_debt_life_is_clean():
+    """The summary is finite and strict-JSON safe once the horizon is honest."""
+    fin = structure(senior(tenor=10))
+    result = DebtSculptor(fin).sculpt([50_000_000.0] * 10)
+
+    summary = result["summary"]
+    assert math.isfinite(summary["min_dscr"])
+    assert math.isfinite(summary["avg_dscr"])
+    assert math.isfinite(summary["max_dscr"])
+    json.dumps(summary, allow_nan=False)          # no longer raises
+
+
+def test_a_horizon_shorter_than_the_debt_life_is_allowed():
+    """A partial view is a legitimate question; only OVERrunning maturity is not."""
+    fin = structure(senior(tenor=10))
+    result = DebtSculptor(fin).sculpt([50_000_000.0] * 7)
+    assert len(result["sculpted_profile"]) == 7
+    assert math.isfinite(result["summary"]["avg_dscr"])
 
 
 # ── the reduction path ────────────────────────────────────────────────────────
@@ -232,7 +262,7 @@ def test_tail_years_constraint_is_declared_but_never_read():
     """
     source = Path(DebtSculptor.__module__.replace(".", "/") + ".py")
     if not source.exists():  # module path differs when run from another cwd
-        import app.core.debt.sculpting as sculpting_module
+        import pf_engine.core.debt.sculpting as sculpting_module
 
         source = Path(sculpting_module.__file__)
 

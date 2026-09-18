@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.coverage.contract_coverage import (
+from pf_engine.core.coverage.contract_coverage import (
     VERDICT_COVERS,
     VERDICT_DEPENDENT,
     VERDICT_INSUFFICIENT,
@@ -21,7 +21,7 @@ from app.core.coverage.contract_coverage import (
     compute_coverage,
     outstanding_principal,
 )
-from app.core.debt.tranche import FinancingStructure, Tranche, TrancheType
+from pf_engine.core.debt.tranche import FinancingStructure, Tranche, TrancheType
 
 # ── the shared fixture — mirrored in the GEX backend suite ────────────────────
 
@@ -148,7 +148,7 @@ def test_the_verdict_is_derived_from_scheduled_service_not_sculpted_service():
     result = compute_coverage(fixture_inputs())
     assert result["inputs_echo"]["dscr_basis"] == "SCHEDULED_DEBT_SERVICE"
 
-    from app.core.debt.sculpting import DebtSculptor
+    from pf_engine.core.debt.sculpting import DebtSculptor
 
     profile = [row["contracted_cfads_eur"] for row in result["coverage_curve"][:SENIOR_TENOR]]
     sculpted = DebtSculptor(senior_only()).sculpt(profile)

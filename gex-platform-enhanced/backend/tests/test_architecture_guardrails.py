@@ -211,15 +211,50 @@ def test_domain_write_policy_decisions():
 
 def test_engines_verify_gex_identity_only():
     """One issuer: no Supabase (or other third-party) verifier in any engine."""
+    SIBLING_BACKEND = REPO.parent / "gex_pf_engine" / "backend"
     engine_trees = [
         REPO / "tea_engine",
-        REPO / "gex_pf_engine",
-        REPO.parent / "gex_pf_engine" / "backend" / "app",
+        REPO / "deal_engine",                       # renamed 2026-09-09
+        SIBLING_BACKEND / "pf_engine",              # the SIBLING, :8001
     ]
+    # These are three DIFFERENT services. `deal_engine` was called `gex_pf_engine`
+    # and collided with the sibling; they share no module name.
+    #
+    # The in-repo trees MUST exist. This loop used to `continue` past a missing
+    # tree, so renaming one silently dropped it from the scan and the test went
+    # on passing — verified 2026-09-09 by planting a typo, which changed nothing.
+    # A comment saying "keep this in sync" is not enforcement; this is.
+    for tree in engine_trees[:2]:
+        assert tree.exists(), (
+            f"{tree.name} is named here but does not exist. If it was renamed, "
+            "rename it here in the same change — otherwise this guardrail "
+            "silently stops scanning it."
+        )
+    # The sibling lives in a separate repo and may legitimately be absent from a
+    # partial checkout, so it is the one tree allowed to be missing — but ONLY
+    # when the whole repo is missing.
+    #
+    # THE EXEMPTION ABOVE ATE THE RENAME. On 2026-09-09 this entry still said
+    # `.../backend/"app"`; the package had become `pf_engine`, the path stopped
+    # existing, "allowed to be missing" absorbed it, and 39 sibling files left
+    # the Supabase scan while `scanned >= 2` kept the test green on the two
+    # in-repo trees. The blanket exemption was the hole — the same shape of hole
+    # the comment four lines up was written about. So distinguish the two cases:
+    # no sibling repo is a partial checkout; a sibling repo whose named package
+    # is gone is a rename, and that must fail.
+    if SIBLING_BACKEND.exists():
+        assert engine_trees[2].exists(), (
+            f"the sibling repo is checked out at {SIBLING_BACKEND} but "
+            f"{engine_trees[2].name}/ is not there. It was renamed and this "
+            "guardrail was not updated — which is exactly how it silently "
+            "stopped scanning the sibling once already."
+        )
+    scanned = 0
     offenders = []
     for tree in engine_trees:
         if not tree.exists():
             continue
+        scanned += 1
         for f in tree.rglob("*.py"):
             if "venv" in f.parts or f.name == "gex_jwt.py":
                 continue
@@ -228,7 +263,15 @@ def test_engines_verify_gex_identity_only():
     assert not offenders, (
         "Engine files still reference Supabase:\n" + "\n".join(offenders)
     )
+    # `>= 2` was too weak to notice the sibling leaving: it is satisfied by the
+    # two in-repo trees alone. Require every tree that is actually present.
+    expected = len([t for t in engine_trees if t.exists()])
+    assert scanned == expected >= 2, (
+        f"scanned {scanned} of {expected} present engine tree(s) — test is vacuous"
+    )
     for tree in engine_trees:
+        if not tree.exists():
+            continue
         assert not list(tree.rglob("supabase_jwt.py")), (
             f"retired verifier still present under {tree}"
         )
@@ -242,7 +285,10 @@ def test_compose_runs_the_tree_that_tests_inspect():
     1. The blessed compose (REPO/docker-compose.yml) builds AND volume-mounts
        its backend service from exactly this backend tree.
     2. No other compose file in the workspace defines a backend service that
-       builds from a different tree. (`co-work/` is excluded pending the
+       builds from a different tree. (`docker/` is excluded because
+       sync-to-docker.sh rsyncs this repo into it before publishing — it is a
+       staging copy by construction, not a divergent tree. `co-work/` is
+       excluded pending the
        inventory decision of 2026-07-06 — it is the git push channel;
        `_retired/` holds the archived fossils.)
     """
@@ -264,7 +310,22 @@ def test_compose_runs_the_tree_that_tests_inspect():
         )
 
     workspace = REPO.parent
-    skip_parts = {"node_modules", "_retired", "co-work", ".git", "venv", ".venv"}
+    # `docker/` is a BUILD STAGING AREA, not a rival tree: sync-to-docker.sh
+    # does `rsync -a --delete` from this repo into it before publishing images
+    # to Docker Hub. It is therefore a COPY of the tree under test by
+    # construction, and flagging it inverts the guardrail's purpose — the check
+    # exists to catch a divergent tree, and staging is the opposite of that.
+    #
+    # This cost a real mistake on 2026-09-07: the directory was read as an
+    # abandoned fossil and deleted. The next sync recreated it, which is how the
+    # staging role was discovered. It is excluded, not deleted.
+    #
+    # The risk this exclusion ACCEPTS, stated plainly: a stale staging copy is
+    # no longer caught by anything. Nothing else in this suite checks it, and a
+    # per-edit sync check would be wrong — you should not have to rsync on every
+    # commit. It belongs in the publish step: run sync-to-docker.sh immediately
+    # before `docker build`, so the image cannot be built from a stale copy.
+    skip_parts = {"node_modules", "_retired", "co-work", "docker", ".git", "venv", ".venv"}
     offenders = []
     for depth in ("", "*/", "*/*/"):
         for f in workspace.glob(f"{depth}docker-compose*.yml"):

@@ -21,6 +21,7 @@ import {
   Plus, Trash2, TrendingUp, Activity, BarChart2, Settings2,
   BookOpen, Info, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import { tenorLabel } from './tenorLabel';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ function buildSeedCurve(mol: Molecule): CalibrationResult {
     const price = Math.round(spot * Math.exp(0.05 * tau) * 100) / 100;
     return {
       tenor_months: t,
-      tenor_label: t < 12 ? `${t}M` : `${t / 12}Y`,
+      tenor_label: tenorLabel(t),
       price_eur: price,
       implied_forward_eur: price,
       carry_eur: t <= 12 ? price - spot : null,

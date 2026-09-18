@@ -53,7 +53,7 @@ User role is selected on first visit (`/onboarding`) and persisted to `localStor
 ```bash
 cd ../gex_pf_engine/backend
 source ../micro_service/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+uvicorn pf_engine.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ### 2. Platform Backend (port 8000)

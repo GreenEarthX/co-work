@@ -385,6 +385,11 @@ const OnboardingWizard: React.FC = () => {
                     capacity_mtpd: '',
                     location: '',
                     country: '',
+                    // Added when the step gained these fields; omitting them here
+                    // both failed `tsc` (so `npm run build` was red) and would
+                    // have left them undefined on a reset.
+                    power_basis: '',
+                    offtake_status: '',
                     production_start_year: 2027,
                     production_end_year: 2042,
                   });

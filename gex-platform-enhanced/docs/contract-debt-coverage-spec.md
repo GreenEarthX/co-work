@@ -81,7 +81,8 @@ GEX backend :8000
 ```
 
 > **Edit `files/gex_pf_engine/backend/app/` — the sibling repo.**
-> `gex-platform-enhanced/gex_pf_engine/` is an in-repo copy and is **not** what serves `:8001`.
+> `gex-platform-enhanced/deal_engine/` (renamed 2026-09-09 from `gex_pf_engine`) is a
+> DIFFERENT service and is **not** what serves `:8001`.
 > Editing the copy produces no observable change and is the single most likely way to lose a day here.
 
 ---

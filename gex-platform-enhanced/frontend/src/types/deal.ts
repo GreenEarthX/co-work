@@ -1,12 +1,12 @@
 /**
- * Deal compute types — mirror gex_pf_engine/models/deal.py exactly.
+ * Deal compute types — mirror deal_engine/models/deal.py exactly.
  *
  * Convention: field names are snake_case to match the Supabase column names
  * AND the Python Pydantic model field names. Do NOT camelCase here, or the
  * round-trip JSON will not deserialise on either side.
  *
  * When the Python models change, update this file in lockstep. The golden
- * tests in gex_pf_engine/tests/test_compute.py and src/lib/finance/__tests__
+ * tests in deal_engine/tests/test_compute.py and src/lib/finance/__tests__
  * are the contract between them.
  */
 
