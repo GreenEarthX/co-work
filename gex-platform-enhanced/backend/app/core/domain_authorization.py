@@ -93,6 +93,8 @@ DOMAIN_PREFIXES: dict[str, str] = {
     # finance
     "/api/v1/finance": "finance",
     "/api/v1/finance-model": "finance",
+    # TEA read model: cost basis for a project, same blast radius as finance-model
+    "/api/v1/economics": "finance",
     "/api/v1/capital-bridge": "finance",
     "/api/v1/drawdown-schedule": "finance",
     "/api/v1/spend-wave": "finance",
@@ -135,7 +137,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/trader": "marketplace",
     # sustainability
     "/api/v1/carbon-attribution": "sustainability",
-    "/api/v1/mass-balance": "sustainability",
+    "/api/v1/chain-of-custody": "sustainability",   # was /mass-balance
     "/api/v1/additionality": "sustainability",
     "/api/v1/lineage": "sustainability",
     "/api/v1/fuels": "sustainability",
@@ -158,6 +160,11 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/nba": "intelligence",
     "/api/v1/adjacency": "intelligence",
     "/api/v1/corpus": "intelligence",
+    # Ecosystem Navigator map publication. "intelligence" rather than
+    # "projects" on purpose: these rows describe the project landscape and
+    # must never reach a gate or a bankability score, which is the same
+    # epistemic boundary /api/v1/corpus sits behind.
+    "/api/v1/ecosystem": "intelligence",
     # platform
     "/api/v1/auth": "platform",
     "/api/v1/onboarding": "platform",

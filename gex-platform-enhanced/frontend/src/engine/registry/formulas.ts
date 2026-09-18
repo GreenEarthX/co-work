@@ -93,6 +93,10 @@ export const FORMULAS: readonly FormulaDef[] = [
   gf('F_SPLIT_BOTTOM_FROM_IN_V1', 'SPLITTER_V1', 10,
     'FLOW_BOTTOM', ['FLOW_IN', 'SPLIT_FRAC'],
     '\\dot{m}_{bot} = \\dot{m}_{in} \\times (1 - f)', 'splitterBottom', 'Bottom = In × (1-f)'),
+  // ENGINEERING mass balance — conservation of mass across a unit. This is a
+  // different thing from the backend Chain-of-Custody ledger, which allocates
+  // certified volume and performs no physics. Same words, different layer; do
+  // not merge them. See backend/app/api/v1/mass_balance.py.
   gf('F_MASS_BALANCE_RESIDUAL_V1', 'CONSERVATION_CHECK_V1', 10,
     'MASS_RESIDUAL', ['SUM_MASS_IN', 'SUM_MASS_OUT'],
     'r = \\sum \\dot{m}_{in} - \\sum \\dot{m}_{out}', 'massBalanceResidual', 'r = Σin - Σout'),

@@ -160,9 +160,8 @@ async def register(body: RegistrationRequest) -> RegistrationResponse:
     not as fact — company_type and business_function especially. A GEX employee
     confirms them on the verification call; until then they are only claims.
     """
-    from app.core.auth import init_auth_db, pwd_context
+    from app.core.auth import pwd_context
 
-    init_auth_db()
     email = body.email.strip().lower()
     conn = _conn()
     try:

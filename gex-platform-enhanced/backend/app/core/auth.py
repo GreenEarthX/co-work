@@ -54,7 +54,10 @@ _SIGN_KEY: str = _PRIVATE_KEY or settings.SECRET_KEY
 # Verify key: public key for RS256, shared secret for HS256
 _VERIFY_KEY: str = _PUBLIC_KEY or settings.SECRET_KEY
 
-DB_PATH = settings.SQLITE_DB_PATH
+# No module-level DB_PATH. A path captured at import froze whichever value
+# settings held then: the dev database (so tests/conftest.py `isolated_store`
+# never reached this slice), or a throwaway file if a fixture was active at
+# first import. `_get_conn` resolves the store at call time.
 logger = logging.getLogger("gex.auth")
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -260,7 +263,7 @@ def _get_conn():
     """
     from app.core.db_backend import auth_connection
 
-    return auth_connection(DB_PATH)
+    return auth_connection()  # resolves settings.SQLITE_DB_PATH now, not at import
 
 
 def auth_db_connection() -> sqlite3.Connection:
@@ -271,8 +274,11 @@ def auth_db_connection() -> sqlite3.Connection:
     (account vetting), and they must NOT open their own path to this table —
     a module-owned database path is exactly what the data-layer doctrine
     forbids. One owner, one accessor.
+
+    Creates and seeds nothing: the schema exists because application startup
+    ran `init_auth_db()` (app.main). It used to re-seed all 17 demo users on
+    every vetting request.
     """
-    init_auth_db()
     return _get_conn()
 
 
@@ -369,6 +375,10 @@ def _ensure_account_lifecycle_columns(conn: sqlite3.Connection) -> None:
                 "agreement_signed_at", "agreement_ref", "activated_at",
                 "activated_by", "vetting_note"):
         _ensure_column(conn, "auth_users", col, "TEXT")
+
+
+def _grandfather_pre_policy_accounts(conn: sqlite3.Connection) -> None:
+    from app.core.account_lifecycle import AccountState
 
     # ── Grandfathering ──────────────────────────────────────────────────────
     # The 17 seeded accounts predate this policy and are how the running
@@ -544,19 +554,39 @@ def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> None:
 
 
 def init_auth_db() -> None:
+    """
+    Auth schema (SQLite), demo seeds, grandfathering — one explicit startup step.
+
+    `app.main` runs it on application startup; a script that needs the auth
+    tables must call it itself. It used to run at import, so every process that
+    imported this module — every pytest run, at collection — wrote the dev
+    database: DDL, all 17 demo password hashes re-salted, role rows rewritten.
+
+    One call is complete. Grandfathering runs AFTER seeding: a fresh store takes
+    the seeds as PENDING (the column default), and when grandfathering ran first
+    they stayed PENDING until a second call — which only the per-lookup call made.
+    """
+    from app.core.db_backend import is_postgres
+
     conn = _get_conn()
     try:
         _ensure_tables(conn)
         if SEED_DEMO_USERS:
             for seed in DEMO_USER_SEEDS:
                 _seed_user(conn, seed)
+        # SQLite only, as before: grandfathering used to sit behind
+        # `_ensure_tables`' early return on Postgres, so it never ran there.
+        if not is_postgres():
+            _grandfather_pre_policy_accounts(conn)
         conn.commit()
     finally:
         conn.close()
 
 
 def _load_user_by_email(email: str) -> sqlite3.Row | None:
-    init_auth_db()
+    # No init_auth_db() here. It ran on every lookup — every login, x-demo-user
+    # request and vetting call — re-seeding all 17 demo users (a changed demo
+    # password was reset before its own check) and re-running grandfathering.
     conn = _get_conn()
     try:
         # NOT filtered by is_active. `account_state` is the authoritative gate
@@ -933,6 +963,3 @@ def issue_login_response(email: str, password: str, ip_address: str | None = Non
         "role": role_payload_from_user(user_payload),
         "user": user_payload,
     }
-
-
-init_auth_db()

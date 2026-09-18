@@ -12,8 +12,8 @@ import math
 
 import pytest
 
-from app.core.gabillon import SEED_PARAMS, GabillonModel
-from app.core.model_governance import (
+from pf_engine.core.gabillon import SEED_PARAMS, GabillonModel
+from pf_engine.core.model_governance import (
     GABILLON_MODEL_VERSION,
     MODEL_CHANGE_REGISTER,
     RATIO_MAX,
@@ -117,7 +117,7 @@ class TestInvariantGuards:
 class TestParameterGovernance:
     def test_seed_params_pass_bounds(self):
         """Every seeded parameter set must satisfy its own sanity bounds."""
-        from app.core.model_governance import validate_params
+        from pf_engine.core.model_governance import validate_params
         for mol, p in SEED_PARAMS.items():
             d = {"alpha": p.alpha, "kappa": p.kappa, "mu_base": p.mu_base,
                  "sigma_s": p.sigma_s, "sigma_delta": p.sigma_delta,
@@ -125,7 +125,7 @@ class TestParameterGovernance:
             assert validate_params(d) == [], f"{mol}: seed params violate bounds"
 
     def test_absurd_params_blocked(self):
-        from app.core.model_governance import validate_params
+        from pf_engine.core.model_governance import validate_params
         v = validate_params({"alpha": -1.0, "rho": 2.0, "mu_base": math.log(5.0)})
         codes = {x["parameter"] for x in v}
         assert codes == {"alpha", "rho", "mu_base"}
@@ -134,40 +134,40 @@ class TestParameterGovernance:
 
 class TestChallenger:
     def test_aligned_within_band(self):
-        from app.core.model_governance import challenger_assessment
+        from pf_engine.core.model_governance import challenger_assessment
         assert challenger_assessment(900.0, 800.0)["verdict"] == "ALIGNED"
 
     def test_2026_06_11_bug_is_challenged_high(self):
         """A 98× forward against an €800 floor must be CHALLENGED_HIGH."""
-        from app.core.model_governance import challenger_assessment
+        from pf_engine.core.model_governance import challenger_assessment
         a = challenger_assessment(800.0 * 98, 800.0)
         assert a["verdict"] == "CHALLENGED_HIGH"
 
     def test_below_cost_is_challenged_low(self):
-        from app.core.model_governance import challenger_assessment
+        from pf_engine.core.model_governance import challenger_assessment
         assert challenger_assessment(300.0, 800.0)["verdict"] == "CHALLENGED_LOW"
 
     def test_no_floor_is_explicit(self):
-        from app.core.model_governance import challenger_assessment
+        from pf_engine.core.model_governance import challenger_assessment
         assert challenger_assessment(900.0, None)["verdict"] == "NO_FLOOR_AVAILABLE"
 
 
 class TestBenchmarkModels:
     def test_one_factor_converges_to_equilibrium(self):
         """The nested challenger must hit exp(μ) exactly at the long end."""
-        from app.core.model_governance import one_factor_forward
+        from pf_engine.core.model_governance import one_factor_forward
         mu = math.log(800.0)
         f = one_factor_forward(mu, 1.2, 400.0, 50.0)
         assert abs(f - 800.0) < 1.0
 
     def test_one_factor_anchors_at_spot(self):
-        from app.core.model_governance import one_factor_forward
+        from pf_engine.core.model_governance import one_factor_forward
         f = one_factor_forward(math.log(800.0), 1.2, 400.0, 1e-9)
         assert abs(f - 400.0) < 0.01
 
     @pytest.mark.parametrize("molecule", sorted(SEED_PARAMS.keys()))
     def test_benchmark_rows_finite(self, molecule):
-        from app.core.model_governance import benchmark_curves
+        from pf_engine.core.model_governance import benchmark_curves
         p = SEED_PARAMS[molecule]
         spot = math.exp(p.mu_base)
         b = benchmark_curves(MODEL, p, spot, 0.02, p.capex_floor_eur_t, [1, 12, 60])

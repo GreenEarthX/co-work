@@ -23,7 +23,7 @@ source ../micro_service/bin/activate     # Windows: ..\micro_service\Scripts\act
 pip install -r requirements.txt
 
 # Start
-uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+uvicorn pf_engine.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Verify: `http://localhost:8001/docs`

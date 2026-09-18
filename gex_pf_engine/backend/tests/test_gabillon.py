@@ -6,9 +6,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.pricing.gabillon.engine import GabillonCurveEngine, gabillon_forward
-from app.pricing.memory import ProjectCalibrationMemory
+from pf_engine.main import app
+from pf_engine.pricing.gabillon.engine import GabillonCurveEngine, gabillon_forward
+from pf_engine.pricing.memory import ProjectCalibrationMemory
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

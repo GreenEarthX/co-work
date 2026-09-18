@@ -258,26 +258,29 @@ class ABACMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("authorization", "")
         payload: dict | None = None
 
-        if auth_header and auth_header.lower().startswith("bearer "):
+        if auth_header.lower().startswith("bearer "):
             token = auth_header.split(" ", 1)[1].strip()
             try:
                 payload = get_user_payload_from_token(token)
             except ValueError:
                 payload = None
 
-        # Demo/dev compatibility: resolve the seeded auth user by e-mail.
-        # Only active when GEX_DEMO_MODE=true; returns 401 in production.
-        if payload is None:
+        # Demo/dev compatibility: resolve the seeded auth user by e-mail — only
+        # when NO Authorization header was sent. A presented credential that
+        # failed (forged, expired, re-keyed, wrong scheme) stays a 401; falling
+        # through served it as whichever seeded user x-demo-user named, a 200 the
+        # frontend could not tell from a live session (HANDOFF §8.11). Same rule
+        # in route_security. Only when GEX_DEMO_MODE=true; production refuses it.
+        if payload is None and not auth_header:
             from app.core.config import settings as _settings
             demo_user = request.headers.get("x-demo-user", "").strip()
             if demo_user:
                 if not _settings.GEX_DEMO_MODE:
                     logger.warning("DEMO MODE DISABLED: rejected x-demo-user header for %s", demo_user)
-                    return JSONResponse(
-                        status_code=401,
-                        content={"detail": "Authentication required — demo headers disabled in production"},
-                    )
-                logger.warning("DEMO MODE: accepting x-demo-user header for %s (no bearer token)", demo_user)
+                    # None, not a JSONResponse: dispatch tests `if not user` and a
+                    # Response is truthy, so the request went on with no identity.
+                    return None
+                logger.warning("DEMO MODE: accepting x-demo-user header for %s (no Authorization header)", demo_user)
                 payload = get_user_payload_by_email(demo_user)
                 if payload is None:
                     payload = {

@@ -1,6 +1,7 @@
 # GEX Platform — Engineering Handoff
 
-**Generated:** 2026-08-09 · **Derived from:** repository inspection, not conversation history.
+**Generated:** 2026-08-09 · **Last updated:** 2026-09-14 · **Derived from:** repository
+inspection, not conversation history.
 **Scope:** state of the tree at `files/gex-platform-enhanced` and its siblings.
 
 Where this document states a number (table counts, test counts, occurrence counts), it was
@@ -26,9 +27,25 @@ machine. `55432` is a socat forwarder to the GEX container. `backend/.env` overr
 `config.py` default (which still says `:5432`) for this reason. Any new environment must
 make the same distinction or it will silently migrate the wrong database.
 
-**There are two `gex_pf_engine` directories.** `files/gex_pf_engine` (sibling, the real
-engine serving `:8001`) and `gex-platform-enhanced/gex_pf_engine` (an in-repo copy).
-The sibling is authoritative. Do not edit the in-repo copy expecting `:8001` to change.
+**`gex_pf_engine` and `deal_engine` are DIFFERENT services** — a name collision, not a
+duplicate, and the more dangerous of the two problems because it invites deleting one as
+redundant. `files/gex_pf_engine` (sibling) is the Gabillon PF engine on `:8001`:
+`cfads.py`, `waterfall.py`, `debt/sculpting.py`, 42 source files.
+`gex-platform-enhanced/deal_engine` (renamed 2026-09-09 from `gex_pf_engine`) computes
+deals: `pre_cod.py`, `phases.py`, `ratios.py`, `cod_test.py`, `tea_adapter.py`, its own
+`main.py` and `routes/deals.py`, 15 files. **Zero shared module names** — verified by
+diffing the full file lists. `deal_engine` has no launch.json entry and no caller today.
+
+**Starting the PF engine** is a documented sequence and has no launch.json entry:
+```bash
+cd files/gex_pf_engine/backend
+source ../micro_service/bin/activate
+uvicorn pf_engine.main:app --reload --port 8001
+```
+
+`uvicorn app.main:app` also still starts it: `gex_pf_engine/backend/app/` is a **guarded,
+deprecated alias** kept because the old command lives in shell history (§7). Use
+`pf_engine.main:app` in anything new — the Dockerfile and `.claude/CLAUDE.md` do.
 
 `efuel_truth_stack/` is a self-contained event-sourced/CQRS/bitemporal reference core.
 It is not wired into the running backend and is not part of the migration.
@@ -99,11 +116,11 @@ Two roles, and since migration 045 they are used for different things:
   **not CREATE** on schema public. `DATABASE_URL` points here. RLS applies.
 - `gex_user` — SUPERUSER, BYPASSRLS. **Migrations only**, via `ALEMBIC_DATABASE_URL`.
 
-**RLS now binds at runtime.** Measured on a live `gex_app` connection: `projects` returns
-14 rows as `PLATFORM_ADMIN`, **3** as `hamburgone_com`, **0** with no tenant context.
-Before 045 all three were 14, because the runtime connected as a superuser and no policy
-was ever evaluated — "89 tables under forced RLS" described the schema, not the running
-system.
+**RLS now binds at runtime.** Re-measured 2026-09-09 on a live `gex_app` connection after
+the rebuild: `projects` returns **12** rows as `PLATFORM_ADMIN`, **1** as
+`hamburgone_com`, **0** with no tenant context. Before migration 045 all three were equal,
+because the runtime connected as a superuser and no policy was ever evaluated — "89 tables
+under forced RLS" described the schema, not the running system.
 
 Verified refused on that same connection: `CREATE TABLE`, `DROP TABLE`,
 `ALTER TABLE ... DISABLE ROW LEVEL SECURITY`, `SET ROLE gex_user`, and reading
@@ -245,6 +262,41 @@ These are settled. Do not re-open without Jim.
 10. **Supabase stays.** Leaving it would mean giving up the managed layers and running
     Postgres, auth, and the API by hand.
 
+### TEA, LCA and regime integrity boundaries — do not cross
+
+Folded in 2026-09-18 from `files/GEX_Handoff_Reference/HANDOFF.md` (2026-07-02), which
+this document had never carried. Every artefact below was re-verified in the tree on
+2026-09-18; the reference folder's `code/` copies are byte-identical to the live files.
+
+- **`ascertained=False` everywhere, and it is not yours to flip.** Sizing, stoichiometry,
+  emission factors and co-product prices are public-reference first-pass values, not
+  verifier-signed. It flips to `True` only when a named ISO 14067 verifier signs the
+  dataset. Live: 11 uses in `tea_engine/process_functions.py`, 5 in `tea_engine/lca.py`.
+- **The GREET path is a GREET-*consistent approximation***, using real IRA 45V tier
+  thresholds and a US-grid emission factor — not the licensed ANL model. Do not describe
+  its output as a GREET result.
+- **A TEA run never self-verifies.** An OpenPyTEA run is immutable *evidence*; it becomes
+  a `model_base_case` *claim* only through IE/CFO approval, and the PF engine (:8001) may
+  run release-gated compute only on a verified basis. Bridge: `routes_tea.py`.
+- **An undefined molecule returns 422, never invented economics.** `has_process_function()`
+  gates it. The registry defines e-methanol, e-SAF (Fischer-Tropsch), bio-SAF (HEFA),
+  e-methane and ammonia; **green H₂ is still absent**.
+- **OpenPyTEA correlation caveats.** Its boilers/heaters/furnaces category is unreliable at
+  MW scale and the kettle-reboiler correlation is pathological; the registry curates around
+  them. `openpytea==2.1.0` is pinned in `tea_engine/requirements.txt`.
+- **The regime fork is real code, not a plan.** `tea_engine/regimes.py` forks certification
+  gate, GHG method and subsidy across RFNBO · ADVANCED_BIOFUEL · BIOFUEL_CROP · RCF ·
+  LOW_CARBON, and `evaluate_certification_gate()` rejects the wrong regime's evidence.
+  `BIOFUEL_NODES` extends the truth-stack registry code-side; a v0.3 spec bump is owed.
+
+**Companion documents.** `GEX_Handoff_Reference/HANDOFF.md` stays the live companion for
+TEA/LCA/regime/pathway work — this file does not repeat it. `GEX_Handoff_ONEFILE.md` is a
+convenience bundle (HANDOFF + running log + two design docs) and is regenerated when
+HANDOFF changes, not edited. `GreenEarthX-Technical-Handoff.md` (2026-02-28) was retired to
+`files/_retired/` on 2026-09-18: every defect it listed — no auth, no `/health`, missing
+projects and bankability routes, missing QueryClient provider, placeholder pages, the
+20-table `greenearth.db` — is fixed or superseded.
+
 ### Operational trap worth keeping
 
 `cp` of the main `.db` file does **not** restore a WAL-mode SQLite database — the `-wal`
@@ -284,7 +336,78 @@ governance · chained ledgers · domain tail.
 - `tea_engine/{routes/tea.py,compute/openpytea_runner.py,cepci_extension.py}` — restored
   and hardened
 
-**Tests added:** 13 files, plus `tests/pg_support.py` (the single PostgreSQL entry point) — token lifecycle (18), TEA (19), account lifecycle (22),
+**2026-09-14 — frontend**
+- `frontend/src/features/pricing/MoleculePriceCurve.tsx` — accepts both pricing response
+  shapes; figures a response does not carry render as "—", never a default; per-card error
+  boundary (§7)
+- `frontend/src/features/pricing/MoleculePriceCurve.test.tsx` (4) ·
+  `MoleculePriceCurve.boundary.test.tsx` (1) — new
+
+**2026-09-14 — duplicate tenor labels (sibling + frontend)** — no backup copies taken;
+every change is listed here (§7)
+- `gex_pf_engine/backend/pf_engine/core/gabillon.py` — new module-level `tenor_label()`;
+  `term_structure()` uses it instead of `tenor_m // 12`
+- `pf_engine/api/routes_pricing.py` — `/term-curve`'s tenor list hoisted to
+  `TERM_CURVE_TENORS_MONTHS`, so the test exercises the list actually served
+- `gex_pf_engine/backend/tests/test_tenor_label.py` — new, 18 tests
+- `frontend/src/features/pricing/tenorLabel.ts` — new; the frontend copy of the rule, used
+  by `MoleculePriceCurve.tsx` (fallback curve, label-missing case) and
+  `GabillonAdminPage.tsx` (seed curve), which each built their own label before
+- `MoleculePriceCurve.tsx` — `hasCurrentLabels()`: a stored published curve whose labels
+  disagree with `tenorLabel()` is purged, the same path as a corrupted curve
+- `tenorLabel.test.ts` (1) — new · `MoleculePriceCurve.test.tsx` 4 → 5
+- `tenorLabel.engine-parity.test.ts` (1) — new; runs the engine's `tenor_label()` under the
+  sibling's own interpreter and compares 0–600 months with `tenorLabel()`; skips if the
+  sibling or its venv is absent
+
+**2026-09-09 — sibling repo `files/gex_pf_engine`** (first time this engagement has
+touched it; backups in `gex_pf_engine/backend/.backups/`). Paths are post-rename —
+the package moved `app/` → `pf_engine/` the same day.
+- `pf_engine/core/dscr_guard.py` — new; the single place a DSCR/covenant decision is made
+- `pf_engine/core/engine.py` · `debt/sculpting.py` · `cfads.py` — routed through it
+- `pf_engine/core/debt/sculpting.py` — rejects a CFADS horizon longer than the debt life
+- `pf_engine/api/validation.py` — new. `FiniteModel` rejects Infinity/NaN on request
+  models; `finite_safe_validation_handler` scrubs the 422 body. **Both halves are
+  load-bearing:** with the handler removed the same request is a 500, because FastAPI's
+  422 echoes the raw `inf` and serialising it raises. Verified by removing it.
+- `pf_engine/api/routes_model.py` — the six request models inherit `FiniteModel`;
+  `pf_engine/main.py` registers the handler
+- `app/__init__.py` · `app/main.py` — guarded deprecated alias for `pf_engine` (§7)
+- `tests/test_debt_sculptor_characterization.py` — defect test became three
+
+**2026-09-09 — platform, alongside the sibling work**
+- `backend/tests/test_sibling_app_alias.py` — new; pins the alias and its guard
+- `backend/tests/test_architecture_guardrails.py` — `test_engines_verify_gex_identity_only`
+  still named the pre-rename `gex_pf_engine/backend/app`; the sibling's "may be absent"
+  exemption swallowed the missing path and **39 sibling files silently left the Supabase
+  scan** while `scanned >= 2` stayed satisfied. Now fails on a rename (§7)
+
+**2026-09-09 — rename**
+- `gex_pf_engine/` → `deal_engine/` (12 files), plus guardrail, `deal.ts`,
+  `engineClient.ts`, `contract-debt-coverage-spec.md`, `openpytea_pathwayspec_play.md`
+- `backend/tests/test_dscr_llcr_characterization.py` — new, 12 cross-tree tests
+
+**2026-09-08/09 — new files**
+- `backend/scripts/restore_registry_projects.py` — rebuilds `projects` from the frontend
+  seed after the schema loss; dry-run default, idempotent
+- `backend/tests/test_chain_of_custody.py` — 7 tests: rename, 503/404, no-physics guard
+- `frontend/src/features/auth/HeroField.tsx` — generative canvas hero (no raster, no licence)
+
+**2026-09-08/09 — changed**
+- `backend/app/api/v1/mass_balance.py` — Chain-of-Custody rename, RED III Art. 30 alignment
+  and its four documented gaps, project validation
+- `backend/app/main.py` — fail-loud registration, "Chain of Custody" tag
+- `backend/app/core/domain_authorization.py` — path mapping follows the rename
+- `backend/tests/test_architecture_guardrails.py` — `docker` in `skip_parts`
+- `backend/tests/test_evidence_slice.py` — `UNATTRIBUTED_BASELINE` 39 → 41, with cause
+- `frontend/src/features/auth/GuestLandingPage.tsx` — dark rebuild; breadth first
+  (orchestration map), gates second as proof, ten molecules, research last
+- `frontend/src/engine/registry/formulas.ts` — comment distinguishing engineering mass
+  balance from the custody ledger
+
+Frontend backups of the landing page are in `frontend/.backups/` (this is not a git repo).
+
+**Tests added earlier:** 13 files, plus `tests/pg_support.py` (the single PostgreSQL entry point) — token lifecycle (18), TEA (19), account lifecycle (22),
 projects canonical (14), RLS isolation, evidence (12), slice-5 characterization (41),
 marketplace (10), entitlements (12), event store (10), fuel reference (9),
 governance (17), tail slices (13).
@@ -295,11 +418,13 @@ governance (17), tail slices (13).
 
 Run from `backend/` with `./venv/bin/python -m pytest tests/ -q`.
 
-| Configuration | Result |
-|---|---|
-| `DATABASE_URL` → `gex_app` (the runtime role) | **429 passed, 0 failed, 4 skipped** |
-| `DATABASE_URL` unset (all SQLite) | **329 passed, 0 failed, 104 skipped** |
-| `DATABASE_URL` → PostgreSQL, **container stopped** | **329 passed, 0 failed, 104 skipped** |
+| Configuration | Result | Measured |
+|---|---|---|
+| `DATABASE_URL` → `gex_app` (the runtime role), **exported** | **487 passed, 0 failed, 12 skipped** — **stale**: predates `test_demo_header_fallback` (14) and `test_auth_store_isolation` (6). Not re-measured: PostgreSQL down, Docker not running | 2026-09-14, after restarting `files-postgres-1` (§8.10) |
+| `DATABASE_URL` unset (all SQLite) | **407 passed, 0 failed, 112 skipped** | 2026-09-14 19:13 |
+| `DATABASE_URL` → PostgreSQL, **exported, container stopped** | **407 passed, 0 failed, 112 skipped** | 2026-09-14 19:36 (Docker not running, :55432 closed) |
+| **sibling** `gex_pf_engine`, own venv | **121 passed, 2 failed** (both pre-existing: `test_gabillon`, `test_offtake`; 103 passed before `test_tenor_label`'s 18) | 2026-09-14 19:36 |
+| **frontend**, `npx vitest run` from `frontend/` | **114 passed, 0 failed** (14 files) | 2026-09-15 09:06 |
 
 > **Counts move — this tree has concurrent writers.** On 2026-08-11 the suite went
 > from 326 to 429 with no code change of mine: six test files (`test_client_billing`,
@@ -308,8 +433,16 @@ Run from `backend/` with `./venv/bin/python -m pytest tests/ -q`.
 > another session, contributing exactly 103 tests. All pass. Re-measure rather than
 > trusting a number you did not just run.
 
-**The suite is fully green in all three configurations as of 2026-08-10.** The
-long-standing compose failure was resolved by deleting the stale tree (below).
+**Green in every configuration that could be measured on 2026-09-14/15** — but only after a
+test of mine was corrected on 2026-09-14 (the alias entry below). Earlier that day the
+platform suite stood at 1 failed. The PostgreSQL-up row was re-measured once the container
+was restarted (previously 448 / 4 skipped, 2026-09-09), and is stale again: 20 tests have
+landed since (§8.11, §8.12) and PostgreSQL was down for the 2026-09-14 evening re-measure.
+Re-run it with the container up and `DATABASE_URL` exported before quoting it.
+
+**`tests/pg_support.py` reads `os.environ`, not `.env`.** With PostgreSQL up but
+`DATABASE_URL` only in `.env`, the suite silently runs the all-SQLite configuration
+(407 passed, 112 skipped — measured 2026-09-14) and looks healthy. Export it first.
 
 ### The runtime no longer connects as a superuser (2026-08-10, migration 045)
 
@@ -405,6 +538,381 @@ no real tenant may hold the sentinel value, and escalation must stay logged.
 **This change is inert at runtime today** — all eight switches are on SQLite, and the
 SQLite branch ignores `company_id`. Verified live: backend healthy, all switches `sqlite`.
 
+### 2026-09-18 — `npm run build` had been red since the sibling rename, and nobody knew
+
+Found while building the TEA screen, not by looking: **both frontend build gates were
+failing**, for the same reason, since the `app` → `pf_engine` rename of 2026-09-09.
+
+- `scripts/audit-causal-ways.mjs` read
+  `gex_pf_engine/backend/app/core/bankability_engine.py` with a bare `readFileSync` and
+  **crashed on ENOENT**. A crash, not a report: `npm run build` died before `tsc` ran.
+- `scripts/audit-menu.mjs` read the same package for its §10 probe, got nothing, and
+  concluded the PF engine had **no waterfall, no cash sweep, no sculpting** — flipping
+  six rows to "absent" and declaring the generated doc stale, which also exits 1. Had
+  anyone regenerated the doc in that state, `docs/menu-architecture-map.md` would have
+  told the team the finance engine did not exist. (I did regenerate it in that state,
+  saw the false rows, and reverted by fixing the probe: the doc is now byte-identical to
+  what it was before.)
+
+Both now try `pf_engine/` first and fall back to `app/`, and the causal-ways script warns
+instead of dying when neither is readable — a missing sibling checkout is not a broken
+build. **This is the third instance of one pattern** (see the 2026-09-09 entry, "a
+guardrail silently stopped scanning the sibling"): a guardrail that reads the sibling by
+path keeps passing, or dies, when the path moves. Anything reading across the repo
+boundary should tolerate both names and say when it read nothing.
+
+Also fixed, because it was the last thing standing between the tree and a green build:
+`OnboardingWizard.tsx:383` reset `step1Data` without `power_basis` and `offtake_status`,
+which failed `tsc` and would have left both fields undefined on a reset. `npm run build`
+now exits 0.
+
+### 2026-09-18 — TEA report, increments 1 and 2 (the figures are finally visible)
+
+Per `docs/tea-report-scope.md`, internal view only, name stays TEA.
+
+- **`GET /api/v1/economics/snapshot/{project_id}`** (`routes_economics.py`) fills the four
+  `economics.*` permission strings that had mapped to no route since the permission engine
+  was written. It serves the **approved** `model_base_case` and nothing else: 404 with no
+  live claim, **409 naming the state and carrying no figures** when the live claim is not
+  approved, and a superseded or closed claim never wins over the live one. GHG claims
+  follow the same rule per claim — an unapproved one contributes its state, not its value.
+  Registered under the `finance` domain; behind `require_finance_entitlement`.
+- **What it cannot serve, and says so:** cost stack, regime and sensitivity tornado are
+  **not persisted** — the compute path stores the headline economics and the run's hash,
+  and the evidence entry holds only `document_ref = cost_basis_hash`. They are named in
+  `not_available` with the reason, because fetching them would mean recomputing, and a
+  recomputed figure is not the figure that was approved. Persisting them is the next
+  increment.
+- **`/economics/:projectId`** (`EconomicsSnapshotPage.tsx`) renders the five states —
+  approved, not approved, nothing computed, no access, unavailable — with the provisional
+  `ascertained=false` banner on every approved view. No menu entry yet: placement is a
+  product decision.
+- **403 comes before 404** on the API, deliberately, so the status code cannot enumerate
+  the portfolio. Pinned by a test.
+- Tests: 14 backend, 9 frontend; suites **442 passed / 112 skipped** and **167 passed**.
+  Seven guards negative-verified by reintroducing each fault (serving a provisional claim,
+  leaking an unapproved GHG value, dropping the disclaimer, ignoring supersession, treating
+  a 409 as data, collapsing 403 into 404, rendering an unapproved value).
+- Verified live through the Vite proxy against a running backend: the route answered
+  **403 with the entitlement reason** for a caller with no grant. The same run confirmed
+  this morning's auth fix end-to-end — a forged bearer got 401 and the frontend ended the
+  session rather than rendering a signed-in page.
+
+### 2026-09-18 — Ecosystem Navigator: data structure v4.2 (specification, not code)
+
+`Data_structure_local.docx` — the client's field dictionary for the map — was rewritten as
+`~/Downloads/Data_structure_local_v4_2.docx`. It stays outside the repo because it is a
+client document. Every v1 field keeps its characteristics (type, length, mandatory,
+look-up) and carries a Kept / Updated / New / Moved marker saying what changed. Companions
+in the repo: `docs/ecosystem-navigator-data-structure-review.md` (what was wrong with v1)
+and `docs/news-to-project-truth-pipeline.md` (the pipeline this refines).
+
+**What the specification now requires of any code that implements it:**
+
+- **Lifecycle is four fields, not one list.** Declared phase (7 + Unknown), dated
+  milestones, status, and the workstreams already modelled as gates G0–G11. The v1 list of
+  12 stages mixed phases, a milestone (FID), a workstream (Permitting) and duplicates —
+  Concept, Pre Feasibility and Feasibility are FEL 1–3 under older names. **The tree
+  carries eight stage vocabularies** (logged as §8.13, with the measured table): plant
+  builder (11 values), `PackageRegister` (6),
+  `project_registry.VALID_PHASES` (4), ecosystem `ProjectStatus` (5),
+  `instrument_registry` (8), Gantt config (5), the gates, and the docx. Settling them is a
+  one-canonical-source item, not a cosmetic one. `abac_middleware._build_context` also
+  hands every project to the policy as `SPECULATIVE`, whatever its stage.
+- **Silence is derived, never stored.** No observed progress for 2 years reads as Shelved
+  (inferred), 4 years as Presumed cancelled — Global Energy Monitor's published
+  convention, adopted so their CC BY 4.0 data imports without a lossy mapping. Announced
+  pauses and cancellations stay stored statuses. An earlier draft invented 24/18/6-month
+  thresholds; they were withdrawn.
+- **Evidence is its own ledger.** A claim carries many evidence rows (SUPPORT /
+  CONTRADICT / SUPERSEDE) with a source locator and an **independence group**, so twelve
+  reprints of one press release corroborate once. That is the syndication defect from the
+  pipeline spec, fixed in the schema rather than in prose.
+- **Ledgers versus projections.** Source, claim and claim–evidence are append-only.
+  Organisations, projects, phases, assets, participants, milestones, lifecycle history and
+  sites are projections rebuilt from accepted claims. Nothing writes a register directly,
+  and a retraction recomputes projections rather than deleting history.
+- **Counterparties are first-class.** An organisation dictionary keyed on GLEIF LEI, and
+  one participation row per organisation per role, carrying agreement stage (an MoU is not
+  a binding contract), dates, amount and visibility. v1 had a 200-character `Partners`
+  string and no offtaker field at all.
+- **Sites split** into project sites (optionally per phase) and asset sites, each with
+  precision and confidence. The map must never draw a country centroid as a plot of land.
+- **Thresholds are versioned rule sets** — exclusions, score weights, authority tiers,
+  evidence bars, silence clocks, independence groups — so a figure published last quarter
+  can still be explained.
+- **The gate firewall is unchanged and absolute.** External intelligence is shown as
+  context and never feeds a gate. A proposed wording of "never *automatically*" was
+  rejected: the adverb would have opened a manual path from press coverage into G0–G11.
+
+**Free sources named, licences checked 2026-09-18.** IEA hydrogen projects (CC BY 4.0; the
+IEA **CCUS** database's licence is *not* confirmed — check its product page before
+importing), Global Energy Monitor power and gas-infrastructure trackers (CC BY 4.0), GLEIF
+LEI (CC0), UN/LOCODE (public domain), NGA World Port Index (US public domain),
+OpenStreetMap via Protomaps (ODbL, attribution required). Software: Splink (MIT, and it
+has a PostgreSQL backend, so no new datastore), feedparser, trafilatura (Apache 2.0 only
+from v1.8), datasketch, rapidfuzz, cleanco, Pint, MapLibre. **Zingg is AGPL-3.0 — do not
+adopt it in a hosted platform.** Paid services are excluded by the client's instruction, so
+de-duplicating syndicated copies is GEX's own job. `external_corpus.import_snapshot`
+already takes licence, attribution and retrieval date and turns snapshot diffs into status
+transitions: it is the import path for all of these.
+
+**What exists in code** (built by an earlier session; unchanged by this work):
+`app/core/ecosystem_store.py` and `app/api/v1/routes_ecosystem.py`, 12 tests in
+`tests/test_ecosystem_publication.py` — server-side publication, per-tenant enrichments,
+soft-delete withdrawal, and the publisher's field visibility enforced against everyone
+including `PLATFORM_ADMIN`. `frontend/src/lib/ecosystem/userProjects.ts` holds the
+hardened four-rule matcher, 22 tests. **Nothing else in v4.2 exists**: no claim ledger, no
+evidence table, no organisation dictionary, no site tables, no rule sets, no imports, no
+map library in the frontend at all. `init_db()` in the ecosystem store still raises on
+PostgreSQL, so an Alembic migration carrying RLS is owed before that switch can flip.
+
+**Decisions the client owes:** D1–D14 in the docx; D12 (silence convention) and D13 (GEX
+staff work the analyst review queue) were decided 2026-09-18. See §12.
+
+### 2026-09-14 — duplicate tenor labels on `/pricing-curves` (sibling engine)
+
+`term_structure()` labelled tenors with `tenor_m // 12`. `/term-curve` requests 18 and 30
+months, so every molecule's curve carried two "1Y" and two "2Y" points at different prices
+(e-Methane: "1Y" 113.93 and 137.24, "2Y" 115.06 and 138.13). React keys use
+`tenor_months`, so nothing collided — the chart axis and the table were simply mislabelled.
+
+**Convention, now authoritative:** whole years are `NY`; every other tenor is months
+(`18M`, `30M`). Not `1.5Y`: a 15M tenor would read `1.25Y`. The engine's `tenor_label()` and
+the frontend's `tenorLabel()` are **two copies of one rule**. `tenorLabel.engine-parity.test.ts`
+holds them together: it runs the engine function under `gex_pf_engine/micro_service` and
+compares every tenor 0–600 months. It **skips** where the sibling or its venv is absent
+(docker staging), so a green run there proves nothing. The frontend's old `t / 12` produced
+`1.5Y` rather than a wrong label, but a different convention from the engine's.
+
+**Negative-verified.** With the old formula restored in memory only (no file edits), all
+three engine checks fail and the curve check reproduces the exact duplicate list. The
+frontend purge test goes red with `hasCurrentLabels()` removed. The parity test goes red
+(538 mismatches, first at 13 months) with the frontend's old rule swapped back in.
+
+**Stored published curves:** the purge is a safety net, not a clean-up of known damage.
+The Pricing Admin page publishes `/calibrate` output or its seed curve, and both use tenors
+`[1, 3, 6, 12, 24, 36, 60]` (`gabillon.py` `calibrate()`, both branches), which the old
+rule labelled correctly. So the normal publish path could not have stored a mislabelled
+curve. A correctly labelled published curve is kept (asserted).
+
+**Live engine verified; signed-in page not.** Calling `:8001` exactly as
+`routes_pricing_proxy._call_engine` does — `engine_auth_headers()`, a backend-minted service
+token — returned 200 with `1M 3M 6M 9M 1Y 18M 2Y 30M 3Y 4Y 5Y` for e-Methane. The card was
+not seen signed in: the Browser pane was signed out and no user token was minted. Whoever
+next has a signed-in session: open e-Methane and expect `18M` and `30M`.
+
+### 2026-09-14 — `/pricing-curves` rendered nothing for any signed-in user
+
+`MoleculePriceCurve` was written against the `/calibrate` response shape but fetches
+`/term-curve`, which the engine serves differently (§8.7). All eight responses passed
+`isCurveSane()`, so the card rendered them and called `toLocaleString()` on an undefined
+`capex_floor_eur`. There was no error boundary anywhere in `frontend/src`, so one card's
+`TypeError` unmounted the whole route — heading and all.
+
+**Why it looked environmental:** only signed-in users hit it. `main.tsx`'s fetch bridge adds
+the bearer token; without one the call 401s and the card quietly draws its seed curve.
+
+Reproduced before any edit — blank page, same `TypeError` — using a locally minted dev
+token in the Browser pane, cleared afterwards. The regression test went red first (3 failed,
+1 passed) and green after. The fix: one normaliser accepting both shapes; figures a response
+does not carry stay null and render "—", never a default, because an invented half-life on
+a pricing screen is worse than a gap; and a per-card error boundary, pinned by a test that
+forces the chart to throw and checks that a sibling element survives. Verified live: 8 cards,
+0 boundary fallbacks, no `undefined` or `NaN`, console clean after reload.
+
+**Diagnostic trap:** a hand-minted token with `null` list claims made *every* signed-in
+request 500 (§8.9), which briefly read as "PostgreSQL being down breaks everything". It does
+not. Mint diagnostic tokens the way `auth.py:640-661` builds them — empty lists, not nulls.
+
+### 2026-09-09 — the sibling's `app` alias, and a safety test that tested nothing
+
+After `app` → `pf_engine`, `uvicorn app.main:app` was recalled from shell history three
+times: twice into a bare `ModuleNotFoundError`, once into a tombstone that printed the right
+command and still did not start the engine. The old name now works. `app/main.py`
+re-exports `pf_engine.main.app` — the same object, not a second FastAPI instance — and
+prints a deprecation notice.
+
+What makes it safe is `app/__init__.py`: it **refuses to load when the platform backend is on
+`sys.path`**, detected by `app/core/db_backend.py`, a file only the platform has. The hazard
+is one process holding both trees with the sibling first, where `app.main` would silently be
+the PF engine instead of the 56-router platform app.
+
+**CORRECTED 2026-09-14.** The test for that guard inserted the platform *first* on
+`sys.path`. In that order `import app` finds the platform's own package, the alias never
+loads, and the test failed with `NO_GUARD` — reading as a broken guard. The guard was fine;
+the test never reached it, and it went unnoticed for five days because the 2026-09-09
+verification run was interrupted. Now the sibling-first case (the real hazard) must raise,
+and platform-first is pinned separately. Negative-verified against a throwaway unguarded copy
+— the snippet prints `NO_GUARD`, so the test fails without the guard — with the real alias as
+the positive control. Deliberately *not* by editing the live sibling, whose `--reload` would
+restart :8001.
+
+**Also learned:** `--reload` binds the socket in the parent process. A worker that dies on
+import leaves the reloader holding :8001, so `lsof` shows the port taken while `curl` gets
+nothing.
+
+### 2026-09-09 — a guardrail silently stopped scanning the sibling
+
+`test_engines_verify_gex_identity_only` still named `gex_pf_engine/backend/app` after the
+rename. The sibling is the one tree allowed to be absent, for partial checkouts, so the
+missing path was absorbed as "not checked out": **39 sibling files left the Supabase scan**,
+and `scanned >= 2` stayed satisfied by the two in-repo trees. The exemption now separates
+*no sibling repo* (skip) from *sibling repo present, package gone* (a rename — fail), and
+`scanned` must equal the number of trees actually present. Negative-verified both ways:
+planting `supabase` in the sibling fails the test, and moving `pf_engine/` away fails it with
+a message naming the rename.
+
+### 2026-09-09 — a 500 where a 422 belonged (sibling engine)
+
+`dscr: 1e400` sent to `/api/v1/model/covenant-check` returned **500**. Pydantic rejected the
+value correctly; FastAPI's 422 body then echoed the raw `inf`, and serialising `Infinity`
+raised. Fixed in `pf_engine/api/validation.py` (§6). Verified over HTTP with a real JWT: 422
+with the input scrubbed, while a valid `dscr: 1.85` still returns `compliant: true`. With the
+handler removed and the validator kept, the same request is a 500 again.
+
+### 2026-09-09 — DSCR read as compliant when it was undefined (sibling engine)
+
+**The defect.** `DSCR = CFADS / debt service` is undefined when debt service is zero —
+after maturity, before first drawdown, or when a schedule is empty by mistake. The sibling
+engine returned `float('inf')`, and `inf >= 1.30` is `True`. Measured before the fix:
+
+```
+calculate_project_metrics(revenue=10M, opex=4M, capex=0, debt_service=0)
+  → dscr = inf,  dscr_compliant = True        ← passing a covenant it cannot have met
+check_covenants({"dscr": inf}, {"dscr_minimum": 1.30})
+  → compliant: True, severity: "ok", all_compliant: True
+DebtSculptor(...).sculpt([...])   # 15y horizon on a 10y loan
+  → sculpted_profile[10]["is_compliant"] = True
+```
+
+**A missing input produced maximum confidence** — the inverse of a covenant test, and the
+same shape as the `PLATFORM_ADMIN` shim default removed the day before. `inf` also emits
+the token `Infinity`, which is not valid JSON, so a strict client rejects the payload.
+
+**The fix.** `gex_pf_engine/backend/pf_engine/core/dscr_guard.py` — one place decides:
+
+- `meets(dscr, threshold)` — undefined **never** satisfies a covenant
+- `breaches(dscr, threshold)` — undefined is **not** a breach either; with no debt service
+  there is nothing to default on. Undefined is neither compliant nor in breach.
+- `for_output(dscr)` — `None`, never `inf`
+
+Applied at five decision points (`engine.py` ×3, `sculpting.py` ×2) and one output
+boundary (`cfads.py`). **The sentinel itself was deliberately left as `inf`**: sixteen call
+sites do `sum()`, `min()` and comparisons across the series, and swapping the type there
+would trade a wrong answer for a crash. Every decision and every output fails closed.
+
+**And the horizon is now rejected, not tolerated.** `DebtSculptor.sculpt()` raises when the
+CFADS horizon exceeds the longest tranche tenor, naming the year the problem starts and
+what to pass instead. The previous position — recorded in the sibling's own test as
+"callers must clamp the horizon" — put the responsibility on every caller, and the one who
+forgot shipped `Infinity`. Silently trimming would have been worse: a summary over a period
+the caller never asked about. A shorter horizon is still allowed; only overrunning maturity
+is refused. **`sculpt()` has no production caller today** (`DebtSculptor` is a known
+zero-caller orphan), so nothing live changed behaviour.
+
+Pinned by `backend/tests/test_dscr_llcr_characterization.py` (12 tests, cross-tree) and the
+sibling's own `test_debt_sculptor_characterization.py`, whose defect test became three.
+
+### 2026-09-09 — `gex_pf_engine` → `deal_engine` (name collision, not a duplicate)
+
+Two different services shared one name. **Zero shared module names** — verified by diffing
+the full file lists. The sibling (42 files) is the Gabillon PF engine on `:8001`; the
+nested one (15 files) computes deals. 12 files rewritten, plus the architecture guardrail,
+`deal.ts`, `engineClient.ts` and three docs. All 20 sibling references left untouched.
+
+That guardrail skipped trees that do not exist, so a rename silently dropped one from the
+scan — **verified by planting a typo, which changed nothing.** It now asserts the in-repo
+trees exist, with the sibling the one tree allowed to be absent, plus a `scanned >= 2`
+check so it cannot pass vacuously.
+
+**The third collision — `app` — was fixed the same day.** Both repos had a top-level
+package named `app`; whichever imported first won and the other's submodules became
+unreachable. The **sibling** was renamed (`app` → `pf_engine`) because it is 19 files and
+56 import lines against the platform's 152 files and 530 lines.
+
+**The startup command changed by one token** and this is the only user-visible effect:
+
+```bash
+cd files/gex_pf_engine/backend
+source ../micro_service/bin/activate
+uvicorn pf_engine.main:app --reload --port 8001     # was app.main:app
+```
+
+Also updated: the sibling's `Dockerfile` CMD, and every `:8001` startup line across 11
+documents. **The platform's own `uvicorn app.main:app --port 8000` was left alone** — the
+two were distinguished by port, not by string, and 10 such references survive untouched.
+
+The payoff: the cross-tree characterization test no longer needs its subprocess workaround.
+All three packages — `app`, `pf_engine`, `deal_engine` — now import together in a single
+interpreter, which was impossible that morning.
+
+### 2026-09-08/09 — schema loss, rebuild, and a rename
+
+**The PostgreSQL schema was found empty.** `gex_platform` contained only PostGIS's own
+tables across `public`, `tiger` and `topology` — no `alembic_version`, no `gex_app` role,
+no GEX table of any kind. It had held 98 tables at head 045 hours earlier. One container,
+one volume, no other candidate. **The cause is not known and has not been invented.**
+
+SQLite was untouched and is still the system of record, and all eight switches still read
+`sqlite`, so the running product never noticed. That is the strangler pattern working: the
+migration target was destroyed and the application was unaffected.
+
+**Rebuilt** — migrations to head 045 (98 tables, 89 RLS), `gex_app` recreated and its dev
+password reset (it lived only in the destroyed cluster), then eight of nine slice copiers:
+53 tables, 6,622 rows.
+
+**The ninth cannot run again.** `scripts/migrate_projects_collision.py` reads
+`SELECT * FROM projects` from SQLite, and migration 033 retired that table. So `projects`
+had no rebuild path. Migration 020 seeds 7; `project_registry.py` knows 12; the 5 in the
+gap were runtime-created.
+
+**`scripts/restore_registry_projects.py`** (new) restored those 5 plus 2 tenants. Sources
+and judgment calls, all flagged on every run:
+
+- Data comes from **`frontend/src/data/customerProjects.ts`**, not `project_registry.py`.
+  The registry is an *access* profile — id, name, owner, jurisdiction — and carries
+  neither `molecule` nor `status`, both `NOT NULL`. Restoring from it would have meant
+  inventing commercial attributes.
+- **`capex_eur: 0` → written NULL.** Two projects (90 MTPD SAF, 342 MTPD e-methanol) carry
+  zero capex in the seed. That is a placeholder, not a price; a literal 0 could be consumed
+  as real by blended WACC or the catalytic ratio. NULL says unknown, 0 says free.
+- **`company_type = PRODUCER`** is derived, not guessed: every tenant owning a project in
+  this database is PRODUCER, 7 of 7.
+- **Pecos I capex carried as-is** — `capex_eur: 562000000` beside `capex_currency: "USD"`.
+  Number written unchanged rather than applying an FX rate that cannot be sourced.
+
+Dry-run by default, idempotent (verified by re-running: 0 written).
+
+**Two projects are unrecoverable.** `proj_north_sea_e_methanol_203b51` and
+`proj_wilhelmshaven_e_ammonia_f0dc91` have generated hex ids, were created via
+`/projects/new`, and are defined in no seed, registry or migration. Their two evidence rows
+are permanently unattributed, which is why `UNATTRIBUTED_BASELINE` moved **39 → 41** — for
+a loss, not for new debt. The comment above it says so, and says to restore 39 if those
+projects ever come back.
+
+### Chain of Custody — the ledger renamed (2026-09-08)
+
+`/api/v1/mass-balance` → **`/api/v1/chain-of-custody`**; API tag "Chain of Custody";
+`domain_authorization.py` path mapping updated in the same change, since it maps path to
+domain and a missed rename would have dropped the routes out of the sustainability domain.
+
+**Tables keep `mass_balance_*` deliberately** — *mass balance* is the correct name for the
+RED III chain-of-custody **method**; it is the wrong name for a **product**, because an
+engineer reads it as conservation of mass and energy. The module performs two arithmetic
+operations and no physics.
+
+Registration is now **fail-loud**: the `try/except ImportError` that printed
+`⚠️ mass_balance not found - skipping` is gone. A custody ledger that silently vanishes
+while the API still answers 200 elsewhere is an audit surface disappearing quietly.
+**56 other routers still use that pattern.**
+
+`create_lot` now validates `project_id` against the canonical store, and **distinguishes
+503 from 404**: `projects_store` fails soft, returning `None` both for "no such project"
+and "database unreachable", so it probes the engine directly. Reporting an outage as 404
+would tell an operator their id is wrong and they would invent another, anchoring custody
+to nothing. Pinned by `tests/test_chain_of_custody.py` (7 tests), negative-verified.
+
 ### `tests/pg_support.py` — the one PostgreSQL entry point
 
 Added 2026-08-10. Previously seven files each defined their own `_pg()` and 24 call sites
@@ -490,6 +998,8 @@ cannot re-trigger the test. Delete the archive once a release has passed.
 
 ## 8. Known unresolved defects
 
+
+
 1. **`contracts` exists in neither store.** `contracts_sqlite.py` queries it at lines
    150, 200, 258. Verified absent from both SQLite and PostgreSQL.
    `/api/v1/contracts/summary` returns 500. **This needs CREATE, not DROP** — it is
@@ -531,10 +1041,265 @@ cannot re-trigger the test. Delete the archive once a release has passed.
    endpoints. **`dealClient.ts` was not migrated** — the decision was taken but the work
    was not done. `projectAccess.ts` is the highest-risk of these, since it is an access
    path.
+7. **One curve, two response contracts.** `GET /pricing/term-curve` names the floor
+   `capex_floor_eur_t`, keeps `n_observations` under `governance`, and sends no half-life,
+   seasonality or convenience yield; `POST /pricing/calibrate` sends all of them under the
+   card's names. `MoleculePriceCurve` now normalises both (§7), but the split itself is
+   untouched — the next consumer will meet it again. Settle one contract engine-side.
+8. ~~**Duplicate tenor labels.** `gabillon.py` used `tenor_m // 12`, labelling 18M "1Y"
+   and 30M "2Y".~~ **FIXED 2026-09-14** — see §7. The rule exists twice (engine
+   `tenor_label()`, frontend `tenorLabel()`); a parity test holds them together but skips
+   without the sibling checkout. Live engine verified; not yet seen on a signed-in page.
+9. **A present-but-null list claim turns into a 500.** `abac_middleware.py:357-358` does
+   `set(payload.get("nda_signed_with", []))`; `.get`'s default applies only when the key is
+   absent, so `null` raises `TypeError` and the request dies as a plain-text 500 rather than
+   a 401. Real login never emits null (`auth.py:659-661`, `817-818`) — found only through a
+   hand-minted diagnostic token — but a malformed token should be refused, not crash.
+10. **Operational, 2026-09-14: Docker Desktop was not running**, so `files-postgres-1` and
+    :55432 were down. Easy to miss: sign-in and most signed-in pages still work, because
+    `AUTH_DB_BACKEND=sqlite`. The symptom is `projects_store read failed (SELECT):
+    (psycopg2.OperationalError) … port 55432 failed: Connection refused` (`e3q8`) in the
+    backend log; the read falls back and the request still returns 200.
+    **CORRECTED 2026-09-14 — starting Docker Desktop does not restore the database.**
+    `gex-pg-forward` restarts on its own, so :55432 opens and *looks* up, but
+    `files-postgres-1` has restart policy `no` and came back `Exited (255)`; connections then
+    fail with "server closed the connection unexpectedly". `docker start files-postgres-1`
+    is required. Done 16:03: healthy, `gex_app` connects, head 045, `projects` returns 0 rows
+    with no tenant context (fail-closed, as intended). Worth giving the postgres service a
+    restart policy. :8002 (TEA) was also not listening — cause not investigated.
+11. ~~**An expired session looks signed in.**~~ **FIXED 2026-09-14** (frontend, then the
+    backend gap below). Access tokens live 30 minutes
+    (`ACCESS_TOKEN_EXPIRE_MINUTES`). `frontend/src/lib/authToken.ts` had no expiry check and
+    no `status === 401` handler existed in `frontend/src`, so a tab left open kept
+    rendering signed-in pages while ABAC answered every API call `401 Authentication
+    required`. On `/pricing-curves` each card then silently drew its seed curve — no
+    18M/30M points — which read as "the fix did not land". Seen as repeated batches of
+    eight `/term-curve` 401s in the backend log.
+
+    **Now caught three ways:**
+    - **Clock.** `lib/authToken.ts` reads the JWT `exp` (stored `expiresAt` is the fallback;
+      with neither, the server decides). Every getter treats an expired token as absent, so
+      none is sent. `main.tsx` calls `discardExpiredSession()` before the first render —
+      `UserRoleProvider` initialises from storage — so a tab reopened after expiry starts
+      signed out. Verified live: seeded an expired session, loaded `/pricing-curves`, landed
+      on `/login` with storage cleared and **0** term-curve requests.
+    - **Navigation.** `RequireAuth` (moved to `components/RequireAuth.tsx`) no longer trusts
+      `sessionTier` alone; it is set at login and outlives the token.
+    - **Server.** The fetch bridge (moved out of `main.tsx` into `lib/fetchAuthBridge.ts`,
+      because `main.tsx` renders on import and cannot be tested) ends the session on a 401 —
+      only when the request carried the bearer that is *still* stored (not a guest, a
+      caller-supplied token, or a request issued before signing in again), and never for the
+      credential exchanges `/api/v1/auth/login`, `/auth/refresh`, `/account/register`
+      (PUBLIC_ROUTES — their 401 means wrong credentials). Verified live: a forged bearer's
+      401 from `/projects/visible` cleared the session; a wrong-password login 401 did not.
+
+    `lib/sessionGuard.ts` `expireSession()` clears storage exactly as `logout()` does (both
+    call `clearAuthSession()`) and does a full `location.replace('/login')` — a reload, since
+    the session also lives in React state. Once per page load (eight parallel 401s → one
+    redirect), and never while already on `/login` (no loop). No timer: a page that makes no
+    call and no navigation stays rendered until it does. No clock-skew leeway.
+
+    Tests: `authToken.test.ts` (+13), `fetchAuthBridge.test.ts` (10), `sessionGuard.test.ts`
+    (5), `RequireAuth.test.tsx` (4) — vitest **114 passed, 0 failed, 14 files** (was 82 / 11).
+    Every guard was negative-verified by breaking it on a scratch copy. One was decorative at
+    first: the credential-exchange tests iterated `CREDENTIAL_EXCHANGE_PATHS` itself, so
+    deleting `/auth/login` from the set still passed. They now name the paths literally, and
+    also fail if the exemption is widened to the whole `/api/v1/auth/` prefix.
+
+    **Backend gap — FIXED 2026-09-14. A presented `Authorization` header that fails is a
+    401; `x-demo-user` is consulted only when no Authorization header was sent.** Before,
+    `abac_middleware.py` `_extract_user` fell through to the demo header whenever the bearer
+    failed to decode, and under `GEX_DEMO_MODE` (default `True`, `config.py:33`; not set in
+    `backend/.env`) served the request as the seeded user that e-mail named. The bridge sends
+    `x-demo-user` on every call. Measured with a forged JWT: `/pricing/term-curve/SAF` → 401
+    with the bearer alone, **200** with the demo headers; `/projects/visible` → 401 either
+    way. A session the *server* rejected (revoked, re-keyed) was served 200 and invisible to
+    the frontend; the live redirect came only from `/projects/visible`'s 401, after 6.4 s.
+    Clock expiry never depended on this — the session is cleared before sending, so neither
+    bearer nor `x-demo-user` goes out.
+    - **Same fall-through in `route_security.require_authenticated`** — the global
+      dependency, and the only gate on ABAC-exempt routes or with
+      `ENABLE_ABAC_MIDDLEWARE=False`. Same rule applied (`presented_credential`).
+    - **Also fixed in `_extract_user`:** with `GEX_DEMO_MODE=False` a demo header made it
+      return a `JSONResponse` *as the user*. A Response is truthy, so `dispatch`'s
+      `if not user` passed and the request continued with **no identity** (200 as `None` in
+      the test). It now returns `None` → 401.
+    - **Behaviour change:** a non-`Bearer` Authorization header (e.g. `Basic`) plus demo
+      headers used to authenticate as the demo user; it is now 401. The frontend sends none.
+    - **Test:** `tests/test_demo_header_fallback.py`, 14 cases, each against the middleware
+      and the dependency separately. Forged-unsigned, expired, garbage and `Basic`
+      credentials + demo headers → 401 with the demo lookup **never called**; demo headers
+      alone → the seeded user; a valid bearer beats demo headers; demo mode off → 401.
+      **Negative-verified by running it on the unfixed code first: 9 failed, 5 passed** (all
+      8 refusals answered 200 as the demo user, plus the demo-off middleware case); 14 pass
+      after. Suite: **401 passed, 112 skipped, 0 failed** (387 / 112 before).
+    - **Not re-measured live** — :8000 was not listening. Expected: forged bearer + demo
+      headers → 401 on `/pricing/term-curve/SAF`, so the bridge ends the session on the
+      first call rather than waiting for `/projects/visible`.
+    - **Shadowed copy, left alone:** `routes_projects.py:812-835` (`/visible`) still falls
+      through from an invalid bearer to `x-demo-user` in its own code. Unreachable while the
+      middleware runs (it 401s first; `/visible` is not exempt), but it is a third copy of
+      the rule. `/{project_id}/profile-intelligence` beside it already refuses correctly.
+12. ~~**`isolated_store` does not isolate `app.core.auth`.**~~ **FIXED 2026-09-14.** `auth.py`
+    **and `refresh_tokens.py`** (same defect) captured `DB_PATH = settings.SQLITE_DB_PATH` at
+    import and called `auth_connection(DB_PATH)`; an explicit path beats `settings`, so the
+    fixture's repointed path never reached the auth slice — and a first import *under* the
+    fixture pinned it to the throwaway file for the rest of the process. `_load_user_by_email`
+    runs `init_auth_db()` (DDL, 17 seed upserts, commit) on every call. Both `_get_conn()` now
+    call `auth_connection()` with no path; neither module has a `DB_PATH`.
+    - **Measured before the fix — latent, not exercised.** mtime could not answer it: the dev
+      DB changed size between two reads with no process holding it (another session writing).
+      So a pytest plugin wrapped `sqlite3.connect` in the test process, recorded every open of
+      `gex_platform.db` by test and calling frame, and fingerprinted `auth_users` (each
+      `_seed_user` re-salts `password_hash`) around every `isolated_store` test — read-only, no
+      rows added. Full suite, all-SQLite (401 passed): 186 dev-DB opens, **0 during the 84
+      `isolated_store` tests** (`test_client_billing` 26, `test_open_interest` 23,
+      `test_throughput_billing` 21, `test_demo_header_fallback` 14); fingerprint unchanged in
+      all 84. Same result with the four files alone and together. The billing/interest modules
+      never call `auth`; the demo test stubs the lookup.
+    - **Conftest now carries the real auth schema.** The stand-in `auth_users` (no `is_active`,
+      no `password_hash`) crashed any real lookup under the fixture. `isolated_store` repoints
+      first, then calls `auth._ensure_tables()` on the temporary store — the owner, not a copy.
+    - **Test:** `tests/test_auth_store_isolation.py`, 6 tests. The dev DB is refused at
+      `sqlite3.connect`, so a regression fails at the open, before any statement runs.
+      `get_user_payload_by_email`, `authenticate_user` and the refresh-token DDL run under
+      `isolated_store` with a positive control (a user present only in the throwaway store must
+      be found); both modules must follow two successive paths at call time; an AST guardrail
+      rejects any `*_connection(...)` handed a module-level `settings.SQLITE_DB_PATH` capture.
+      **Negative-verified in memory, no file edited:** old capture at the dev path → 6 failed
+      (5 on the guard, so no dev write; 1 on the AST scan naming both old patterns); old
+      capture at a throwaway path, the reverse case → 6 failed (user not found, DDL missing,
+      path mismatch).
+    - `test_demo_header_fallback.py` dropped its `auth.DB_PATH` monkeypatch;
+      `test_account_lifecycle.py` dropped a vestigial `DB_PATH` swap.
+    - **Suite:** `./venv/bin/python -m pytest tests/ -q` → **407 passed, 112 skipped, 0 failed**
+      (all-SQLite: `DATABASE_URL` not exported, Docker not running). Probe after: 0 dev-DB
+      opens across 89 `isolated_store` tests.
+    - **Still open.** (a) Importing `auth` writes the dev DB: `auth.py:938` runs
+      `init_auth_db()` at import — 41 write statements, re-salting all 17 demo password
+      hashes — in every pytest process, before any fixture exists. (b) 32 modules still capture
+      `DB_PATH` at import; 28 hand it to raw `sqlite3.connect`, which `isolated_store` cannot
+      reach and the new guardrail does not cover (it covers the shim accessors only).
+13. **Eight project-stage vocabularies, and one of them is decorative.** Measured
+    2026-09-18:
+
+    | Where | Values |
+    |---|---|
+    | `NewPlantDialog.tsx:64`, `PlantSettingsDialog.tsx:230` | 11: Concept … Pre FEED, FEED, Permitting, Pre FID, FID … Operating |
+    | `PackageRegister.tsx:32` | 6: FEL_1, FEL_2, FEED, FID, CONSTRUCTION, COD |
+    | `GanttVisibilityConfig.tsx:65` | 5: ADVISORY, BUILD, FIN_CLOSE, CONSTRUCTION, OPERATIONS |
+    | `project_registry.py:223` | 4: development, construction, commissioning, operating |
+    | `types.ts` (`ProjectPhase` + `ProjectStatus`) | **split 2026-09-18**; was 5 mixed values: concept, planned, construction, operational, cancelled |
+    | `instrument_registry.py:289` | 8: SPECULATIVE … FINANCEABLE, OPERATIONAL |
+    | Bankability gates | G0 … G11 |
+    | `Data_structure_local.docx` | 12, using FEL 1–3 |
+
+    Three consequences, in rising order of seriousness. **(a)** The client document and the
+    plant builder — the entry path that document names — already disagree: FEL 3 against
+    FEED. **(b)** `ProjectStatus` puts phase and status in one field, so a cancelled project
+    has no recordable phase and a "planned" project has no recordable status; any imported
+    status (Global Energy Monitor, IEA) therefore needs a lossy per-screen mapping.
+    **(c)** `abac_middleware.py:475` hands every project to the policy as
+    `project_state="SPECULATIVE"`, whatever its real stage, so **any ABAC rule keyed on
+    project state is decorative** — it cannot discriminate between two projects today. That
+    is the one part with a runtime symptom, and it is silent.
+
+    **One of the eight is fixed, 2026-09-18 — consequence (b).** `types.ts` now carries
+    `ProjectPhase` (7 + `unknown`) and `ProjectStatus` (active, on_hold, cancelled,
+    mothballed, decommissioned, superseded) as separate fields, so a project is cancelled
+    *at* a phase. `normaliseLifecycle` reads rows in either vocabulary; the store gained a
+    `phase` column with an additive `ALTER TABLE`, normalises on write and on read, and
+    `routes_ecosystem` carries both fields. The plant builder publishes two selects instead
+    of one. **The trap worth knowing:** `unknown` is a valid phase *value* but means "no
+    phase recorded", which is also what the migration writes into every pre-split row — so
+    reading the phase first silently discarded the legacy status. Both copies now test for
+    it, and the tests were negative-verified by reintroducing exactly that bug.
+    A parity test (`test_the_lifecycle_vocabulary_matches_the_frontend`) pins the Python
+    copy of the vocabulary to `types.ts`, because the two exist only for as long as legacy
+    rows do. Tests: 5 backend (17 in that file), 14 frontend; suites 428 passed / 112
+    skipped and 158 passed. **Seven vocabularies remain**, and `project_state` is still a
+    constant.
+
+    Not a defect you can see on screen, which is why it has survived: each vocabulary is
+    locally consistent.
+14. **Evidence documents go in and cannot come out.** Measured 2026-09-18, correcting an
+    earlier claim in this session that no file storage existed — it does, in two places:
+    `development_packages.py:1101` (`POST /{package_id}/evidence`) and
+    `routes_bankability_proxy.py:350`. The package path is sound where it counts: 25 MB
+    cap, empty-file rejection, **content-addressed by sha256**, metadata in
+    `package_evidence`, the hash appended to `evidence_refs` — which is what gates the
+    `EVIDENCED` transition — and the event logged. Four gaps, in order of severity:
+
+    - **No download route.** There is a list endpoint returning metadata and hashes, and no
+      `FileResponse`/`StreamingResponse` anywhere in the module. A document can be attached
+      and its hash can gate a package, but no reviewer can read it back through the API —
+      only by reaching the server's disk. For an evidence workflow that is the whole point
+      of the upload, this is the defect that matters.
+    - **Local disk, not mounted.** `PACKAGE_DOCS_DIR` defaults to `data/package_docs`
+      (`GEX_PACKAGE_DOCS_DIR` overrides). `docker-compose.yml` mounts volumes for
+      PostgreSQL and Redis but **not** for this directory, so every container replacement
+      loses the documents while the hashes that gate the packages survive in the database.
+      A package would read as EVIDENCED with its evidence gone.
+    - **No tenant scoping on the path.** Files land under `{package_id}/`, and the
+      endpoints derive only an actor e-mail from the bearer. The global
+      `require_authenticated` dependency covers them, but nothing observed checks that the
+      caller's tenant owns the package.
+    - **No content-type allow-list, no virus scan, no retention rule.** `safe_name` uses
+      `os.path.basename`, so path traversal is handled; content is not.
+
+    **Direction** (not yet decided, and not started): add the ABAC-checked download route
+    first, mount the directory in compose second, and keep local disk until there is more
+    than one backend replica — object storage (MinIO is free and self-hostable) is a
+    deployment decision, not a code one, because the ledger already stores only hashes. It bites when two screens are compared, when third-party data is
+    imported, and it blocks the v4.2 "evidenced stage" and any attrition metric, both of
+    which need one ladder. **Fix direction** (§7, 2026-09-18): one canonical phase list
+    (7 + Unknown) with status as a separate field, the other seven mapped onto it, and
+    `project_state` either populated for real or removed from `ContextAttributes` rather
+    than left as a constant that reads like a decision.
 
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
+
+**CORRECTED 2026-09-08 — GEX *does* perform engineering mass balance.** An earlier version
+of this document said it did not. That was an audit of the backend only. The frontend
+equation engine (`frontend/src/engine/`) carries the conservation residual
+`r = Σṁ_in − Σṁ_out` (`F_MASS_BALANCE_RESIDUAL_V1`), electrolysis stoichiometry (9 kg H₂O
+and 8 kg O₂ per kg H₂ — both correct), splitter and separator balances, recycle and purge:
+20 formulas, 31 consistency checks, wired to the PlantBuilder canvas. Three layers use the
+phrase "mass balance" and **they are not duplicates**:
+
+| layer | where | what |
+|---|---|---|
+| engineering / process | `frontend/src/engine/` | conservation residual, stoichiometry, recycle, purge |
+| techno-economic | `tea_engine/` :8002 | OpenPyTEA + CEPCI; stub labels itself `engine="stub"` |
+| custody | `backend/.../mass_balance.py` | `allocated += v`, `remaining = total − allocated` |
+
+**Nothing connects them.** A lot's volume is never checked against the process model, and
+the process model is never checked against metered output. That gap is the real finding.
+Both files now carry a comment naming the other and saying: same words, different layer,
+do not merge.
+
+**CORRECTED 2026-09-08 — `files/docker/` is a BUILD STAGING AREA, not a fossil.** It was
+read as an abandoned copy and deleted on my advice. `sync-to-docker.sh` does
+`rsync -a --delete` from this repo into it before publishing to Docker Hub, and the next
+sync recreated it — which is how the staging role was discovered. It is now in the compose
+guardrail's `skip_parts`, because a staging copy is a copy *by construction* and flagging
+it inverted the guardrail's purpose. **The accepted risk is stated in the test: nothing
+catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `docker build`.
+
+
+
+- **WebSockets / real-time push for the evidence workflow — NOT BUILT, deliberately
+  (2026-09-18).** The February 2026 handoff listed "no WebSocket infrastructure for live
+  data" as a gap. It is not one at this stage. Evidence is human-paced: a document is
+  uploaded, an analyst or IE reads it, a gate moves — minutes to days apart, not seconds.
+  A socket layer would add a stateful connection, reconnection logic, auth on upgrade and
+  fan-out across replicas, to save a page refresh. **What to build instead when it is
+  actually needed:** conditional polling (ETag / `If-None-Match`) on the few screens that
+  watch a queue, and server-sent events only if one-way push turns out to matter.
+  **The trigger that changes this:** two or more people working the same review queue at
+  once, where a stale screen means duplicated or contradictory decisions.
 
 - **Patching `dealClient.ts` by wiring it to Supabase PostgREST — REJECTED.** Replace
   with backend deal endpoints. Recorded here because it is the obvious quick fix and it
@@ -557,17 +1322,52 @@ cannot re-trigger the test. Delete the archive once a release has passed.
   consumption and is *constant* at 50.0. They read alike and are different physics.
   Merging them corrupts either every fuel's energy content or the production formula.
 - **Copying a WAL-mode SQLite database by copying the `.db` file — DOES NOT WORK.**
+- **An unguarded `app` alias in the sibling — REJECTED.** Re-exporting `pf_engine` as
+  `app` with no check restores the collision the rename removed: in any process holding
+  both trees, whichever `app` loads first silently supplies the other's modules. The
+  alias exists only because it refuses to load beside the platform backend.
+- **A tombstone that raises with the correct command — SUPERSEDED 2026-09-09.** It named
+  the fix and still did not start the engine; the old command was recalled from shell
+  history a third time. Legible failure was the wrong trade for a start command.
 
 ---
 
 ## 10. Current task
 
-Slice 6b-7 (quarantine the 12 dead tables) is **complete and verified**. The
-SQLite→PostgreSQL migration is finished through 6b: every live table exists in
-PostgreSQL, 89 under forced RLS, watermarks recorded for 53 copied tables.
+**Nothing is in flight.** The duplicate tenor labels (§8.8) were fixed 2026-09-14 in the
+sibling engine, with the frontend aligned and a parity test between them; the live engine
+serves the new labels, not yet seen on a signed-in page.
 
-**No slice is in flight.** All eight backend switches remain on SQLite by design. The
-next step is slice 7 (flip and retire), which is blocked on one input from Jim.
+The 2026-09-08 schema loss is recovered: 98 tables at head 045, 12 projects, 17 tenants,
+6,622 rows across 53 watermarked tables — last verified 2026-09-09. PostgreSQL was
+unreachable on 2026-09-14 until Docker Desktop was started *and* `files-postgres-1` was
+started by hand (§8.10); healthy at head 045 since 16:03.
+
+Recent work, most recent first: **Ecosystem Navigator data structure v4.2** (2026-09-18) —
+a specification, not code: lifecycle split into phase, milestones, status and gates;
+stopped projects recordable at last; counterparties as organisations and participations;
+evidence as its own ledger with independence groups; registers as projections of accepted
+claims; free open sources named with their licences (§7) · **duplicate tenor labels** — 18M and 30M no longer read as
+whole years; one convention in engine and frontend, stale stored curves purged ·
+**`/pricing-curves` was blank for every signed-in user** —
+a response-shape mismatch with no error boundary to contain it · the alias safety test
+corrected · the sibling's old start command restored as a guarded alias · a guardrail that
+had silently stopped scanning the sibling · 500 → 422 on non-finite engine input ·
+undefined DSCR no longer reads as covenant-compliant, and an over-long CFADS horizon is
+rejected · `gex_pf_engine` → `deal_engine` · PostgreSQL rebuild and project restore ·
+Chain-of-Custody rename · guest landing page rebuilt.
+
+All eight backend switches remain on SQLite by design. The next migration step is slice 7
+(flip and retire), still blocked on the Supabase credential from Jim.
+
+**Scoped 2026-09-18, not started: the TEA report** (`docs/tea-report-scope.md`). The
+compute exists on :8002 and is approved through `model_base_case`, but the four
+`economics.*` permissions map to **routes that were never written**, no screen shows CAPEX,
+OPEX or LCOP, `/reports/banker/{id}` returns hard-coded strings, and
+`/ic-pack/{id}/export/pdf` always raises 409 behind a "pretend" comment. Increment 1 is one
+project-scoped endpoint serving the **approved** claim — never recomputing, never falling
+back to a provisional run. Decided the same day: internal view only (so no stored artefact,
+and §8.14 stays off the path), and the name stays **TEA** — "EAT" is not adopted.
 
 ---
 
@@ -607,8 +1407,9 @@ next step is slice 7 (flip and retire), which is blocked on one input from Jim.
 
 1. **The Supabase target and its credential.** Which project, and the service-role
    connection string. Slice 7 cannot start without it and I must not handle it.
-2. ~~`files/docker/` disposition.~~ **RESOLVED 2026-08-10** — deleted on Jim's
-   instruction; archived to `files/_retired/`. See §7. No decision outstanding.
+2. ~~`files/docker/` disposition.~~ **RESOLVED** — and the 2026-08-10 resolution was
+   wrong about what it was. `files/docker/gex-platform-enhanced/` is build staging that
+   `sync-to-docker.sh` regenerates with `rsync --delete`; see §9. No decision outstanding.
 3. **Whether `app.current_user_id` is worth introducing.** Without it, two governance
    tables stay admin-only and users cannot read their own permission overrides. It is a
    real product limitation, not just a schema one.
@@ -622,3 +1423,15 @@ next step is slice 7 (flip and retire), which is blocked on one input from Jim.
    in `auth_users` — is `ACTIVE` via `SEED_GRANDFATHERED`, with no telephone verification
    and no signed agreement. Under §5.2 not one of them would qualify today. The vetting
    pipeline has therefore never been exercised end-to-end on a real applicant.
+7. **Ecosystem Navigator, D1–D14** (§7, 2026-09-18; the list lives in the docx). Twelve
+   are open, and four of them block schema work rather than wording: how v1
+   "Feasibility" maps (pre-FEED or FEED); the production-pathway vocabulary, which the
+   document and the code disagree on; whether a client's published value outranks an
+   ingested one on descriptive fields; and the lawful basis for publishing contact details,
+   which needs counsel rather than engineering. **Decided 2026-09-18:** D12, the 2-year and
+   4-year silence convention; D13, GEX staff work the analyst review queue — the turnaround
+   target and the fate of cases nobody reaches are still unset.
+8. **Where clients enter Layer 1 fields.** The plant builder is an equipment and costing
+   engine and holds almost none of the dictionary's fields, yet the document assumes it is
+   the entry form. Either a project-details form is built, or Layer 1 states plainly that
+   most of it arrives by import and only a slice from clients.

@@ -62,7 +62,10 @@ import {
   getPlantPublication,
   unpublishPlantFromEcosystem,
 } from "@/lib/ecosystem/userProjects";
-import type { ProductionPathway, ProjectStatus } from "@/lib/ecosystem/types";
+import {
+  PROJECT_PHASE_LABELS, PROJECT_STATUS_LABELS,
+  type ProductionPathway, type ProjectPhase, type ProjectStatus,
+} from "@/lib/ecosystem/types";
 import { Globe } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { notifyPlantsChanged } from "@/lib/plantStore";
@@ -386,7 +389,8 @@ const PlantBuilder = () => {
     capacityValue: "",
     capacityUnit: "",
     productionPathway: "" as ProductionPathway | "",
-    status: "planned" as ProjectStatus,
+    phase: "unknown" as ProjectPhase,
+    status: "active" as ProjectStatus,
     country: "",
     commissioningYear: "",
     website: "",
@@ -655,7 +659,8 @@ const PlantBuilder = () => {
       capacityValue: parsed.value,
       capacityUnit: parsed.unit,
       productionPathway: (seed?.productionPathway ?? "") as ProductionPathway | "",
-      status: (cur.enrichment?.status as ProjectStatus) ?? (plant.status as ProjectStatus) ?? "planned",
+      phase: cur.enrichment?.phase ?? cur.added?.phase ?? "unknown",
+      status: cur.enrichment?.status ?? cur.added?.status ?? "active",
       country: (cur.enrichment?.country ?? plant.country) || "",
       commissioningYear: cur.enrichment?.commissioningYear ?? (plant.codYear ? String(plant.codYear) : ""),
       website: cur.enrichment?.website ?? "",
@@ -666,8 +671,10 @@ const PlantBuilder = () => {
     setEcoPlant(plant);
   }, [user]);
 
-  /** Save the Ecosystem Map publication settings. */
-  const handleEcoSave = useCallback(() => {
+  /** Save the Ecosystem Map publication settings.
+   *  Async since 2026-09-17: publication persists to the backend, not to
+   *  browser storage. */
+  const handleEcoSave = useCallback(async () => {
     if (!ecoPlant) return;
     const base = {
       slug: ecoPlant.id,
@@ -683,7 +690,12 @@ const PlantBuilder = () => {
       capacityUnit: ecoForm.capacityUnit || undefined,
       owner: ecoForm.owner || undefined,
       pathway: ecoForm.productionPathway || undefined,
-      maturityStage: ecoForm.status,
+      phase: ecoForm.phase,
+      status: ecoForm.status,
+      // The plant's own stage, as a fallback only: `phase` above is explicit
+      // and wins. PlantStatus is a third vocabulary (§8.13) and several of its
+      // values map to no phase at all, which reads as Unknown rather than a guess.
+      maturityStage: ecoPlant.status,
       commissioningYear: ecoForm.commissioningYear || undefined,
       website: ecoForm.website || undefined,
       offtakers: ecoForm.offtakers || undefined,
@@ -691,7 +703,7 @@ const PlantBuilder = () => {
       visibleFields: ecoForm.visibleFields,
     };
     if (!ecoForm.publish) {
-      unpublishPlantFromEcosystem(base);
+      await unpublishPlantFromEcosystem(base);
       toast.success("Plant removed from the Ecosystem Map.");
       setEcoPlant(null);
       return;
@@ -716,7 +728,7 @@ const PlantBuilder = () => {
         capacity: sib.capacity,
       });
       if (sibState.kind !== "none") {
-        unpublishPlantFromEcosystem({
+        await unpublishPlantFromEcosystem({
           slug: sib.id,
           name: sib.name,
           lat: sib.lat,
@@ -728,7 +740,7 @@ const PlantBuilder = () => {
         unpublishedSiblings += 1;
       }
     }
-    const result = publishPlantToEcosystem(base);
+    const result = await publishPlantToEcosystem(base);
     if (result.kind === "added") {
       toast.success("Ecosystem Map updated (new marker).", { description: result.reason });
     } else if (result.kind === "enriched") {
@@ -802,7 +814,7 @@ const PlantBuilder = () => {
       return uniqueSlug;
     }
     try {
-      const result = publishPlantToEcosystem({
+      const result = await publishPlantToEcosystem({
         slug: uniqueSlug,
         name: newPlant.name,
         lat: newPlant.lat,
@@ -1565,20 +1577,33 @@ const PlantBuilder = () => {
 
             <div className="grid grid-cols-1 gap-3">
               <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Project Phase</label>
+                <select
+                  className={inputClass}
+                  value={ecoForm.phase}
+                  onChange={(e) => setEcoForm((f) => ({ ...f, phase: e.target.value as ProjectPhase }))}
+                >
+                  {(Object.keys(PROJECT_PHASE_LABELS) as ProjectPhase[]).map((p) => (
+                    <option key={p} value={p}>{PROJECT_PHASE_LABELS[p]}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-muted-foreground">Where the project is in its life.</p>
+              </div>
+
+              <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground">Project Status</label>
                 <select
                   className={inputClass}
                   value={ecoForm.status}
-                  
                   onChange={(e) => setEcoForm((f) => ({ ...f, status: e.target.value as ProjectStatus }))}
                 >
-                  <option value="concept">Concept</option>
-                  <option value="planned">Planned</option>
-                  <option value="construction">Construction</option>
-                  <option value="operational">Operational</option>
-                  <option value="cancelled">Cancelled</option>
+                  {(Object.keys(PROJECT_STATUS_LABELS) as ProjectStatus[]).map((s) => (
+                    <option key={s} value={s}>{PROJECT_STATUS_LABELS[s]}</option>
+                  ))}
                 </select>
-                <p className="text-[10px] text-muted-foreground">Mirrors this plant's lifecycle status.</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Whether it is going ahead. A cancelled project keeps the phase it reached.
+                </p>
               </div>
             </div>
 

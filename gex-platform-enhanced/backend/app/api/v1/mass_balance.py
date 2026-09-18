@@ -1,20 +1,98 @@
 """
-mass_balance.py
-========================
-GEX Platform — gex-enhanced-platform/backend/app/api/v1/
+mass_balance.py — Chain-of-Custody Ledger
+=========================================
+GEX Platform — backend/app/api/v1/
 
-Mass-balance lot ledger. Every tokenised molecule traces back to a
-production lot. This module prevents double-counting by tracking volume
-allocated from each lot and rejecting allocations that would exceed
-the lot's total production.
+WHAT THIS IS, PRECISELY
+-----------------------
+A **chain-of-custody ledger**: it records certified production lots and
+allocates volume from them to tokens, refusing any allocation that would
+exceed what the lot declared. Its integrity guarantee is
 
-Tokens reference lots via their mass_balance_lot_id field (tokens_sqlite.py).
+    "you cannot allocate more than was declared"
 
-Design principles:
-  - Lot created when production batch is confirmed
+and NOT
+
+    "what was declared is true".
+
+The product surface is called **Chain of Custody**, not "Mass Balance Ledger".
+The file and tables keep the `mass_balance` name because *mass balance* is the
+correct name for the chain-of-custody METHOD under RED III — see below. It is
+the wrong name for a product, because it reads to an engineer as conservation
+of mass and energy, which this module does not perform.
+
+THREE DIFFERENT THINGS IN GEX ARE CALLED "MASS BALANCE"
+------------------------------------------------------
+They are not duplicates. They are different layers, and conflating them is how
+a platform ends up claiming to verify plants it has never modelled.
+
+  1. ENGINEERING / PROCESS BALANCE — frontend `src/engine/`
+     Conservation residual r = Σṁ_in − Σṁ_out (F_MASS_BALANCE_RESIDUAL_V1),
+     electrolysis stoichiometry (9 kg H2O and 8 kg O2 per kg H2), splitter and
+     separator balances, recycle and purge loops, LHV and yield. 20 formulas,
+     31 consistency checks, on the PlantBuilder canvas. THIS is engineering
+     mass balance and it lives in the frontend, not here.
+
+  2. TECHNO-ECONOMIC — `tea_engine/` on :8002, OpenPyTEA with CEPCI indexing.
+     CAPEX/OPEX from equipment sizing. Falls back to a stub that labels itself
+     engine="stub", so a stub result can never pass as a real one.
+
+  3. CUSTODY AND ALLOCATION — this module. No physics. Two operations:
+     allocated += volume, remaining = total − allocated.
+
+None of the three is wired to the others. A lot's volume is not checked against
+the process model, and the process model is not checked against metered output.
+
+WHAT THIS MODULE DOES NOT DO
+----------------------------
+It does not validate equipment sizing, process design, conversion yield,
+utilities, losses, recycle closure, CAPEX or OPEX. It does not verify that the
+declared volume was produced, that the carbon intensity is correct, or that the
+certification is valid. Those are the province of the metering system, the
+independent engineer, the LCA practitioner and the scheme auditor.
+
+`total_volume_kg`, `carbon_intensity_gco2e_mj` and `certification_pathway`
+arrive as ASSERTED INPUTS. The ledger's job is to stop the same declared tonne
+being promised twice, and to make any change to that record detectable.
+
+ALIGNMENT WITH RED III / EU 2018/2001 ARTICLE 30
+-----------------------------------------------
+Under RED III, "mass balance" is one of the permitted chain-of-custody methods
+(as opposed to physical segregation, identity preservation, or book-and-claim —
+and note book-and-claim is NOT permitted for RFNBO, which requires a physical
+link). Article 30 requires, in substance, that:
+
+  a) consignments with differing sustainability characteristics may be mixed;
+  b) information on those characteristics and on consignment size stays
+     assigned to the consignments;
+  c) the sum withdrawn is not greater than the sum added, over a defined
+     accounting period.
+
+This module satisfies (c) for a single lot, and carries one characteristic
+(carbon intensity) plus a pathway label. It does NOT yet satisfy (a) or (b),
+and the following are known gaps rather than oversights:
+
+  · NO ACCOUNTING PERIOD. RED III mass balance is period-based; this ledger has
+    no period boundary, so it cannot yet produce a period statement.
+  · NO INPUT CONSIGNMENTS. Only outputs (lots) are recorded. A compliant system
+    tracks certified input added as well as product withdrawn.
+  · NO CONVERSION FACTOR between input and output, so input/output cannot be
+    reconciled across a processing step.
+  · ONE CHARACTERISTIC PER LOT. A consignment carries a set of sustainability
+    characteristics, not a single CI figure.
+
+Scheme-specific rules — permitted period length, treatment of a negative
+interim balance, allowed mixing — differ between ISCC EU, REDcert and others
+and MUST be confirmed with the certifying body before any compliance claim is
+made on the basis of this ledger.
+
+DESIGN
+------
+  - Lot created when a production batch is confirmed
   - Tokens allocate volume from the lot (deduct remaining)
   - Allocation rejected if remaining < requested (exhaustion guard)
-  - Append-only allocation log for audit trail
+  - Append-only, hash-chained allocation log (prev_hash → allocation_hash)
+  - project_id is validated against the canonical projects store
 
 SQLite pattern: matches development_packages.py conventions.
 """
@@ -33,7 +111,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 DB_PATH = settings.SQLITE_DB_PATH
 
-router = APIRouter(prefix="/api/v1/mass-balance", tags=["mass-balance"])
+router = APIRouter(prefix="/api/v1/chain-of-custody", tags=["chain-of-custody"])
 
 
 class LotStatus(str, Enum):
@@ -149,6 +227,52 @@ def init_db():
     conn.close()
 
 
+def _assert_project_exists(project_id: str) -> None:
+    """A lot must hang off a real project, or custody is anchored to nothing.
+
+    The two failure modes are deliberately NOT the same status. `projects_store`
+    fails soft — it logs and returns None when PostgreSQL is unreachable — so a
+    naive "not found → 404" would report an outage as an invalid project, and a
+    caller would 'fix' it by inventing a different project_id. An outage is a
+    503; only a reachable store that has never heard of the project is a 404.
+    """
+    from app.core import projects_store
+
+    try:
+        project = projects_store.fetch_project(project_id)
+    except Exception as exc:  # noqa: BLE001 — cannot check ≠ does not exist
+        raise HTTPException(
+            503,
+            f"Cannot verify project {project_id}: the projects store is "
+            f"unreachable ({type(exc).__name__}). Lot not created.",
+        ) from exc
+
+    if project is None:
+        # `fetch_project` returns None BOTH for "no such project" and for "the
+        # database was unreachable", because projects_store deliberately fails
+        # soft to keep ABAC hot paths alive. So None alone proves nothing, and
+        # probing with list_projects() does not help either — it fails soft to
+        # [] and an empty list is not distinguishable from an outage.
+        #
+        # Probe the engine directly, where an outage actually raises.
+        from sqlalchemy import text as _text
+
+        try:
+            with projects_store._engine().connect() as conn:
+                conn.execute(_text("SELECT 1"))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                503,
+                f"Cannot verify project {project_id}: the projects store is "
+                f"unreachable ({type(exc).__name__}). Lot not created.",
+            ) from exc
+        raise HTTPException(
+            404,
+            f"Project {project_id} not found. A custody lot must reference an "
+            "existing project.",
+        )
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -177,6 +301,7 @@ def _lot_row(row) -> dict:
 
 @router.post("/lots", response_model=LotResponse, status_code=201)
 def create_lot(lot: LotCreate, db: sqlite3.Connection = Depends(get_db)):
+    _assert_project_exists(lot.project_id)
     lot_id = str(uuid.uuid4())
     now = _now()
     audit_hash = _hash({

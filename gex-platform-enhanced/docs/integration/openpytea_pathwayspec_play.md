@@ -34,7 +34,7 @@ seams that already exist.
 ### The seam already exists
 
 The PF engine consumes plant economics through one Pydantic model
-([`gex_pf_engine/models/deal.py`](../../gex_pf_engine/models/deal.py)):
+([`deal_engine/models/deal.py`](../../deal_engine/models/deal.py)):
 
 ```python
 class PlantSummary(BaseModel):           # "Subset of plant data the engine needs"
@@ -100,7 +100,7 @@ than re-implementing tornado/Monte-Carlo (OpenPyTEA already ships both).
 The only glue code is a thin adapter that (a) turns the pathway object's
 `engineering` layer into OpenPyTEA `Equipment` objects, and (b) maps OpenPyTEA's
 result back onto `PlantSummary`. A reference stub lives at
-[`gex_pf_engine/compute/tea_adapter.py`](../../gex_pf_engine/compute/tea_adapter.py)
+[`deal_engine/compute/tea_adapter.py`](../../deal_engine/compute/tea_adapter.py)
 (import-guarded — it does not require OpenPyTEA to be installed to import the
 rest of the engine).
 

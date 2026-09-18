@@ -420,9 +420,18 @@ try {
 // live in the platform pre-COD engine, not gex_pf_engine core.)
 let ENGINE = '', engineReadable = false
 try {
-  const eb = new URL('../../../gex_pf_engine/backend/app/', import.meta.url)
-  for (const rel of ['core/waterfall.py', 'core/cfads.py', 'core/debt/sculpting.py', 'core/debt/tranche.py', 'api/routes_model.py']) {
-    try { ENGINE += '\n' + readFileSync(new URL(rel, eb), 'utf8') } catch { /* file absent */ }
+  // The sibling's package was renamed `app` → `pf_engine` on 2026-09-09. Reading
+  // only `app/` made every PF function read as "absent" — the engine was fine,
+  // the probe was pointed at a package that now holds nothing but a guarded
+  // alias. Both names are tried, so neither the rename nor a revert blinds this.
+  const bases = [
+    new URL('../../../gex_pf_engine/backend/pf_engine/', import.meta.url),
+    new URL('../../../gex_pf_engine/backend/app/', import.meta.url),
+  ]
+  for (const eb of bases) {
+    for (const rel of ['core/waterfall.py', 'core/cfads.py', 'core/debt/sculpting.py', 'core/debt/tranche.py', 'api/routes_model.py']) {
+      try { ENGINE += '\n' + readFileSync(new URL(rel, eb), 'utf8') } catch { /* file absent */ }
+    }
   }
   // Platform pre-COD engine (LLCR, SUC/Sources & Uses, CEC, FRI, RMR, CBM).
   try { ENGINE += '\n' + readFileSync(new URL('../../backend/app/api/v1/pre_cod_metrics.py', import.meta.url), 'utf8') } catch { /* absent */ }

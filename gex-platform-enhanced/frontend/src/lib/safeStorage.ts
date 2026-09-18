@@ -11,6 +11,10 @@ export function safeSetItem(key: string, value: string): void {
   try { localStorage.setItem(key, value) } catch { /* ignore */ }
 }
 
+export function safeRemoveItem(key: string): void {
+  try { localStorage.removeItem(key) } catch { /* ignore */ }
+}
+
 export function safeGetJson<T = unknown>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)

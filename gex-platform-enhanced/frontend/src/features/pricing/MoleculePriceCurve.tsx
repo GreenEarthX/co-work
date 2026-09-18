@@ -16,6 +16,7 @@ import {
   ReferenceLine, ResponsiveContainer,
 } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle } from 'lucide-react';
+import { tenorLabel } from './tenorLabel';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -25,16 +26,17 @@ interface TermPoint {
   price_eur: number;
 }
 
+// Figures that only some pricing responses carry are nullable — see normalizeCurve.
 interface CurveData {
   molecule: string;
   spot_price_eur: number;
-  convenience_yield: number;
-  mean_reversion_half_life_months: number;
-  seasonal_amplitude_pct: number;
-  capex_floor_eur: number;
-  calibration_error_pct: number;
+  convenience_yield: number | null;
+  mean_reversion_half_life_months: number | null;
+  seasonal_amplitude_pct: number | null;
+  capex_floor_eur: number | null;
+  calibration_error_pct: number | null;
   last_calibrated: string;
-  n_observations: number;
+  n_observations: number | null;
   term_curve: TermPoint[];
   published_at?: string;
 }
@@ -66,6 +68,56 @@ interface Props {
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
+const num = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+/**
+ * Two response shapes reach this card, and it must accept both.
+ *
+ * Published and seed curves follow the `/calibrate` contract: `capex_floor_eur`,
+ * `n_observations`, half-life, seasonality. The live path, `GET /pricing/term-curve`,
+ * does not — the engine names the floor `capex_floor_eur_t`, keeps
+ * `n_observations` under `governance`, and sends no half-life, seasonality or
+ * convenience yield at all.
+ *
+ * Rendering that object raw threw on `capex_floor_eur.toLocaleString()` and, with
+ * no error boundary, blanked /pricing-curves for every signed-in user
+ * (2026-09-14). Signed-out users never saw it — their fetch 401s and the card
+ * falls back to seed — which is why it looked environmental.
+ *
+ * A figure the response does not carry becomes null and renders as a dash. It
+ * is never filled with a default: a made-up half-life on a pricing screen is
+ * worse than an honest gap.
+ */
+function normalizeCurve(raw: unknown, molecule: string): CurveData | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, any>;
+  const spot = num(r.spot_price_eur);
+  if (spot === null || !Array.isArray(r.term_curve)) return null;
+
+  return {
+    molecule: typeof r.molecule === 'string' ? r.molecule : molecule,
+    spot_price_eur: spot,
+    convenience_yield: num(r.convenience_yield),
+    mean_reversion_half_life_months: num(r.mean_reversion_half_life_months),
+    seasonal_amplitude_pct: num(r.seasonal_amplitude_pct),
+    capex_floor_eur: num(r.capex_floor_eur) ?? num(r.capex_floor_eur_t),
+    calibration_error_pct: num(r.calibration_error_pct),
+    last_calibrated: typeof r.last_calibrated === 'string' ? r.last_calibrated : '—',
+    n_observations: num(r.n_observations) ?? num(r.governance?.n_observations),
+    // Points are passed through, not filtered: a malformed price must still
+    // fail isCurveSane() so a corrupted curve is purged rather than half-drawn.
+    term_curve: r.term_curve.map((p: any) => ({
+      tenor_months: p?.tenor_months,
+      tenor_label: typeof p?.tenor_label === 'string'
+        ? p.tenor_label
+        : tenorLabel(p?.tenor_months),
+      price_eur: p?.price_eur,
+    })),
+    published_at: typeof r.published_at === 'string' ? r.published_at : undefined,
+  };
+}
+
 /** Sanity check: no real commodity forward >20× spot in any tenor ≤60M */
 function isCurveSane(curve: CurveData): boolean {
   if (!curve.spot_price_eur || curve.spot_price_eur <= 0) return false;
@@ -74,15 +126,21 @@ function isCurveSane(curve: CurveData): boolean {
   );
 }
 
+/** Stale if any label disagrees with tenorLabel() — e.g. 18M stored as "1Y" by
+ *  the pre-2026-09-14 integer-division rule. Labels are derived from tenor_months. */
+function hasCurrentLabels(curve: CurveData): boolean {
+  return curve.term_curve.every(pt => pt.tenor_label === tenorLabel(pt.tenor_months));
+}
+
 async function loadCurve(molecule: string): Promise<CurveData | null> {
   // 1. Check localStorage for CISO-published curve
   const stored = localStorage.getItem(`gex_forward_curve_${molecule}`);
   if (stored) {
     try {
-      const parsed = JSON.parse(stored) as CurveData;
-      if (isCurveSane(parsed)) return parsed;
-      // Corrupted curve (parameter explosion) — purge and fall through
-      console.warn(`[MoleculePriceCurve] Purging corrupted localStorage curve for ${molecule}`);
+      const parsed = normalizeCurve(JSON.parse(stored), molecule);
+      if (parsed && isCurveSane(parsed) && hasCurrentLabels(parsed)) return parsed;
+      // Corrupted curve (parameter explosion) or stale tenor labels — purge and fall through
+      console.warn(`[MoleculePriceCurve] Purging corrupted or stale localStorage curve for ${molecule}`);
       localStorage.removeItem(`gex_forward_curve_${molecule}`);
     } catch { /* fall through */ }
   }
@@ -91,9 +149,9 @@ async function loadCurve(molecule: string): Promise<CurveData | null> {
   try {
     const res = await fetch(`/api/v1/pricing/term-curve/${molecule}`);
     if (res.ok) {
-      const data = await res.json() as CurveData;
-      if (isCurveSane(data)) return data;
-      console.warn(`[MoleculePriceCurve] Engine returned insane curve for ${molecule} — using fallback`);
+      const data = normalizeCurve(await res.json(), molecule);
+      if (data && isCurveSane(data)) return data;
+      console.warn(`[MoleculePriceCurve] Engine returned an unusable curve for ${molecule} — using fallback`);
     }
   } catch { /* engine not running */ }
 
@@ -113,7 +171,7 @@ function buildFallbackCurve(molecule: string): CurveData {
     const tau = t / 12;
     return {
       tenor_months: t,
-      tenor_label: t < 12 ? `${t}M` : `${t / 12}Y`,
+      tenor_label: tenorLabel(t),
       price_eur: Math.round(spot * Math.exp(0.05 * tau) * 100) / 100,
     };
   });
@@ -142,9 +200,45 @@ function marketStructure(curve: CurveData): { label: string; icon: React.ReactNo
   return { label: 'Flat', icon: <Minus className="w-3.5 h-3.5" />, color: 'text-gray-400' };
 }
 
+// ─── Error boundary ───────────────────────────────────────────────────────────
+
+/**
+ * One card failing must not take the page with it. Before this existed, a single
+ * TypeError in any of the eight cards unmounted the whole /pricing-curves route.
+ */
+class CurveErrorBoundary extends React.Component<
+  { label: string; children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error(`[MoleculePriceCurve] ${this.props.label} curve failed to render`, error);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="rounded-2xl border border-amber-800/40 bg-amber-900/10 p-5 flex items-center gap-3">
+        <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-semibold text-amber-200">{this.props.label} curve could not be displayed</p>
+          <p className="text-xs text-amber-300/60 mt-0.5">
+            The pricing response was not in a shape this card understands. Other curves are unaffected.
+          </p>
+        </div>
+      </div>
+    );
+  }
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function MoleculePriceCurve({ molecule, compact = false, showTable = false, projectName }: Props) {
+function MoleculePriceCurveCard({ molecule, compact = false, showTable = false, projectName }: Props) {
   const [curve, setCurve]     = useState<CurveData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(false);
@@ -189,14 +283,16 @@ export function MoleculePriceCurve({ molecule, compact = false, showTable = fals
   }
 
   const struct = marketStructure(curve);
+  const floor  = curve.capex_floor_eur;
   const chartData = curve.term_curve.map((pt) => ({
     tenor: pt.tenor_label,
     price: pt.price_eur,
-    floor: curve.capex_floor_eur,
+    floor,
   }));
 
   const isPublished = !!curve.published_at;
   const isSeed      = curve.n_observations === 0;
+  const withUnit    = (v: number | null) => (v === null ? '—' : `${v.toLocaleString()} ${meta.unit}`);
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
@@ -229,12 +325,12 @@ export function MoleculePriceCurve({ molecule, compact = false, showTable = fals
         {/* KPI row */}
         <div className={`grid gap-3 mb-4 ${compact ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-5'}`}>
           {[
-            { label: 'Spot',        value: `${curve.spot_price_eur.toLocaleString()} ${meta.unit}` },
+            { label: 'Spot',        value: withUnit(curve.spot_price_eur) },
             { label: 'Structure',   value: struct.label, extra: struct.icon, color: struct.color },
-            { label: 'Half-Life',   value: `${curve.mean_reversion_half_life_months}M` },
+            { label: 'Half-Life',   value: curve.mean_reversion_half_life_months === null ? '—' : `${curve.mean_reversion_half_life_months}M` },
             ...(!compact ? [
-              { label: 'Seasonality', value: `±${curve.seasonal_amplitude_pct}%` },
-              { label: 'CAPEX Floor', value: `${curve.capex_floor_eur.toLocaleString()} ${meta.unit}` },
+              { label: 'Seasonality', value: curve.seasonal_amplitude_pct === null ? '—' : `±${curve.seasonal_amplitude_pct}%` },
+              { label: 'CAPEX Floor', value: withUnit(floor) },
             ] : []),
           ].map(({ label, value, extra, color }) => (
             <div key={label}
@@ -270,9 +366,11 @@ export function MoleculePriceCurve({ molecule, compact = false, showTable = fals
               stroke={meta.color} strokeWidth={2}
               fill={`url(#grad_${molecule})`} dot={false}
             />
-            <ReferenceLine
-              y={curve.capex_floor_eur} stroke="#ef4444" strokeDasharray="4 3" strokeOpacity={0.5}
-            />
+            {floor !== null && (
+              <ReferenceLine
+                y={floor} stroke="#ef4444" strokeDasharray="4 3" strokeOpacity={0.5}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
 
@@ -281,7 +379,7 @@ export function MoleculePriceCurve({ molecule, compact = false, showTable = fals
           <span className="text-xs text-[var(--text-muted)]">
             Calibrated: {curve.last_calibrated}
             {isSeed && ' · using seed parameters (no market data)'}
-            {!isSeed && ` · ${curve.n_observations} observations`}
+            {!isSeed && curve.n_observations !== null && ` · ${curve.n_observations} observations`}
           </span>
           <button onClick={fetchCurve}
                   className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
@@ -301,7 +399,7 @@ export function MoleculePriceCurve({ molecule, compact = false, showTable = fals
               <tbody>
                 {curve.term_curve.map((pt) => {
                   const vsSpot  = ((pt.price_eur - curve.spot_price_eur) / curve.spot_price_eur * 100).toFixed(1);
-                  const vsFloor = ((pt.price_eur - curve.capex_floor_eur) / curve.capex_floor_eur * 100).toFixed(1);
+                  const vsFloor = floor ? ((pt.price_eur - floor) / floor * 100).toFixed(1) : null;
                   return (
                     <tr key={pt.tenor_months}>
                       <td className="font-mono font-bold text-[var(--text-primary)]">{pt.tenor_label}</td>
@@ -309,9 +407,13 @@ export function MoleculePriceCurve({ molecule, compact = false, showTable = fals
                       <td className={`font-mono text-xs ${+vsSpot >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {+vsSpot >= 0 ? '+' : ''}{vsSpot}%
                       </td>
-                      <td className={`font-mono text-xs ${+vsFloor >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {+vsFloor >= 0 ? '+' : ''}{vsFloor}%
-                      </td>
+                      {vsFloor === null ? (
+                        <td className="font-mono text-xs text-[var(--text-muted)]">—</td>
+                      ) : (
+                        <td className={`font-mono text-xs ${+vsFloor >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {+vsFloor >= 0 ? '+' : ''}{vsFloor}%
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -321,6 +423,15 @@ export function MoleculePriceCurve({ molecule, compact = false, showTable = fals
         )}
       </div>
     </div>
+  );
+}
+
+export function MoleculePriceCurve(props: Props) {
+  const label = MOLECULE_META[props.molecule]?.label ?? props.molecule;
+  return (
+    <CurveErrorBoundary label={label}>
+      <MoleculePriceCurveCard {...props} />
+    </CurveErrorBoundary>
   );
 }
 

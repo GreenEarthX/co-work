@@ -20,7 +20,7 @@ evidence and snapshots live in the platform DB; the engine only evaluates.
 
 ```bash
 # engine (must be up before bankability screens are authoritative)
-cd gex_pf_engine/backend && uvicorn app.main:app --port 8001 --reload
+cd gex_pf_engine/backend && uvicorn pf_engine.main:app --port 8001 --reload
 
 # platform
 cd gex-platform-enhanced/backend && uvicorn app.main:app --port 8000 --reload

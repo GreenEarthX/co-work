@@ -22,22 +22,6 @@ import sqlite3
 
 import pytest
 
-# The auth slice shares SQLITE_DB_PATH, so anything reading `auth_users` through
-# `auth_connection()` needs the table to exist in the temporary store too. Only the
-# columns writing tests actually touch — this is a stand-in, not a schema mirror.
-_AUTH_USERS_DDL = """
-CREATE TABLE IF NOT EXISTS auth_users (
-    user_id       TEXT PRIMARY KEY,
-    email         TEXT,
-    company_id    TEXT,
-    company_name  TEXT,
-    jurisdiction  TEXT,
-    credit_rating TEXT,
-    account_state TEXT DEFAULT 'ACTIVE',
-    is_platform_admin INTEGER DEFAULT 0
-)
-"""
-
 
 @pytest.fixture(scope="module")
 def isolated_store(tmp_path_factory):
@@ -47,15 +31,22 @@ def isolated_store(tmp_path_factory):
     original = settings.SQLITE_DB_PATH
     db_path = tmp_path_factory.mktemp("store") / "test_gex_platform.db"
 
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(_AUTH_USERS_DDL)
-        conn.commit()
-    finally:
-        conn.close()
-
     settings.SQLITE_DB_PATH = str(db_path)
     try:
+        # The auth slice shares SQLITE_DB_PATH, so the temporary store gets the REAL
+        # auth schema from its owner. A hand-written stand-in used to live here; it
+        # lacked `is_active`, `password_hash` and the other columns `init_auth_db()`
+        # needs, so any test running a real auth lookup under this fixture crashed.
+        # Schema only, no demo seeds. Importing `auth` writes nothing (since 2026-09-15
+        # seeding is an app-startup step), so import order no longer matters here.
+        from app.core import auth
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            auth._ensure_tables(conn)
+        finally:
+            conn.close()
         yield str(db_path)
     finally:
         settings.SQLITE_DB_PATH = original

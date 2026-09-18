@@ -188,13 +188,13 @@ def test_new_accounts_default_to_pending_in_the_sqlite_schema(monkeypatch):
 
     monkeypatch.setenv("AUTH_DB_BACKEND", "sqlite")
 
+    # _ensure_tables takes its connection as an argument, so no store path needs
+    # redirecting (auth.py no longer has a module-level DB_PATH to swap).
     with tempfile.TemporaryDirectory() as tmp:
         db = str(Path(tmp) / "t.db")
-        original = auth_mod.DB_PATH
-        auth_mod.DB_PATH = db
+        conn = sqlite3.connect(db)
+        conn.row_factory = sqlite3.Row
         try:
-            conn = sqlite3.connect(db)
-            conn.row_factory = sqlite3.Row
             auth_mod._ensure_tables(conn)
             conn.execute(
                 "INSERT INTO auth_users (user_id,email,password_hash,company_id,"
@@ -205,9 +205,8 @@ def test_new_accounts_default_to_pending_in_the_sqlite_schema(monkeypatch):
             row = conn.execute("SELECT account_state FROM auth_users").fetchone()
             assert row["account_state"] == AccountState.PENDING.value
             assert not can_login(row["account_state"])
-            conn.close()
         finally:
-            auth_mod.DB_PATH = original
+            conn.close()
 
 
 def test_new_accounts_default_to_pending_in_the_postgres_schema():
