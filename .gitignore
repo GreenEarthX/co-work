@@ -20,3 +20,10 @@ node_modules/
 docker/gex-platform-enhanced/
 docker/gex_pf_engine/
 docker/gex_fuel_catalog.json
+
+# Local Claude Code permissions — machine paths, personal to one developer
+**/.claude/settings.local.json
+
+# Rename/backup artefacts, never part of a release
+.backups/
+.backups-*

@@ -271,6 +271,26 @@ async def dscr_heatmap(
         description="Annual debt service assumption (EUR). Required pre-financial-close.",
     ),
     covenant_floor: float = Query(default=1.20),
+    power_opex_share: Optional[float] = Query(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Power's fraction of total OPEX (0..1). REQUIRED for the "
+                    "stress grid, sensitivity rows and break-evens: both stress "
+                    "axes act on the power component, and the trading book "
+                    "projection carries one undifferentiated OPEX total. Omit it "
+                    "and those three outputs come back empty with "
+                    "sensitivityBasis=none_power_opex_split_not_supplied, rather "
+                    "than stressed against a fabricated split.",
+    ),
+    base_efficiency_pct: Optional[float] = Query(
+        default=None,
+        gt=0.0,
+        description="System efficiency (%) this project's efficiency axis is "
+                    "quoted against. Denominator of the efficiency shock — a "
+                    "project at 60%% stressed against the illustrative 72%% "
+                    "understates its own sensitivity.",
+    ),
 ):
     """
     DSCR sensitivity heatmap driven by real trading book cashflows.
@@ -307,9 +327,14 @@ async def dscr_heatmap(
         raise HTTPException(status_code=502, detail=f"Trading book error: {e}")
 
     ads = Decimal(str(annual_debt_service)) if annual_debt_service else None
+    overrides: dict = {}
+    if base_efficiency_pct is not None:
+        overrides["base_efficiency_pct"] = base_efficiency_pct
     aggregator = DSCRAggregator(
         annual_debt_service=ads,
         covenant_floor=Decimal(str(covenant_floor)),
+        power_opex_share=power_opex_share,
+        sensitivity_overrides=overrides,
     )
     result = aggregator.compute(projection)
 
@@ -346,6 +371,7 @@ async def dscr_heatmap(
         ],
         "monthlySeries": result.monthly_series,
         "debtServiceSource": result.debt_service_source,
+        "sensitivityBasis": result.sensitivity_basis,
         "hasEstimates": result.has_estimates,
         "estimatePeriodCount": result.estimate_period_count,
     }

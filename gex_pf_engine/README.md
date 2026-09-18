@@ -95,7 +95,7 @@ source ../micro_service/bin/activate
 pip install -r requirements.txt
 
 # Start the engine
-uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+uvicorn pf_engine.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 API docs: `http://localhost:8001/docs`

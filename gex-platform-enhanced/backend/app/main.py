@@ -259,6 +259,13 @@ except ImportError:
     print("⚠️  routes_project_truth not found - skipping")
 
 try:
+    from app.api.v1 import routes_ecosystem
+    HAS_ECOSYSTEM = True
+except ImportError:
+    HAS_ECOSYSTEM = False
+    print("⚠️  routes_ecosystem not found - skipping")
+
+try:
     from app.api.v1 import routes_workflow
     HAS_WORKFLOW = True
 except ImportError:
@@ -441,6 +448,14 @@ except ImportError:
     print("⚠️  routes_tea not found - skipping")
 
 try:
+    from app.api.v1.routes_economics import router as economics_router
+    HAS_ECONOMICS = True
+except ImportError:
+    economics_router = None
+    HAS_ECONOMICS = False
+    print("⚠️  routes_economics not found - skipping")
+
+try:
     from app.api.v1.next_best_action import router as nba_router
     HAS_NBA = True
 except ImportError:
@@ -475,14 +490,16 @@ except ImportError:
     HAS_ADJACENCY = False
     print("⚠️  adjacency not found - skipping")
 
-try:
-    from app.api.v1.mass_balance import router as mass_balance_router, init_db as mass_balance_init_db
-    mass_balance_init_db()
-    HAS_MASS_BALANCE = True
-except ImportError:
-    mass_balance_router = None
-    HAS_MASS_BALANCE = False
-    print("⚠️  mass_balance not found - skipping")
+# Chain-of-Custody ledger. NOT wrapped in a silent try/except like the modules
+# above: a custody ledger that fails to load is not a missing nice-to-have, it
+# is an audit surface that has quietly disappeared while the API still answers
+# 200 on everything else. If this import breaks, startup should break with it.
+from app.api.v1.mass_balance import (  # noqa: E402
+    router as chain_of_custody_router,
+    init_db as chain_of_custody_init_db,
+)
+chain_of_custody_init_db()
+HAS_CHAIN_OF_CUSTODY = True
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -517,6 +534,18 @@ app = FastAPI(
 # ═══════════════════════════════════════════════════════════════
 # STARTUP / SHUTDOWN
 # ═══════════════════════════════════════════════════════════════
+
+@app.on_event("startup")
+def startup_auth_store():
+    # Auth schema, demo seeds, grandfathering. A startup step, not an import side
+    # effect: importing app.core.auth used to write the dev database in every
+    # process that imported it, pytest included. Registered first; no request is
+    # served until startup completes, and a failure here stops startup, as the
+    # import-time call did.
+    from app.core.auth import init_auth_db
+
+    init_auth_db()
+
 
 @app.on_event("startup")
 async def startup_event_bus():
@@ -692,6 +721,9 @@ if HAS_PROJECT_ACTIVITY:
 if HAS_PROJECT_TRUTH:
     app.include_router(routes_project_truth.router, prefix="/api/v1", tags=["Project Truth"])
 
+if HAS_ECOSYSTEM:
+    app.include_router(routes_ecosystem.router, prefix="/api/v1", tags=["Ecosystem Navigator"])
+
 from app.api.v1.routes_projects import router as projects_router
 app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
 
@@ -774,6 +806,9 @@ if HAS_EVIDENCE_LEDGER:
 if HAS_TEA_BRIDGE:
     app.include_router(tea_bridge_router, prefix="/api/v1/tea", tags=["TEA Engine Bridge"])
 
+if HAS_ECONOMICS:
+    app.include_router(economics_router, prefix="/api/v1/economics", tags=["Economics — TEA read model"])
+
 if HAS_NBA:
     app.include_router(nba_router, prefix="/api/v1/nba", tags=["Next Best Action"])
 
@@ -786,8 +821,10 @@ if HAS_LINEAGE:
 if HAS_ADJACENCY:
     app.include_router(adjacency_router, tags=["Adjacency Benchmark"])
 
-if HAS_MASS_BALANCE:
-    app.include_router(mass_balance_router, tags=["Mass Balance Ledger"])
+if HAS_CHAIN_OF_CUSTODY:
+    # "Chain of Custody", not "Mass Balance Ledger" — this allocates certified
+    # volume, it does not balance a plant. See the module docstring.
+    app.include_router(chain_of_custody_router, tags=["Chain of Custody"])
 
 # ── Settlement + Carbon Attribution + Sovereign Instruments (B4) ──
 if HAS_SETTLEMENTS:

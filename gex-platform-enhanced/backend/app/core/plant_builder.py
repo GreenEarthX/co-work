@@ -57,8 +57,13 @@ class EquipmentItem:
     unit_price_eur: int               # 65_000_000
     installation_multiplier: float    # 1.35 (total installed = price × multiplier)
     annual_om_pct: float              # 0.025 (2.5% of installed cost per year)
-    annual_power_mwh: int             # 876_000 (for power-consuming equipment)
-    annual_water_m3: int              # 0
+    # Literal annual figures. For equipment that CONVERTS power into molecules
+    # (see rated_mw / sec_kwh_per_kg below) these MUST be 0 — the figures are
+    # derived per-project instead, because they depend on how much the plant
+    # actually runs, which is a property of the power contract and not of the
+    # equipment. They remain literals for auxiliaries whose draw is not an SEC.
+    annual_power_mwh: int             # 0 for derived converters
+    annual_water_m3: int              # 0 for derived converters
     useful_life_years: int            # 20
     residual_value_pct: float         # 0.15
     capex_layer: str                  # "L2" — maps to CAPEX Layer Decomposition
@@ -70,6 +75,28 @@ class EquipmentItem:
     technology_maturity: str = "PROVEN"   # PROVEN | FIRST_OF_KIND | DEMONSTRATION
     oem: str = ""                          # "Siemens Energy"
     description: str = ""
+
+    # ── Derived-converter declaration ────────────────────────────────────
+    # Declaring both turns this item into a DERIVED converter: its annual power
+    # draw and annual output are computed from rated_mw, sec_kwh_per_kg and the
+    # project's capacity factor, instead of being two independent literals.
+    #
+    # Why this exists. The catalogue used to carry annual_power_mwh and
+    # capacity_tonnes_year as separate numbers, and their RATIO is a specific
+    # energy consumption that nothing stated and nothing checked. Every PEM row
+    # implied 200.00 kWh/kg while its own description said "55 kWh/kg"; SOEC
+    # implied 132.76 against a stated "~37"; and all four alkaline rows implied
+    # 8,800 full-load hours in a year that contains 8,760. At the default
+    # EUR 45/MWh that put EUR 9.00/kg of power into LCOH instead of EUR 2.48,
+    # overstating levelised cost and the subsidy a project is told it needs by
+    # roughly EUR 6,500 per tonne of H2 — and it biased PEM against alkaline
+    # (200.00 vs 204.65) for a reason that was purely an artefact of the literals.
+    #
+    # Deriving both from one SEC makes that class of drift impossible: there is
+    # now exactly one place where energy-per-kilogram is stated.
+    rated_mw: float = 0.0             # nameplate electrical input, MW
+    sec_kwh_per_kg: float = 0.0       # specific energy consumption, kWh per kg of output
+    water_kg_per_kg: float = 0.0      # process water per kg of output (stoich + makeup)
 
 
 @dataclass
@@ -87,6 +114,56 @@ class PlantConfiguration:
     target_market_price_eur_t: float    # 1_500 for SAF
     wacc_pct: float = 0.09              # 9% default WACC
     project_life_years: int = 20
+    # Fraction of the year the plant actually runs, 0..1. A PROJECT fact, not an
+    # equipment one: it follows from the power contract — a grid-connected plant
+    # on a baseload PPA and a solar-only off-grid plant share the same hardware
+    # and produce entirely different volumes. There is deliberately NO default;
+    # any converter that declares an SEC cannot be costed without it.
+    capacity_factor: Optional[float] = None
+
+
+HOURS_PER_YEAR = 8_760
+
+
+class CapacityFactorRequired(ValueError):
+    """A derived converter was costed without saying how much the plant runs."""
+
+
+def _annual_figures(item: "EquipmentItem", qty: int,
+                    config: "PlantConfiguration") -> tuple[int, int, int]:
+    """
+    Annual power draw (MWh), process water (m3) and output (t) for one line.
+
+    A DERIVED converter — one declaring rated_mw and sec_kwh_per_kg — has all
+    three computed from a single energy figure, so power and output cannot drift
+    apart into an implied SEC nobody stated. Everything else keeps its literals.
+
+    Raises CapacityFactorRequired rather than assuming a run-hours figure: how
+    long the plant runs is a property of the power contract, and substituting a
+    constant for it is the defect this function exists to remove.
+    """
+    if not (item.rated_mw > 0 and item.sec_kwh_per_kg > 0):
+        return (item.annual_power_mwh * qty,
+                item.annual_water_m3 * qty,
+                item.capacity_tonnes_year * qty)
+
+    cf = config.capacity_factor
+    if cf is None:
+        raise CapacityFactorRequired(
+            f"{item.id} is a derived converter ({item.rated_mw} MW @ "
+            f"{item.sec_kwh_per_kg} kWh/kg): its annual power and output depend "
+            f"on how much the plant runs. Supply PlantConfiguration."
+            f"capacity_factor (0..1) — it follows from the power contract."
+        )
+    if not (0.0 < cf <= 1.0):
+        raise ValueError(f"capacity_factor must be in (0, 1], got {cf}")
+
+    annual_power_mwh = item.rated_mw * HOURS_PER_YEAR * cf * qty
+    output_kg = (annual_power_mwh * 1_000) / item.sec_kwh_per_kg
+    water_m3 = (output_kg * item.water_kg_per_kg) / 1_000  # 1 m3 == 1000 kg
+    return (int(round(annual_power_mwh)),
+            int(round(water_m3)),
+            int(round(output_kg / 1_000)))
 
 
 @dataclass
@@ -109,6 +186,12 @@ class PlantBuildResult:
 
     # ── Output ──
     annual_output_tonnes: int
+    # Physical quantities behind the money. Exposed so that the implied specific
+    # energy consumption (power_mwh x 1000 / output_tonnes x 1000) is auditable
+    # from the API response — the defect this engine carried was precisely an
+    # implied SEC that no output ever revealed.
+    total_annual_power_mwh: int
+    total_annual_water_m3: int
     levelised_cost_eur_t: float
     market_price_eur_t: float
     competitive_gap_eur_t: float    # positive = subsidy needed
@@ -277,9 +360,7 @@ class PlantBuilder:
             eq_cost = item.unit_price_eur * qty
             installed_cost = int(eq_cost * item.installation_multiplier)
             annual_om = int(installed_cost * item.annual_om_pct)
-            annual_power = item.annual_power_mwh * qty
-            annual_water = item.annual_water_m3 * qty
-            output = item.capacity_tonnes_year * qty
+            annual_power, annual_water, output = _annual_figures(item, qty, config)
 
             total_equipment_eur += eq_cost
             total_installed_eur += installed_cost
@@ -378,6 +459,8 @@ class PlantBuilder:
             annual_insurance_eur=annual_insurance_eur,
             total_annual_opex_eur=total_annual_opex_eur,
             annual_output_tonnes=total_output_tonnes,
+            total_annual_power_mwh=int(round(total_annual_power_mwh)),
+            total_annual_water_m3=int(round(total_annual_water_m3)),
             levelised_cost_eur_t=round(levelised_cost, 2),
             market_price_eur_t=market_price,
             competitive_gap_eur_t=round(gap, 2),
@@ -403,49 +486,53 @@ EQUIPMENT_CATALOG: list[EquipmentItem] = [
         id="PEM_ELEC_10MW", name="PEM Electrolyser Stack — 10 MW",
         category="ELECTROLYSER", unit_price_eur=6_500_000,
         installation_multiplier=1.35, annual_om_pct=0.025,
-        annual_power_mwh=87_600, annual_water_m3=175_200,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=20, residual_value_pct=0.15,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=438,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="Nel Hydrogen",
         description="10 MW PEM stack, 55 kWh/kg specific energy",
+        rated_mw=10, sec_kwh_per_kg=55.0, water_kg_per_kg=11.0,
     ),
     EquipmentItem(
         id="PEM_ELEC_20MW", name="PEM Electrolyser Stack — 20 MW",
         category="ELECTROLYSER", unit_price_eur=12_000_000,
         installation_multiplier=1.35, annual_om_pct=0.025,
-        annual_power_mwh=175_200, annual_water_m3=350_400,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=20, residual_value_pct=0.15,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=876,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="ITM Power",
         description="20 MW PEM stack, containerised module",
+        rated_mw=20, sec_kwh_per_kg=55.0, water_kg_per_kg=11.0,
     ),
     EquipmentItem(
         id="PEM_ELEC_50MW", name="PEM Electrolyser Stack — 50 MW",
         category="ELECTROLYSER", unit_price_eur=28_000_000,
         installation_multiplier=1.30, annual_om_pct=0.025,
-        annual_power_mwh=438_000, annual_water_m3=876_000,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=20, residual_value_pct=0.15,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=2_190,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="Siemens Energy",
         description="50 MW SILYZER 300 PEM module",
+        rated_mw=50, sec_kwh_per_kg=54.0, water_kg_per_kg=11.0,
     ),
     EquipmentItem(
         id="PEM_ELEC_120MW", name="PEM Electrolyser Stack — 120 MW",
         category="ELECTROLYSER", unit_price_eur=65_000_000,
         installation_multiplier=1.35, annual_om_pct=0.025,
-        annual_power_mwh=876_000, annual_water_m3=1_752_000,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=20, residual_value_pct=0.15,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=5_256,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="Plug Power",
         description="120 MW PEM, gigawatt-class electrolyser plant block",
+        rated_mw=120, sec_kwh_per_kg=54.0, water_kg_per_kg=11.0,
     ),
 
     # ── Alkaline Electrolysers ─────────────────────────────────
@@ -453,61 +540,66 @@ EQUIPMENT_CATALOG: list[EquipmentItem] = [
         id="ALK_ELEC_10MW", name="Alkaline Electrolyser — 10 MW",
         category="ELECTROLYSER", unit_price_eur=5_000_000,
         installation_multiplier=1.30, annual_om_pct=0.020,
-        annual_power_mwh=88_000, annual_water_m3=200_000,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=25, residual_value_pct=0.20,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=430,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="Nel Hydrogen",
         description="10 MW alkaline A-Series, proven at large scale",
+        rated_mw=10, sec_kwh_per_kg=52.0, water_kg_per_kg=12.0,
     ),
     EquipmentItem(
         id="ALK_ELEC_20MW", name="Alkaline Electrolyser — 20 MW",
         category="ELECTROLYSER", unit_price_eur=9_500_000,
         installation_multiplier=1.30, annual_om_pct=0.020,
-        annual_power_mwh=176_000, annual_water_m3=400_000,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=25, residual_value_pct=0.20,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=860,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="ThyssenKrupp Uhde",
         description="20 MW ThyssenKrupp AWE module",
+        rated_mw=20, sec_kwh_per_kg=52.0, water_kg_per_kg=12.0,
     ),
     EquipmentItem(
         id="ALK_ELEC_50MW", name="Alkaline Electrolyser — 50 MW",
         category="ELECTROLYSER", unit_price_eur=22_000_000,
         installation_multiplier=1.28, annual_om_pct=0.018,
-        annual_power_mwh=440_000, annual_water_m3=1_000_000,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=25, residual_value_pct=0.20,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=2_150,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="John Cockerill",
         description="50 MW alkaline, IHT 5040 Mono Bloc design",
+        rated_mw=50, sec_kwh_per_kg=51.0, water_kg_per_kg=12.0,
     ),
     EquipmentItem(
         id="ALK_ELEC_100MW", name="Alkaline Electrolyser — 100 MW",
         category="ELECTROLYSER", unit_price_eur=42_000_000,
         installation_multiplier=1.28, annual_om_pct=0.018,
-        annual_power_mwh=880_000, annual_water_m3=2_000_000,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=25, residual_value_pct=0.20,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=4_300,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality"],
         technology_maturity="PROVEN", oem="ThyssenKrupp Uhde",
         description="100 MW AWE platform, modular skids",
+        rated_mw=100, sec_kwh_per_kg=51.0, water_kg_per_kg=12.0,
     ),
     EquipmentItem(
         id="SOEC_ELEC_5MW", name="SOEC Electrolyser — 5 MW",
         category="ELECTROLYSER", unit_price_eur=7_500_000,
         installation_multiplier=1.50, annual_om_pct=0.035,
-        annual_power_mwh=38_500, annual_water_m3=77_000,
+        annual_power_mwh=0, annual_water_m3=0,
         useful_life_years=12, residual_value_pct=0.10,
         capex_layer="L2", molecule_output="H2",
-        capacity_tonnes_year=290,
+        capacity_tonnes_year=0,
         cert_enables=["renewable_power", "additionality", "ghg_threshold"],
         technology_maturity="FIRST_OF_KIND", oem="Topsoe / Sunfire",
         description="SOEC high-efficiency electrolysis, ~37 kWh/kg with waste heat",
+        rated_mw=5, sec_kwh_per_kg=37.0, water_kg_per_kg=10.0,
     ),
 
     # ── Fischer-Tropsch Reactors ───────────────────────────────

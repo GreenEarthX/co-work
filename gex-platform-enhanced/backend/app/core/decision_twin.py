@@ -379,21 +379,46 @@ class DecisionTwin:
             })
         
         # Check 4: Temporal Matching
+        #
+        # This check used to be `"passed": True` — hardcoded, while the three
+        # checks above it all derive `passed` from their input. Annual matching
+        # therefore returned RFNBO-eligible, because the only consequence was a
+        # medium warning. Temporal correlation is one of the three pillars; a
+        # pillar that cannot fail is not a check.
+        #
+        # Delegated Regulation (EU) 2023/1184 Art. 6: monthly correlation is
+        # acceptable until 31 Dec 2029, hourly from 1 Jan 2030. Annual is not
+        # acceptable at any point.
+        acceptable_now = ("hourly", "monthly")
         temporal_check = {
             "check": "Temporal Matching",
-            "required": "Hourly (from 2030)",
+            "required": "Monthly until 2029, hourly from 2030",
             "actual": temporal_matching,
-            "passed": True
+            "passed": temporal_matching in acceptable_now,
         }
         result["checks"].append(temporal_check)
-        
-        if temporal_matching not in ["hourly", "monthly"]:
+
+        if not temporal_check["passed"]:
+            result["status"] = EligibilityStatus.INELIGIBLE.value
+            result["failures"].append({
+                "check": "Temporal Matching",
+                "reason": f"'{temporal_matching}' correlation does not satisfy "
+                          f"Art. 6 — annual matching is not acceptable",
+                "severity": "critical",
+                "gap": "Contract power on at least monthly correlation now, and "
+                       "hourly before 1 Jan 2030",
+            })
+        elif temporal_matching == "monthly":
+            # Passes today, expires. Evaluating the cliff properly needs the
+            # project's COD year, which this signature does not carry — so this
+            # stays a warning rather than inventing a date.
             result["warnings"].append({
                 "check": "Temporal Matching",
-                "message": "Annual matching not acceptable from 2030",
-                "severity": "medium"
+                "message": "Monthly correlation ceases to qualify on 1 Jan 2030 "
+                           "— hourly matching required from then",
+                "severity": "medium",
             })
-        
+
         # Final determination
         if result["status"] == EligibilityStatus.ELIGIBLE.value:
             result["subsidy_value"] = {

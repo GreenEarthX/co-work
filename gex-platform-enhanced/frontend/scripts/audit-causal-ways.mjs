@@ -26,7 +26,20 @@ const appSrc      = readFileSync(HERE('../src/App.tsx'), 'utf8')
 const catalogSrc  = readFileSync(HERE('../src/data/evidenceCatalog.ts'), 'utf8')
 const projectsSrc = readFileSync(HERE('../src/features/projects/ProjectsPage.tsx'), 'utf8')
 const pbvSrc      = readFileSync(HERE('../src/features/producer/ProducerBankabilityView.tsx'), 'utf8')
-const engineSrc   = readFileSync(HERE('../../../gex_pf_engine/backend/app/core/bankability_engine.py'), 'utf8')
+// The sibling's package was renamed `app` → `pf_engine` on 2026-09-09. Reading
+// only `app/` made this script CRASH on ENOENT, which failed `npm run build`
+// rather than reporting anything. Try both names, and if neither is present say
+// so instead of dying: a missing sibling checkout is not a broken build.
+const engineSrc = (() => {
+  for (const rel of [
+    '../../../gex_pf_engine/backend/pf_engine/core/bankability_engine.py',
+    '../../../gex_pf_engine/backend/app/core/bankability_engine.py',
+  ]) {
+    try { return readFileSync(HERE(rel), 'utf8') } catch { /* try the next name */ }
+  }
+  console.warn('⚠ sibling PF engine not readable — gate-coverage checks skipped.')
+  return ''
+})()
 
 // Strangler migration tracker: which call-sites delegate to resolveActionRoute.
 // A guarded route reached THROUGH the resolver is handled (allowed/fallback/

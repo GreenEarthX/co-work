@@ -440,18 +440,30 @@ export const financeModelAPI = {
       body: JSON.stringify(params),
     }),
 
+  // `powerOpexShare` is REQUIRED for heatmapCells / sensitivityRows /
+  // breakevenMetrics to come back populated. Both stress axes act on the power
+  // component of OPEX, and the trading book projection carries one
+  // undifferentiated OPEX total, so without the share there is no honest basis
+  // for the grid. Omit it and those three arrays are empty with
+  // sensitivityBasis="none_power_opex_split_not_supplied" — render that reason
+  // rather than an empty chart. (The backend previously assumed 0.73 for every
+  // project on earth, which silently set every cell and every break-even.)
   dscrHeatmap: (params: {
     assetId: string;
     fromDate?: string;
     toDate?: string;
     annualDebtService?: number;
     covenantFloor?: number;
+    powerOpexShare?: number;
+    baseEfficiencyPct?: number;
   }) => {
     const q = new URLSearchParams();
     if (params.fromDate) q.set("from_date", params.fromDate);
     if (params.toDate) q.set("to_date", params.toDate);
     if (params.annualDebtService != null) q.set("annual_debt_service", String(params.annualDebtService));
     if (params.covenantFloor != null) q.set("covenant_floor", String(params.covenantFloor));
+    if (params.powerOpexShare != null) q.set("power_opex_share", String(params.powerOpexShare));
+    if (params.baseEfficiencyPct != null) q.set("base_efficiency_pct", String(params.baseEfficiencyPct));
     const qs = q.toString();
     return fetchAPI(`/finance-model/dscr-heatmap/${params.assetId}${qs ? `?${qs}` : ""}`);
   },

@@ -6,12 +6,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.pricing.gabillon.engine import GabillonCurveEngine
-from app.pricing.gabillon.service import GabillonService
-from app.pricing.memory import ProjectCalibrationMemory
-from app.pricing.offtake.engine import OfftakeEngine
-from app.pricing.offtake.service import OfftakeService
+from pf_engine.main import app
+from pf_engine.pricing.gabillon.engine import GabillonCurveEngine
+from pf_engine.pricing.gabillon.service import GabillonService
+from pf_engine.pricing.memory import ProjectCalibrationMemory
+from pf_engine.pricing.offtake.engine import OfftakeEngine
+from pf_engine.pricing.offtake.service import OfftakeService
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

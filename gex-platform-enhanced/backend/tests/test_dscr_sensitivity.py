@@ -142,6 +142,159 @@ def test_aggregator_returns_nothing_without_a_cashflow_basis():
     assert agg._build_breakevens(0.0, zero, zero, zero) == []
 
 
+# ── The power/OPEX split is supplied, never assumed ───────────────────────────
+#
+# `_sensitivity_params` used to close the gap with
+#     power_share = float(getattr(self, "power_opex_share", 0.73))
+# while its own docstring said a caller could override it. No caller could: the
+# name occurred exactly twice in the tree — that docstring and that getattr — so
+# every project was stressed at a 73% power share. Both heatmap axes act on the
+# power term, so that constant set every cell of the grid and the break-even
+# power price a credit committee reads.
+
+
+def _agg(share=None, overrides=None):
+    from decimal import Decimal
+
+    from app.services.dscr_aggregator import DSCRAggregator
+
+    return DSCRAggregator(
+        annual_debt_service=None,
+        covenant_floor=Decimal("1.20"),
+        power_opex_share=share,
+        sensitivity_overrides=overrides,
+    )
+
+
+def _basis():
+    """A real cashflow basis: revenue, opex and debt service all non-zero."""
+    from decimal import Decimal
+
+    return Decimal("100"), Decimal("-52"), Decimal("40")
+
+
+def test_a_cashflow_basis_alone_does_not_produce_a_stress_grid():
+    """With money but no power split, the three stress outputs stay empty."""
+    rev, opex, ds = _basis()
+    agg = _agg(share=None)
+    assert agg._build_heatmap(1.2, rev, opex, ds) == []
+    assert agg._build_sensitivity_rows(1.2, rev, opex, ds) == []
+    assert agg._build_breakevens(1.2, rev, opex, ds) == []
+
+
+def test_a_supplied_power_share_produces_a_grid_and_changes_it():
+    """
+    Negative verification: the share must actually reach the model. If it were
+    still decorative, these two grids would be identical.
+    """
+    rev, opex, ds = _basis()
+    low = _agg(share=0.40)._build_heatmap(1.2, rev, opex, ds)
+    high = _agg(share=0.85)._build_heatmap(1.2, rev, opex, ds)
+
+    assert low and high, "a supplied share must produce a grid"
+    assert len(low) == len(high)
+
+    stressed = [(a, b) for a, b in zip(low, high) if a.power_delta != 0]
+    assert stressed, "grid must contain power-stressed cells"
+    assert any(a.dscr != b.dscr for a, b in stressed), (
+        "power_opex_share does not reach the surface — it is decorative again"
+    )
+
+
+def test_base_efficiency_is_project_supplied_not_frozen_at_72():
+    """
+    `base_efficiency_pct` is the denominator of the efficiency axis. It sat in
+    DEFAULT_PARAMS under the comment "every caller may override" while the one
+    real caller passed only four of the twelve terms, so it was 72.0 for every
+    project ever stressed.
+    """
+    rev, opex, ds = _basis()
+    default = _agg(share=0.70)._build_heatmap(1.2, rev, opex, ds)
+    supplied = _agg(
+        share=0.70, overrides={"base_efficiency_pct": 55.0}
+    )._build_heatmap(1.2, rev, opex, ds)
+
+    stressed = [(a, b) for a, b in zip(default, supplied) if a.eff_delta != 0]
+    assert stressed, "grid must contain efficiency-stressed cells"
+    assert any(a.dscr != b.dscr for a, b in stressed), (
+        "base_efficiency_pct does not reach the model"
+    )
+
+
+def test_an_out_of_range_power_share_is_refused_at_construction():
+    import pytest as _pytest
+
+    for bad in (-0.1, 1.4, 73.0):
+        with _pytest.raises(ValueError):
+            _agg(share=bad)
+
+
+def test_the_result_says_why_the_stress_outputs_are_missing():
+    """
+    An empty grid because a project has no debt service yet, and an empty grid
+    because nobody supplied the power split, are different facts. A caller that
+    cannot tell them apart will report the wrong one to a lender.
+    """
+    from datetime import date
+    from decimal import Decimal
+
+    from app.services.cashflow_client import CashflowProjectionDTO
+
+    projection = CashflowProjectionDTO(
+        project_asset_id="a1",
+        project_name="Test",
+        from_date=date(2027, 1, 1),
+        to_date=date(2027, 12, 31),
+        granularity="monthly",
+        rows=[],
+    )
+
+    assert _agg(share=None).compute(projection).sensitivity_basis == (
+        "none_power_opex_split_not_supplied"
+    )
+    assert _agg(share=0.70).compute(projection).sensitivity_basis == (
+        "none_no_cashflow_basis"
+    )
+
+
+def test_no_fabricated_power_share_default_returns():
+    """
+    AST-matched, not text-matched: this test's own explanation names the very
+    pattern it forbids, and earlier guardrails in this repo repeatedly matched
+    their own prose.
+
+    Forbids `getattr(<anything>, "power_opex_share", <number>)` — a lookup that
+    silently substitutes a constant for a project fact.
+    """
+    import ast
+
+    offenders = []
+    for f in (BACKEND / "app").rglob("*.py"):
+        try:
+            tree = ast.parse(f.read_text(errors="ignore"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (isinstance(node.func, ast.Name) and node.func.id == "getattr"):
+                continue
+            if len(node.args) != 3:
+                continue
+            name, default = node.args[1], node.args[2]
+            if not (isinstance(name, ast.Constant) and name.value == "power_opex_share"):
+                continue
+            if isinstance(default, ast.Constant) and isinstance(
+                default.value, (int, float)
+            ):
+                offenders.append(f"{f}:{node.lineno}")
+
+    assert not offenders, (
+        "power_opex_share is being defaulted to a literal again: "
+        + ", ".join(offenders)
+    )
+
+
 def test_no_module_carries_its_own_sensitivity_model():
     """
     The additive formula and the elasticity tables existed in three places.

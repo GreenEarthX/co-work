@@ -1,9 +1,8 @@
 // Screen: All screens (root router)
-import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ProjectProvider } from '@/contexts/ProjectContext'
-import { useUserRole } from '@/contexts/UserRoleContext'
+import { RequireAuth } from '@/components/RequireAuth'
 import { Layout } from '@/components/Layout'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { GuestLandingPage } from '@/features/auth/GuestLandingPage'
@@ -17,6 +16,7 @@ import { InsurancePage } from '@/features/finance/InsurancePage'
 import { CapacityPage } from '@/features/capacity/CapacityPage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { ProjectProfilePage } from '@/features/projects/ProjectProfilePage'
+import EconomicsSnapshotPage from '@/features/economics/EconomicsSnapshotPage'
 import { NewProjectPage } from '@/features/projects/NewProjectPage'
 import { ProductionPage } from '@/features/production/ProductionPage'
 import { TokenisationPage } from '@/features/tokenisation/TokenisationPage'
@@ -102,15 +102,6 @@ const PlaceholderPage = ({ title, workspace }: { title: string; workspace?: stri
   </div>
 )
 
-// Guard: redirect unauthenticated users away from protected routes
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { sessionTier } = useUserRole();
-  if (sessionTier !== 'authenticated') {
-    return <Navigate to="/login" replace />;
-  }
-  return <>{children}</>;
-}
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -135,6 +126,7 @@ function App() {
               <Route path="projects" element={<ProjectsPage />} />
               <Route path="projects/new" element={<NewProjectPage />} />
               <Route path="projects/:id/edit" element={<ProjectProfilePage />} />
+              <Route path="economics/:projectId" element={<EconomicsSnapshotPage />} />
               <Route path="adversarial-review" element={<AdversarialReviewPage />} />
               <Route path="production" element={<ProductionPage />} />
               <Route path="capacity" element={<CapacityPage />} />

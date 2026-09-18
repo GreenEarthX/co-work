@@ -27,7 +27,7 @@
 import { getAuthToken } from "@/lib/authToken";
 
 // ---------------------------------------------------------------------------
-// Types — mirror the Pydantic models in gex_pf_engine/main.py exactly.
+// Types — mirror the Pydantic models in deal_engine/main.py exactly.
 // ---------------------------------------------------------------------------
 
 export type Scenario = "worst" | "base" | "best";

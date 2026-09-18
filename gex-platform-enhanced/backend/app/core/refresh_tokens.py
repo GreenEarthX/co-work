@@ -14,15 +14,14 @@ from pathlib import Path
 import os
 from app.core.config import settings
 
-DB_PATH = settings.SQLITE_DB_PATH
-
 
 def _get_conn():
     """Same store as app.core.auth — refresh tokens are part of the auth slice
-    and must follow it across backends (core/db_backend.py)."""
+    and must follow it across backends (core/db_backend.py). No module-level
+    path: see the note in app/core/auth.py."""
     from app.core.db_backend import auth_connection
 
-    return auth_connection(DB_PATH)
+    return auth_connection()  # resolves settings.SQLITE_DB_PATH now, not at import
 
 
 def ensure_refresh_token_table() -> None:

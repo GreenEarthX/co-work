@@ -31,10 +31,27 @@ Sensitivity stress grid:
     The heatmap stresses DSCR across two axes (matching DSCRHeatmap.tsx):
         X-axis: power/commodity price shocks (-20% to +20%)
         Y-axis: production efficiency shocks (-5pp to +5pp)
-    Each cell = DSCR under that joint shock. The stressed CFADS is:
-        stressed_revenue = base_revenue × (1 + price_shock) × (1 + eff_shock)
-        stressed_CFADS   = stressed_revenue + opex  (opex stays fixed for B1)
-        stressed_DSCR    = stressed_CFADS / debt_service
+    Both axes act on the POWER component of OPEX, via dscr_sensitivity.shocked_dscr.
+
+    Why this aggregator will refuse to build that grid
+    --------------------------------------------------
+    Both axes need `opex_power` — the power share of OPEX. The trading book
+    cannot supply it: PFLineItemType has exactly four members (REVENUE, OPEX,
+    DEBT_SERVICE, CAPEX) and no energy sub-category, so a projection carries a
+    single undifferentiated OPEX total.
+
+    This code used to close that gap with `getattr(self, "power_opex_share", 0.73)`
+    while its docstring said a caller could override it. No caller could: the name
+    existed only in that docstring and that getattr, so every project on earth was
+    stressed at a 73% power share. Electricity is the dominant and most volatile
+    cost in an e-fuel plant; a wrong share puts every cell of the grid, and the
+    break-even power price a credit committee reads, wrong by an unbounded amount.
+
+    So `power_opex_share` is now a real constructor argument with NO default, and
+    when it is absent the sensitivity surface, the single-factor rows and the
+    break-evens are omitted rather than fabricated — the same rule `_build_heatmap`
+    already applied to a missing cashflow basis. `DSCRResult.sensitivity_basis`
+    says which happened, mirroring `debt_service_source`.
 """
 
 from __future__ import annotations
@@ -108,6 +125,7 @@ class DSCRResult:
     has_estimates: bool
     estimate_period_count: int
     debt_service_source: str
+    sensitivity_basis: str
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -123,9 +141,29 @@ class DSCRAggregator:
         self,
         annual_debt_service: Optional[Decimal] = None,
         covenant_floor: Decimal = Decimal("1.20"),
+        power_opex_share: Optional[float] = None,
+        sensitivity_overrides: Optional[dict] = None,
     ):
+        """
+        power_opex_share
+            Power's fraction of total OPEX, 0..1. NO DEFAULT — see the module
+            docstring. Without it the sensitivity outputs are omitted, because
+            both stress axes act on the power component and there is nothing
+            honest to act on.
+        sensitivity_overrides
+            Project-specific values for the structural terms in
+            dscr_sensitivity.DEFAULT_PARAMS — above all `base_efficiency_pct`,
+            which is the denominator of the efficiency axis. Anything not
+            supplied keeps the illustrative default declared there.
+        """
+        if power_opex_share is not None and not (0.0 <= power_opex_share <= 1.0):
+            raise ValueError(
+                f"power_opex_share must be a fraction in [0, 1], got {power_opex_share}"
+            )
         self.annual_debt_service = annual_debt_service
         self.covenant_floor = covenant_floor
+        self.power_opex_share = power_opex_share
+        self.sensitivity_overrides = sensitivity_overrides or {}
 
     def compute(self, projection: CashflowProjectionDTO) -> DSCRResult:
         periods = self._aggregate_periods(projection)
@@ -156,6 +194,16 @@ class DSCRAggregator:
         elif total_ds == ZERO:
             ds_source = "none_pre_financial_close"
 
+        # Why the stress outputs are (or are not) present. A caller that gets an
+        # empty grid must be able to tell "this project has no debt service yet"
+        # from "nobody told us what fraction of OPEX is power".
+        if self.power_opex_share is None:
+            sensitivity_basis = "none_power_opex_split_not_supplied"
+        elif not heatmap:
+            sensitivity_basis = "none_no_cashflow_basis"
+        else:
+            sensitivity_basis = "supplied_power_opex_share"
+
         return DSCRResult(
             project_asset_id=projection.project_asset_id,
             project_name=projection.project_name,
@@ -172,6 +220,7 @@ class DSCRAggregator:
             has_estimates=projection.has_estimates,
             estimate_period_count=projection.estimate_period_count,
             debt_service_source=ds_source,
+            sensitivity_basis=sensitivity_basis,
         )
 
     # ── Period aggregation ────────────────────────────────────────
@@ -251,20 +300,28 @@ class DSCRAggregator:
         total_revenue: Decimal,
         total_opex: Decimal,
         total_ds: Decimal,
-    ) -> dict:
+    ) -> Optional[dict]:
         """
         Map real cashflow aggregates onto the sensitivity model's terms.
 
+        Returns None when `power_opex_share` was not supplied. The projection
+        carries one undifferentiated OPEX total (PFLineItemType has no energy
+        member), so without the share there is no basis for splitting it, and
+        both stress axes act on the power half. Callers omit their output rather
+        than stress a fabricated split.
+
         `total_opex` arrives negative in the projection convention; the model
-        wants positive cost terms. The power/non-power split is an assumption
-        (power dominates e-fuel OPEX) and is surfaced as `power_opex_share` so a
-        caller can override it rather than discover it by reading this code.
+        wants positive cost terms.
         """
         from app.services.dscr_sensitivity import normalise_params
 
+        if self.power_opex_share is None:
+            return None
+
         opex_total = abs(float(total_opex))
-        power_share = float(getattr(self, "power_opex_share", 0.73))
+        power_share = self.power_opex_share
         return normalise_params({
+            **self.sensitivity_overrides,
             "revenue": float(total_revenue),
             "opex_power": opex_total * power_share,
             "opex_other": opex_total * (1.0 - power_share),
@@ -286,6 +343,10 @@ class DSCRAggregator:
             return []
 
         p = self._sensitivity_params(total_revenue, total_opex, total_ds)
+        if p is None:
+            # No power/OPEX split: same rule, same reason. Both axes stress the
+            # power term, so a grid built without it is a fabricated surface.
+            return []
         return [
             HeatmapCell(
                 power_delta=c["powerDelta"],
@@ -308,6 +369,8 @@ class DSCRAggregator:
             return []
 
         p = self._sensitivity_params(total_revenue, total_opex, total_ds)
+        if p is None:
+            return []
         return [
             SensitivityRow(
                 factor=r["factor"],
@@ -339,6 +402,8 @@ class DSCRAggregator:
             return []
 
         p = self._sensitivity_params(total_revenue, total_opex, total_ds)
+        if p is None:
+            return []
         return [
             BreakevenMetric(
                 label=m["label"],

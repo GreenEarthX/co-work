@@ -17,6 +17,7 @@ from typing import Optional
 from app.core.plant_builder import (
     get_plant_builder,
     PlantConfiguration,
+    CapacityFactorRequired,
     EQUIPMENT_CATALOG,
 )
 
@@ -47,6 +48,15 @@ class PlantConfigRequest(BaseModel):
     target_market_price_eur_t: float = Field(default=5000.0, ge=0)
     wacc_pct: float = Field(default=0.09, ge=0.01, le=0.30)
     project_life_years: int = Field(default=20, ge=5, le=50)
+    capacity_factor: float = Field(
+        default=None,
+        gt=0, le=1,
+        description="Fraction of the year the plant runs (0..1). REQUIRED when the "
+                    "configuration contains an electrolyser: annual power draw and "
+                    "annual output are derived from it, and it follows from the power "
+                    "contract rather than from the equipment. Omitting it returns 422 "
+                    "rather than assuming run hours.",
+    )
 
 
 class LevelisedCostRequest(BaseModel):
@@ -61,6 +71,7 @@ class LevelisedCostRequest(BaseModel):
     contingency_pct: float = 0.10
     wacc_pct: float = 0.09
     project_life_years: int = 20
+    capacity_factor: float = None   # see PlantConfigRequest.capacity_factor
 
 
 class CertDistanceRequest(BaseModel):
@@ -98,6 +109,14 @@ def _serialize_item(item) -> dict:
         "technology_maturity": item.technology_maturity,
         "oem": item.oem,
         "description": item.description,
+        # Derived converters carry their energy characteristics here and report
+        # annual_power_mwh / capacity_tonnes_year as 0 above, because those
+        # depend on the project's capacity factor rather than on the equipment.
+        # A consumer showing an annual figure must compute it from these.
+        "rated_mw": item.rated_mw,
+        "sec_kwh_per_kg": item.sec_kwh_per_kg,
+        "water_kg_per_kg": item.water_kg_per_kg,
+        "is_derived_converter": bool(item.rated_mw > 0 and item.sec_kwh_per_kg > 0),
         # Computed convenience
         "installed_cost_eur": int(item.unit_price_eur * item.installation_multiplier),
         "annual_om_eur": int(item.unit_price_eur * item.installation_multiplier * item.annual_om_pct),
@@ -124,6 +143,13 @@ def _serialize_result(result) -> dict:
         },
         "output": {
             "annual_output_tonnes": result.annual_output_tonnes,
+            "total_annual_power_mwh": result.total_annual_power_mwh,
+            "total_annual_water_m3": result.total_annual_water_m3,
+            # Auditable: the engine's effective energy-per-kilogram. Publishing
+            # it is what makes a wrong one visible instead of implied.
+            "implied_sec_kwh_per_kg": round(
+                (result.total_annual_power_mwh * 1_000)
+                / max(result.annual_output_tonnes * 1_000, 1), 2),
             "annualised_capex_eur": result.annualised_capex_eur,
             "levelised_cost_eur_t": result.levelised_cost_eur_t,
             "market_price_eur_t": result.market_price_eur_t,
@@ -216,9 +242,13 @@ async def configure_plant(req: PlantConfigRequest):
         target_market_price_eur_t=req.target_market_price_eur_t,
         wacc_pct=req.wacc_pct,
         project_life_years=req.project_life_years,
+        capacity_factor=getattr(req, "capacity_factor", None),
     )
 
-    result = builder.build(config)
+    try:
+        result = builder.build(config)
+    except CapacityFactorRequired as e:
+        raise HTTPException(status_code=422, detail=str(e))
     serialized = _serialize_result(result)
 
     return {
@@ -261,9 +291,13 @@ async def quick_levelised_cost(req: LevelisedCostRequest):
         target_market_price_eur_t=market_price,
         wacc_pct=req.wacc_pct,
         project_life_years=req.project_life_years,
+        capacity_factor=getattr(req, "capacity_factor", None),
     )
 
-    result = builder.build(config)
+    try:
+        result = builder.build(config)
+    except CapacityFactorRequired as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     return {
         "molecule": req.molecule,
@@ -314,6 +348,12 @@ async def certification_gap_analysis(req: CertDistanceRequest):
         insurance_pct_capex=0.005,
         contingency_pct=0.10,
         target_market_price_eur_t=1_000,
+        # NOT an economic assumption. This endpoint reads only cert_readiness,
+        # cert_premium_eur_t and cert_blockers below, all of which derive from
+        # each item's cert_enables/cert_blocks and the jurisdiction — never from
+        # power draw or output. A value is supplied purely because build() now
+        # refuses to invent run hours. Do not copy it into a costing path.
+        capacity_factor=1.0,
     )
 
     result = builder.build(config)

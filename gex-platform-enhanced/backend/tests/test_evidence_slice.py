@@ -227,10 +227,32 @@ def test_a_tenant_sees_less_than_platform_admin():
 
 # `bankability_evidence.project_id` defaults to the literal 'default', so rows
 # written before a project was supplied belong to a project that does not exist.
-# Under RLS they are PLATFORM_ADMIN-only — effectively invisible. 39 such rows
-# were migrated (38 evidence + 1 snapshot). This is a RATCHET: the debt may be
-# paid down, never added to.
-UNATTRIBUTED_BASELINE = 39
+# Under RLS they are PLATFORM_ADMIN-only — effectively invisible. This is a
+# RATCHET: the debt may be paid down, never added to.
+#
+# 39 → 41, raised 2026-09-09. NOT because new unattributed evidence was written.
+#
+# On 2026-09-08 the PostgreSQL schema was found empty and rebuilt from
+# migrations plus the slice copiers. `projects` could not be rebuilt that way:
+# migrate_projects_collision.py reads `projects` from SQLite and migration 033
+# retired that table, so the copier can no longer run. 5 of the 12 known
+# projects were restored from frontend/src/data/customerProjects.ts by
+# scripts/restore_registry_projects.py, which took the orphan count 83 → 41.
+#
+# The residual 41 is:
+#     39  project_id = 'default'                    (the original debt)
+#      1  proj_north_sea_e_methanol_203b51          lost 2026-09-08
+#      1  proj_wilhelmshaven_e_ammonia_f0dc91       lost 2026-09-08
+#
+# Those two carry generated hex ids — created at runtime via /projects/new and
+# defined in no seed, registry or migration. They are UNRECOVERABLE, and their
+# two evidence rows are permanently unattributed. Raising the baseline records
+# that loss; it does not excuse new debt. A baseline that can never be met is
+# not a ratchet, it is noise — but the reason has to travel with the number.
+#
+# If those projects are ever recreated with their original ids, put this back
+# to 39.
+UNATTRIBUTED_BASELINE = 41
 
 
 def test_unattributed_evidence_does_not_grow():

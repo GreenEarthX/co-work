@@ -1,5 +1,6 @@
 // Screen: Global context (no screen)
 import { createContext, useContext, useState, ReactNode } from 'react';
+import { AUTH_SESSION_KEY, SESSION_TIER_KEY, clearAuthSession } from '@/lib/authToken';
 
 export type CompanyType = 'PRODUCER' | 'OFFTAKER' | 'THIRD_PARTY';
 export type ServiceType = 'BANK' | 'INSURER' | 'CERTIFIER' | 'LOGISTICS' | 'ENGINEER' | 'EQUIPMENT' | 'LEGAL' | null;
@@ -89,8 +90,8 @@ const UserRoleContext = createContext<UserRoleContextType>({
 });
 
 const STORAGE_KEY_ROLE    = 'gex_user_role';
-const STORAGE_KEY_SESSION = 'gex_auth_session';
-const STORAGE_KEY_TIER    = 'gex_session_tier';
+const STORAGE_KEY_SESSION = AUTH_SESSION_KEY;
+const STORAGE_KEY_TIER    = SESSION_TIER_KEY;
 
 export function UserRoleProvider({ children }: { children: ReactNode }) {
   const [role, setRoleState] = useState<UserRole>(() => {
@@ -150,10 +151,8 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
     setSessionTier('guest');
     setIsRoleSet(false);
     setRoleState(DEFAULT_ROLE);
-    localStorage.removeItem(STORAGE_KEY_SESSION);
-    localStorage.removeItem(STORAGE_KEY_ROLE);
-    localStorage.setItem(STORAGE_KEY_TIER, 'guest');
-    sessionStorage.removeItem('gex_ciso_session');
+    // Same signed-out storage an expired session is reduced to (lib/sessionGuard).
+    clearAuthSession();
   };
 
   return (
