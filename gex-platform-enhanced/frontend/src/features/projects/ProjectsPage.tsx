@@ -1,13 +1,14 @@
 // Screen: Projects screen (/projects)
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, ChevronDown, AlertTriangle, Pencil } from "lucide-react";
+import { ChevronRight, ChevronDown, AlertTriangle, LineChart, Pencil } from "lucide-react";
 import { type CustomerProject, type CommitmentStatus, type RiskCategory } from "@/data/customerProjects";
 import { useSelectedProject } from "@/contexts/ProjectContext";
 import { type UserRole, useUserRole } from "@/contexts/UserRoleContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
 import { useRiskFlags } from "@/hooks/useRiskFlags";
 import { resolveActionRoute, type RouteAction } from "@/lib/actionRouter";
+import { isFinanceLike } from "@/data/evidenceCatalog";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -739,6 +740,19 @@ function ExpandPanel({
           <Pencil className="h-3 w-3" />
           Edit Profile
         </button>
+        {/* Techno-economic assessment. Shown to the viewer class the finance
+            guard admits — the server gate (require_finance_entitlement) is the
+            real control, so this only avoids offering a door that answers "no
+            access". The screen itself says when no approved base case exists. */}
+        {isFinanceLike(role) && (
+          <button
+            onClick={() => onNav(`/economics/${project.id}`)}
+            className="group inline-flex items-center gap-1.5 rounded border border-brand-400/60 bg-brand-50/10 px-2.5 py-[3px] text-[10px] font-mono uppercase tracking-wider text-brand-700 dark:text-brand-300 hover:bg-brand-100/20 transition-colors"
+          >
+            <LineChart className="h-3 w-3" />
+            Economics (TEA)
+          </button>
+        )}
         <span className="mx-1 h-3 w-px bg-[var(--border)]" />
         {links.map((l) => (
           <button
