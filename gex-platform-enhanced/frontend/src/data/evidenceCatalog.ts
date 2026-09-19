@@ -233,7 +233,11 @@ const OWNER_SURFACES: Record<string, 'FINANCE' | 'COMMERCIAL'> = {
 
 type RoleLike = { business_function: string; service_type?: string | null; company_type?: string };
 
-const isFinanceLike = (r: RoleLike) =>
+/** Finance-like: the viewer class the finance route guard admits. Exported
+ *  because screens that offer a finance destination must decide visibility by
+ *  the SAME rule the guard enforces — two copies of this predicate would drift,
+ *  and the drift would show up as buttons leading to "no access". */
+export const isFinanceLike = (r: RoleLike) =>
   r.business_function === 'FINANCE_TREASURY' ||
   r.business_function === 'EXECUTIVE' ||
   ['BANK', 'DFI', 'INSURER'].includes(r.service_type ?? '');
