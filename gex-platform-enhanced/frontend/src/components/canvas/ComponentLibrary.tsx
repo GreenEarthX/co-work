@@ -7,7 +7,6 @@ import {
 } from "./componentDatabase";
 import { getComponentIcon } from "./iconRegistry";
 import { INFRASTRUCTURE_HIDE_LABELS } from "@/lib/siteInfrastructure";
-import { useAuth } from "@/contexts/AuthContext";
 import { loadCustomLibrary, saveCustomLibrary } from "@/lib/customLibrary";
 import { toast } from "@/hooks/use-toast";
 
@@ -33,7 +32,6 @@ const tabConfig: { key: Tab; label: string; color: string; icon: typeof Box }[] 
 ];
 
 const ComponentLibrary = ({ onCollapse, collapsed, onOpenProcurement }: Props) => {
-  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("equipment");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -47,7 +45,7 @@ const ComponentLibrary = ({ onCollapse, collapsed, onOpenProcurement }: Props) =
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const lib = await loadCustomLibrary(user?.id);
+      const lib = await loadCustomLibrary();
       if (cancelled) return;
       setCustomEquipment(lib.equipment);
       setCustomCarriers(lib.carriers);
@@ -55,7 +53,7 @@ const ComponentLibrary = ({ onCollapse, collapsed, onOpenProcurement }: Props) =
       setLibraryLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, []);
 
   // Debounced persistence — push the merged library to cloud + localStorage
   // whenever any custom collection changes.
@@ -64,11 +62,10 @@ const ComponentLibrary = ({ onCollapse, collapsed, onOpenProcurement }: Props) =
     const t = setTimeout(() => {
       saveCustomLibrary(
         { equipment: customEquipment, carriers: customCarriers, gates: customGates },
-        user?.id,
       );
     }, 500);
     return () => clearTimeout(t);
-  }, [customEquipment, customCarriers, customGates, libraryLoaded, user?.id]);
+  }, [customEquipment, customCarriers, customGates, libraryLoaded]);
   const [addingItem, setAddingItem] = useState<Tab | null>(null);
   const [newLabel, setNewLabel] = useState("");
   const [newCategory, setNewCategory] = useState("");

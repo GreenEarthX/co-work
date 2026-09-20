@@ -30,3 +30,9 @@ temp_interactive_push.bat
 # Rename/backup artefacts, never part of a release
 .backups/
 .backups-*
+
+# User content, never source. Added 2026-09-20 with the canvas cutover:
+# these are customers' plant designs and evidence documents, which do not
+# belong in a code repository at all — least of all one that was public.
+gex-platform-enhanced/backend/data/canvas_blobs/
+gex-platform-enhanced/backend/data/package_docs/

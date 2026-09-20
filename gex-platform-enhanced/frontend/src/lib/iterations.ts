@@ -7,9 +7,9 @@
  * A new iteration:
  *   • shares projectGroupId with the source
  *   • gets a unique slug `${groupId}-iter-N`
- *   • copies the source canvas JSON to its own user-scoped storage path
- *     (so future edits are fully independent)
- *   • upserts a `plants` row scoped to the user
+ *   • copies the source canvas to its own document (so future edits are
+ *     fully independent)
+ *   • upserts the plant row
  *   • updates the localStorage cache and notifies listeners
  */
 import type { Node, Edge } from "@xyflow/react";
@@ -18,14 +18,8 @@ import {
   nextIterationNumber,
   stripIterationSuffix,
 } from "./projectRegistry";
-import { isBackendConfigured } from "./envGuard";
 import { saveToStorage } from "@/hooks/useLocalPersistence";
 import { notifyPlantsChanged, getCachedPlants } from "./plantStore";
-
-async function getSupabase() {
-  const { supabase } = await import("./backendClient");
-  return supabase;
-}
 
 export interface IterationCanvasSnapshot {
   nodes: Node[];
@@ -37,16 +31,13 @@ export interface IterationCanvasSnapshot {
 export interface CreateIterationOptions {
   /** Plant we are forking from */
   source: ProjectRecord;
-  /** Authenticated user id (storage + cloud row are scoped to it) */
-  userId?: string;
   /** Current plants list, used to pick a unique iteration number */
   plants: ProjectRecord[];
   /**
    * Optional live canvas snapshot. When provided, the helper uploads it
-   * directly to the new iteration's storage path — guarantees the fork
-   * captures the current editor state even if it hasn't been autosaved
-   * to cloud yet. When omitted, falls back to copying the source's
-   * existing storage object.
+   * directly as the new iteration's canvas — guarantees the fork captures
+   * the current editor state even if it has not been autosaved yet. When
+   * omitted, the source's stored canvas is copied instead.
    */
   liveCanvas?: IterationCanvasSnapshot | null;
   /**
@@ -65,21 +56,13 @@ export interface CreateIterationResult {
  * Persist a single plant row (per-user, per-slug) without touching siblings.
  * Kept local to this module so callers don't need to know about Supabase.
  */
-async function upsertPlantRow(userId: string, plant: ProjectRecord) {
-  if (!isBackendConfigured() || !userId) return;
+async function upsertPlantRow(plant: ProjectRecord) {
   try {
-    const sb = await getSupabase();
-    await sb.from("plants").upsert(
-      { user_id: userId, slug: plant.id, data: JSON.parse(JSON.stringify(plant)) },
-      { onConflict: "user_id,slug" },
-    );
+    const { upsertPlant } = await import("@/lib/plantsApi");
+    await upsertPlant(plant.id, JSON.parse(JSON.stringify(plant)));
   } catch (err) {
     console.error("[iterations] upsert plant row failed:", err);
   }
-}
-
-function scopedCanvasPath(userId: string | undefined, slug: string): string {
-  return userId ? `users/${userId}/${slug}.json` : `${slug}.json`;
 }
 
 /**
@@ -89,7 +72,7 @@ function scopedCanvasPath(userId: string | undefined, slug: string): string {
 export async function createIteration(
   opts: CreateIterationOptions,
 ): Promise<CreateIterationResult> {
-  const { source, userId, plants, liveCanvas, customVariantLabel } = opts;
+  const { source, plants, liveCanvas, customVariantLabel } = opts;
   const groupId = source.projectGroupId || source.id;
 
   // Pick a unique slug — bump past any collisions.
@@ -113,63 +96,30 @@ export async function createIteration(
     updatedAt: new Date().toISOString(),
   };
 
-  // 1) Seed canvas storage for the new iteration.
-  if (isBackendConfigured()) {
-    try {
-      const sb = await getSupabase();
-      const destPath = scopedCanvasPath(userId, newId);
-
-      if (liveCanvas) {
-        const payload = {
+  // 1) Seed the new iteration's canvas.
+  //
+  // The fork used to copy the source object inside the bucket by composing
+  // both paths in the browser, reading the source through getPublicUrl (which
+  // never worked — the bucket is not public) and re-uploading. Now both ends
+  // are addressed by slug and the owner comes from the token.
+  try {
+    const { loadCanvas, saveCanvas } = await import("@/lib/canvasApi");
+    const payload = liveCanvas
+      ? {
           nodes: liveCanvas.nodes,
           edges: liveCanvas.edges,
           plantSettings: liveCanvas.plantSettings,
           retiredDisplayIds: liveCanvas.retiredDisplayIds ?? [],
-        };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], {
-          type: "application/json",
-        });
-        await sb.storage
-          .from("plant-data")
-          .upload(destPath, blob, { upsert: true, cacheControl: "0" });
-      } else {
-        // Fall back to copying the source plant's stored JSON.
-        const candidates = [
-          userId ? `users/${userId}/${source.id}.json` : null,
-          `${source.id}.json`,
-        ].filter(Boolean) as string[];
-        let sourceJson: string | null = null;
-        for (const path of candidates) {
-          const { data: urlData } = sb.storage
-            .from("plant-data")
-            .getPublicUrl(path);
-          try {
-            const resp = await fetch(`${urlData.publicUrl}?t=${Date.now()}`, {
-              cache: "no-store",
-            });
-            if (resp.ok) {
-              sourceJson = await resp.text();
-              break;
-            }
-          } catch {
-            /* try next */
-          }
         }
-        if (sourceJson) {
-          const blob = new Blob([sourceJson], { type: "application/json" });
-          await sb.storage
-            .from("plant-data")
-            .upload(destPath, blob, { upsert: true, cacheControl: "0" });
-        }
-      }
-    } catch (err) {
-      console.error("[iterations] canvas seed failed:", err);
-      throw err;
-    }
+      : await loadCanvas<unknown>(source.id);
+    if (payload) await saveCanvas(newId, payload);
+  } catch (err) {
+    console.error("[iterations] canvas seed failed:", err);
+    throw err;
   }
 
   // 2) Persist the plant row.
-  if (userId) await upsertPlantRow(userId, newPlant);
+  await upsertPlantRow(newPlant);
 
   // 3) Update local cache + notify listeners.
   try {
@@ -191,7 +141,6 @@ export async function createIteration(
  */
 export async function renamePlantVariation(opts: {
   plant: ProjectRecord;
-  userId?: string;
   variantLabel: string;
 }): Promise<ProjectRecord> {
   const label = opts.variantLabel.trim() || opts.plant.variantLabel;
@@ -202,7 +151,7 @@ export async function renamePlantVariation(opts: {
     name: baseName,
     updatedAt: new Date().toISOString(),
   };
-  if (opts.userId) await upsertPlantRow(opts.userId, updated);
+  await upsertPlantRow(updated);
   try {
     const cached = getCachedPlants();
     const next = cached.map((p) => (p.id === updated.id ? updated : p));
@@ -220,44 +169,26 @@ export async function renamePlantVariation(opts: {
  */
 export async function deletePlantVariation(opts: {
   plant: ProjectRecord;
-  userId?: string;
 }): Promise<void> {
-  const { plant, userId } = opts;
-  if (isBackendConfigured()) {
-    try {
-      const sb = await getSupabase();
-      if (userId) {
-        await sb.from("plants").delete().eq("user_id", userId).eq("slug", plant.id);
-      }
-      const targets = [
-        userId ? `users/${userId}/${plant.id}.json` : null,
-        `${plant.id}.json`,
-      ].filter(Boolean) as string[];
-      await sb.storage.from("plant-data").remove(targets);
-      const versionRoots = [
-        userId ? `versions/users/${userId}/${plant.id}` : null,
-        `versions/${plant.id}`,
-      ].filter(Boolean) as string[];
-      for (const root of versionRoots) {
-        let pageOffset = 0;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { data: files } = await sb.storage
-            .from("plant-data")
-            .list(root, { limit: 100, offset: pageOffset });
-          if (!files || files.length === 0) break;
-          await sb.storage
-            .from("plant-data")
-            .remove(files.map((f: { name: string }) => `${root}/${f.name}`));
-          if (files.length < 100) break;
-          pageOffset += 100;
-        }
-      }
-    } catch (err) {
-      console.error("[iterations] delete failed:", err);
-      throw err;
-    }
+  const { plant } = opts;
+
+  // Both halves go through the backend now.
+  try {
+    const { deletePlant } = await import("@/lib/plantsApi");
+    await deletePlant(plant.id);
+  } catch (err) {
+    console.error("[iterations] plant row delete failed:", err);
   }
+
+  // The canvas and every snapshot of it go in one call — the browser used to
+  // remove the object, then page through `versions/` deleting each one.
+  try {
+    const { deleteCanvas } = await import("@/lib/canvasApi");
+    await deleteCanvas(plant.id);
+  } catch (err) {
+    console.error("[iterations] canvas delete failed:", err);
+  }
+
   try {
     const cached = getCachedPlants();
     const next = cached.filter((p) => p.id !== plant.id);

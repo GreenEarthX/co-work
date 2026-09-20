@@ -82,7 +82,7 @@ export default function SiteInfrastructure() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const loaded = await loadInfrastructure(plantId, user?.id);
+      const loaded = await loadInfrastructure(plantId);
       if (!cancelled) {
         setData(loaded);
         setLoading(false);
@@ -140,7 +140,7 @@ export default function SiteInfrastructure() {
   const handleSave = useCallback(async () => {
     if (!plantId) return;
     setSaving(true);
-    const res = await saveInfrastructure(plantId, data, user?.id);
+    const res = await saveInfrastructure(plantId, data);
     setSaving(false);
     if (res.ok) {
       setDirty(false);

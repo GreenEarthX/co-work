@@ -1,11 +1,20 @@
 /**
  * Persistence hook for per-equipment equation configurations.
- * Stored in Supabase table `equipment_equations`, scoped by user/plant/node.
+ *
+ * WAS: `supabase.from("equipment_equations")` under the anon key shipped in
+ * the bundle, with the user id supplied by the browser — and a delete that
+ * carried no user scoping at all (`.delete().eq("id", id)`), so it removed any
+ * row by id for anybody. CLAUDE_HANDOFF §8.16.
+ *
+ * NOW: `/api/v1/equipment-equations`. The owner comes from the session token,
+ * so no call names a user, and a delete aimed at someone else's row matches
+ * nothing and answers 404.
  */
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/lib/backendClient";
-import { useAuth } from "@/contexts/AuthContext";
+import { getAuthToken } from "@/lib/authToken";
 import type { VariableBinding } from "@/lib/equations/sourceResolver";
+
+const API_PREFIX = "/api/v1/equipment-equations";
 
 export interface StoredEquipmentEquation {
   id: string;
@@ -15,34 +24,31 @@ export interface StoredEquipmentEquation {
   variable_bindings: Record<string, VariableBinding>;
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 export function useEquipmentEquations(plantSlug: string, nodeId: string, equipmentLabel: string) {
-  const { user } = useAuth();
-  const userId = user?.id ?? "anonymous";
   const [items, setItems] = useState<StoredEquipmentEquation[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!plantSlug || !nodeId) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from("equipment_equations")
-      .select("id, equation_id, equation_expression, output_param, variable_bindings")
-      .eq("user_id", userId)
-      .eq("plant_slug", plantSlug)
-      .eq("equipment_node_id", nodeId);
-    if (!error && data) {
-      setItems(
-        data.map((d: Record<string, unknown>) => ({
-          id: d.id as string,
-          equation_id: d.equation_id as string,
-          equation_expression: d.equation_expression as string,
-          output_param: d.output_param as string,
-          variable_bindings: (d.variable_bindings ?? {}) as unknown as Record<string, VariableBinding>,
-        })),
-      );
+    try {
+      const q = `?plant_slug=${encodeURIComponent(plantSlug)}&node_id=${encodeURIComponent(nodeId)}`;
+      const res = await fetch(`${API_PREFIX}${q}`, { headers: authHeaders() });
+      if (res.ok) setItems((await res.json()) as StoredEquipmentEquation[]);
+    } catch {
+      /* leave the last good list in place */
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [userId, plantSlug, nodeId]);
+  }, [plantSlug, nodeId]);
 
   useEffect(() => {
     void refresh();
@@ -55,34 +61,42 @@ export function useEquipmentEquations(plantSlug: string, nodeId: string, equipme
       output_param: string;
       variable_bindings: Record<string, VariableBinding>;
     }) => {
-      const { error } = await supabase
-        .from("equipment_equations")
-        .upsert(
-          [
-            {
-              user_id: userId,
-              plant_slug: plantSlug,
-              equipment_node_id: nodeId,
-              equipment_label: equipmentLabel,
-              equation_id: payload.equation_id,
-              equation_expression: payload.equation_expression,
-              output_param: payload.output_param,
-              variable_bindings: JSON.parse(JSON.stringify(payload.variable_bindings)),
-            },
-          ],
-          { onConflict: "user_id,plant_slug,equipment_node_id,equation_id" },
-        );
-      if (!error) await refresh();
-      return { error };
+      try {
+        const res = await fetch(API_PREFIX, {
+          method: "PUT",
+          headers: authHeaders(),
+          body: JSON.stringify({
+            plant_slug: plantSlug,
+            equipment_node_id: nodeId,
+            equipment_label: equipmentLabel,
+            ...payload,
+          }),
+        });
+        if (!res.ok) return { error: new Error(`HTTP ${res.status}`) };
+        await refresh();
+        return { error: null };
+      } catch (e) {
+        return { error: e instanceof Error ? e : new Error("save failed") };
+      }
     },
-    [userId, plantSlug, nodeId, equipmentLabel, refresh],
+    [plantSlug, nodeId, equipmentLabel, refresh],
   );
 
   const remove = useCallback(
     async (id: string) => {
-      const { error } = await supabase.from("equipment_equations").delete().eq("id", id);
-      if (!error) await refresh();
-      return { error };
+      try {
+        // No user id in this call, and none accepted: the server deletes the
+        // row only if it belongs to the caller, and answers 404 otherwise.
+        const res = await fetch(`${API_PREFIX}/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        if (!res.ok) return { error: new Error(`HTTP ${res.status}`) };
+        await refresh();
+        return { error: null };
+      } catch (e) {
+        return { error: e instanceof Error ? e : new Error("delete failed") };
+      }
     },
     [refresh],
   );

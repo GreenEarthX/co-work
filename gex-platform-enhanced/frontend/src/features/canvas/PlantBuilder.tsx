@@ -11,14 +11,9 @@ import SaveConfirmDialog from "@/components/canvas/SaveConfirmDialog";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { useAuth } from "@/contexts/AuthContext";
-import { isBackendConfigured } from "@/lib/envGuard";
+import { deletePlant, listPlants, replacePortfolio, upsertPlant } from "@/lib/plantsApi";
 import { useActivePlantId } from "@/hooks/useProjectContext";
 
-/** Lazy accessor – avoids evaluating the backend client at module-load time */
-async function getSupabase() {
-  const { supabase } = await import("@/lib/backendClient");
-  return supabase;
-}
 import {
   MapPin,
   Plus,
@@ -160,20 +155,14 @@ const OPTIONAL_FIELDS: { key: string; label: string; disabled?: boolean; hint?: 
 
 /* ── Cloud persistence helpers ── */
 
-async function loadPlantsFromCloud(userId: string): Promise<ProjectRecord[] | null> {
+async function loadPlantsFromCloud(): Promise<ProjectRecord[] | null> {
   try {
-    if (!isBackendConfigured()) return null;
-    const sb = await getSupabase();
-    const { data, error } = await sb
-      .from("plants")
-      .select("slug, data, updated_at")
-      .eq("user_id", userId);
-    if (error || !data || data.length === 0) return null;
-    return data.map((row: Record<string, unknown>) => {
-      const rec = { ...(row.data as unknown as ProjectRecord) };
-      // Row-level updated_at is the source of truth (trigger maintained).
-      const rowTs = (row as any).updated_at as string | undefined;
-      if (rowTs) rec.updatedAt = rowTs;
+    const rows = await listPlants<ProjectRecord>();
+    if (rows.length === 0) return null;
+    return rows.map((row) => {
+      const rec = { ...row.data };
+      // The row's updated_at is the source of truth, not anything inside data.
+      if (row.updated_at) rec.updatedAt = row.updated_at;
       // Drop legacy static "Just now" strings once we have a real timestamp.
       if (rec.updatedAt && (rec.lastEdited || "").trim().toLowerCase() === "just now") {
         delete (rec as any).lastEdited;
@@ -185,19 +174,22 @@ async function loadPlantsFromCloud(userId: string): Promise<ProjectRecord[] | nu
   }
 }
 
-async function savePlantsToCloud(userId: string, plants: ProjectRecord[]) {
+/**
+ * Replace the whole portfolio.
+ *
+ * This used to delete every row and then insert the new set as two separate
+ * PostgREST calls, so a failure between them wiped the portfolio
+ * (CLAUDE_HANDOFF §8.15). The backend does both in one transaction, and
+ * `confirmDelete` refuses the call outright if it would remove a different
+ * number of plants than we expect — which is how an empty list from a
+ * half-loaded client stops meaning "delete everything".
+ */
+async function savePlantsToCloud(plants: ProjectRecord[], expectedDeletions = 0) {
   try {
-    if (!isBackendConfigured()) return;
-    const sb = await getSupabase();
-    const rows = plants.map((p) => ({
-      user_id: userId,
-      slug: p.id,
-      data: JSON.parse(JSON.stringify(p)),
-    }));
-    await sb.from("plants").delete().eq("user_id", userId);
-    if (rows.length > 0) {
-      await sb.from("plants").insert(rows);
-    }
+    await replacePortfolio(
+      plants.map((p) => ({ slug: p.id, data: JSON.parse(JSON.stringify(p)) })),
+      { confirmDelete: expectedDeletions },
+    );
   } catch (err) {
     console.error("[PlantBuilder] Cloud save failed:", err);
   }
@@ -208,24 +200,17 @@ async function savePlantsToCloud(userId: string, plants: ProjectRecord[]) {
  * `updated_at` columns (and any consumers that key off them) are never
  * disturbed by an unrelated edit.
  */
-async function upsertPlantToCloud(userId: string, plant: ProjectRecord) {
+async function upsertPlantToCloud(plant: ProjectRecord) {
   try {
-    if (!isBackendConfigured()) return;
-    const sb = await getSupabase();
-    await sb.from("plants").upsert(
-      { user_id: userId, slug: plant.id, data: JSON.parse(JSON.stringify(plant)) },
-      { onConflict: "user_id,slug" },
-    );
+    await upsertPlant(plant.id, JSON.parse(JSON.stringify(plant)));
   } catch (err) {
     console.error("[PlantBuilder] Cloud upsert failed:", err);
   }
 }
 
-async function deletePlantFromCloud(userId: string, slug: string) {
+async function deletePlantFromCloud(slug: string) {
   try {
-    if (!isBackendConfigured()) return;
-    const sb = await getSupabase();
-    await sb.from("plants").delete().eq("user_id", userId).eq("slug", slug);
+    await deletePlant(slug);
   } catch (err) {
     console.error("[PlantBuilder] Cloud delete failed:", err);
   }
@@ -258,7 +243,7 @@ const PlantBuilder = () => {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const cloudPlants = await loadPlantsFromCloud(userId);
+      const cloudPlants = await loadPlantsFromCloud();
       if (cancelled) return;
       if (cloudPlants && cloudPlants.length > 0) {
         // One-time client-side backfill: legacy rows stored `name` as
@@ -277,12 +262,12 @@ const PlantBuilder = () => {
         setPlants(cleaned);
         syncToLocalCache(cleaned);
         if (backfilled.length > 0) {
-          for (const row of backfilled) void upsertPlantToCloud(userId, row);
+          for (const row of backfilled) void upsertPlantToCloud(row);
         }
       } else {
         // First time: seed cloud with defaults
         const defaults = [...projectRegistry];
-        await savePlantsToCloud(userId, defaults);
+        await savePlantsToCloud(defaults);
         if (!cancelled) {
           setPlants(defaults);
           syncToLocalCache(defaults);
@@ -328,8 +313,8 @@ const PlantBuilder = () => {
       }
       syncToLocalCache(next);
       // Touch only the rows that actually changed.
-      for (const u of upserts) void upsertPlantToCloud(userId, u);
-      for (const slug of removes) void deletePlantFromCloud(userId, slug);
+      for (const u of upserts) void upsertPlantToCloud(u);
+      for (const slug of removes) void deletePlantFromCloud(slug);
       return next;
     });
     saveAction.current = action;
@@ -447,26 +432,11 @@ const PlantBuilder = () => {
     // Remove the card immediately; only this slug's row is deleted from the cloud.
     mutatePlants("edit", { removes: [plant.id] });
     try {
-      if (isBackendConfigured()) {
-        const sb = await getSupabase();
-        // (Row already deleted above via mutatePlants → deletePlantFromCloud.)
-        // 1) Remove this exact plant's canvas JSON.
-        await sb.storage.from("plant-data").remove([`${plant.id}.json`]);
-        // 2) Remove all of this plant's version snapshots (paginated to clear >100).
-        let pageOffset = 0;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { data: versionFiles } = await sb.storage
-            .from("plant-data")
-            .list(`versions/${plant.id}`, { limit: 100, offset: pageOffset });
-          if (!versionFiles || versionFiles.length === 0) break;
-          await sb.storage
-            .from("plant-data")
-            .remove(versionFiles.map((f: { name: string }) => `versions/${plant.id}/${f.name}`));
-          if (versionFiles.length < 100) break;
-          pageOffset += 100;
-        }
-      }
+      // The row is already gone via mutatePlants → deletePlantFromCloud.
+      // One call now removes the canvas and every snapshot; this used to page
+      // through `versions/` deleting a hundred objects at a time.
+      const { deleteCanvas } = await import("@/lib/canvasApi");
+      await deleteCanvas(plant.id);
       toast.success(`"${plant.name}" was permanently deleted.`);
     } catch (err) {
       console.error("[delete] Failed to remove cloud canvas data:", err);
@@ -519,35 +489,15 @@ const PlantBuilder = () => {
     mutatePlants("duplicate", { upserts: [duplicate] });
 
     try {
-      if (!isBackendConfigured()) throw new Error("no backend");
-      const sb = await getSupabase();
-      // 1) Prefer the user's latest saved canvas (scoped path).
-      // 2) Fall back to the unscoped public seed for first-time users
-      //    who have never saved.
-      const candidates = [
-        userId ? `users/${userId}/${plant.id}.json` : null,
-        `${plant.id}.json`,
-      ].filter(Boolean) as string[];
-
-      let sourceJson: string | null = null;
-      for (const path of candidates) {
-        const { data: urlData } = sb.storage.from("plant-data").getPublicUrl(path);
-        try {
-          const resp = await fetch(`${urlData.publicUrl}?t=${Date.now()}`, { cache: "no-store" });
-          if (resp.ok) {
-            sourceJson = await resp.text();
-            console.log(`[duplicate] Seeded ${newId} from ${path}`);
-            break;
-          }
-        } catch { /* try next */ }
-      }
-
-      if (sourceJson) {
-        const blob = new Blob([sourceJson], { type: "application/json" });
-        const destPath = userId ? `users/${userId}/${newId}.json` : `${newId}.json`;
-        await sb.storage
-          .from("plant-data")
-          .upload(destPath, blob, { upsert: true, cacheControl: "0" });
+      // Copy the source canvas into the new slug. Both ends are addressed
+      // by slug; the owner comes from the token. The old version read the
+      // source through getPublicUrl, which never worked — the bucket is not
+      // public — so a duplicate silently produced an empty canvas.
+      const { loadCanvas, saveCanvas } = await import("@/lib/canvasApi");
+      const sourceCanvas = await loadCanvas<unknown>(plant.id);
+      if (sourceCanvas) {
+        await saveCanvas(newId, sourceCanvas);
+        console.log(`[duplicate] Seeded ${newId} from ${plant.id}`);
       }
       toast.success(`Created ${variantLabel} of ${baseName}`);
     } catch (err) {
@@ -801,10 +751,10 @@ const PlantBuilder = () => {
     setPlants(next);
     syncToLocalCache(next);
     // Only insert the newly created row; do NOT touch siblings.
-    await upsertPlantToCloud(userId, newPlant);
+    await upsertPlantToCloud(newPlant);
     // Seed the initial canvas with one carrier per product wired to the
     // Offtake Market gate so the canvas isn't empty on first open.
-    await seedInitialCanvas(uniqueSlug, payload.products, 8760, userId);
+    await seedInitialCanvas(uniqueSlug, payload.products, 8760);
 
     // Publish the new plant to the Ecosystem Map (only when the user opted in).
     // - Matches an existing verified project by name or proximity -> enriches it
@@ -1787,7 +1737,7 @@ const PlantBuilder = () => {
         context="plant list changes"
         onSave={() => {
           syncToLocalCache(plants);
-          savePlantsToCloud(userId, plants);
+          savePlantsToCloud(plants);
           setIsDirty(false);
           setShowSavePrompt(false);
           proceed();

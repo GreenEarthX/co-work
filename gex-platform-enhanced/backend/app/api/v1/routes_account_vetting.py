@@ -161,8 +161,20 @@ async def register(body: RegistrationRequest) -> RegistrationResponse:
     confirms them on the verification call; until then they are only claims.
     """
     from app.core.auth import pwd_context
+    from app.core.password_policy import PasswordPolicyError, validate_password
 
     email = body.email.strip().lower()
+
+    # Checked before the existence probe below, so a weak password is refused
+    # for an address that is already registered exactly as it is for a new one
+    # — otherwise the difference in response would leak which is which, which
+    # is the property the duplicate-address branch exists to protect.
+    try:
+        validate_password(body.password, email=email,
+                          user_name=body.user_name, is_platform_admin=False)
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     conn = _conn()
     try:
         if conn.execute("SELECT 1 FROM auth_users WHERE email = ?", (email,)).fetchone():

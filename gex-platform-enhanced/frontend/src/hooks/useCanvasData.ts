@@ -1,25 +1,31 @@
 /**
- * useCanvasData — Cloud-only plant data hook (v2).
- * Always fetches from / saves to the Supabase Storage bucket.
- * No static JSON fallbacks — the bucket is the single source of truth.
+ * useCanvasData — the plant canvas, read from and written to the backend.
+ *
+ * Was the Supabase Storage bucket `plant-data`, reached under the anon key
+ * with the path composed in the browser. Two things changed:
+ *
+ *   - the owner comes from the session token, so no caller can name another
+ *     user's canvas;
+ *   - loads work. The old read called getPublicUrl() and fetched it with no
+ *     credentials; the bucket is not public, so every cloud load answered 404
+ *     and fell back to localStorage without saying so.
+ *
+ * Version retention now lives on the server, which prunes after recording a
+ * snapshot — the browser no longer lists and deletes objects to enforce it.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import { isBackendConfigured } from "@/lib/envGuard";
+import {
+  listCanvasVersions,
+  loadCanvas,
+  loadCanvasVersion,
+  saveCanvas,
+  saveCanvasVersion,
+} from "@/lib/canvasApi";
 import type { Node, Edge } from "@xyflow/react";
 import { computeNodeIdMap } from "@/components/canvas/nodeIdSystem";
 import { migrateLegacyHandle } from "@/components/canvas/portSystem";
 
-const BUCKET = "plant-data";
-const VERSIONS_PREFIX = "versions";
 const SNAPSHOT_MIN_INTERVAL_MS = 60_000; // throttle: at most one snapshot per minute
-const MAX_VERSIONS_KEPT = 30;
-
-/** Lazy-import the runtime-safe backend client */
-async function getSupabase() {
-  if (!isBackendConfigured()) return null;
-  const { supabase } = await import("@/lib/backendClient");
-  return supabase;
-}
 
 export interface PlantSettings {
   hoursYear: number;
@@ -120,7 +126,7 @@ interface UseCanvasDataResult {
   restoreVersion: (path: string) => Promise<CanvasData | null>;
 }
 
-export function useCanvasData(plantId: string | undefined, userId?: string): UseCanvasDataResult {
+export function useCanvasData(plantId: string | undefined): UseCanvasDataResult {
   const [data, setData] = useState<CanvasData | null>(null);
   const [loadedPlantId, setLoadedPlantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -147,17 +153,9 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
     return h.toString(36);
   }
 
-  // Per-user storage prefix so each demo account has its own canvas for a
-  // given slug. Anonymous visitors fall back to the legacy global path so
-  // existing public seeds still work as a default.
-  const scopedPath = useCallback(
-    (slug: string) => (userId ? `users/${userId}/${slug}.json` : `${slug}.json`),
-    [userId],
-  );
-  const versionsDir = useCallback(
-    (slug: string) => (userId ? `${VERSIONS_PREFIX}/users/${userId}/${slug}` : `${VERSIONS_PREFIX}/${slug}`),
-    [userId],
-  );
+  // No path helpers any more: the server addresses a document by (owner from
+  // the token, kind, slug). The browser used to compose `users/{userId}/…`,
+  // which is what let a caller name somebody else's canvas.
 
   const ingestSeenIds = useCallback((d: CanvasData | null) => {
     if (!d) return;
@@ -197,33 +195,16 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
       setSource(null);
 
       try {
-        const sb = await getSupabase();
-        if (!sb) {
-          if (!cancelled) {
-            setError("Backend not configured, cannot load plant data");
-            setData({ nodes: [], edges: [], plantSettings: DEFAULT_PLANT_SETTINGS });
-            setLoadedPlantId(plantId ?? null);
-            setLoading(false);
-          }
-          return;
-        }
-
-        // Try the user-scoped path first, then fall back to the legacy
-        // unscoped seed so first-time visits hydrate from the public default.
-        const candidates: string[] = [];
-        if (userId) candidates.push(scopedPath(plantId ?? ""));
-        candidates.push(`${plantId ?? ""}.json`);
-
-        for (const path of candidates) {
-          const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(path);
-          const resp = await fetch(`${urlData.publicUrl}?t=${Date.now()}`, { cache: "no-store" });
-          if (!resp.ok) continue;
-          let parsed: CanvasData;
-          try {
-            parsed = JSON.parse(await resp.text()) as CanvasData;
-          } catch { continue; }
-          if (!parsed || !Array.isArray(parsed.nodes)) continue;
-          if (!cancelled) {
+        // One authenticated read. This used to try a user-scoped path and then
+        // a legacy unscoped one via getPublicUrl — which never worked, because
+        // the bucket is not public, so every cloud load silently failed and
+        // fell back to localStorage. The unscoped fallback is gone with it: a
+        // canvas shared by every user was the wrong default, and new plants
+        // are seeded by seedInitialCanvas.
+        const parsed = await loadCanvas<CanvasData>(plantId ?? "");
+        {
+          const path = plantId ?? "";
+          if (parsed && Array.isArray(parsed.nodes) && !cancelled) {
             const loaded: CanvasData = {
               ...parsed,
               plantSettings: parsed.plantSettings ?? DEFAULT_PLANT_SETTINGS,
@@ -275,8 +256,13 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
               lastSavedHashRef.current = hashString(JSON.stringify(normalized, null, 2));
             } catch { lastSavedHashRef.current = null; }
             console.log(`[useCanvasData] Loaded ${plantId} from ${path}`);
+            return;
           }
-          return;
+          // No stored canvas — fall through to the empty-canvas branch below.
+          // The `return` used to sit here, outside the `if`, because it closed
+          // a loop over candidate paths. Left there when the loop became a
+          // single read it fired even on a 404, so a plant with no canvas yet
+          // hung on "Loading plant canvas…" forever.
         }
 
         // No cloud data — empty canvas (new plant)
@@ -302,7 +288,7 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
     return () => {
       cancelled = true;
     };
-  }, [plantId, userId, scopedPath, ingestSeenIds]);
+  }, [plantId, ingestSeenIds]);
 
   const saveCanvasData = useCallback(
     (nodes: Node[], edges: Edge[], plantSettings?: PlantSettings) => {
@@ -331,16 +317,12 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
           if (lastSavedHashRef.current && lastSavedHashRef.current === payloadHash) {
             return;
           }
-          const blob = new Blob([serialized], { type: "application/json" });
-
-          const sb = await getSupabase();
-          if (!sb) {
-            console.warn("[useCanvasData] Backend not configured, skipping cloud save");
-            return;
+          let uploadError: { message: string } | null = null;
+          try {
+            await saveCanvas(plantId, payload);
+          } catch (e) {
+            uploadError = { message: e instanceof Error ? e.message : "save failed" };
           }
-          const { error: uploadError } = await sb.storage
-            .from(BUCKET)
-            .upload(scopedPath(plantId), blob, { upsert: true, cacheControl: "0" });
 
           if (uploadError) {
             console.error("[useCanvasData] Save failed:", uploadError.message);
@@ -348,25 +330,23 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
             console.log(`[useCanvasData] Saved ${plantId} to cloud storage`);
             setSource("cloud");
             lastSavedHashRef.current = payloadHash;
-            // Touch the plants metadata row so the portfolio card's
-            // "Last edited" label stays in sync with real canvas saves.
-            // Fire-and-forget — never block the canvas on this.
-            if (userId) {
-              const touchTs = new Date().toISOString();
-              sb.from("plants")
-                .update({ updated_at: touchTs })
-                .eq("user_id", userId)
-                .eq("slug", plantId)
-                .then(() => {
-                  try {
-                    window.dispatchEvent(
-                      new CustomEvent("gex:plant-touched", {
-                        detail: { plantId, updatedAt: touchTs },
-                      }),
-                    );
-                  } catch { /* ignore */ }
-                }, () => { /* ignore touch errors */ });
-            }
+            // Touch the plant row so the portfolio card's "Last edited" label
+            // stays in sync with real canvas saves. Fire-and-forget — never
+            // block the canvas on this. No user id: the backend takes the
+            // owner from the session token, and a plant that is not the
+            // caller's simply is not found.
+            void (async () => {
+              try {
+                const { touchPlant } = await import("@/lib/plantsApi");
+                const touched = await touchPlant(plantId);
+                if (!touched) return; // not stored yet — nothing to announce
+                window.dispatchEvent(
+                  new CustomEvent("gex:plant-touched", {
+                    detail: { plantId, updatedAt: touched.updated_at },
+                  }),
+                );
+              } catch { /* ignore touch errors */ }
+            })();
             // NOTE: Do NOT call setData(payload) here. The PlantCanvas
             // component holds the authoritative live nodes/edges; echoing
             // the saved payload back into `data` retriggers the hydration
@@ -377,23 +357,11 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
             if (now - lastSnapshotAtRef.current >= SNAPSHOT_MIN_INTERVAL_MS) {
               lastSnapshotAtRef.current = now;
               const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
-              const versionPath = `${versionsDir(plantId)}/${stamp}.json`;
               try {
-                await sb.storage
-                  .from(BUCKET)
-                  .upload(versionPath, blob, { upsert: false, cacheControl: "0" });
-                // Prune old versions to MAX_VERSIONS_KEPT
-                const { data: versionFiles } = await sb.storage
-                  .from(BUCKET)
-                  .list(versionsDir(plantId), { limit: 100, sortBy: { column: "name", order: "desc" } });
-                if (versionFiles && versionFiles.length > MAX_VERSIONS_KEPT) {
-                  const toDelete = versionFiles
-                    .slice(MAX_VERSIONS_KEPT)
-                    .map((f: { name: string }) => `${versionsDir(plantId)}/${f.name}`);
-                  if (toDelete.length > 0) {
-                    await sb.storage.from(BUCKET).remove(toDelete);
-                  }
-                }
+                // The server records the snapshot and prunes to its own
+                // retention limit, so the list-and-remove dance the browser
+                // used to do — three round trips, no transaction — is gone.
+                await saveCanvasVersion(plantId, stamp, payload);
               } catch (snapErr) {
                 console.warn("[useCanvasData] Snapshot failed:", snapErr);
               }
@@ -409,46 +377,37 @@ export function useCanvasData(plantId: string | undefined, userId?: string): Use
       saveChainRef.current = runSave;
       return runSave;
     },
-    [plantId, userId, scopedPath, versionsDir]
+    [plantId]
   );
 
   const listVersions = useCallback(async (): Promise<VersionEntry[]> => {
     if (!plantId) return [];
-    const sb = await getSupabase();
-    if (!sb) return [];
-    const { data: files, error: listErr } = await sb.storage
-      .from(BUCKET)
-      .list(versionsDir(plantId), { limit: 100, sortBy: { column: "name", order: "desc" } });
-    if (listErr || !files) return [];
-    return files
-      .filter((f: { name: string; created_at?: string; metadata?: { size?: number } }) => f.name.endsWith(".json"))
-      .map((f: { name: string; created_at?: string; metadata?: { size?: number } }) => {
-        // Reverse the replace done at write time: turn "2026-05-03T10-15-30-000Z" back to ISO
-        const base = f.name.replace(/\.json$/, "");
-        // Format: YYYY-MM-DDTHH-mm-ss-SSSZ
-        const isoLike = base.replace(
-          /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/,
-          "$1:$2:$3.$4Z"
-        );
-        const createdAt = new Date(isoLike);
-        return {
-          path: `${versionsDir(plantId)}/${f.name}`,
-          name: f.name,
-          createdAt: isNaN(createdAt.getTime()) ? new Date(f.created_at ?? Date.now()) : createdAt,
-          size: f.metadata?.size,
-        };
-      });
-  }, [plantId, versionsDir]);
+    const entries = await listCanvasVersions(plantId);
+    return entries.map((v) => {
+      // Stamps are written as "2026-05-03T10-15-30-000Z"; turn that back into
+      // a real Date for display. `path` is now the version id — the server
+      // addresses a snapshot by (plant, version), not by an object path the
+      // browser composes.
+      const isoLike = v.version_id.replace(
+        /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/,
+        "$1:$2:$3.$4Z",
+      );
+      const createdAt = new Date(isoLike);
+      return {
+        path: v.version_id,
+        name: v.version_id,
+        createdAt: isNaN(createdAt.getTime()) ? new Date(v.created_at) : createdAt,
+        size: v.size_bytes,
+      };
+    });
+  }, [plantId]);
 
   const loadVersion = useCallback(async (path: string): Promise<CanvasData | null> => {
-    const sb = await getSupabase();
-    if (!sb) return null;
-    const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(path);
-    const resp = await fetch(`${urlData.publicUrl}?t=${Date.now()}`, { cache: "no-store" });
-    if (!resp.ok) return null;
-    const parsed = JSON.parse(await resp.text()) as CanvasData;
+    if (!plantId) return null;
+    const parsed = await loadCanvasVersion<CanvasData>(plantId, path);
+    if (!parsed) return null;
     return { ...parsed, plantSettings: parsed.plantSettings ?? DEFAULT_PLANT_SETTINGS };
-  }, []);
+  }, [plantId]);
 
   const restoreVersion = useCallback(async (path: string): Promise<CanvasData | null> => {
     if (!plantId) return null;

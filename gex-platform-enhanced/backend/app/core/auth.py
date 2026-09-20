@@ -935,11 +935,33 @@ def get_login_history(user_id: str, limit: int = 10) -> list[dict[str, Any]]:
 
 
 def update_password(email: str, new_password: str) -> None:
+    """
+    Set a password, enforcing `password_policy` first.
+
+    The check lives HERE rather than only in the route, because this function
+    is also what operators call from a shell when provisioning an account —
+    which is exactly the path least likely to have a human checking the rules.
+    It raises `PasswordPolicyError`, a `ValueError`, so a caller that already
+    handles bad input keeps working.
+    """
+    from app.core.password_policy import validate_password
+
+    email = email.lower()
     conn = _get_conn()
     try:
+        row = conn.execute(
+            "SELECT user_name, is_platform_admin FROM auth_users WHERE email = ?",
+            (email,),
+        ).fetchone()
+        validate_password(
+            new_password,
+            email=email,
+            user_name=row["user_name"] if row else None,
+            is_platform_admin=bool(row["is_platform_admin"]) if row else False,
+        )
         conn.execute(
             "UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE email = ?",
-            (pwd_context.hash(new_password), datetime.now(timezone.utc).isoformat(), email.lower()),
+            (pwd_context.hash(new_password), datetime.now(timezone.utc).isoformat(), email),
         )
         conn.commit()
     finally:
