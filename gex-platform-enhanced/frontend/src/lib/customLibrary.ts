@@ -1,17 +1,15 @@
 /**
  * customLibrary — User-scoped custom equipment, carriers, and gates that
- * persist across all of a user's plants. Stored as one JSON object per user
- * in the `plant-data` Supabase storage bucket so that any plant the user
- * opens sees the same custom palette items.
+ * persist across all of a user's plants. Stored as one JSON document per user
+ * behind /api/v1/plant-canvas/library, so any plant the user opens sees the
+ * same custom palette items.
  *
- * Falls back to localStorage when the backend is not configured or the user
- * is anonymous, and migrates legacy localStorage data into the cloud on
- * first load.
+ * Was the `plant-data` Supabase bucket, reached under the anon key with the
+ * owner named by the browser. Falls back to localStorage when the backend is
+ * unreachable, and pushes legacy localStorage data up on first load.
  */
-import { isBackendConfigured } from "@/lib/envGuard";
 import type { EquipmentDef, CarrierDef, GateDef } from "@/components/canvas/componentDatabase";
 
-const BUCKET = "plant-data";
 const LS_KEYS = {
   equipment: "customEquipment",
   carriers: "customCarriers",
@@ -48,30 +46,21 @@ function writeLocal(lib: CustomLibrary): void {
   } catch { /* quota or disabled storage — ignore */ }
 }
 
-async function getSupabase() {
-  if (!isBackendConfigured()) return null;
-  const { supabase } = await import("@/lib/backendClient");
-  return supabase;
-}
-
-function path(userId: string): string {
-  return `users/${userId}/custom-library.json`;
-}
-
 /**
- * Load the user's custom library. Tries cloud first, falls back to
- * localStorage. If cloud is empty but local has data, uploads local data
- * (one-time migration) and returns it.
+ * Load the user's custom library. Backend first, falling back to
+ * localStorage. If the backend has none but local does, push local up once so
+ * future devices see it.
+ *
+ * `userId` is gone: the server derives the owner from the session token. It
+ * used to compose `users/{userId}/custom-library.json` in the browser, so
+ * naming another id read their library.
  */
-export async function loadCustomLibrary(userId?: string): Promise<CustomLibrary> {
+export async function loadCustomLibrary(): Promise<CustomLibrary> {
   const local = readLocal();
-  const sb = await getSupabase();
-  if (!sb || !userId) return local;
-  const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(path(userId));
   try {
-    const resp = await fetch(`${urlData.publicUrl}?t=${Date.now()}`, { cache: "no-store" });
-    if (resp.ok) {
-      const parsed = JSON.parse(await resp.text()) as Partial<CustomLibrary>;
+    const { loadCustomLibrary: fetchLibrary } = await import("@/lib/canvasApi");
+    const parsed = await fetchLibrary<Partial<CustomLibrary>>();
+    if (parsed) {
       const merged: CustomLibrary = {
         equipment: parsed.equipment ?? [],
         carriers:  parsed.carriers  ?? [],
@@ -81,19 +70,21 @@ export async function loadCustomLibrary(userId?: string): Promise<CustomLibrary>
       writeLocal(merged);
       return merged;
     }
-  } catch { /* fall through */ }
-  // Cloud empty — push local up so future devices see it
+  } catch { /* fall through to local */ }
+  // Nothing stored — push local up so future devices see it.
   if (local.equipment.length || local.carriers.length || local.gates.length) {
-    await saveCustomLibrary(local, userId);
+    await saveCustomLibrary(local);
   }
   return local;
 }
 
-export async function saveCustomLibrary(lib: CustomLibrary, userId?: string): Promise<void> {
+export async function saveCustomLibrary(lib: CustomLibrary): Promise<void> {
   writeLocal(lib);
-  const sb = await getSupabase();
-  if (!sb || !userId) return;
   const payload: CustomLibrary = { ...lib, updatedAt: new Date().toISOString() };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  await sb.storage.from(BUCKET).upload(path(userId), blob, { upsert: true, cacheControl: "0" });
+  try {
+    const { saveCustomLibrary: pushLibrary } = await import("@/lib/canvasApi");
+    await pushLibrary(payload);
+  } catch (err) {
+    console.error("[customLibrary] cloud save failed:", err);
+  }
 }

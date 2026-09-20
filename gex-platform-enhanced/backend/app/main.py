@@ -456,6 +456,46 @@ except ImportError:
     print("⚠️  routes_economics not found - skipping")
 
 try:
+    from app.api.v1.routes_equipment_equations import router as equipment_equations_router
+    from app.core.equations_store import init_db as equations_init_db
+    equations_init_db()
+    HAS_EQUIPMENT_EQUATIONS = True
+except ImportError:
+    equipment_equations_router = None
+    HAS_EQUIPMENT_EQUATIONS = False
+    print("⚠️  routes_equipment_equations not found - skipping")
+
+try:
+    from app.api.v1.routes_plant_canvas import router as plant_canvas_router
+    from app.core.canvas_store import init_db as canvas_init_db
+    canvas_init_db()
+    HAS_PLANT_CANVAS = True
+except ImportError:
+    plant_canvas_router = None
+    HAS_PLANT_CANVAS = False
+    print("⚠️  routes_plant_canvas not found - skipping")
+
+try:
+    from app.api.v1.routes_plants import router as plants_router
+    from app.core.plants_store import init_db as plants_init_db
+    plants_init_db()
+    HAS_PLANTS = True
+except ImportError:
+    plants_router = None
+    HAS_PLANTS = False
+    print("⚠️  routes_plants not found - skipping")
+
+try:
+    from app.api.v1.routes_directory import router as directory_router
+    from app.core.directory_store import init_db as directory_init_db
+    directory_init_db()
+    HAS_DIRECTORY = True
+except ImportError:
+    directory_router = None
+    HAS_DIRECTORY = False
+    print("⚠️  routes_directory not found - skipping")
+
+try:
     from app.api.v1.next_best_action import router as nba_router
     HAS_NBA = True
 except ImportError:
@@ -808,6 +848,18 @@ if HAS_TEA_BRIDGE:
 
 if HAS_ECONOMICS:
     app.include_router(economics_router, prefix="/api/v1/economics", tags=["Economics — TEA read model"])
+
+if HAS_DIRECTORY:
+    app.include_router(directory_router, prefix="/api/v1/directory", tags=["Staff Directory — teams, roles, gates"])
+
+if HAS_PLANTS:
+    app.include_router(plants_router, prefix="/api/v1/plants", tags=["Plants — canvas portfolio"])
+
+if HAS_PLANT_CANVAS:
+    app.include_router(plant_canvas_router, prefix="/api/v1/plant-canvas", tags=["Plant Canvas — documents and versions"])
+
+if HAS_EQUIPMENT_EQUATIONS:
+    app.include_router(equipment_equations_router, prefix="/api/v1/equipment-equations", tags=["Equipment Equations"])
 
 if HAS_NBA:
     app.include_router(nba_router, prefix="/api/v1/nba", tags=["Next Best Action"])

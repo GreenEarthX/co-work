@@ -119,6 +119,13 @@ DOMAIN_PREFIXES: dict[str, str] = {
     # projects
     "/api/v1/projects": "projects",
     "/api/v1/packages": "projects",
+    # The canvas portfolio. Owner-scoped inside the router — the domain decides
+    # who may write in this area at all, ownership decides whose rows.
+    "/api/v1/plants": "projects",
+    # Canvas documents and their version history. Owner-scoped in the router.
+    "/api/v1/plant-canvas": "projects",
+    # Per-node equation configurations. Owner-scoped in the router.
+    "/api/v1/equipment-equations": "projects",
     "/api/v1/plant-builder": "projects",
     "/api/v1/plant-data": "projects",
     "/api/v1/capacities": "projects",
@@ -155,6 +162,10 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/entitlements": "governance",
     "/api/v1/adversarial-reviews": "governance",
     "/api/v1/reports": "governance",
+    # Staff directory — teams, roles, permission gates. Read-only today, and
+    # the reads are gated inside the router (personal data is staff-only), but
+    # the domain decides who could ever WRITE here: EXECUTIVE alone.
+    "/api/v1/directory": "governance",
     # intelligence
     "/api/v1/decision-twin": "intelligence",
     "/api/v1/nba": "intelligence",

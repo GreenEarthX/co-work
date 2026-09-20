@@ -1,13 +1,10 @@
 /**
  * siteInfrastructure — Non-process equipment, construction and site cost
- * data for a plant. Stored as a separate JSON object in the same Supabase
- * Storage bucket as the canvas data, so it loads/saves independently from
- * the React Flow graph and never appears on the process canvas.
+ * data for a plant. Stored as a separate document behind
+ * /api/v1/plant-canvas/site, so it loads and saves independently from the
+ * React Flow graph and never appears on the process canvas.
  */
-import { isBackendConfigured } from "@/lib/envGuard";
 import type { NodeProcurement } from "@/lib/procurementSync";
-
-const BUCKET = "plant-data";
 
 /** Items flagged `site_infrastructure=Yes` in equipment_list_2.csv */
 export interface InfraEquipmentSpec {
@@ -327,53 +324,34 @@ export function computeInfraTotals(d: InfrastructureData): InfraTotals {
 }
 
 /* ── Storage I/O ── */
-async function getSupabase() {
-  if (!isBackendConfigured()) return null;
-  const { supabase } = await import("@/lib/backendClient");
-  return supabase;
-}
-
-function scopedPath(slug: string, userId?: string): string {
-  return userId ? `users/${userId}/${slug}.infrastructure.json` : `${slug}.infrastructure.json`;
-}
-
-export async function loadInfrastructure(
-  slug: string,
-  userId?: string,
-): Promise<InfrastructureData> {
-  const sb = await getSupabase();
-  if (!sb) return defaultInfrastructure();
-  const candidates = userId
-    ? [scopedPath(slug, userId), scopedPath(slug)]
-    : [scopedPath(slug)];
-  for (const path of candidates) {
-    const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(path);
-    try {
-      const resp = await fetch(`${urlData.publicUrl}?t=${Date.now()}`, { cache: "no-store" });
-      if (!resp.ok) continue;
-      const parsed = JSON.parse(await resp.text()) as Partial<InfrastructureData>;
-      return reconcileInfrastructure(parsed);
-    } catch {
-      continue;
-    }
-  }
+/**
+ * Load a plant's site infrastructure.
+ *
+ * `userId` is gone: the backend derives the owner from the session token. The
+ * old path, `users/{userId}/{slug}.infrastructure.json`, was composed in the
+ * browser, so naming another id read their site.
+ */
+export async function loadInfrastructure(slug: string): Promise<InfrastructureData> {
+  try {
+    const { loadSiteInfrastructure } = await import("@/lib/canvasApi");
+    const parsed = await loadSiteInfrastructure<Partial<InfrastructureData>>(slug);
+    if (parsed) return reconcileInfrastructure(parsed);
+  } catch { /* fall through to the default */ }
   return defaultInfrastructure();
 }
 
 export async function saveInfrastructure(
   slug: string,
   data: InfrastructureData,
-  userId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const sb = await getSupabase();
-  if (!sb) return { ok: false, error: "Backend not configured" };
   const payload: InfrastructureData = { ...data, updatedAt: new Date().toISOString() };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const { error } = await sb.storage
-    .from(BUCKET)
-    .upload(scopedPath(slug, userId), blob, { upsert: true, cacheControl: "0" });
-  if (error) return { ok: false, error: error.message };
-  return { ok: true };
+  try {
+    const { saveSiteInfrastructure } = await import("@/lib/canvasApi");
+    await saveSiteInfrastructure(slug, payload);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "save failed" };
+  }
 }
 
 export function formatEur(n: number): string {

@@ -566,6 +566,336 @@ Also fixed, because it was the last thing standing between the tree and a green 
 which failed `tsc` and would have left both fields undefined on a reset. `npm run build`
 now exits 0.
 
+### 2026-09-20 — Supabase cutover, increment 5: the key is out of the bundle
+
+**The frontend no longer contains Supabase at all.** Not a call, not a client, not the
+dependency. Verified against a clean build: the anon JWT literal that was in
+`dist/assets/index-*.js` **is gone**, no `supabase` string survives anywhere in `dist/`,
+and the main bundle dropped 4.05 MB → 3.66 MB.
+
+- **Both realtime hooks removed, and both were already inert** — which is why this cost
+  nothing:
+  - `useCanvasLiveSync` was called as `useCanvasLiveSync(undefined, null)`, arguments that
+    make its effect return before opening a channel, with its outputs replaced by local
+    stubs. A comment records that it was disabled after feedback loops — applying a peer
+    snapshot dirtied local state, which rebroadcast, which spammed "X updated the plant".
+  - `useCanvasPresence` keyed presence on `me.userId` and skipped that key as "self".
+    Every user is the stubbed `demo-user` (§8.17), so **every peer was filtered out as
+    yourself**: it has been showing zero peers to everybody.
+  - And since increment 2 the canvas is a per-user document, so two people cannot open the
+    same one. There is no shared object left to be present on. `PresenceCursors` and
+    `PresenceAvatars` went with the hooks; both rendered nothing already.
+- **Deleted:** `backendClient.ts` (which held the baked-in URL and anon key), `envGuard.ts`
+  (whose only export had no callers left after increments 2–4),
+  `integrations/supabase/client.ts` (a stub nothing imported) and `types/supabase-js.d.ts`.
+  `@supabase/supabase-js` removed from `package.json`; lockfile regenerated, 0 entries.
+- **`audit-supabase.mjs` allowlist is now empty**, so the gate asks a simpler question:
+  has anybody put it back?
+- **A bug I introduced in increment 3, caught by opening the page.** Converting the canvas
+  load from a loop over candidate paths to a single read left the loop's `return` outside
+  the success branch, so it fired on a 404 too: a plant with no stored canvas hung on
+  "Loading plant canvas…" forever instead of opening empty. Every automated check passed
+  — `tsc`, 190 frontend tests, the build — because none of them opens the page. Fixed and
+  re-verified in the browser: React Flow mounts, canvas renders, zero Supabase requests.
+  The lesson is the one this session keeps repeating: the suite tells you the code is
+  consistent, not that the product works.
+- Suites: **530 backend / 190 frontend**, build green.
+
+**THIS DOES NOT REVOKE THE KEY, AND THE KEY IS STILL LIVE.** Removing it from the source
+stops it shipping *in future* builds. The value itself remains valid against the Supabase
+project and is still recoverable from: this repository's **git history**, any **previously
+deployed bundle**, and the **public Docker Hub images** under `jmlamay/`. Rotating it in
+the Supabase dashboard is a step only Jim can take, and until it is taken the exposure
+measured on 2026-09-19 stands. Enabling RLS on the seven tables remains worth doing as
+defence in depth even after rotation — nothing in GEX reads them any more.
+
+### 2026-09-20 — Password policy (there was none)
+
+Measured before writing anything: **no policy existed at all.** Neither `auth.py` nor
+`routes_auth.py` checked length, content or reuse, so the platform accepted any string —
+including on `is_platform_admin` accounts, which `request_tenant.py:87` maps to
+`PLATFORM_ADMIN`, disabling tenant isolation for the whole connection.
+
+- **`app/core/password_policy.py`** — 12 characters minimum, **16 for a platform
+  administrator**, a 1024 upper bound so an enormous input cannot burn CPU in the hash, a
+  blocklist (common passwords plus deployment-specific terms: `greenearthx`, `gex`,
+  `etfuels`, `hydrogen`…), a context check against the account's own name and address, and
+  a triviality check for repeated characters and keyboard runs. Trailing years and
+  punctuation padding do not rescue a blocked word: `greenearthx2026` and `greenearthx!!`
+  both fail.
+- **No composition rules, deliberately.** NIST SP 800-63B dropped "must contain an
+  uppercase and a symbol" because it produces `Password1!` and drives reuse. A test
+  asserting composition would pin the wrong behaviour, so none exists.
+- **Enforced in `update_password` itself**, not only in the route — that function is what
+  an operator calls from a shell when provisioning, which is the path with no human
+  reading a validation message. It reads `is_platform_admin` from the row, so a caller
+  cannot forget to ask for the stricter bar. Negative-verified: removing the call failed
+  the structural test. Also enforced at staff registration
+  (`routes_account_vetting.py`), **before** the duplicate-address probe, so a weak
+  password is refused identically for a known and an unknown address — otherwise the
+  difference would leak which is which, defeating that branch's whole purpose.
+- **One exemption, stated in the module rather than hidden:** demo seeding hashes
+  `DEMO_PASSWORD` directly and bypasses the policy, so `demo1234` still works for the 17
+  seeded accounts. That is safe **only** because `GEX_SEED_DEMO_USERS=0` disables the seed
+  set in production. If that variable is ever unset in a real deployment, the policy is
+  irrelevant — there are seventeen accounts with a published password.
+- **`scripts/set_password.py`** reads with `getpass`, so the password is not echoed, not
+  in shell history and not in any transcript; asks twice; and tells the caller when the
+  account is not ACTIVE, because the password is not the gate — vetting is.
+- Tests: 20. Suite **530 passed / 112 skipped**.
+
+### 2026-09-20 — Supabase cutover, increment 4: equipment equations, and the gate that keeps it shut
+
+- **`/api/v1/equipment-equations`** (`routes_equipment_equations.py`,
+  `equations_store.py`), `projects` domain: `GET ?plant_slug=&node_id=`, `PUT` upsert on
+  (owner, plant, node, equation), `DELETE /{row_id}`. Row shape unchanged, so
+  `StoredEquipmentEquation` did not move.
+- **§8.16 closed.** The delete carries the owner predicate; a row that is not the
+  caller's answers **404, not 403**, and a missing row and a foreign row return byte-identical
+  responses so the status cannot confirm an id exists. Negative-verified by removing the
+  predicate — the three delete-scoping tests failed. Verified live: Marwen deleting one of
+  Jim's equations gets 404, and the equation is still there afterwards.
+- Both live rows migrated (`admin-001` → `admin_greenearthx_com`, `rotterdam-rfnbo`).
+- **`dealClient.ts` deleted** — it targeted `equation_engine_runs` and
+  `v_latest_engine_run`, which do not exist in the project (404), and the only file that
+  mentioned it was itself.
+- **`seedInitialCanvas` also moved.** It was still uploading to the bucket, and refused to
+  seed at all without a `userId` "because we cannot write to an unscoped path" — a
+  constraint that disappears once the server derives the owner.
+- **`scripts/audit-supabase.mjs`, wired into `npm run build`.** Fails the build on any
+  `supabase.from(`, `.storage.from(`, `.channel(` or `.rpc(` outside a three-file
+  allowlist, and reports allowlist entries that are no longer needed so the list can only
+  shrink. Negative-verified by planting a violation: exit 1, naming file and line.
+  This is what stops the cutover growing back one convenient call at a time.
+- Tests: 11 backend, 5 frontend. **510 backend passed**, **190 frontend passed**, build green.
+- **What is left before the anon key can be revoked:** only the two realtime hooks,
+  `useCanvasLiveSync` and `useCanvasPresence` (`supabase.channel`). They are the
+  allowlist's remaining entries and they carry no data — they are a live-cursor
+  transport. §9 records the decision not to build WebSockets, so the options are the ones
+  in the cutover document §7: drop them, or add the polled presence endpoint (~40 lines).
+
+### 2026-09-20 — Supabase cutover, increment 3: canvas documents (and a two-year-old broken read)
+
+**CORRECTION TO THIS DOCUMENT AND TO THE CUTOVER SCOPE.** I twice called the `plant-data`
+bucket "public". It is not. `/storage/v1/object/public/plant-data/...` answers **404
+"Bucket not found"**. What is true is worse in one way and better in another:
+
+- the **anon key lists and reads the whole bucket**, and that key ships in the public
+  bundle — so anyone with the JavaScript could read every user's canvas; but
+- because the bucket is private, the frontend's own read path — `getPublicUrl()` then an
+  unauthenticated `fetch` — **has never worked**. Verified live in the browser against the
+  running app: 400, `NoSuchBucket`. Cloud saves succeeded, cloud loads always failed and
+  fell through to localStorage without a word. **A user changing device did not get their
+  canvas back.** Increment 3 is therefore a data-loss repair as much as a security fix.
+
+- **`/api/v1/plant-canvas`** (`routes_plant_canvas.py`, `canvas_store.py`), `projects`
+  domain: `GET/PUT/DELETE /canvas/{slug}`, `GET/PUT /canvas/{slug}/versions[/{id}]`,
+  `GET/PUT /site/{slug}`, `GET/PUT /library`. Content on disk addressed by sha256 with
+  metadata in `canvas_blobs` — the `development_packages` pattern. Identical content is
+  stored once, and a file is unlinked only when the last row referencing it goes, so
+  deleting one snapshot cannot blank an identical sibling.
+- **There is deliberately no `getPublicUrl` equivalent.** An unauthenticated URL is the
+  property that made the bucket a problem; the six call sites became authenticated reads.
+- **Path traversal is the new hazard**, because `slug` reaches a filesystem path straight
+  from a URL. Two layers: routing rejects encoded slashes, and `_safe()` strips the rest.
+  Pinned by 8 parametrised hostile slugs. Negative-verified — and the **first version of
+  that test was weak**: it scanned files *inside* the blob root, so a file written outside
+  was invisible to it and the traversal cases passed vacuously. Strengthened to assert on
+  the path the store *intends* to use; it then caught 4 cases instead of 3.
+- **Migrated** 499 of 1,476 objects with `scripts/import_canvas_blobs.py` — 59 live
+  documents plus the newest 30 snapshots per document (from 1,114), which is the retention
+  rule the app already applied. 209 bucket-root objects were never imported: they are
+  unscoped legacy seeds belonging to nobody. Same owner mapping as increment 2, same
+  refusal to guess. 0 failures.
+- **A real bug found by the live check:** `stored_path` was written relative, so it
+  resolved against uvicorn's working directory. Start the service from anywhere else and
+  every canvas reads as "content missing" while the files sit safely on disk. The blob
+  root is now anchored on the backend package; the 499 existing rows were rewritten to
+  absolute; `test_stored_paths_are_absolute` pins it. (`development_packages.py` has the
+  same latent fragility with `PACKAGE_DOCS_DIR` — untouched, noted.)
+- Tests: 25 backend. Suite **499 passed / 112 skipped**. Frontend `tsc` clean, build green.
+- **Verified live end to end**, and this is the part that matters: anonymous 401; the
+  owner loads `antwerp-methanol` with **29 nodes and 28 edges**; Marwen asking for the
+  same slug gets 404; version history lists 4 snapshots and a past one reads back; the
+  custom library and site infrastructure both return. Then the same through the Vite proxy
+  using the app's own `canvasApi` module. **That is the first time a canvas has ever
+  loaded from the server in this codebase.**
+
+### 2026-09-20 — Supabase cutover, increment 2: plants (backend built, migration blocked on a decision)
+
+- **`/api/v1/plants`** (`routes_plants.py`, `plants_store.py`), `projects` domain:
+  `GET` list, `GET/PUT/DELETE /{slug}`, `POST /{slug}/touch`, and `PUT` for the whole
+  portfolio. **No route accepts a `user_id`** in a path, query or body — the owner comes
+  from the bearer token and nowhere else. Another owner's plant is **404, not 403**, so a
+  status code cannot enumerate who has what.
+- **No platform-admin bypass, deliberately.** An administrator who can silently read a
+  customer's canvas is an access decision nobody took, so it is not written. Pinned by
+  `test_a_platform_admin_does_not_see_other_portfolios`. Support access, if wanted, needs
+  its own entitlement and audit trail.
+- **§8.15 is closed at the backend.** `replace_all` does the delete and the insert in one
+  transaction. Negative-verified by reinserting the exact old behaviour — a `commit()`
+  between the two — and watching the rollback test fail. A second guard, `confirm_delete`,
+  refuses a bulk replace whose deletion count the caller did not predict, so an empty body
+  from a half-loaded client cannot mean "delete everything" (409, nothing removed).
+- Tests: 15, all owner-isolation tests negative-verified by making `_owner` return a shared
+  bucket — 8 of 15 failed. Suite **474 passed / 112 skipped**.
+- **Migrated 2026-09-20 on Jim's mapping.** 38 of 53 plants into three accounts:
+  `admin-001` → `admin_greenearthx_com` (21, Jim), `user-003` → `marwen_greenearthx_com`
+  (11, Marwen Kadri), `etfuels-thierry` → `thierry_groell_etfuels_com` (6). Dropped as
+  seed/test identities: `demo-user`, `b05dcc50-…`, `user-001`, `user-002` (15 plants).
+  **Dropped means not migrated, not deleted** — the rows remain in Supabase and in the
+  local export, so any of them can be brought over later by re-running with a mapping.
+  The evidence they are seeds: `rotterdam-rfnbo` existed under **6** different owner ids
+  and `northsea-hydrogen` under 5; 13 of 30 slugs were duplicated across owners.
+  Verified live: Jim 21 plants, Marwen 11, Thierry 6, NordLB 0; Marwen asking for one of
+  Jim's plants by slug gets **404** while Jim gets 200.
+- **Two platform-admin accounts, and what that grant is.**
+  `t-MarwenC@greenearthx.com` (Marwen Chaabouni) and `t-MohamedK@greenearthx.com`
+  (Mohamed Kedim), both ACTIVE with `is_platform_admin=1`, created via
+  `scripts/create_platform_admin.py`.
+  The script states in its own docstring what the flag confers — `request_tenant.py:87`
+  maps it to `PLATFORM_ADMIN`, which disables tenant isolation for the whole connection,
+  so the holder reads **every customer's data**, can activate accounts, and can write
+  reference data. Vetting was bypassed as a deliberate one-off, and the row records
+  `activated_by='MANUAL_ADMIN_GRANT'` — deliberately **not** `SEED_GRANDFATHERED`, which
+  must keep identifying only the 17 rows that predate vetting. The account is created
+  with a random password that is hashed and discarded unread, so it cannot be logged into
+  until its owner sets one with `update_password`.
+- **THE DIRECTORY IS PROBABLY SYNTHETIC — this corrects an earlier alarm in this
+  document.** The real people are `Marwen Chaabouni <t-MarwenC@greenearthx.com>`,
+  `Mohamed Kedim <t-MohamedK@greenearthx.com>` and
+  `Jean-Marie Lamay <jean-marie@greenearthx.com>`. The imported directory instead holds
+  "Marwen **Kadri** <marwen@greenearthx.com>" and "Jean-Marie **Dupont**
+  <jeanmarie@greenearthx.com>" — wrong surnames, wrong addresses, and a
+  `firstname.lastname@` convention that is not GEX's (`t-FirstL@`). The other 15
+  `@greenearthx.com` rows are one-per-nationality European names of the same shape.
+  So the `team_users` table that answered anonymous requests was very likely **seed data,
+  not 19 real people**, and the GDPR exposure I raised on 2026-09-19 is correspondingly
+  smaller. The ETFuels pair may be the exception. **Not yet confirmed with Jim** — until
+  it is, the rows are still treated as personal data, which costs nothing now that the
+  endpoint is staff-only.
+- **One account was created on a wrong address and removed.**
+  `marwen@greenearthx.com` was created from the directory row before the real address was
+  known; its 11 plants were moved to `t-marwenc_greenearthx_com` with an `UPDATE` (so
+  `created_at`/`updated_at` survived) and the account row was deleted. Owner counts after:
+  Jim 21, Marwen 11, Thierry 6.
+- **Historical note on the original blocker.** The 53 rows carried seven owner ids —
+  `admin-001` (21), `user-003` (11), `etfuels-thierry` (6), one uuid (5), `demo-user` (5),
+  `user-001` (3), `user-002` (2) — and **none is an `auth_users.user_id`**; they are the
+  stubbed `AuthContext` (§8.17) and older seed data. `scripts/import_plants.py` therefore
+  takes `--map OLD=NEW` / `--drop OLD` and **refuses to write anything** while an owner id
+  is unaccounted for. Guessing would hand a plant to the wrong account, which is the exact
+  failure this cutover exists to prevent — so the importer refused until Jim supplied the
+  mapping, and it will refuse again for any owner id a future export introduces.
+- **Frontend cut over the same day.** `PlantBuilder.tsx`, `plantStore.ts`,
+  `iterations.ts` and `useCanvasData.ts` now go through `lib/plantsApi.ts`. **No
+  `supabase.from("plants")` call remains anywhere in the tree.** Every one of those
+  functions lost its `userId` parameter — `useSyncedPlants()` takes none at all — so the
+  stubbed `AuthContext` (§8.17) can no longer decide whose plants these are. `userId`
+  survives only in the Supabase **Storage** paths, which are increment 3.
+  - One bug introduced and caught while editing: the backend delete landed inside
+    `if (isBackendConfigured())` in `deletePlantVariation`, which would have skipped the
+    row delete whenever Supabase was unconfigured. Moved out; only the blob cleanup stays
+    behind that guard.
+  - Tests: 7 for the client, including one that asserts **no request URL or body ever
+    contains `user_id`** — the client cannot name an owner even though the server would
+    ignore it. Frontend **185 passed**, `tsc` clean, `npm run build` green.
+- **Verified live in the browser**, backend and Vite both running, through the proxy:
+  anonymous `GET /api/v1/plants` 401; Jim 21 plants; Marwen 11; Marwen asking for one of
+  Jim's by slug 404 while Jim gets 200. Then signed in through the real login UI as a
+  counterparty account (Lisa Friedrich, HamburgOne) and opened `/plants`: seven API calls,
+  all 200, no Supabase PostgREST traffic, and the seeded defaults were written under
+  **`lisa_friedrich_hamburgone_com`** — her own token-derived id. Under the old code that
+  write would have gone to `demo-user` and pooled with everyone else's.
+
+### 2026-09-20 — Supabase cutover, increment 1: the staff directory moves behind the backend
+
+Scope and the remaining increments: `docs/supabase-cutover-endpoints.md`. Background: on
+2026-09-19 every table behind the frontend's `supabase.from()` calls answered an
+**anonymous** request under the anon key shipped in the bundle — `team_users` among them,
+which is 19 real people's email and full name. **Corrected 2026-09-20 by the export:** I
+had said "email and phone" from the column list; the `phone` column is **empty in all 19
+rows**, and `organisation` is null in 14. What was actually exposed is 19 names, 19 working
+email addresses — 17 `@greenearthx.com` and **2 `@etfuels.com`** — and the internal team,
+role and permission-gate structure. The two external addresses matter on their own: they
+name a business relationship and two individuals at a partner company.
+
+- **`GET /api/v1/directory/{overview,members,gate-status}`** (`routes_directory.py`,
+  `directory_store.py`) replaces the five tables `useTeamData` read from PostgREST. Shapes
+  are the frontend's existing `TeamRow`/`RoleRow`/`TeamUserRow`/`PermissionGate`/
+  `GateStatusRow` unchanged — this increment moves the transport, not the contract — and
+  the three `.order()` calls are now server-side. `governance` domain.
+- **`email` and `phone` are omitted, not nulled**, for any caller who is not
+  `is_platform_admin`. A nulled key invites a UI to render "None" where a phone number
+  belongs; an absent key cannot. The org chart itself is not secret — that is the screen's
+  purpose. `has_platform_admin_access` is the single check, the same one
+  `assert_activator_is_gex_staff` makes.
+- **The identity question is now measured, and the answer reverses the advice.** Imported
+  2026-09-20: **0 of 19** directory members match an `auth_users` account by email, and
+  **0 of 17** accounts have a directory entry. The two populations are disjoint *by
+  design*, not by drift — `auth_users` is the counterparty table (NordLB, ABN AMRO,
+  Allianz, Zurich, Siemens Energy, the offtakers) plus one GEX address,
+  `admin@greenearthx.com`; the directory is GEX's own 17 staff, none of whom hold a
+  platform account, plus two ETFuels partners. Folding would mean minting 17 accounts for
+  people who should not silently acquire one under the vetting gate. **Keep two tables**
+  (scope doc §2, recommendation revised from fold to separate-with-bridge). The genuine
+  overlap is **2 rows**: `felix@etfuels.com` and `thierry@etfuels.com` are
+  `felix.leworthy@` and `thierry.groell@` in `auth_users` — the same two people under a
+  short and a full address. `reconcile_with_auth_users()` reports those as **name
+  candidates and refuses to link them**; two people can share a name, and auto-linking on
+  one would hand a person somebody else's account. `test_the_directory_grants_nothing` fails if any module outside
+  the directory starts consulting the store, so the read-model cannot quietly become a
+  second authority.
+- **PostgreSQL is refused, not created**: `init_db()` raises `PostgresMigrationRequired`
+  when `GOVERNANCE_DB_BACKEND=postgres`, because a `CREATE TABLE IF NOT EXISTS` would put
+  the PII table on a database where 89 of 98 tables are under FORCED RLS as the one
+  unprotected exception. No ninth backend switch was invented.
+- **Two defects found while reading the write paths**, both consequences of anon access and
+  both logged in §8: `savePlantsToCloud` deletes every plant then inserts with no
+  transaction (a failure between them wipes the portfolio), and
+  `useEquipmentEquations.remove` deletes by id with no user scoping at all.
+- **Supabase Storage is also in use** — bucket `plant-data`, 6 `getPublicUrl()` calls,
+  which only work on a *public* bucket, holding the actual canvas content at guessable
+  paths. Bigger than the tables, not covered by RLS, and it corrects §8.14: the platform
+  does have file storage, in the frontend under the anon key. Increment 3.
+- Tests: 14, suite **456 passed / 112 skipped**, zero failures. Both guards
+  negative-verified — forcing `include_pii` true failed the non-staff test on *both* doors
+  (`/members` and `/overview`), and removing the 401 check failed all three endpoints.
+- **Cut over the same day.** Exported (8/31/19/7/32), imported via
+  `scripts/import_directory.py`, and `useTeamData` rewritten onto the three endpoints —
+  **one** authenticated request on mount where there were five unauthenticated ones, with
+  the two long-standing refetches wired to the narrow endpoints and patched into the same
+  cache entry. Verified end to end through the real app (`app.main:app`, real tokens, ABAC
+  middleware and domain authorization in the path): no token 401, forged bearer 401, admin
+  200 with `email`, a counterparty account 200 with the `email` key **absent** and the org
+  chart intact. The five Supabase tables now have no caller; RLS can go on.
+- **`TeamUserRow.email` and `.phone` are now optional, and that caught a real crash.**
+  `TeamAlignmentPanel` called `u.email.toLowerCase()` in three places, unguarded. Served
+  to a non-staff caller — which is every customer account — that is a `TypeError` and a
+  dead panel. Typing the fields optional turned it into a compile error; negative-verified
+  by restoring the unguarded call and watching `tsc` fail with TS18048. Mentions now
+  resolve by name when no address is visible, and `emailHandle` returns `null` rather than
+  `""` so a bare `@` cannot match the first member with no address.
+- Frontend: 6 new tests, **177 passed**, `tsc` clean, `npm run build` green.
+- **Found by the live check and fixed the same day — the directory is now staff-only.**
+  The first version admitted any authenticated caller and withheld only addresses, so an
+  ETFuels counterparty account could read GEX's whole org chart. **The rule, from Jim:
+  no user of a paying customer may read GEX's internal directory in any instance** — not
+  the names, not the teams, not the gates. All three endpoints now answer **403** to a
+  non-staff caller, verified with real tokens for ETFuels, NordLB and ABN AMRO (403/403/403
+  each, no names in the refusal body) against `admin@greenearthx.com` at 200.
+  Negative-verified by removing the staff check: all three doors failed.
+  - Organisation-scoping was considered and **rejected on the data** — `organisation` is
+    null in 14 of 19 rows and holds values like "QA Verified" in others, so a string match
+    would silently admit rows it could not classify. Fail closed instead.
+  - The redaction rule survives *underneath* the access rule as defence in depth, pinned
+    by a store-level test, so widening read access later cannot leak addresses by default.
+  - **Consequence to know:** only `admin@greenearthx.com` holds `is_platform_admin`, and
+    none of the 17 GEX staff have platform accounts — so the canvas @mention list is now
+    empty for every account except the admin. That follows from the rule, and from the
+    fact that GEX staff are not platform users. A 403 renders as "no directory", not as an
+    error: `useTeamData` exposes `forbidden` so a working rule is never shown as a fault.
+
 ### 2026-09-18 — TEA report, increments 1 and 2 (the figures are finally visible)
 
 Per `docs/tea-report-scope.md`, internal view only, name stays TEA.
@@ -1256,6 +1586,49 @@ cannot re-trigger the test. Delete the archive once a release has passed.
     (7 + Unknown) with status as a separate field, the other seven mapped onto it, and
     `project_state` either populated for real or removed from `ContextAttributes` rather
     than left as a constant that reads like a decision.
+
+15. **The plant save path can wipe a portfolio.** `savePlantsToCloud`
+    (`frontend/src/features/canvas/PlantBuilder.tsx:197‑199`) issues
+    `delete().eq("user_id", userId)` and then `insert(rows)` as two separate PostgREST
+    calls with **no transaction**. A network failure, a tab close or any error between the
+    two leaves the user with nothing — the delete has committed and the insert never runs.
+    PostgREST cannot make those atomic from the browser; one backend endpoint can.
+    Measured 2026-09-20 by reading the call site; not reproduced against live data, and
+    deliberately not — reproducing it would destroy the 53 rows. Fix: `PUT /api/v1/plants`
+    (`docs/supabase-cutover-endpoints.md` §4), one transaction, with a guard refusing a
+    body that deletes more than it writes unless the caller states the count.
+
+16. **FIXED 2026-09-20 (increment 4).** Kept here because the defect is the reason the
+    replacement looks the way it does. `DELETE /api/v1/equipment-equations/{id}` scopes on
+    the owner from the token and answers **404** for a row that is not the caller's;
+    verified live — Marwen deleting one of Jim's equations gets 404 and the row survives.
+    Negative-verified by dropping the owner predicate: three tests failed.
+    The original defect follows.
+
+    **Equipment equations can be deleted by anyone, for anyone.**
+    `useEquipmentEquations.remove` (`frontend/src/hooks/useEquipmentEquations.ts`) is
+    `supabase.from("equipment_equations").delete().eq("id", id)` — **no user scoping**.
+    Every other query in that hook filters on `user_id`; the delete does not. Under the
+    bundled anon key, with RLS off, that deletes any row by id for any visitor. Only 2 rows
+    exist today, which is the only reason this is small. Fix:
+    `DELETE /api/v1/equipment-equations/{id}` returning **404, not 403**, when the row is
+    not the caller's — a 403 would confirm the id exists.
+
+17. **The canvas has no real identity — `AuthContext` is a stub.** Measured 2026-09-20.
+    `frontend/src/contexts/AuthContext.tsx` returns a hard-coded
+    `{ id: 'demo-user', email: 'demo@greenearthx.com' }` with `isAuthenticated: true`,
+    and **there is no `AuthContext.Provider` anywhere in the tree** — every `useAuth()`
+    consumer gets that default. Eight modules consume it, including `PlantCanvas`,
+    `PlantBuilder`, `SiteInfrastructure`, `ComponentLibrary`, `useEquipmentEquations`
+    and **`lib/projectAccess.ts`**, which decides `isAdmin` from
+    `ADMIN_IDS.includes(user.id) || user.email === "marwen@greenearthx.com"` — i.e. an
+    access decision evaluated against a fabricated identity. Consequences: every canvas
+    user is the same person, so per-user plant ownership is fiction; and the live
+    `plants` table's owner ids (`admin-001`, `demo-user`, `user-003`) are this stub and
+    its predecessors, not accounts. The backend fix is in (increment 2 derives the owner
+    from the bearer token and accepts no `user_id` from the client), but the **frontend
+    still needs a real provider** wired to the session, and `projectAccess` should not be
+    deciding admin rights client-side at all.
 
 ---
 

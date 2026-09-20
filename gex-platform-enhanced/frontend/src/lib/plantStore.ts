@@ -12,7 +12,6 @@
 import { useEffect, useState } from "react";
 import type { ProjectRecord } from "./projectRegistry";
 import { projectRegistry } from "./projectRegistry";
-import { isBackendConfigured } from "./envGuard";
 
 const STORAGE_KEY = "ptool_plant_list";
 const EVENT_NAME = "gex:plants-updated";
@@ -46,30 +45,28 @@ export function notifyPlantsChanged() {
   try { window.dispatchEvent(new CustomEvent(EVENT_NAME)); } catch { /* ignore */ }
 }
 
-async function loadFromCloud(userId: string): Promise<ProjectRecord[] | null> {
-  if (!isBackendConfigured() || !userId) return null;
+async function loadFromCloud(): Promise<ProjectRecord[] | null> {
   try {
-    const { supabase } = await import("@/lib/backendClient");
-    const { data, error } = await supabase
-      .from("plants")
-      .select("data, updated_at")
-      .eq("user_id", userId);
-    if (error) return null;
-    if (!data || data.length === 0) return [];
-    return data
-      .map((r: any) => ({ ...(r.data as ProjectRecord), updatedAt: r.updated_at as string }))
+    const { listPlants } = await import("@/lib/plantsApi");
+    const rows = await listPlants<ProjectRecord>();
+    return rows
+      .map((r) => ({ ...r.data, updatedAt: r.updated_at }))
       .filter((p: Record<string, unknown> | null) => p && p.id);
   } catch {
+    // Includes 401 before a session exists — the cache still renders.
     return null;
   }
 }
 
 /**
- * Subscribe to plant-list changes. On mount, the hook also fetches the
- * cloud-stored plants for the supplied user and refreshes the cache so
- * cross-device portfolios stay consistent.
+ * Subscribe to plant-list changes. On mount the hook also fetches the stored
+ * portfolio and refreshes the cache, so a user signing in on a new device sees
+ * their real plants.
+ *
+ * It takes no user id any more: the backend derives the owner from the bearer
+ * token. Passing one was how a caller could ask for somebody else's portfolio.
  */
-export function useSyncedPlants(userId?: string): ProjectRecord[] {
+export function useSyncedPlants(): ProjectRecord[] {
   const [plants, setPlants] = useState<ProjectRecord[]>(() => getCachedPlants());
 
   useEffect(() => {
@@ -102,12 +99,12 @@ export function useSyncedPlants(userId?: string): ProjectRecord[] {
     };
   }, []);
 
-  // Hydrate from cloud whenever the userId becomes known/changes.
+  // Hydrate from the backend on mount. The session token identifies the owner,
+  // so there is nothing to wait for and nothing to re-run on.
   useEffect(() => {
-    if (!userId) return;
     let cancelled = false;
     (async () => {
-      const cloud = await loadFromCloud(userId);
+      const cloud = await loadFromCloud();
       if (cancelled || cloud === null) return;
       if (cloud.length === 0) return; // first-device user: PlantBuilder will seed
       setPlants(cloud);
@@ -115,7 +112,7 @@ export function useSyncedPlants(userId?: string): ProjectRecord[] {
       notifyPlantsChanged();
     })();
     return () => { cancelled = true; };
-  }, [userId]);
+  }, []);
 
   return plants;
 }

@@ -72,6 +72,18 @@ function pushAlignmentNotification(payload: {
   }
 }
 
+/**
+ * The local part of a member's address, or null when there is no address.
+ *
+ * `email` is served only to GEX staff — the backend omits it for everyone
+ * else — so an @mention resolves by name for most callers. Returning null
+ * rather than "" matters: an empty handle (a bare "@") must not match the
+ * first member who has no visible address.
+ */
+function emailHandle(u: TeamUserRow): string | null {
+  return u.email ? u.email.toLowerCase().split("@")[0] : null;
+}
+
 /** Render a message body, highlighting @user and (field) tokens. */
 function renderBody(body: string, users: TeamUserRow[], fieldNames: string[]) {
   // Match @word or (anything until matching close paren without nested parens)
@@ -93,7 +105,7 @@ function renderBody(body: string, users: TeamUserRow[], fieldNames: string[]) {
       const matched = users.find(
         (u) => u.full_name.toLowerCase().split(/\s+/).join(".") === name
           || u.full_name.toLowerCase().split(/\s+/)[0] === name
-          || u.email.toLowerCase().split("@")[0] === name,
+          || emailHandle(u) === name,
       );
       return (
         <span
@@ -186,7 +198,8 @@ const TeamAlignmentPanel = ({
     const q = activeToken.query.toLowerCase();
     return users
       .filter((u) =>
-        u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+        u.full_name.toLowerCase().includes(q)
+          || (u.email?.toLowerCase().includes(q) ?? false),
       )
       .slice(0, 6);
   }, [activeToken, users]);
@@ -227,7 +240,7 @@ const TeamAlignmentPanel = ({
       const u = users.find(
         (u) => u.full_name.toLowerCase().split(/\s+/).join(".") === handle
           || u.full_name.toLowerCase().split(/\s+/)[0] === handle
-          || u.email.toLowerCase().split("@")[0] === handle,
+          || emailHandle(u) === handle,
       );
       if (u && !mentionedIds.includes(u.id)) mentionedIds.push(u.id);
     }

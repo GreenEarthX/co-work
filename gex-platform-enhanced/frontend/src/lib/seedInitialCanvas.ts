@@ -7,10 +7,8 @@
  * later via the canvas's normal logic.
  */
 import type { Node, Edge } from "@xyflow/react";
-import { isBackendConfigured } from "@/lib/envGuard";
 import { anchorHandleId, getColorFromResource } from "@/components/canvas/portSystem";
 
-const BUCKET = "plant-data";
 
 export interface SeedProduct {
   fuelType: string;
@@ -133,27 +131,24 @@ export function buildInitialCanvas(
 }
 
 /**
- * Seed the cloud-storage canvas JSON for a new plant if no canvas exists yet.
- * Safe no-op when the backend isn't configured or a canvas is already present.
+ * Seed a new plant's canvas. Safe no-op when there is nothing to seed.
  */
 export async function seedInitialCanvas(
   plantSlug: string,
   products: SeedProduct[],
   hoursYear: number = 8760,
-  userId?: string,
 ): Promise<void> {
-  if (!plantSlug || !isBackendConfigured()) return;
+  if (!plantSlug) return;
   if (products.filter((p) => p.fuelType && p.fuelType.trim()).length === 0) return;
 
   try {
-    const { supabase } = await import("@/lib/backendClient");
-    // Canvas JSON lives under users/{userId}/{slug}.json — scope properly.
-    // If no userId, we cannot seed safely (would write to unscoped path).
-    if (!userId) return;
-    const objectPath = `users/${userId}/${plantSlug}.json`;
-
+    // No userId argument any more. It used to compose
+    // `users/{userId}/{slug}.json` and bail out when absent, "because we
+    // cannot seed safely to an unscoped path". The server now derives the
+    // owner from the session token, so there is no unsafe path to avoid.
+    const { saveCanvas } = await import("@/lib/canvasApi");
     const canvas = buildInitialCanvas(products, hoursYear);
-    const payload = {
+    await saveCanvas(plantSlug, {
       nodes: canvas.nodes,
       edges: canvas.edges,
       plantSettings: {
@@ -162,11 +157,7 @@ export async function seedInitialCanvas(
         criticalPathNodeIds: [],
         boundaryPadding: { left: 0, right: 0, top: 0, bottom: 0 },
       },
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    await supabase.storage
-      .from(BUCKET)
-      .upload(objectPath, blob, { upsert: true, cacheControl: "0" });
+    });
   } catch (err) {
     console.warn("[seedInitialCanvas] failed:", err);
   }

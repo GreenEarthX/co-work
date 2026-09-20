@@ -32,10 +32,6 @@ import { useCanvasHistory } from "@/hooks/useCanvasHistory";
 import { useCanvasData } from "@/hooks/useCanvasData";
 import { useCanvasToolbarPrefs } from "@/hooks/useCanvasToolbarPrefs";
 import { useLabelNormalizationPrefs } from "@/hooks/useLabelNormalizationPrefs";
-import { useCanvasPresence, colorForUser } from "@/hooks/useCanvasPresence";
-import { useCanvasLiveSync } from "@/hooks/useCanvasLiveSync";
-import { PresenceCursors } from "@/components/canvas/PresenceCursors";
-import { PresenceAvatars } from "@/components/canvas/PresenceAvatars";
 import { useAuth } from "@/contexts/AuthContext";
 import VersionHistoryDialog from "@/components/canvas/VersionHistoryDialog";
 import { NodeIdVisibilityProvider, NodeIdDebugProvider, LabelNormalizationProvider, CompactNodeProvider, StraightEdgesProvider } from "@/components/canvas/nodeIdVisibility";
@@ -144,22 +140,15 @@ const PlantCanvasInner = () => {
   const plant = getProjectOrDefault(plantId);
   // ── Live presence (Phase 1: avatars + cursors) ──
   const { user: authUser } = useAuth();
-  const { data: canvasData, loadedPlantId, loading: canvasLoading, error: canvasError, saveCanvasData, saving, listVersions, restoreVersion } = useCanvasData(plantId, authUser?.id);
-  const presenceMe = useMemo(
-    () =>
-      authUser
-        ? {
-            userId: authUser.id,
-            name: authUser.name || authUser.email,
-            email: authUser.email,
-            color: colorForUser(authUser.id),
-          }
-        : null,
-    [authUser],
-  );
-  const { peers: presencePeers, publishCursor } = useCanvasPresence(plantId, presenceMe);
+  const { data: canvasData, loadedPlantId, loading: canvasLoading, error: canvasError, saveCanvasData, saving, listVersions, restoreVersion } = useCanvasData(plantId);
+  // Canvas multiplayer removed 2026-09-20 (cutover increment 5). Both halves
+  // were already inert: live sync was disabled by its own caller after
+  // feedback loops, and presence keyed on a user id that the stubbed
+  // AuthContext made identical for everyone, so every peer was filtered out
+  // as "self". Canvases are per-user documents now, so there is no shared
+  // object to be present on. They were the last Supabase callers.
   // ── Iterations (collection siblings) ──
-  const allPlants = useSyncedPlants(authUser?.id);
+  const allPlants = useSyncedPlants();
   const collectionGroupId = plant.projectGroupId || plant.id;
   const iterationMembers = useMemo(
     () =>
@@ -176,19 +165,6 @@ const PlantCanvasInner = () => {
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [deletingIteration, setDeletingIteration] = useState(false);
-  // Live snapshot sync disabled — was causing feedback loops where applying a
-  // peer snapshot dirtied local state and triggered an immediate rebroadcast,
-  // spamming "X updated the plant" toasts. Presence (cursors/avatars) still
-  // works. Cloud autosave keeps peers in sync on a slower cadence.
-  const { lastRemote: _remoteSnapshot, broadcastSnapshot: _broadcastSnapshot } = useCanvasLiveSync(
-    undefined,
-    null,
-  );
-  const remoteSnapshot = null as typeof _remoteSnapshot;
-  const broadcastSnapshot = useCallback(
-    (..._args: Parameters<typeof _broadcastSnapshot>) => {},
-    [],
-  );
 
   const initialNodes = canvasData?.nodes || [];
   const initialEdges = canvasData?.edges || [];
@@ -521,7 +497,6 @@ const PlantCanvasInner = () => {
       try { await saveCanvasData(nodes, edges, buildPlantSettings()); } catch { /* non-fatal */ }
       const { plant: created, variantLabel } = await createIteration({
         source: plant,
-        userId: authUser?.id,
         plants: allPlants,
         customVariantLabel: customLabel,
         liveCanvas: {
@@ -552,7 +527,7 @@ const PlantCanvasInner = () => {
       return;
     }
     try {
-      await renamePlantVariation({ plant: target, userId: authUser?.id, variantLabel: trimmed });
+      await renamePlantVariation({ plant: target, variantLabel: trimmed });
       toast.success(`Renamed to "${trimmed}"`);
     } catch (err) {
       console.error("[PlantCanvas] rename failed:", err);
@@ -569,7 +544,7 @@ const PlantCanvasInner = () => {
     if (!target) { setDeleteTarget(null); return; }
     setDeletingIteration(true);
     try {
-      await deletePlantVariation({ plant: target, userId: authUser?.id });
+      await deletePlantVariation({ plant: target });
       toast.success(`Deleted "${deleteTarget.label}"`);
       if (deleteTarget.id === plantId) {
         const sibling = iterationMembers.find((m) => m.id !== deleteTarget.id);
@@ -662,37 +637,6 @@ const PlantCanvasInner = () => {
     markCanvasDirty();
   }, [plantHoursYear, plantAvailability, criticalPathNodeIds, markCanvasDirty]);
 
-  // ── Phase 2: live broadcast of local edits to peers ──
-  // Every time the canvas gets dirty, push a throttled snapshot through the
-  // sync channel so peers converge well before the cloud autosave fires.
-  useEffect(() => {
-    if (!isDirty || dirtyVersion === 0) return;
-    broadcastSnapshot(latestNodes.current, latestEdges.current, latestSettings.current);
-  }, [isDirty, dirtyVersion, broadcastSnapshot]);
-
-  // ── Phase 2: apply inbound peer snapshots ──
-  // Skip while the local user is dragging or actively connecting to avoid
-  // yanking nodes/edges out from under them. Also skip if we have unsaved
-  // edits — the remote will overwrite ours otherwise. The next dirty cycle
-  // will rebroadcast our state.
-  const lastAppliedRemoteTsRef = useRef(0);
-  useEffect(() => {
-    if (!remoteSnapshot) return;
-    if (remoteSnapshot.ts <= lastAppliedRemoteTsRef.current) return;
-    if (isDraggingNodeRef.current) return;
-    if (isDirty) return;
-    lastAppliedRemoteTsRef.current = remoteSnapshot.ts;
-    setNodes(remoteSnapshot.nodes);
-    setEdges(remoteSnapshot.edges);
-    if (remoteSnapshot.plantSettings) {
-      setPlantHoursYear(remoteSnapshot.plantSettings.hoursYear);
-      setPlantAvailability(remoteSnapshot.plantSettings.plantAvailability);
-      setCriticalPathNodeIds(new Set(remoteSnapshot.plantSettings.criticalPathNodeIds));
-      const bp = remoteSnapshot.plantSettings.boundaryPadding;
-      if (bp) manualPadding.current = { ...bp };
-    }
-    toast.message(`${remoteSnapshot.originName} updated the plant`, { duration: 1800 });
-  }, [remoteSnapshot, isDirty, setNodes, setEdges]);
 
   /** Navigate with save prompt if dirty */
   // onEdgesChange is now handled by onEdgesChangeTracked above
@@ -2054,7 +1998,6 @@ const PlantCanvasInner = () => {
             <BarChart3 className="h-3.5 w-3.5" />
             Analyze My Plant
           </button>
-          <PresenceAvatars peers={presencePeers} />
         </div>
       </header>
 
@@ -2062,11 +2005,6 @@ const PlantCanvasInner = () => {
       <div
         className="flex flex-1 overflow-hidden"
         ref={reactFlowWrapper}
-        onMouseMove={(event) => {
-          if (!presenceMe) return;
-          const pt = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-          publishCursor(pt.x, pt.y);
-        }}
       >
         <ComponentLibrary collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} onOpenProcurement={() => setShowProcurementDb(true)} />
         <div className="flex-1 relative">
@@ -2161,7 +2099,6 @@ const PlantCanvasInner = () => {
             <ZoomLegibilityBridge />
             <Controls className="!border-border !bg-card !shadow-sm [&>button]:!border-border [&>button]:!bg-card" />
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} className="!bg-background" />
-            <PresenceCursors peers={presencePeers} />
             {alignGuides.length > 0 && (
               <ViewportPortal>
                 {alignGuides.map((g, i) =>
