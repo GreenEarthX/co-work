@@ -38,6 +38,23 @@ class CFADSRequest(FiniteModel):
     period_days: int = 365
 
 
+class CurrencyStream(FiniteModel):
+    """One revenue or opex stream in its own currency, with its contract fx_rate to base."""
+    label: str
+    amount: float
+    currency: str = "EUR"
+    fx_rate: float = 1.0
+
+
+class MultiCurrencyCFADSRequest(FiniteModel):
+    revenue_streams: List[CurrencyStream] = []
+    opex_streams: List[CurrencyStream] = []
+    base_currency: str = "EUR"
+    maintenance_capex: float = 0
+    working_capital_change: float = 0
+    tax_rate: float = 0.21
+
+
 class DrawdownRequest(FiniteModel):
     milestone: str
     total_capex: float
@@ -135,7 +152,26 @@ async def calculate_cfads(request: CFADSRequest):
             "success": True,
             "cfads": result
         }
-        
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cfads/calculate-multi-currency")
+async def calculate_cfads_multi_currency(request: MultiCurrencyCFADSRequest):
+    """Multi-currency CFADS — each revenue/opex stream carries its own currency and its
+    (contract-specified upstream) fx_rate to the base currency. Returns per-stream FX
+    detail and the natural-hedge ratio."""
+    try:
+        result = CFADSCalculator.calculate_multi_currency(
+            revenue_streams=[s.model_dump() for s in request.revenue_streams],
+            opex_streams=[s.model_dump() for s in request.opex_streams],
+            base_currency=request.base_currency,
+            maintenance_capex=request.maintenance_capex,
+            working_capital_change=request.working_capital_change,
+            tax_rate=request.tax_rate,
+        )
+        return {"success": True, "cfads": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

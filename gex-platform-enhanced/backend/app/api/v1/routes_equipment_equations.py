@@ -73,7 +73,7 @@ def upsert_equation(request: Request,
     )
 
 
-@router.delete("/{row_id}", status_code=204)
+@router.delete("/{row_id}", status_code=204, response_model=None)
 def delete_equation(row_id: str, request: Request) -> None:
     try:
         equations_store.delete_equation(_owner(request), row_id)

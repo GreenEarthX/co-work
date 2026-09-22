@@ -92,7 +92,7 @@ def touch_plant(slug: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"No plant {slug!r}")
 
 
-@router.delete("/{slug}", status_code=204)
+@router.delete("/{slug}", status_code=204, response_model=None)
 def delete_plant(slug: str, request: Request) -> None:
     try:
         plants_store.delete_plant(_owner(request), slug)

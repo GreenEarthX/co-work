@@ -41,16 +41,57 @@ ENGINE_TIMEOUT = 30.0
 PF_MODEL = "gex_pf_engine · PF cashflow / waterfall model"
 
 
+# P1: cost fields a PF body may carry, mapped to the verified base-case figure they
+# must match. Per-kg/rate fields (e.g. opex_eur_kg) are deliberately NOT bound — they
+# are a different unit from the base case's absolute EUR figures.
+_COST_BINDINGS = {"capex": "capex_eur", "total_capex": "capex_eur",
+                  "opex": "opex_eur_per_year", "opex_eur_per_year": "opex_eur_per_year"}
+_RECONCILE_TOL = 0.01  # 1% relative tolerance
+
+
+def _reconcile_cost_basis(inputs: dict, gate: Optional[dict]) -> None:
+    """P1: bind a release-gated PF body to the VERIFIED model_base_case.
+
+    `_require_release_ready` proves a verified base case EXISTS; this proves THIS
+    compute used it. Any cost field in the body that materially diverges from the
+    verified figure is refused — a release-authorised DSCR may not be computed on
+    numbers unrelated to the approved cost basis.
+    """
+    if not isinstance(inputs, dict) or not gate or gate.get("gate") != "RELEASE_READY":
+        return
+    for field, base_key in _COST_BINDINGS.items():
+        if inputs.get(field) is None:
+            continue
+        base_val = gate.get(base_key)
+        if not base_val:
+            continue
+        try:
+            supplied = float(inputs[field])
+        except (TypeError, ValueError):
+            continue
+        if abs(supplied - base_val) / base_val > _RECONCILE_TOL:
+            raise HTTPException(
+                status_code=409,
+                detail=(f"body '{field}'={supplied:,.0f} diverges from the VERIFIED "
+                        f"model_base_case {base_key}={base_val:,.0f} "
+                        f"({gate.get('base_case_claim')}). Release-gated compute must "
+                        f"use the approved cost basis, not unrelated inputs."),
+            )
+
+
 def _governed(payload: dict, inputs: dict, basis: str = "ILLUSTRATIVE_INPUTS",
               gate: Optional[dict] = None) -> dict:
     if not isinstance(payload, dict):
         payload = {"result": payload}
+    # P1: a release-gated result must reconcile to the verified basis, or be refused.
+    _reconcile_cost_basis(inputs, gate)
     # A RELEASE_READY gate means the cost basis is a VERIFIED model_base_case —
     # the only condition under which a PF metric may be treated as bankable.
     if gate and gate.get("gate") == "RELEASE_READY":
         basis = "RELEASE_READY_BASE_CASE"
         note = ("Engine-computed on a VERIFIED model_base_case "
-                f"({gate.get('base_case_claim')}). Release-gated compute authorised.")
+                f"({gate.get('base_case_claim')}), reconciled to cost basis "
+                f"{gate.get('cost_basis_hash')}. Release-gated compute authorised.")
     else:
         note = ("Engine-computed mechanics on ILLUSTRATIVE inputs (demo project "
                 "parameters, not executed deal terms). Not for credit decisions.")
@@ -63,6 +104,8 @@ def _governed(payload: dict, inputs: dict, basis: str = "ILLUSTRATIVE_INPUTS",
         ).hexdigest()[:12],
         "computed_at": datetime.now(timezone.utc).isoformat(),
     }
+    if gate and gate.get("cost_basis_hash"):
+        gov["cost_basis_hash"] = gate["cost_basis_hash"]
     if gate:
         gov["release_gate"] = gate
     return {**payload, "governance": gov}
@@ -102,7 +145,10 @@ async def _require_release_ready(project_id: Optional[str]) -> dict:
                     f"base case — approve via POST /api/v1/tea/base-case/"
                     f"{st['claim_id']}/approve."),
         )
-    return {"gate": "RELEASE_READY", "base_case_claim": st["claim_id"]}
+    return {"gate": "RELEASE_READY", "base_case_claim": st["claim_id"],
+            "cost_basis_hash": st.get("cost_basis_hash"),
+            "capex_eur": st.get("capex_eur"),
+            "opex_eur_per_year": st.get("opex_eur_per_year")}
 
 
 async def _call_model(path: str, method: str = "GET", json_data=None,
@@ -247,6 +293,59 @@ async def execute_waterfall_structured(body: dict, project_id: Optional[str] = N
     """
     gate = await _require_release_ready(project_id)
     return _governed(await _call_model("/waterfall/execute-structured", method="POST", json_data=body), body, gate=gate)
+
+
+# ─── Increment 4: multi-currency CFADS (contract-specified per-stream rates) ──
+
+def _require_contract_fx(streams: list, base_ccy: str) -> None:
+    """Each foreign-currency stream must carry its OWN contract-specified fx_rate —
+    the rate is a contract term, not the platform's dated benchmark. A stream in the
+    base currency needs none (rate 1.0)."""
+    for s in streams or []:
+        if not isinstance(s, dict):
+            continue
+        ccy = (s.get("currency") or base_ccy).upper()
+        if ccy != base_ccy and s.get("fx_rate") is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(f"stream '{s.get('label', '?')}' is in {ccy} but has no contract-specified "
+                        f"fx_rate to {base_ccy}. Multi-currency CFADS requires each foreign-currency "
+                        f"stream to carry its own contract rate (not the platform benchmark)."))
+
+
+@router.post("/cfads-multi-currency")
+async def calculate_cfads_multi_currency(body: dict, project_id: Optional[str] = None):
+    """Multi-currency CFADS: each revenue/opex stream carries its OWN currency and its
+    CONTRACT-SPECIFIED fx_rate to the project base currency. Release-gated via `project_id`.
+
+    Body: { revenue_streams:[{label,amount,currency,fx_rate}], opex_streams:[...],
+            base_currency?, maintenance_capex?, working_capital_change?, tax_rate? }
+    """
+    gate = await _require_release_ready(project_id)
+    # base currency: explicit → the project's persisted setting (increment 2) → EUR
+    base_ccy = (body.get("base_currency") or "").upper()
+    if not base_ccy and project_id:
+        try:
+            from app.api.v1.routes_tea import _project_currency
+            base_ccy = (_project_currency(project_id) or "").upper()
+        except Exception:  # noqa: BLE001 — TEA bridge not mounted
+            base_ccy = ""
+    base_ccy = base_ccy or "EUR"
+
+    rev = body.get("revenue_streams") or []
+    opx = body.get("opex_streams") or []
+    _require_contract_fx(rev, base_ccy)
+    _require_contract_fx(opx, base_ccy)
+
+    payload = {
+        "revenue_streams": rev, "opex_streams": opx, "base_currency": base_ccy,
+        "maintenance_capex": body.get("maintenance_capex", 0),
+        "working_capital_change": body.get("working_capital_change", 0),
+        "tax_rate": body.get("tax_rate", 0.21),
+    }
+    return _governed(
+        await _call_model("/cfads/calculate-multi-currency", method="POST", json_data=payload),
+        body, gate=gate)
 
 
 # ─── B1: DSCR Heatmap from trading book cashflows ────────────────────────

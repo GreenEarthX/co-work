@@ -55,6 +55,9 @@ router = APIRouter()
 DB_PATH = settings.SQLITE_DB_PATH
 TEA_ENGINE_URL = os.getenv("TEA_ENGINE_URL", "http://localhost:8002")
 ENGINE_TIMEOUT = 30.0
+# Currencies GEX can convert OpenPyTEA's USD costs into — must match the benchmark
+# table in tea_engine.integrity.USD_TO_BASE.
+SUPPORTED_CURRENCIES = {"EUR", "USD"}
 
 # Subset of the 9-state ClaimState machine this table uses, with legal forward
 # transitions (mirrors efuel_truth_stack.enums.CLAIM_STATE_TRANSITIONS).
@@ -99,6 +102,7 @@ def init_db():
             capex_eur               REAL,
             opex_eur_per_year       REAL,
             lcop                    REAL,
+            result_status           TEXT,
             nameplate_capacity      REAL,
             nameplate_unit          TEXT,
             run_evidence_id         TEXT,
@@ -114,6 +118,10 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mbc_project ON model_base_case(project_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mbc_state ON model_base_case(state)")
+    # Additive migration: CREATE IF NOT EXISTS won't add a column to an existing table.
+    _mbc_cols = {r[1] for r in conn.execute("PRAGMA table_info(model_base_case)").fetchall()}
+    if "result_status" not in _mbc_cols:
+        conn.execute("ALTER TABLE model_base_case ADD COLUMN result_status TEXT")
     # General claim table (mirrors efuel_truth_stack Claim) — home for GHG and
     # other pathway claims that walk the 9-state machine, like model_base_case.
     conn.execute("""
@@ -140,6 +148,16 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pc_project ON pathway_claims(project_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pc_type ON pathway_claims(claim_type)")
+    # Increment 2: the project's working base currency (G5). A TEA run with no explicit
+    # base_currency uses this; default is EUR. The client's users choose it per project.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS project_currency (
+            project_id    TEXT PRIMARY KEY,
+            base_currency TEXT NOT NULL,
+            set_by        TEXT,
+            set_at        TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -153,13 +171,15 @@ def release_ready_state(project_id: str, pathway_id: Optional[str] = None) -> Op
 
     Standalone (opens its own connection) so other routers — notably the PF-engine
     proxy — can enforce the B7 compute-authorization rule without importing the DB
-    plumbing. Returns {claim_id, state, is_release_ready}.
+    plumbing. Returns {claim_id, state, is_release_ready, capex_eur,
+    opex_eur_per_year, cost_basis_hash} — the figures the PF proxy reconciles a
+    release-gated compute against (Gap P1).
     """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
-        q = ("SELECT claim_id, state FROM model_base_case "
-             "WHERE project_id=? AND valid_to IS NULL "
+        q = ("SELECT claim_id, state, capex_eur, opex_eur_per_year, cost_basis_hash "
+             "FROM model_base_case WHERE project_id=? AND valid_to IS NULL "
              "AND state NOT IN ('superseded','rejected','expired','failed')")
         args: list[Any] = [project_id]
         if pathway_id:
@@ -175,6 +195,9 @@ def release_ready_state(project_id: str, pathway_id: Optional[str] = None) -> Op
         "claim_id": row["claim_id"],
         "state": row["state"],
         "is_release_ready": row["state"] in TERMINAL_VALID,
+        "capex_eur": row["capex_eur"],
+        "opex_eur_per_year": row["opex_eur_per_year"],
+        "cost_basis_hash": row["cost_basis_hash"],
     }
 
 
@@ -182,6 +205,20 @@ def _row(r: sqlite3.Row) -> dict:
     d = dict(r)
     d["is_release_ready"] = d["state"] in TERMINAL_VALID
     return d
+
+
+def _project_currency(project_id: str) -> Optional[str]:
+    """The project's persisted working currency, or None if unset (→ default EUR).
+    Standalone connection so the compute path can resolve it without the DI plumbing."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT base_currency FROM project_currency WHERE project_id=?", (project_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return row["base_currency"] if row else None
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -197,6 +234,12 @@ class ComputeRequest(BaseModel):
     nameplate_capacity: float
     nameplate_unit: str = "t_per_year"
     fuel_id: str = "E_METHANOL"
+    base_currency: Optional[str] = None   # working currency (G5); None → the project's
+                                          # persisted setting, else EUR
+    # FX override (increment 3): CFO/finance-authorised only, needs a reason, bounded to
+    # ±5% of the benchmark (the band is re-checked in the TEA engine as a source invariant).
+    fx_usd_to_eur: Optional[float] = None
+    fx_override_reason: Optional[str] = None
     reconciliation_group_id: Optional[str] = None
 
 
@@ -250,6 +293,29 @@ async def compute_base_case(
 ) -> dict[str, Any]:
     """Run TEA on :8002, record the run as evidence, create a submitted base-case claim."""
     auth = request.headers.get("Authorization")
+
+    # Increment 3: an FX override is CFO/finance-authorised ONLY, needs a recorded
+    # reason, and is bounded to ±5% of the benchmark. Authority + audit are enforced
+    # here; the ±5% band is re-checked in the TEA engine (a source invariant), so an
+    # out-of-band rate surfaces as a 422 from :8002 regardless of who asked.
+    fx_override = None
+    if body.fx_usd_to_eur is not None:
+        payload = (getattr(request.state, "auth_user_payload", None)
+                   or getattr(request.state, "user_payload", None) or {})
+        from app.core.entitlements import is_finance_role
+        authorised = bool(payload.get("is_platform_admin")) or is_finance_role(
+            business_function=payload.get("business_function"),
+            service_type=payload.get("service_type"))
+        if not authorised:
+            raise HTTPException(403, "FX override requires finance (CFO/Treasury) authority.")
+        if not (body.fx_override_reason or "").strip():
+            raise HTTPException(422, "FX override requires fx_override_reason (recorded for audit).")
+        fx_override = {"rate": body.fx_usd_to_eur, "reason": body.fx_override_reason.strip(),
+                       "approved_by": payload.get("user_id") or payload.get("email") or "unknown"}
+
+    # Increment 2: an explicit request currency wins; else the project's persisted
+    # choice; else EUR.
+    base_currency = (body.base_currency or _project_currency(project_id) or "EUR").upper()
     tea_payload = {
         "project_id": project_id,
         "pathway_id": body.pathway_id,
@@ -258,9 +324,15 @@ async def compute_base_case(
         "nameplate_capacity": body.nameplate_capacity,
         "nameplate_unit": body.nameplate_unit,
         "fuel_id": body.fuel_id,
+        "base_currency": base_currency,
+        **({"fx_usd_to_eur": body.fx_usd_to_eur} if body.fx_usd_to_eur is not None else {}),
     }
     result = await _call_tea("/compute", tea_payload, auth)
     ps = result["plant_summary"]
+    # G1/G2 propagation: carry the TEA integrity verdict onto the base case so an
+    # implausible/screening basis is visible here and gate-able at approval.
+    result_status = result.get("result_status")
+    plausibility = result.get("plausibility") or []
 
     # 1) record the OpenPyTEA run as immutable evidence (UNVERIFIED).
     ev = append_evidence(
@@ -299,14 +371,15 @@ async def compute_base_case(
     db.execute("""
         INSERT INTO model_base_case
         (claim_id, project_id, pathway_id, state, engine, cost_basis_hash,
-         capex_eur, opex_eur_per_year, lcop, nameplate_capacity, nameplate_unit,
+         capex_eur, opex_eur_per_year, lcop, result_status,
+         nameplate_capacity, nameplate_unit,
          run_evidence_id, supersedes_claim_id, reconciliation_group_id,
          valid_from, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         claim_id, project_id, body.pathway_id, "submitted", result["engine"],
         result["cost_basis_hash"], ps["capex_eur"], ps["opex_eur_per_year"],
-        result["lcop"], ps["nameplate_capacity"], ps["nameplate_unit"],
+        result["lcop"], result_status, ps["nameplate_capacity"], ps["nameplate_unit"],
         run_evidence_id, prior["claim_id"] if prior else None,
         body.reconciliation_group_id, now, now,
     ))
@@ -323,6 +396,8 @@ async def compute_base_case(
                  "value": result["cost_basis_hash"], "to_state": "submitted",
                  "capex_eur": ps["capex_eur"], "opex_eur_per_year": ps["opex_eur_per_year"],
                  "lcop": result["lcop"], "engine": result["engine"],
+                 "result_status": result_status,
+                 **({"fx_override": fx_override} if fx_override else {}),
                  **({"supersedes_claim": prior["claim_id"]} if prior else {}),
                  "legacy": {"table": "model_base_case", "record_id": claim_id,
                             "evidence_id": run_evidence_id}},
@@ -342,6 +417,9 @@ async def compute_base_case(
         "run_evidence": ev,
         "canonical": canonical,
         "engine": result["engine"],
+        "result_status": result_status,
+        "plausibility": plausibility,
+        "fx_override": fx_override,
         "note": result.get("note"),
     }
 
@@ -364,6 +442,51 @@ def current_base_case(
     if not row:
         raise HTTPException(404, "no live base case for project")
     return _row(row)
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Increment 2: per-project working currency
+# ───────────────────────────────────────────────────────────────────────────
+
+class ProjectCurrency(BaseModel):
+    base_currency: str
+
+
+@router.get("/project/{project_id}/currency")
+def get_project_currency(
+    project_id: str, db: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """The project's working currency (defaults to EUR if the client hasn't set one)."""
+    row = db.execute("SELECT * FROM project_currency WHERE project_id=?", (project_id,)).fetchone()
+    if not row:
+        return {"project_id": project_id, "base_currency": "EUR", "is_default": True}
+    return {**dict(row), "is_default": False}
+
+
+@router.put("/project/{project_id}/currency")
+def set_project_currency(
+    project_id: str, body: ProjectCurrency, request: Request,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """The client's users set the project's working currency. Must be a currency GEX can
+    convert into; recorded with the setter for audit. Project access is enforced by the
+    ABAC middleware, as for every bridge route."""
+    ccy = (body.base_currency or "").upper()
+    if ccy not in SUPPORTED_CURRENCIES:
+        raise HTTPException(
+            422, f"unsupported base_currency {body.base_currency!r}; supported: "
+                 f"{sorted(SUPPORTED_CURRENCIES)}")
+    payload = (getattr(request.state, "auth_user_payload", None)
+               or getattr(request.state, "user_payload", None) or {})
+    set_by = payload.get("user_id") or payload.get("email") or "unknown"
+    now = _now()
+    db.execute(
+        "INSERT INTO project_currency (project_id, base_currency, set_by, set_at) "
+        "VALUES (?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET "
+        "base_currency=excluded.base_currency, set_by=excluded.set_by, set_at=excluded.set_at",
+        (project_id, ccy, set_by, now))
+    db.commit()
+    return {"project_id": project_id, "base_currency": ccy, "set_by": set_by, "set_at": now}
 
 
 @router.post("/base-case/{claim_id}/approve")
@@ -393,7 +516,27 @@ def approve_base_case(
         raise HTTPException(
             409, f"illegal transition {row['state']} → {target}")
 
-    # the approval is itself evidence (a decision-kind entry).
+    # G1/G2 propagation: a cost basis the TEA integrity layer flagged as physically
+    # IMPLAUSIBLE (a unit/scale error) must not be promoted to a verified base case —
+    # the P1 release gate opens only on 'verified', so blocking it here keeps a broken
+    # number out of every release-gated PF/DSCR compute. Rejection is always allowed;
+    # the fix for an implausible basis is to correct the inputs and re-run TEA.
+    _rs = (row["result_status"] if "result_status" in row.keys() else None) or ""
+    if target == "verified" and _rs.upper() == "IMPLAUSIBLE":
+        raise HTTPException(
+            422,
+            f"cost basis {claim_id} is IMPLAUSIBLE — the TEA engine flagged a "
+            f"physically implausible output (likely a unit or scale error). It cannot "
+            f"be promoted to a verified model_base_case; correct the inputs and re-run "
+            f"POST /api/v1/tea/compute/{row['project_id']}.")
+
+    # P5: the approval is itself evidence (a decision-kind entry). An 'approve'
+    # CONFIRMS the cost basis; a 'reject' does not. Either way the run was produced
+    # by tea_engine and asserted by a DIFFERENT party (the approver) — which is what
+    # the ledger's SoD rule requires. Previously submitted_by=approver with no
+    # verified_by, so every promotion 400'd ('CONFIRMED requires verified_by').
+    _vstate = (VerificationState.CONFIRMED if target == "verified"
+               else VerificationState.UNVERIFIED)
     decision = append_evidence(
         EvidenceCreate(
             project_id=row["project_id"],
@@ -401,9 +544,10 @@ def approve_base_case(
             entity_id=claim_id,
             category=EvidenceCategory.COST,
             document_ref=f"approval:{body.outcome}:{row['cost_basis_hash']}",
-            verification_state=VerificationState.CONFIRMED,
+            verification_state=_vstate,
             reviewer_id=body.approved_by,
-            submitted_by=body.approved_by,
+            submitted_by="tea_engine",       # producer of the run being approved
+            verified_by=body.approved_by,    # IE/CFO asserting assurance (SoD: != submitted_by)
         ),
         db,
     )
@@ -555,13 +699,18 @@ def approve_claim(
     target = "verified" if body.outcome in ("approve", "approve_with_conditions") else "rejected"
     if target not in LEGAL_TRANSITIONS.get(row["state"], set()):
         raise HTTPException(409, f"illegal transition {row['state']} → {target}")
+    # P5: same fix as the base-case approval — verified_by is the approver, distinct
+    # from the producing party (tea_engine), so CONFIRMED satisfies the SoD rule.
+    _vstate = (VerificationState.CONFIRMED if target == "verified"
+               else VerificationState.UNVERIFIED)
     decision = append_evidence(
         EvidenceCreate(
             project_id=row["project_id"], entity_type="claim_approval", entity_id=claim_id,
             category=EvidenceCategory.CERTIFICATION,
             document_ref=f"approval:{body.outcome}:{row['claim_type']}",
-            verification_state=VerificationState.CONFIRMED,
-            reviewer_id=body.approved_by, submitted_by=body.approved_by,
+            verification_state=_vstate,
+            reviewer_id=body.approved_by, submitted_by="tea_engine",
+            verified_by=body.approved_by,
         ), db)
     db.execute("UPDATE pathway_claims SET state=?, approved_by=?, approval_decision_id=? "
                "WHERE claim_id=?", (target, body.approved_by, decision["evidence_id"], claim_id))

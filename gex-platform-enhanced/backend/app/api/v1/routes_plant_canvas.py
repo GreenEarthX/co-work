@@ -101,7 +101,7 @@ async def put_canvas(slug: str, request: Request) -> dict[str, Any]:
     return _write(_owner(request), "canvas", slug, await _body(request))
 
 
-@router.delete("/canvas/{slug}", status_code=204)
+@router.delete("/canvas/{slug}", status_code=204, response_model=None)
 def delete_canvas(slug: str, request: Request) -> None:
     """Remove the canvas and every snapshot of it."""
     try:

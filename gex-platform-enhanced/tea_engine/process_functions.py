@@ -241,6 +241,20 @@ def get(fuel_id: str) -> ProcessFunction | None:
     return REGISTRY.get((fuel_id or "").upper())
 
 
+def canonical_equipment_count(fuel_id: str) -> int | None:
+    """G6: how many equipment items the molecule's canonical train has (None if
+    the molecule is a scaffold / unregistered) — used to flag a caller-supplied
+    train that dropped process blocks."""
+    pf = get(fuel_id)
+    return len(pf.equipment) if (pf and pf.equipment) else None
+
+
+def canonical_nodes(fuel_id: str) -> list[str]:
+    """G6: the canonical battery-limit nodes for a molecule (empty if none)."""
+    pf = get(fuel_id)
+    return sorted({e.node for e in pf.equipment}) if (pf and pf.equipment) else []
+
+
 def total_product_per_primary(pf: ProcessFunction) -> float:
     """Total saleable product (primary + co-products) per t of primary product."""
     return 1.0 + sum(cp.mass_per_kg_primary for cp in pf.co_products)
@@ -318,6 +332,16 @@ def build_process_function(fuel_id: str, nameplate_t_yr: float) -> dict:
         "ascertained": pf.ascertained,
         "pathway_class": pf.pathway_class,
         "equipment_count": len(units),
+        "nodes": sorted({e.node for e in pf.equipment}),          # G6: canonical battery-limit nodes
+        "scaling": {                                              # G4: how the sizing was scaled
+            "reference_nameplate_t_per_year": REFERENCE_NAMEPLATE_T_YR,
+            "requested_nameplate_t_per_year": round(nameplate_t_yr, 1),
+            "ratio": round(ratio, 4),
+            "method": "six-tenths rule, per-equipment: param = base_param × ratio**scale_exp",
+            "default_scale_exponent": DEFAULT_SCALE_EXP,
+            "component_scale_exponents": sorted({e.scale_exp for e in pf.equipment}),
+            "extrapolated": bool(ratio < 0.2 or ratio > 10.0),    # beyond the tuned band
+        },
         "total_product_per_primary": round(total_product_per_primary(pf), 4),
         "co_products": [{"name": cp.name, "mass_per_kg_primary": cp.mass_per_kg_primary,
                          "eur_per_t": cp.eur_per_t} for cp in pf.co_products],

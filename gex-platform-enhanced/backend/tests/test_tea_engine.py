@@ -85,14 +85,14 @@ def test_cepci_extension_never_overrides_upstream_values():
 
 def test_the_h2_compressor_is_costable():
     """The specific correlation the CEPCI gap blocked. RFNBO depends on it."""
-    capex, opex, lcop = runner._real_numbers(
+    capex, opex, lcop, currency = runner._real_numbers(
         _req(),
         [ProcessUnitSpec(id="h2comp", category="Compressors & blowers",
                          equipment_type="H2 compressor",
                          material="316 stainless steel", sizing=300)],
         {"electricity": {"consumption": 1.0, "price": 45.0}},
     )
-    assert capex > 0 and lcop > 0
+    assert capex > 0 and lcop > 0 and currency
 
 
 # ── 2. Bad input is 422, never 500 ──────────────────────────────────────────
@@ -235,3 +235,130 @@ def test_caller_supplied_train_yields_no_regime_by_design():
         "material": "316 stainless steel", "sizing": 25}]))
     assert r.regime is None
     assert r.process_function is None
+
+
+# ── 6. Input integrity — provenance (G1) and units / plausibility (G2) ───────
+
+def test_unknown_nameplate_unit_is_refused_not_guessed():
+    """G2: an unrecognised unit RAISES (→422), never read as t/yr — the
+    1000×/365× trap. A known unit converts through the one canonical table."""
+    from tea_engine import integrity
+    with pytest.raises(ValueError) as e:
+        runner.run_tea(_req(nameplate_unit="furlongs_per_fortnight"))
+    assert "Unknown nameplate_unit" in str(e.value)
+    assert integrity.to_t_per_year(50, "kt_per_year") == 50_000
+    assert integrity.to_t_per_year(50, "t_per_day") == 50 * 365
+
+
+def test_implausible_output_flagged_and_status_downgraded():
+    """G2: a 1000× sizing error yields a physically implausible specific CAPEX;
+    the result carries a flag and status IMPLAUSIBLE, not a normal-looking case."""
+    r = runner.run_tea(_req(process_units=[{
+        "id": "rx", "category": "Reactors", "equipment_type": "Tubular fixed bed",
+        "material": "Carbon steel", "sizing": 110_000_000}]))
+    assert r.result_status == "IMPLAUSIBLE"
+    assert r.plausibility and any("specific_capex" in f or "lcop" in f for f in r.plausibility)
+
+
+def test_provenance_distinguishes_model_default_from_project_input():
+    """G1: a defaulted input is model_default (SCREENING); an all-supplied set is
+    sponsor_assumption (PROVISIONAL) — the distinction attack #18 relies on."""
+    from tea_engine.models import FinancialAssumptions, TEAComputeRequest
+    base = dict(project_id="p", pathway_id="pw", fuel_id="E_METHANOL",
+                nameplate_capacity=100_000, nameplate_unit="t/yr")
+    r_def = runner.run_tea(TEAComputeRequest(assumptions=FinancialAssumptions(), **base))
+    assert r_def.input_provenance["electricity_eur_mwh"]["source_class"] == "model_default"
+    assert r_def.result_status == "SCREENING"
+    full = FinancialAssumptions(discount_rate_pct=8.5, electricity_eur_mwh=55,
+        capacity_factor=0.65, project_life_years=25, contingency_pct=20,
+        co2_eur_t=60, hydrogen_eur_t=2800, feedstock_oil_eur_t=1100)
+    r_full = runner.run_tea(TEAComputeRequest(assumptions=full, **base))
+    assert all(v["source_class"] == "sponsor_assumption"
+               for v in r_full.input_provenance.values())
+    assert r_full.result_status == "PROVISIONAL"
+
+
+def test_caller_can_upgrade_provenance_class():
+    """G1: a caller may classify an input above the default sponsor tier."""
+    from tea_engine.models import FinancialAssumptions, TEAComputeRequest
+    a = FinancialAssumptions(electricity_eur_mwh=55,
+                             provenance={"electricity_eur_mwh": "vendor_guaranteed"})
+    r = runner.run_tea(TEAComputeRequest(project_id="p", pathway_id="pw",
+        fuel_id="E_METHANOL", nameplate_capacity=100_000, nameplate_unit="t/yr", assumptions=a))
+    assert r.input_provenance["electricity_eur_mwh"]["source_class"] == "vendor_guaranteed"
+
+
+# ── 7. Output integrity — scaling (G4), cost basis (G5), boundary (G6) ───────
+
+def test_scaling_basis_is_exposed_and_extreme_extrapolation_flagged():
+    """G4: the sizing scaling (reference, ratio, exponents) is surfaced, and an
+    extreme nameplate-to-reference ratio is flagged (a likely unit/scale error)."""
+    from tea_engine import integrity
+    s = runner.run_tea(_req(nameplate_capacity=200_000)).process_function["scaling"]
+    assert s["reference_nameplate_t_per_year"] == 50_000
+    assert s["ratio"] == 4.0 and s["component_scale_exponents"] == [0.65]
+    assert s["extrapolated"] is False
+    assert integrity.scaling_flags({"scaling": {"ratio": 100.0,
+        "reference_nameplate_t_per_year": 50_000}})            # extreme → flagged
+    assert not integrity.scaling_flags({"scaling": {"ratio": 4.0,
+        "reference_nameplate_t_per_year": 50_000}})            # moderate → not flagged
+
+
+def test_cost_basis_default_is_eur_fx_normalised_from_usd():
+    """G5 fix: OpenPyTEA's USD correlations are converted to the base currency (EUR)
+    at a FIXED DATED rate; the basis is FX-normalised and carries the rate's
+    provenance (external_benchmark for the default)."""
+    cb = runner.run_tea(_req()).cost_basis
+    assert cb["currency"] == "EUR" and cb["cost_year"] == 2024
+    assert cb["fx_normalised"] is True
+    assert cb["fx"]["rate"] == 0.924 and cb["fx"]["provenance"] == "external_benchmark"
+
+
+def test_base_currency_usd_is_native_and_eur_is_scaled_by_the_rate():
+    """USD base is native (rate 1.0); the EUR figure is the USD capital cost scaled
+    by the dated rate — variable OPEX (already base-currency) is not double-converted."""
+    r = runner.run_tea(_req())                        # EUR default
+    u = runner.run_tea(_req(base_currency="USD"))      # native USD
+    assert u.cost_basis["currency"] == "USD" and u.cost_basis["fx"]["rate"] == 1.0
+    assert abs(r.plant_summary.capex_eur - u.plant_summary.capex_eur * 0.924) < 1.0
+
+
+def test_fx_override_is_a_sponsor_assumption():
+    """A caller/CFO FX override wins and its provenance downgrades to sponsor."""
+    cb = runner.run_tea(_req(fx_usd_to_eur=0.90)).cost_basis
+    assert cb["fx"]["rate"] == 0.90 and cb["fx"]["provenance"] == "sponsor_assumption"
+
+
+def test_cost_basis_hash_deterministic_and_currency_sensitive():
+    """A fixed dated rate keeps cost_basis_hash reproducible; a currency change shows."""
+    assert runner.run_tea(_req()).cost_basis_hash == runner.run_tea(_req()).cost_basis_hash
+    assert (runner.run_tea(_req()).cost_basis_hash
+            != runner.run_tea(_req(base_currency="USD")).cost_basis_hash)
+
+
+def test_fx_override_bounded_to_conservative_band():
+    """Increment 3: the ±5% band is a source invariant — an override beyond it raises
+    (→ 422 via the route), regardless of who asked. Benchmark USD->EUR=0.924 → [0.8778, 0.9702]."""
+    from tea_engine import integrity
+    assert integrity.usd_to_base_rate("EUR", 0.90) == 0.90          # in band
+    for out in (1.50, 0.80, 0.98):                                   # far / just-below / just-above
+        with pytest.raises(ValueError):
+            integrity.usd_to_base_rate("EUR", out)
+    with pytest.raises(ValueError):                                 # run_tea surfaces it
+        runner.run_tea(_req(fx_usd_to_eur=1.50))
+
+
+def test_calculation_boundary_canonical_vs_caller_supplied():
+    """G6: a registry train declares its battery-limit nodes; a caller-supplied
+    train that dropped blocks is flagged incomplete (attack I)."""
+    canon = runner.run_tea(_req()).calculation_boundary
+    assert canon["basis"] == "canonical" and canon["complete"] is True
+    assert set(canon["nodes"]) == {"synthesis", "product", "storage"}
+
+    train = [ProcessUnitSpec(id=f"u{i}", category="Reactors",
+             equipment_type="Tubular fixed bed", material="Carbon steel", sizing=200)
+             for i in range(3)]
+    part = runner.run_tea(_req(process_units=train)).calculation_boundary
+    assert part["basis"] == "caller_supplied"
+    assert part["equipment_count"] == 3 and part["canonical_equipment_count"] == 12
+    assert part["complete"] is False and "missing process blocks" in part["note"]
