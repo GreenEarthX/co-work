@@ -19,6 +19,7 @@ import {
   type EconomicsSnapshotState,
   type GhgClaim,
 } from '@/lib/economicsApi'
+import ProjectCurrencySelector from '@/features/economics/ProjectCurrencySelector'
 
 const eur = (v: number | null | undefined): string =>
   typeof v === 'number'
@@ -176,6 +177,11 @@ export default function EconomicsSnapshotPage() {
         <Label>Techno-Economic Assessment</Label>
         <h1 className="mt-1 text-xl font-semibold text-slate-900">{projectId}</h1>
       </header>
+
+      {/* Project-level setting — independent of whether a base case is approved. */}
+      <div className="mb-6">
+        <ProjectCurrencySelector projectId={projectId} />
+      </div>
 
       {state === null && <Notice title="Loading">Reading the approved base case…</Notice>}
 

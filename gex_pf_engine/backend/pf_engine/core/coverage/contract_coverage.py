@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from app.core.debt.tranche import FinancingStructure, Tranche
+from pf_engine.core.debt.tranche import FinancingStructure, Tranche
 
 VERDICT_COVERS = "CONTRACT_COVERS_DEBT"
 VERDICT_TAIL = "MERCHANT_TAIL"

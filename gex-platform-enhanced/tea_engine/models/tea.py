@@ -39,6 +39,11 @@ class FinancialAssumptions(BaseModel):
     co2_eur_t:           float = 50.0
     hydrogen_eur_t:      float = 3000.0     # green H2 ≈ 3 EUR/kg
     feedstock_oil_eur_t: float = 1200.0     # waste lipid (UCO/tallow) for HEFA biofuels
+    # G1: optional per-field provenance {field: source_class}. A field the caller
+    # sets is a sponsor assumption; left at its default it is a model default. This
+    # lets a caller UPGRADE the class (vendor_guaranteed / project_document / …); the
+    # engine derives the rest. See integrity.ProvenanceClass.
+    provenance:          dict = Field(default_factory=dict)
 
 
 class TEAComputeRequest(BaseModel):
@@ -53,6 +58,11 @@ class TEAComputeRequest(BaseModel):
     nameplate_capacity: float = Field(gt=0)
     nameplate_unit:     str = "t_per_year"
     fuel_id:            str = "E_METHANOL"
+    # G5: working base currency (per-project; caller-set). OpenPyTEA's correlations are
+    # USD — GEX converts to this currency with a fixed dated rate. fx_usd_to_eur is an
+    # explicit USD->base override (CFO/authorised); omitted → the dated default.
+    base_currency:      str = "EUR"
+    fx_usd_to_eur:      Optional[float] = None
     # passthrough for the real OpenPyTEA Plant constructor
     country:               str = "Netherlands"      # drives OpenPyTEA location factors
     plant_process_type:    str = "Fluids"
@@ -88,6 +98,14 @@ class TEAResult(BaseModel):
     process_function: Optional[dict] = None  # molecule process-function meta (None ⇒ caller-supplied train)
     regime:           Optional[dict] = None  # regulatory-regime fork (cert / GHG / subsidy) by pathway_class
     model_claim_state: Literal["submitted"] = "submitted"   # PROVISIONAL, never verified here
+    # G1/G2 input-integrity layer (integrity.py):
+    result_status:    str = "SCREENING"      # SCREENING | PROVISIONAL | IMPLAUSIBLE (evidence quality of the result)
+    input_provenance: Optional[dict] = None  # {field: {value, unit, source_class}} — model-default vs project input
+    plausibility:     list[str] = Field(default_factory=list)  # physically-implausible-output flags (unit/scale errors)
+    # G5/G6 output-integrity: cost basis (currency/base-date, NOT FX-normalised) and
+    # the calculation boundary (canonical battery limits vs an unverified caller train).
+    cost_basis:           Optional[dict] = None
+    calculation_boundary: Optional[dict] = None
     note:             str = ("Provisional cost basis. Promote to model_base_case "
                              "only via IE/CFO approval_decision; no release-gated "
                              "compute until then.")

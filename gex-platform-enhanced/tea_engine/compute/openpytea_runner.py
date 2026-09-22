@@ -103,10 +103,10 @@ def _stub_numbers(req: TEAComputeRequest, units) -> tuple[float, float, float]:
 
 
 def _nameplate_t_per_year(req: TEAComputeRequest) -> float:
-    unit = req.nameplate_unit.lower()
-    if "kt_per_year" in unit:
-        return req.nameplate_capacity * 1000.0
-    return req.nameplate_capacity                  # assume t/yr
+    # G2: normalise through the canonical unit table; an unknown unit RAISES
+    # (→ 422) rather than being silently read as t/yr (the 1000×/365× trap).
+    from tea_engine import integrity
+    return integrity.to_t_per_year(req.nameplate_capacity, req.nameplate_unit)
 
 
 def _nameplate_kg_per_day(req: TEAComputeRequest) -> float:
@@ -158,8 +158,8 @@ def _validate_equipment(units) -> None:
         )
 
 
-def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float]:
-    """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop)."""
+def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float, str]:
+    """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop, currency)."""
     from openpytea.equipment import Equipment
     from openpytea.plant import Plant
 
@@ -177,12 +177,21 @@ def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float
         for i, u in enumerate(units)
     ]
 
+    from tea_engine import integrity
     a = req.assumptions
+    base_ccy = (req.base_currency or "EUR").upper()
+    # G5: OpenPyTEA correlations are USD — convert the CAPITAL side to the project's
+    # base currency via exchange_rate (a fixed dated rate, or the caller/CFO override).
+    # exchange_rate touches only purchased/direct cost; variable OPEX (GEX's already-
+    # base-currency feedstock prices) is untouched, so nothing is double-converted.
+    fx_rate = integrity.usd_to_base_rate(base_ccy, req.fx_usd_to_eur)
     plant = Plant({
         "name": req.pathway_id,
         "country": req.country,
         "process_type": req.plant_process_type,
         "equipment": equipment,
+        "currency": base_ccy,
+        "exchange_rate": fx_rate,
         "interest_rate": a.discount_rate_pct / 100.0,
         "plant_utilization": a.capacity_factor,
         "project_lifetime": a.project_life_years,
@@ -195,18 +204,23 @@ def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float
     capex = float(d["capital_costs"]["fixed_capital"])
     opex = float(d["variable_opex"]["total"]) + float(d["fixed_opex"]["total"])
     lcop = float(d["metrics"]["levelized_cost"])
-    return round(capex, 2), round(opex, 2), round(lcop, 4)
+    return round(capex, 2), round(opex, 2), round(lcop, 4), base_ccy
 
 
 def run_tea(req: TEAComputeRequest) -> TEAResult:
+    from tea_engine import integrity
     _ensure_runnable()
     cbh = cost_basis_hash(req)
+    nameplate_t = _nameplate_t_per_year(req)   # G2: validates the unit up front (→ 422 on unknown)
+    integrity.usd_to_base_rate((req.base_currency or "EUR").upper(), req.fx_usd_to_eur)  # G5: fx band (→ 422)
     units, var_opex, pf_meta = resolve_process_function(req)
 
     if _HAS_OPENPYTEA and not _stub_allowed():
-        capex, opex, lcop = _real_numbers(req, units, var_opex)
+        capex, opex, lcop, currency = _real_numbers(req, units, var_opex)
+        is_stub = False
     else:
         capex, opex, lcop = _stub_numbers(req, units)
+        currency, is_stub = (req.base_currency or "EUR").upper(), True
 
     # Co-product revenue credit — the plant sells diesel/naphtha/etc. alongside the
     # primary product. Credit it against OPEX so the TEA treats co-products the same
@@ -224,6 +238,25 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
     if pf_meta:
         import tea_engine.regimes as rg
         regime = rg.as_dict(rg.get_regime(pf_meta.get("pathway_class", "RFNBO")))
+
+    # G2/G1: physically-implausible-output flags + input provenance → a result
+    # status that tracks input QUALITY, not just that the arithmetic ran.
+    plausibility = integrity.plausibility_flags(capex, nameplate_t, lcop)
+    plausibility = plausibility + integrity.scaling_flags(pf_meta)   # G4: extreme scale extrapolation
+    input_provenance = integrity.classify_inputs(req.assumptions)
+    status = integrity.result_status(input_provenance, plausibility)
+
+    # G5: currency / base-date basis. OpenPyTEA's USD costs are converted to the base
+    # currency with a fixed dated rate (or the caller/CFO override); the rate carries
+    # its own provenance (external_benchmark, or sponsor_assumption when overridden).
+    fx = None if is_stub else integrity.fx_meta(currency, req.fx_usd_to_eur)
+    cost_basis = integrity.cost_basis_block(
+        currency, None if is_stub else integrity.OPENPYTEA_TARGET_CEPCI_YEAR, is_stub, fx)
+    # G6: what the cost covers — canonical battery limits vs an unverified caller train.
+    import tea_engine.process_functions as _pfx
+    calc_boundary = integrity.calculation_boundary(
+        pf_meta, len(units), req.fuel_id,
+        _pfx.canonical_equipment_count(req.fuel_id), _pfx.canonical_nodes(req.fuel_id))
 
     return TEAResult(
         engine=engine_name(),
@@ -245,9 +278,19 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
             "lcop": lcop,
             "process_function": pf_meta,
             "regime": regime,
+            "result_status": status,
+            "input_provenance": input_provenance,
+            "plausibility": plausibility,
+            "cost_basis": cost_basis,
+            "calculation_boundary": calc_boundary,
         }),
         process_function=pf_meta,
         regime=regime,
+        result_status=status,
+        input_provenance=input_provenance,
+        plausibility=plausibility,
+        cost_basis=cost_basis,
+        calculation_boundary=calc_boundary,
     )
 
 
