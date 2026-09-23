@@ -852,6 +852,14 @@ if HAS_ECONOMICS:
 if HAS_DIRECTORY:
     app.include_router(directory_router, prefix="/api/v1/directory", tags=["Staff Directory — teams, roles, gates"])
 
+# Imported and registered WITHOUT the try/except ImportError guard the routers
+# above use. That pattern turns a broken import into a printed warning and a
+# silently missing API — for KYC/KYB that would mean the screens fall back to
+# whatever the browser still holds, which is the defect this endpoint exists to
+# remove. A failure here should stop the app.
+from app.api.v1.routes_kyc import router as kyc_router  # noqa: E402
+app.include_router(kyc_router, prefix="/api/v1/kyc", tags=["KYC / KYB — client identity and vetting"])
+
 if HAS_PLANTS:
     app.include_router(plants_router, prefix="/api/v1/plants", tags=["Plants — canvas portfolio"])
 

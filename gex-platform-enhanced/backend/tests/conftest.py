@@ -18,6 +18,7 @@ Request it from a module-scoped autouse fixture:
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 
 import pytest
@@ -32,6 +33,34 @@ def isolated_store(tmp_path_factory):
     db_path = tmp_path_factory.mktemp("store") / "test_gex_platform.db"
 
     settings.SQLITE_DB_PATH = str(db_path)
+
+    # Swapping the path is not isolation on its own. Once a slice switch says
+    # `postgres` the store ignores SQLITE_DB_PATH entirely and writes the
+    # DEVELOPMENT PostgreSQL database — measured on 2026-09-22, a full run added
+    # rows to auth_users, auth_user_project_roles, finance_entitlements and
+    # entitlement_audit. So the switches are pinned to sqlite here too, in both
+    # places the accessors read them: os.environ (which `set -a && source .env`
+    # populates) and `settings`. A test that genuinely wants PostgreSQL asks for
+    # it explicitly — `requires_pg()` and `as_platform_admin()` in pg_support —
+    # rather than inheriting whatever the developer's .env happens to say.
+    # DERIVED from Settings, never hand-listed. A hardcoded list was wrong
+    # twice in one day: DOMAIN (the 043/044 tail) and then WORKSPACE (the
+    # owner-scoped canvas tables) were each added to config.py and forgotten
+    # here, and each time the first test to exercise that slice went straight
+    # at the development PostgreSQL — once writing it, once failing because the
+    # store had correctly refused to create a table the migration owns. Reading
+    # the field names means the next switch is covered the moment it exists.
+    switch_names = sorted(
+        name for name in type(settings).model_fields if name.endswith("_DB_BACKEND"))
+    assert switch_names, "no *_DB_BACKEND fields found on Settings — the scan is broken"
+    saved_env: dict[str, str | None] = {}
+    saved_settings: dict[str, str] = {}
+    for name in switch_names:
+        saved_env[name] = os.environ.get(name)
+        saved_settings[name] = getattr(settings, name, "sqlite")
+        os.environ[name] = "sqlite"
+        setattr(settings, name, "sqlite")
+
     try:
         # The auth slice shares SQLITE_DB_PATH, so the temporary store gets the REAL
         # auth schema from its owner. A hand-written stand-in used to live here; it
@@ -50,3 +79,9 @@ def isolated_store(tmp_path_factory):
         yield str(db_path)
     finally:
         settings.SQLITE_DB_PATH = original
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+            setattr(settings, name, saved_settings[name])

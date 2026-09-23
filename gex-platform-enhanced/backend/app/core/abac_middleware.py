@@ -19,7 +19,7 @@ from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.request_tenant import bind_from_request, reset_current_company
+from app.core.request_tenant import bind_from_request, reset_identity
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -68,18 +68,16 @@ class ABACMiddleware(BaseHTTPMiddleware):
         self.phase = phase
 
     async def dispatch(self, request: Request, call_next):
-        """Wrapper that guarantees the request-scoped tenant is unbound again.
+        """Wrapper that guarantees the request-scoped identity is unbound again.
 
         The bind happens in _extract_user, where the verified payload first
-        exists; the token is parked on request.state so this finally can find it
-        whichever branch of _dispatch returned.
+        exists; the tokens (tenant AND user) are parked on request.state so this
+        finally can find them whichever branch of _dispatch returned.
         """
         try:
             return await self._dispatch(request, call_next)
         finally:
-            token = getattr(request.state, "_gex_tenant_token", None)
-            if token is not None:
-                reset_current_company(token)
+            reset_identity(getattr(request.state, "_gex_tenant_token", None))
 
     async def _dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -162,7 +160,8 @@ class ABACMiddleware(BaseHTTPMiddleware):
         if perm_string:
             identity = getattr(request.state, "auth_user_payload", {})
             perm_ctx = {
-                "kyc_status": getattr(user, "kyc_status", "VERIFIED"),
+                # Absent attribute -> UNVERIFIED. Unknown is not verified.
+                "kyc_status": getattr(user, "kyc_status", "UNVERIFIED"),
                 "token_ready": getattr(user, "token_ready", False),
                 "credit_rating": getattr(user, "credit_rating", "NR"),
                 "export_licenses": getattr(user, "export_licenses", []),
@@ -293,7 +292,12 @@ class ABACMiddleware(BaseHTTPMiddleware):
                         "company_name": request.headers.get("x-demo-company", "demo_company"),
                         "user_name": demo_user,
                         "jurisdiction": request.headers.get("x-demo-jurisdiction", "EU"),
-                        "kyc_status": "VERIFIED",
+                        # A demo identity has been through no vetting at all,
+                        # so it says SEED rather than borrowing a real user's
+                        # verification. Demo mode is dev-only (GEX_DEMO_MODE),
+                        # and this is the value the rest of the platform now
+                        # uses for "plausible, nobody checked it".
+                        "kyc_status": "SEED",
                         "nda_signed_with": [],
                         "assigned_audits": [],
                         "actor_type_per_project": {},
@@ -317,8 +321,8 @@ class ABACMiddleware(BaseHTTPMiddleware):
         # attributes, so most Depends(get_db) sites resolved the tenant to
         # 'GUEST' — see app/core/request_tenant.py.
         request.state.user_payload = payload
-        # Bind the tenant for this request so the shim accessors — which have no
-        # Request to read — scope to the same caller as Depends(get_db).
+        # Bind tenant and user for this request so the shim accessors — which
+        # have no Request to read — scope to the same caller as Depends(get_db).
         request.state._gex_tenant_token = bind_from_request(request)
         return self._user_from_payload(payload)
 
@@ -353,7 +357,9 @@ class ABACMiddleware(BaseHTTPMiddleware):
             actor_type_per_project=actor_type_per_project,
             clearance_level=clearance,
             jurisdiction=payload.get("jurisdiction", ""),
-            kyc_status=payload.get("kyc_status", "VERIFIED"),
+            # A token with no kyc_status claim is a token that says nothing
+            # about KYC — which is not the same as saying it passed.
+            kyc_status=payload.get("kyc_status", "UNVERIFIED"),
             nda_signed_with=set(payload.get("nda_signed_with", [])),
             assigned_audits=set(payload.get("assigned_audits", [])),
             capabilities=capabilities,

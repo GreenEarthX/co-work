@@ -21,6 +21,7 @@ from typing import Optional
 
 from app.core.event_store import append_event, init_event_store
 from app.core.config import settings
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 logger = logging.getLogger("gex.adversarial_reviews")
 
@@ -170,7 +171,17 @@ _SEVERITY_ORDER = {
 }
 
 
-def _connect(db_path: str = _DB_PATH) -> sqlite3.Connection:
+def _connect(db_path: str = _DB_PATH):
+    """SQLite at an explicit path, or the shared PostgreSQL store.
+
+    `db_path` applies to SQLite only — on PostgreSQL there is one database and
+    the caller's tenant context decides visibility. Every INSERT in this module
+    supplies created_at/updated_at itself, so the SQLite-only
+    `DEFAULT (datetime('now'))` in the DDL below is belt-and-braces rather than
+    a behaviour difference between the two stores.
+    """
+    if domain_is_postgres():
+        return domain_connection()
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     return con
@@ -194,6 +205,11 @@ def _now() -> str:
 
 
 def init_adversarial_reviews_db(db_path: str = _DB_PATH) -> None:
+    if domain_is_postgres():
+        # 044 owns adversarial_reviews / _findings / _handoffs and their
+        # policies. executescript is a sqlite3 method and is absent from the
+        # PostgreSQL shim by design — DDL belongs in a migration.
+        return
     con = sqlite3.connect(db_path)
     cur = con.cursor()
     cur.executescript(

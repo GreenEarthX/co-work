@@ -41,8 +41,10 @@ SQLITE = "sqlite"
 POSTGRES = "postgres"
 from app.core.request_tenant import (  # noqa: E402  (vocabulary lives there)
     NO_TENANT_CONTEXT,
+    NO_USER_CONTEXT,
     PLATFORM_ADMIN,
     current_company,
+    current_user,
 )
 
 # The tenant context a connection gets when the caller supplies none.
@@ -143,6 +145,17 @@ class _PgCursor:
     def __init__(self, cur: Any) -> None:
         self._cur = cur
 
+    def execute(self, sql: str, params: tuple | list = ()):
+        """`cur = conn.cursor(); cur.execute(...)` — the sqlite3 idiom used by
+        the domain-tail modules ported on 2026-09-22. Translates placeholders
+        exactly as `PostgresConnection.execute` does, and returns self so
+        `cur.execute(...).fetchall()` works on both stores."""
+        self._cur.execute(_to_pg(sql), tuple(params))
+        return self
+
+    def close(self) -> None:
+        self._cur.close()
+
     def fetchone(self):
         return self._cur.fetchone()
 
@@ -170,7 +183,8 @@ class PostgresConnection:
     absent so an unported call fails loudly instead of silently misbehaving.
     """
 
-    def __init__(self, dsn: str, company_id: str | None = None) -> None:
+    def __init__(self, dsn: str, company_id: str | None = None,
+                 user_id: str | None = None) -> None:
         import psycopg2
         import psycopg2.extras
 
@@ -182,6 +196,16 @@ class PostgresConnection:
             # context would silently vanish mid-request and RLS would then hide
             # everything. The connection is per-request and closed after.
             self.execute(f"SET app.current_company_id = '{_safe_company(company_id)}'")
+
+            # The owner axis, always set alongside the tenant — never on its
+            # own and never omitted. An owner-scoped policy reads
+            # current_setting('app.current_user_id', true); if this SET were
+            # skipped the setting would be NULL, `owner = NULL` is NULL, and
+            # the row would be invisible. Failing closed is the right default,
+            # but it must be a DECISION (no caller → NO_USER_CONTEXT), not an
+            # accident of which connection helper someone used.
+            self.execute(
+                f"SET app.current_user_id = '{_safe_user(_user_context(user_id))}'")
 
     def execute(self, sql: str, params: tuple | list = ()) -> _PgCursor:
         cur = self._conn.cursor(cursor_factory=self._factory)
@@ -216,6 +240,30 @@ def _safe_company(company_id: str) -> str:
     if company_id == PLATFORM_ADMIN or re.fullmatch(r"[a-z0-9_]{1,120}", company_id or ""):
         return company_id
     raise ValueError(f"unsafe company_id for tenant context: {company_id!r}")
+
+
+def _safe_user(user_id: str) -> str:
+    """Whitelist before interpolation, exactly as `_safe_company` does.
+
+    `auth_users.user_id` is an email-derived slug (`admin_greenearthx_com`), and
+    the deny sentinel is the only other permitted value. Anything else RAISES
+    rather than being escaped or quietly replaced: a user id that does not look
+    like one has come from somewhere this code does not understand, and the
+    safe response is to refuse the connection, not to guess.
+    """
+    if user_id == NO_USER_CONTEXT or re.fullmatch(r"[A-Za-z0-9_.@-]{1,190}", user_id or ""):
+        return user_id
+    raise ValueError(f"unsafe user_id for owner context: {user_id!r}")
+
+
+def _user_context(user_id: str | None) -> str:
+    """Explicit argument → bound caller → deny sentinel.
+
+    The same precedence as `_tenant_context`, with no escalation branch: there
+    is no owner-axis equivalent of PLATFORM_ADMIN, because "everyone's private
+    work" is not an identity. A job with no caller owns nothing.
+    """
+    return user_id or current_user() or NO_USER_CONTEXT
 
 
 def evidence_backend() -> str:
@@ -409,6 +457,74 @@ def governance_connection(company_id: str | None = None,
         return PostgresConnection(settings.DATABASE_URL,
                                   company_id=_tenant_context(company_id, "governance_connection"))
     conn = sqlite3.connect(sqlite_path or settings.SQLITE_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def domain_backend() -> str:
+    """Which store the domain tail (migrations 043 + 044) uses."""
+    return (os.getenv("DOMAIN_DB_BACKEND")
+            or getattr(settings, "DOMAIN_DB_BACKEND", SQLITE)).strip().lower()
+
+
+def domain_is_postgres() -> bool:
+    return domain_backend() == POSTGRES
+
+
+def domain_connection(company_id: str | None = None, sqlite_path: str | None = None):
+    """
+    Connection for the domain tail, with an RLS tenant context on PostgreSQL.
+
+    Most of these tables are project-scoped in 044, so the default — no
+    explicit company, meaning the caller bound by ABACMiddleware — is what the
+    policies expect. A background job with no bound caller gets
+    NO_TENANT_CONTEXT and sees nothing, which is the right answer for custody
+    and settlement data.
+    """
+    if domain_is_postgres():
+        return PostgresConnection(settings.DATABASE_URL,
+                                  company_id=_tenant_context(company_id, "domain_connection"))
+    conn = sqlite3.connect(sqlite_path or settings.SQLITE_DB_PATH,
+                           check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def workspace_backend() -> str:
+    """Which store the owner-scoped personal work (migration 050) uses."""
+    return (os.getenv("WORKSPACE_DB_BACKEND")
+            or getattr(settings, "WORKSPACE_DB_BACKEND", SQLITE)).strip().lower()
+
+
+def workspace_is_postgres() -> bool:
+    return workspace_backend() == POSTGRES
+
+
+def workspace_connection(user_id: str | None = None, company_id: str | None = None,
+                         sqlite_path: str | None = None):
+    """
+    Connection for canvas documents, user plants and equipment equations.
+
+    Scoped by OWNER. 050's policies read `app.current_user_id` and have no
+    admin clause, so this connection shows the caller their own work and
+    nothing else — including when the caller is a platform admin. There is no
+    `company_id` shortcut to more rows here; the tenant is still bound (every
+    connection binds both axes) but no policy on these three tables consults
+    it.
+
+    `user_id` exists for the two callers that legitimately act for someone
+    else: the SQLite→PostgreSQL copier, which walks one owner at a time, and
+    `break_glass.py`, which requires a reason and writes `admin_log`. Ordinary
+    code passes nothing and gets the bound caller.
+    """
+    if workspace_is_postgres():
+        return PostgresConnection(
+            settings.DATABASE_URL,
+            company_id=_tenant_context(company_id, "workspace_connection"),
+            user_id=user_id,
+        )
+    conn = sqlite3.connect(sqlite_path or settings.SQLITE_DB_PATH,
+                           check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 

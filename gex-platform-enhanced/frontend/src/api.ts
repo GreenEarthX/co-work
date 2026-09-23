@@ -295,11 +295,6 @@ export const bankabilityAPI = {
   listEvidence: (projectId: string = "default") =>
     fetchAPI(`/bankability/evidence?project_id=${projectId}`),
 
-  seedDemo: (projectId: string = "default") =>
-    fetchAPI(`/bankability/evidence/seed?project_id=${projectId}`, {
-      method: "POST",
-    }),
-
   checkRegression: (projectId: string = "default") =>
     fetchAPI(`/bankability/regression/check?project_id=${projectId}`),
 

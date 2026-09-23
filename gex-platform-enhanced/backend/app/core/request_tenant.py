@@ -49,7 +49,7 @@ job with no caller has no tenant.
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 # Grants visibility of every tenant's rows. Not a company — an escalation.
 PLATFORM_ADMIN = "PLATFORM_ADMIN"
@@ -58,8 +58,32 @@ PLATFORM_ADMIN = "PLATFORM_ADMIN"
 # tenant-scoped RLS policy, so the absence of identity reveals nothing.
 NO_TENANT_CONTEXT = "__no_tenant_context__"
 
+# The same idea one axis down, for OWNER-SCOPED tables (canvas documents, a
+# user's plants, their equipment equations). An owner policy compared against
+# this matches nothing.
+#
+# The COLONS are load-bearing. `_safe_user` accepts `[A-Za-z0-9_.@-]`, so a
+# sentinel spelled `__no_user_context__` would be a legal user_id shape — and a
+# value that can be spelled can be registered, or written into an owner column,
+# and would then match every row filed under "no caller". A colon is outside
+# that whitelist, so this string cannot be a user id, by construction rather
+# than by convention. (`NO_TENANT_CONTEXT` predates this and is still spellable
+# under the company whitelist; it is not changed here because altering the
+# tenant sentinel is a separate, wider change.)
+NO_USER_CONTEXT = "__no:user:context__"
+
 _current_company: ContextVar[Optional[str]] = ContextVar(
     "gex_current_company", default=None
+)
+
+# Deliberately a SECOND variable rather than a field on the first. The tenant
+# answers "which company's rows", the user answers "whose own rows", and the
+# two are not interchangeable: PLATFORM_ADMIN is a tenant escalation and has no
+# meaning here. An admin is still exactly one user, so an owner-scoped policy
+# must not widen because the caller happens to be staff — that would make
+# `is_platform_admin` a silent read of everyone's private work.
+_current_user: ContextVar[Optional[str]] = ContextVar(
+    "gex_current_user", default=None
 )
 
 
@@ -89,6 +113,23 @@ def company_from_payload(payload: Optional[dict]) -> Optional[str]:
     return payload.get("company_id") or None
 
 
+def user_from_payload(payload: Optional[dict]) -> Optional[str]:
+    """The single rule for turning a verified payload into an owner identity.
+
+    `user_id`, never `email` and never the directory's `member_id`: those are
+    three different identifiers for a person and the platform already paid for
+    conflating them once. Owner columns (`canvas_blobs.owner_user_id`,
+    `user_plants.owner_user_id`) hold `auth_users.user_id`, so that is what an
+    owner policy must be able to compare against.
+
+    Unlike `company_from_payload` there is no `is_platform_admin` branch. Staff
+    are not a user; they are a user who is also staff.
+    """
+    if not payload:
+        return None
+    return payload.get("user_id") or None
+
+
 def set_current_company(company_id: Optional[str]) -> Token:
     """Bind the tenant for this request. Pass the token to `reset_current_company`."""
     return _current_company.set(company_id)
@@ -110,6 +151,49 @@ def current_company() -> Optional[str]:
     return _current_company.get()
 
 
-def bind_from_request(request: Any) -> Token:
-    """Derive the tenant from the request and bind it. Returns the reset token."""
-    return set_current_company(company_from_payload(payload_from_request(request)))
+def set_current_user(user_id: Optional[str]) -> Token:
+    """Bind the owner identity for this request."""
+    return _current_user.set(user_id)
+
+
+def reset_current_user(token: Token) -> None:
+    """Unbind, in a `finally` — same reasoning as `reset_current_company`."""
+    try:
+        _current_user.reset(token)
+    except ValueError:
+        pass
+
+
+def current_user() -> Optional[str]:
+    """The bound user, or None if there is no authenticated caller."""
+    return _current_user.get()
+
+
+class BoundIdentity(NamedTuple):
+    """The tokens for one request's bindings. Both are reset together: a
+    request that unbound its tenant but kept its user — or the reverse — would
+    leave a pooled worker holding half an identity."""
+    company: Token
+    user: Token
+
+
+def bind_from_request(request: Any) -> BoundIdentity:
+    """Derive tenant AND user from the request and bind both.
+
+    One derivation, one payload, one place — the same reason this module exists
+    for the tenant. Returns the tokens to pass to `reset_identity`.
+    """
+    payload = payload_from_request(request)
+    return BoundIdentity(
+        company=set_current_company(company_from_payload(payload)),
+        user=set_current_user(user_from_payload(payload)),
+    )
+
+
+def reset_identity(tokens: Optional[BoundIdentity]) -> None:
+    """Unbind both, in a `finally`. Tolerates None so the caller does not have
+    to know whether binding got as far as happening."""
+    if tokens is None:
+        return
+    reset_current_company(tokens.company)
+    reset_current_user(tokens.user)

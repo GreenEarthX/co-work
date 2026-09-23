@@ -62,6 +62,33 @@ class Settings(BaseSettings):
     FUELREF_DB_BACKEND: str = "sqlite"
     # Which store slice 6b-4 (governance / access control) uses.
     GOVERNANCE_DB_BACKEND: str = "sqlite"
+    # Which store the domain tail (migrations 043 + 044) uses: mass balance,
+    # settlement, sovereign instruments, spend waves, drawdown schedules, DFI
+    # criteria, additionality, adversarial reviews, the external corpus, the OT
+    # boundary, TEA base cases and risk flags.
+    #
+    # One switch for the whole tail, not one per module: 043/044 created those
+    # tables together and `scripts/migrate_tail_slices.py` copies them together,
+    # so splitting them at runtime would let half a domain live in each store.
+    # Before this existed, thirteen modules opened SQLite directly on a path
+    # captured at import and consulted no switch at all — the 2026-09-22 cutover
+    # copied their 30 tables into PostgreSQL while their writes kept going to
+    # SQLite, which is a snapshot pretending to be a migration.
+    DOMAIN_DB_BACKEND: str = "sqlite"
+    # Which store the OWNER-SCOPED personal work uses: canvas documents, a
+    # user's plants, their equipment equations (migration 050).
+    #
+    # One declared switch replacing three undeclared ones — `CANVAS_DB_BACKEND`,
+    # `PLANTS_DB_BACKEND` and `EQUATIONS_DB_BACKEND` were read straight from
+    # os.getenv, so `Settings` never saw them and nothing validated them. They
+    # move together because they are one thing: what a user built on the canvas.
+    #
+    # These tables are scoped by OWNER, not by company. 050's policies compare
+    # `owner_user_id` to `app.current_user_id` and contain no admin clause, so
+    # staff cannot read another user's canvas through normal operation. Support,
+    # deletion requests and offboarding go through `app/core/break_glass.py`,
+    # which is per-user, reason-bearing and written to `admin_log`.
+    WORKSPACE_DB_BACKEND: str = "sqlite"
     # Transitional SQLite store. THE ONLY database file in the system.
     # Doctrine: no hidden database, no relative path, no second database,
     # no module-owned path. Modules must use settings.SQLITE_DB_PATH — never

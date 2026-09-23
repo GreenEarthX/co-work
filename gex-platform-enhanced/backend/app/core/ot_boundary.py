@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 from app.core.config import settings
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 logger = logging.getLogger("gex.ot_boundary")
 
@@ -75,7 +76,27 @@ class BoundaryValidation:
 # DB SCHEMA
 # ═══════════════════════════════════════════════════════════════
 
+def _conn(db_path: str):
+    """SQLite at an explicit path, or the shared PostgreSQL store.
+
+    `db_path` is honoured only on SQLite — it is how tests point this module at
+    a throwaway file. On PostgreSQL there is one database and the caller's
+    tenant context decides what is visible, so a path would be meaningless.
+    """
+    if domain_is_postgres():
+        return domain_connection()
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    return con
+
+
 def init_ot_db(db_path: str = _DB_PATH) -> None:
+    if domain_is_postgres():
+        # 044 owns gateway_registry and plant_data. The demo gateway seeded
+        # below is not seeded there either: a fabricated gateway with a
+        # placeholder certificate fingerprint is demo furniture, and inventing
+        # one in the system of record is exactly what this cutover is undoing.
+        return
     con = sqlite3.connect(db_path)
     cur = con.cursor()
     cur.executescript("""
@@ -215,13 +236,17 @@ def store_plant_data(
     """Append plant data record. Returns record_id."""
     record_id = str(uuid.uuid4())
     try:
-        con = sqlite3.connect(db_path)
+        con = _conn(db_path)
         cur = con.cursor()
+        # received_at is set here, not by a column default: SQLite defaults it
+        # with datetime('now') and PostgreSQL (044) has no default at all, so
+        # leaving it out would silently store NULL on one store only.
         cur.execute(
-            """INSERT INTO plant_data (id, project_id, gateway_id, data_type, payload_json, sha256_hash)
-               VALUES (?,?,?,?,?,?)""",
+            """INSERT INTO plant_data (id, project_id, gateway_id, data_type, payload_json, sha256_hash, received_at)
+               VALUES (?,?,?,?,?,?,?)""",
             (record_id, project_id, gateway_id, data_type,
-             json.dumps(payload), sha256_hash)
+             json.dumps(payload), sha256_hash,
+             datetime.now(timezone.utc).isoformat())
         )
         con.commit()
         con.close()
@@ -232,8 +257,7 @@ def store_plant_data(
 
 def get_plant_data(project_id: str, data_type: Optional[str] = None,
                    limit: int = 100, db_path: str = _DB_PATH) -> list[dict]:
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _conn(db_path)
     cur = con.cursor()
     if data_type:
         cur.execute(
@@ -255,8 +279,7 @@ def get_plant_data(project_id: str, data_type: Optional[str] = None,
 
 
 def get_gateways(project_id: Optional[str] = None, db_path: str = _DB_PATH) -> list[dict]:
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
+    con = _conn(db_path)
     cur = con.cursor()
     if project_id:
         cur.execute("SELECT * FROM gateway_registry WHERE project_id = ?", (project_id,))
@@ -269,8 +292,7 @@ def get_gateways(project_id: Optional[str] = None, db_path: str = _DB_PATH) -> l
 
 def _get_gateway(gateway_id: str, db_path: str) -> Optional[dict]:
     try:
-        con = sqlite3.connect(db_path)
-        con.row_factory = sqlite3.Row
+        con = _conn(db_path)
         cur = con.cursor()
         cur.execute("SELECT * FROM gateway_registry WHERE id = ?", (gateway_id,))
         row = cur.fetchone()
@@ -282,7 +304,7 @@ def _get_gateway(gateway_id: str, db_path: str) -> Optional[dict]:
 
 def _update_gateway_seen(gateway_id: str, db_path: str) -> None:
     try:
-        con = sqlite3.connect(db_path)
+        con = _conn(db_path)
         cur = con.cursor()
         cur.execute(
             "UPDATE gateway_registry SET last_seen = ? WHERE id = ?",

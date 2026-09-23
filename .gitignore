@@ -36,3 +36,6 @@ temp_interactive_push.bat
 # belong in a code repository at all — least of all one that was public.
 gex-platform-enhanced/backend/data/canvas_blobs/
 gex-platform-enhanced/backend/data/package_docs/
+
+# Operational artefacts from a specific migration run — not source, not a release
+backend/db_backups/

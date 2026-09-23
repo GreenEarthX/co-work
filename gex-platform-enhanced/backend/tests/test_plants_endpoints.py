@@ -237,9 +237,22 @@ def test_a_replaced_plant_keeps_its_original_created_at(client):
 
 # ── the store ────────────────────────────────────────────────────────────────
 
-def test_postgres_is_refused_rather_than_created_unprotected(monkeypatch):
-    from app.core.ecosystem_store import PostgresMigrationRequired
+def test_the_store_never_creates_user_plants_on_postgres(monkeypatch):
+    """`user_plants` belongs to migration 050, policy included.
+
+    This module used to RAISE on PostgreSQL, because the only alternative then
+    was creating an owner-scoped table with no policy at all. 050 creates it
+    WITH an owner-only policy (no admin clause), so raising would now only stop
+    the app booting against a database that already has the table. What must
+    not change is who creates it: the runtime never does. If anyone
+    reintroduces DDL here, the table would be created unprotected and every
+    owner's rows would be readable by everyone.
+    """
+    def _explode(*a, **kw):
+        raise AssertionError(
+            "init_db() opened a PostgreSQL connection — user_plants belongs to "
+            "migration 050, not to the runtime")
 
     monkeypatch.setattr(plants_store, "_plants_is_postgres", lambda: True)
-    with pytest.raises(PostgresMigrationRequired):
-        plants_store.init_db()
+    monkeypatch.setattr(plants_store, "workspace_connection", _explode)
+    plants_store.init_db()

@@ -1,5 +1,5 @@
 // Screen: Global context (no screen)
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { AUTH_SESSION_KEY, SESSION_TIER_KEY, clearAuthSession } from '@/lib/authToken';
 
 export type CompanyType = 'PRODUCER' | 'OFFTAKER' | 'THIRD_PARTY';
@@ -118,6 +118,17 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
     return null;
   });
 
+  // A reload of an already-signed-in browser must hydrate KYC too, not only a
+  // fresh login: otherwise the screens would show an empty record to a user
+  // who has one on file, and "nothing yet" would be indistinguishable from
+  // "nothing submitted".
+  useEffect(() => {
+    if (!authSession?.token) return;
+    void import('@/features/kyc/kycState').then(m => m.initKyc()).catch(err => {
+      console.error('KYC: could not load this user\'s record', err);
+    });
+  }, [authSession?.token]);
+
   const setRole = (newRole: UserRole) => {
     setRoleState(newRole);
     setIsRoleSet(true);
@@ -130,6 +141,13 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
     setRole(newRole);
     localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(session));
     localStorage.setItem(STORAGE_KEY_TIER, 'authenticated');
+    // KYC/KYB now lives in the database, not this browser. Hydrate it for the
+    // signed-in user, and move anything an older build left in localStorage
+    // (the ~45-field profile, the KYB record with beneficial owners) to the
+    // server first. Needs the token, so it runs here rather than at import.
+    void import('@/features/kyc/kycState').then(m => m.initKyc()).catch(err => {
+      console.error('KYC: could not load this user\'s record', err);
+    });
   };
 
   const continueAsGuest = () => {

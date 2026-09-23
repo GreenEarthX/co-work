@@ -11,6 +11,26 @@ Each client's CISO can:
 
 Demo mode: company is resolved from the `x-demo-company` request header
 (default: "bp_global_energy").  In production this comes from the JWT claim.
+
+THE DATA IN THIS MODULE IS SEEDED. ALL OF IT.
+---------------------------------------------
+The user rosters (`_BP_USERS`, `_HAMBURGONE_USERS`, `_NORDLB_USERS`,
+`_BREMENTHREE_USERS`), the information barriers, the residency policies and the
+access-event feed are invented. The people do not exist; neither do their S&P
+credit ratings, their ISO 27001 certifications or their KYC checks.
+
+Seeding a pre-production platform with plausible values is deliberate and
+useful — it is how a prospect sees their own shape of problem, and these values
+will be replaced by OSINT, open-source publications, the geomap and finally the
+client's own input. What is NOT acceptable is seeded data that cannot be told
+apart from observed data: 125 fabricated `bankability_evidence` rows once
+carried status VERIFIED and fed a risk classification indistinguishable from a
+real one.
+
+So every response from this module is stamped `provenance: "SEED"` by
+`_seeded()`, and every roster record is stamped by `_get_company_data()`. The
+stamp is applied WHERE THE DATA IS SERVED rather than typed into each literal,
+so a new fabricated record cannot be added without inheriting it.
 """
 
 from __future__ import annotations
@@ -391,10 +411,43 @@ def _company_from_header(x_demo_company: Optional[str]) -> str:
     return x_demo_company or "bp_global_energy"
 
 
+# Every value this module serves is invented — see the module docstring.
+SEED_PROVENANCE = "SEED"
+SEED_NOTE = (
+    "Seeded demonstration data. These users, ratings, certifications and events "
+    "are invented and have not been observed, submitted or verified."
+)
+
+
+def _seeded(payload: dict) -> dict:
+    """Stamp a response so a consumer can tell seeded data from observed data.
+
+    Applied at the boundary rather than baked into each literal: a record added
+    to a roster later inherits the stamp instead of relying on whoever adds it
+    to remember.
+    """
+    return {**payload, "provenance": SEED_PROVENANCE, "provenance_note": SEED_NOTE}
+
+
+def _seeded_user(user: dict) -> dict:
+    """A roster record, marked.
+
+    `kyc_status` is forced to SEED rather than left at the literal 'VERIFIED':
+    nobody ran a KYC check on a person who does not exist, and
+    `requires_kyc:VERIFIED` is a real gate elsewhere in the platform. The
+    original literal is kept as `kyc_status_seeded_as` so the demo still shows
+    the shape it was written to show.
+    """
+    return {**user,
+            "kyc_status": SEED_PROVENANCE,
+            "kyc_status_seeded_as": user.get("kyc_status"),
+            "provenance": SEED_PROVENANCE}
+
+
 def _get_company_data(company_id: str) -> tuple[str, list, list]:
     """Return (display_name, users, scoped_projects) for a company key."""
     display_name = _COMPANY_DISPLAY_NAMES.get(company_id, company_id.replace("_", " ").title())
-    users = _COMPANY_USERS.get(company_id, [])
+    users = [_seeded_user(u) for u in _COMPANY_USERS.get(company_id, [])]
     project_ids = _COMPANY_PROJECT_IDS.get(company_id, [p["id"] for p in GEX_PROJECTS])
     scoped_projects = [p for p in GEX_PROJECTS if p["id"] in project_ids]
     return display_name, users, scoped_projects
@@ -480,7 +533,7 @@ def get_ciso_overview(x_demo_company: Optional[str] = Header(default=None)):
     vigilance_score = min(deny_rate * 500, 20)  # up to 20 pts for having denials (means policy is active)
     total_score     = round(mfa_score + kyc_score + abac_score + vigilance_score)
 
-    return {
+    return _seeded({
         "company_id": company_id,
         "company_name": display_name,
         "security_score": total_score,
@@ -527,7 +580,7 @@ def get_ciso_overview(x_demo_company: Optional[str] = Header(default=None)):
                 "ts": "2026-03-14T09:00:00Z",
             },
         ],
-    }
+    })
 
 
 @router.get("/access-log")
@@ -555,11 +608,11 @@ def get_access_log(
     total = len(events)
     events = events[:limit]
 
-    return {
+    return _seeded({
         "total": total,
         "returned": len(events),
         "events": events,
-    }
+    })
 
 
 @router.get("/users")
@@ -567,10 +620,10 @@ def list_users(x_demo_company: Optional[str] = Header(default=None)):
     """List users and projects scoped to the requesting company."""
     company_id = _company_from_header(x_demo_company)
     _, company_users, scoped_projects = _get_company_data(company_id)
-    return {
+    return _seeded({
         "users": company_users,
         "projects": scoped_projects,
-    }
+    })
 
 
 class UserAttributeUpdate(BaseModel):
@@ -652,7 +705,7 @@ def update_user_attributes(
     if body.aggregation_limit_mt is not None:
         updated["aggregation_limit_mt"] = body.aggregation_limit_mt
 
-    return {
+    return _seeded({
         "status": "updated",
         "user": updated,
         "audit_entry": {
@@ -660,7 +713,7 @@ def update_user_attributes(
             "changed_by": "ciso_session",
             "changes": body.model_dump(exclude_none=True),
         },
-    }
+    })
 
 
 @router.get("/compliance")
@@ -670,7 +723,7 @@ def get_compliance(x_demo_company: Optional[str] = Header(default=None)):
     """
     _company_from_header(x_demo_company)
 
-    return {
+    return _seeded({
         "overall_score": 74,
         "frameworks": [
             {
@@ -749,7 +802,7 @@ def get_compliance(x_demo_company: Optional[str] = Header(default=None)):
                 ],
             },
         ],
-    }
+    })
 
 
 @router.get("/policy-matrix")
@@ -849,7 +902,7 @@ def list_barriers(x_demo_company: Optional[str] = Header(default=None)):
     """
     company_id = _company_from_header(x_demo_company)
     barriers = [b for b in _DEMO_BARRIERS if b["company_id"] == company_id]
-    return {"company_id": company_id, "total": len(barriers), "barriers": barriers}
+    return _seeded({"company_id": company_id, "total": len(barriers), "barriers": barriers})
 
 
 @router.get("/barriers/{barrier_id}")
@@ -874,7 +927,7 @@ def get_barrier(
             "resource_id": "contract_wales_saf_001",
         }
     ] if barrier_id == "IB-01" else []
-    return barrier_with_log
+    return _seeded(barrier_with_log)
 
 
 class BarrierCreate(BaseModel):
@@ -904,7 +957,7 @@ def create_barrier(
         "active": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    return {"status": "created", "barrier": new_barrier}
+    return _seeded({"status": "created", "barrier": new_barrier})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -952,11 +1005,17 @@ def list_residency_policies(x_demo_company: Optional[str] = Header(default=None)
     Returns per data-category jurisdiction constraints.
     """
     company_id = _company_from_header(x_demo_company)
+    # Provenance depends on which branch answered: the DRPL store holds real
+    # policies somebody configured, the fallback list does not. Stamping this
+    # response unconditionally would be the mirror of the bug being fixed —
+    # labelling real data as seeded is also a lie, just a less dangerous one.
     if HAS_DRPL:
         policies = drpl_get_policies(company_id)
+        seeded = False
     else:
         policies = [p for p in _DEMO_RESIDENCY_POLICIES if p["company_id"] == company_id]
-    return {
+        seeded = True
+    body = {
         "company_id": company_id,
         "total": len(policies),
         "policies": policies,
@@ -967,6 +1026,7 @@ def list_residency_policies(x_demo_company: Optional[str] = Header(default=None)
             "gb-london-1": "GB (UK GDPR)",
         },
     }
+    return _seeded(body) if seeded else body
 
 
 class ResidencyPolicyUpdate(BaseModel):
@@ -1108,14 +1168,14 @@ def simulate_trade_policy(
 
     decision = evaluate_trade_policy(user_attrs, trade_ctx)
 
-    return {
+    return _seeded({
         "user_id": body.user_id,
         "user_name": user["name"],
         "decision": decision.decision.value,
         "rules_evaluated": decision.rules_evaluated,
         "denial_reason": decision.denial_reason,
         "attributes_snapshot": decision.attributes_snapshot,
-    }
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────

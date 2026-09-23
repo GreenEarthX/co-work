@@ -87,6 +87,19 @@ def _company_id_from_request(request: Request) -> Optional[str]:
     return company_from_payload(payload_from_request(request))
 
 
+def _user_id_from_request(request: Request) -> Optional[str]:
+    """The owner identity, from the same payload and the same one rule.
+
+    Owner-scoped policies must mean the same thing on this path as on the shim
+    path, or "only the owner can read it" would depend on which helper a route
+    happened to use — the exact defect `request_tenant` was written to close,
+    one axis down.
+    """
+    from app.core.request_tenant import payload_from_request, user_from_payload
+
+    return user_from_payload(payload_from_request(request))
+
+
 # ── Dependency ────────────────────────────────────────────────────────────────
 
 async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -109,6 +122,12 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
         safe_company_id = _sanitise_company_id(company_id)
         await session.execute(
             text(f"SET LOCAL app.current_company_id = '{safe_company_id}'")
+        )
+        # The owner axis, set on every session — see PostgresConnection for why
+        # an unset GUC is worse than a denying one.
+        await session.execute(
+            text("SET LOCAL app.current_user_id = "
+                 f"'{_sanitise_user_id(_user_id_from_request(request))}'")
         )
         try:
             yield session
@@ -133,6 +152,28 @@ def _sanitise_company_id(value: str) -> str:
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Invalid tenant identity in token.",
+    )
+
+
+def _sanitise_user_id(value: Optional[str]) -> str:
+    """Whitelist the owner identity before interpolating into SET LOCAL.
+
+    None means "no authenticated caller" and becomes the deny sentinel, so an
+    owner-scoped policy matches nothing. A malformed value is refused outright
+    rather than coerced to the sentinel: silently downgrading an identity this
+    code cannot parse would turn a token defect into an empty screen, and the
+    caller would debug the wrong thing.
+    """
+    import re
+    from app.core.request_tenant import NO_USER_CONTEXT
+
+    if not value:
+        return NO_USER_CONTEXT
+    if re.fullmatch(r"[A-Za-z0-9_.@-]{1,190}", value):
+        return value
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Invalid user identity in token.",
     )
 
 
@@ -182,6 +223,11 @@ def get_sync_db_for_company(company_id: str):
         db: Session = SyncSessionLocal()
         try:
             db.execute(text(f"SET LOCAL app.current_company_id = '{safe}'"))
+            # No request here, so the owner axis comes from whatever this
+            # context has bound — the deny sentinel when that is nothing.
+            from app.core.request_tenant import current_user
+            db.execute(text("SET LOCAL app.current_user_id = "
+                            f"'{_sanitise_user_id(current_user())}'"))
             yield db
             db.commit()
         except Exception:

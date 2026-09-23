@@ -36,12 +36,16 @@ problem spread.
 
 POSTGRES
 --------
-Refused, on purpose. These rows are personal data; a `CREATE TABLE IF NOT
-EXISTS` here would produce an unprotected table on a database where 89 of 98
-tables are under FORCED RLS. Creating the PII table as the one exception, with
-no policy, would repeat the mistake this module exists to undo. The RLS policy
-belongs in an Alembic migration alongside the other governance slices. The
-directory follows `GOVERNANCE_DB_BACKEND` rather than introducing a ninth
+Supported since migration **047**, and only because of it. These rows are
+personal data, so this module never creates them itself: a `CREATE TABLE IF NOT
+EXISTS` here would produce an unprotected table on a database where the rest is
+under FORCED RLS. 047 creates the five tables with a policy that admits a
+PLATFORM_ADMIN connection or the `greenearthx` tenant and nobody else — the
+same set `routes_directory` already answers 403 outside. `init_db()` is a
+no-op there; if the tables are missing, the fix is to run the migration, not to
+let the runtime improvise them.
+
+The directory follows `GOVERNANCE_DB_BACKEND` rather than introducing a ninth
 backend switch.
 """
 from __future__ import annotations
@@ -50,8 +54,7 @@ import sqlite3
 from typing import Any, Optional
 
 from app.core.config import settings
-from app.core.db_backend import governance_is_postgres
-from app.core.ecosystem_store import PostgresMigrationRequired
+from app.core.db_backend import governance_connection, governance_is_postgres
 
 # The columns that are personal data. Withheld from a caller who is not GEX
 # staff — omitted from the payload entirely, never nulled, because an absent
@@ -59,10 +62,15 @@ from app.core.ecosystem_store import PostgresMigrationRequired
 PII_FIELDS = ("email", "phone")
 
 
-def _conn() -> sqlite3.Connection:
+def _conn():
     # Path read per call, not cached at import: `isolated_store` swaps
     # settings.SQLITE_DB_PATH per test module and a cached path would pin the
     # store to the development database.
+    if governance_is_postgres():
+        # No company_id: the caller bound by ABACMiddleware decides. 047's
+        # policy admits PLATFORM_ADMIN and the `greenearthx` tenant, which is
+        # the same set `routes_directory._require_gex_staff` already admits.
+        return governance_connection()
     conn = sqlite3.connect(settings.SQLITE_DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -70,10 +78,11 @@ def _conn() -> sqlite3.Connection:
 
 def init_db() -> None:
     if governance_is_postgres():
-        raise PostgresMigrationRequired(
-            "directory tables hold personal data and need RLS policies from an "
-            "Alembic migration; refusing to create them unprotected"
-        )
+        # Migration 047 owns this DDL, policies included — nothing to create.
+        # Before 047 this raised, because the only alternative was creating the
+        # PII table unprotected. That reason is now spent; raising here would
+        # just stop the app booting on a database that already has the tables.
+        return
     conn = _conn()
     try:
         conn.executescript("""

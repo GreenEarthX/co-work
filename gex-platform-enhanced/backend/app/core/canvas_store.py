@@ -50,13 +50,12 @@ from __future__ import annotations
 
 import hashlib
 import os
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from app.core.config import settings
-from app.core.ecosystem_store import PostgresMigrationRequired
+from app.core.db_backend import workspace_connection, workspace_is_postgres
 
 # Anchored on the backend package root, not the working directory. A relative
 # root would resolve against wherever uvicorn happened to be started, and the
@@ -101,22 +100,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(settings.SQLITE_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _conn():
+    """Follows WORKSPACE_DB_BACKEND. On PostgreSQL the connection carries the
+    caller's `app.current_user_id`, which is the whole of 050's policy: the
+    owner sees their own rows, everyone else — platform admin included — sees
+    none."""
+    return workspace_connection()
 
 
 def _canvas_is_postgres() -> bool:
-    return (os.getenv("CANVAS_DB_BACKEND") or "sqlite").strip().lower() == "postgres"
+    # WORKSPACE_DB_BACKEND, declared in config.py. This used to read
+    # CANVAS_DB_BACKEND straight from the environment, which `Settings`
+    # never saw and nothing validated.
+    return workspace_is_postgres()
 
 
 def init_db() -> None:
     if _canvas_is_postgres():
-        raise PostgresMigrationRequired(
-            "canvas_blobs is user-scoped and needs RLS policies from an Alembic "
-            "migration; refusing to create it unprotected"
-        )
+        # Migration 050 owns canvas_blobs and its OWNER-ONLY policy
+        # (no admin clause). Nothing to create here; a runtime
+        # CREATE TABLE would produce it unprotected.
+        return
     conn = _conn()
     try:
         conn.executescript("""
@@ -281,7 +285,7 @@ def delete_document(owner_user_id: str, kind: str, slug: str) -> int:
     return len(rows)
 
 
-def _unlink_if_unreferenced(conn: sqlite3.Connection, stored_path: str) -> None:
+def _unlink_if_unreferenced(conn, stored_path: str) -> None:
     """Content is shared between identical versions, so the file goes only when
     the last row pointing at it has gone. Deleting eagerly would blank a
     snapshot that merely happened to match."""

@@ -94,22 +94,20 @@ DESIGN
   - Append-only, hash-chained allocation log (prev_hash → allocation_hash)
   - project_id is validated against the canonical projects store
 
-SQLite pattern: matches development_packages.py conventions.
+Store: DOMAIN_DB_BACKEND (SQLite or PostgreSQL, via domain_connection).
 """
 
-import sqlite3
 import uuid
 import json
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/chain-of-custody", tags=["chain-of-custody"])
 
@@ -175,18 +173,26 @@ class LotSummary(BaseModel):
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    """Follows DOMAIN_DB_BACKEND. No module-owned path, and nothing captured at
+    import: the store is resolved per request, so the tenant context of THIS
+    caller is what 044's project-scoped policies see."""
+    conn = domain_connection()
     try:
+        if not domain_is_postgres():
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
         yield conn
     finally:
         conn.close()
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS mass_balance_lots (
             lot_id                    TEXT PRIMARY KEY,
@@ -300,7 +306,7 @@ def _lot_row(row) -> dict:
 
 
 @router.post("/lots", response_model=LotResponse, status_code=201)
-def create_lot(lot: LotCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_lot(lot: LotCreate, db: Any = Depends(get_db)):
     _assert_project_exists(lot.project_id)
     lot_id = str(uuid.uuid4())
     now = _now()
@@ -330,7 +336,7 @@ def create_lot(lot: LotCreate, db: sqlite3.Connection = Depends(get_db)):
 
 
 @router.get("/lots/{lot_id}", response_model=LotResponse)
-def get_lot(lot_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_lot(lot_id: str, db: Any = Depends(get_db)):
     row = db.execute("SELECT * FROM mass_balance_lots WHERE lot_id=?", (lot_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"Lot {lot_id} not found")
@@ -341,7 +347,7 @@ def get_lot(lot_id: str, db: sqlite3.Connection = Depends(get_db)):
 def list_lots_by_project(
     project_id: str,
     status: Optional[LotStatus] = Query(None),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ):
     query = "SELECT * FROM mass_balance_lots WHERE project_id=?"
     params: list = [project_id]
@@ -354,7 +360,7 @@ def list_lots_by_project(
 
 
 @router.post("/allocate", response_model=AllocationResponse, status_code=201)
-def allocate_from_lot(alloc: AllocationCreate, db: sqlite3.Connection = Depends(get_db)):
+def allocate_from_lot(alloc: AllocationCreate, db: Any = Depends(get_db)):
     """
     Allocate volume from a lot to a token. Rejects if:
       - lot not found or not OPEN
@@ -433,7 +439,7 @@ def allocate_from_lot(alloc: AllocationCreate, db: sqlite3.Connection = Depends(
 
 
 @router.get("/lots/{lot_id}/allocations", response_model=list[AllocationResponse])
-def list_allocations(lot_id: str, db: sqlite3.Connection = Depends(get_db)):
+def list_allocations(lot_id: str, db: Any = Depends(get_db)):
     rows = db.execute(
         "SELECT * FROM mass_balance_allocations WHERE lot_id=? ORDER BY created_at ASC",
         (lot_id,),
@@ -454,7 +460,7 @@ def list_allocations(lot_id: str, db: sqlite3.Connection = Depends(get_db)):
 
 
 @router.get("/project/{project_id}/summary", response_model=LotSummary)
-def lot_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def lot_summary(project_id: str, db: Any = Depends(get_db)):
     rows = db.execute(
         "SELECT * FROM mass_balance_lots WHERE project_id=?", (project_id,)
     ).fetchall()

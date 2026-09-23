@@ -26,13 +26,12 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
-from app.core.ecosystem_store import PostgresMigrationRequired
+from app.core.db_backend import workspace_connection, workspace_is_postgres
 
 
 class EquationNotFound(LookupError):
@@ -43,22 +42,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(settings.SQLITE_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _conn():
+    """Follows WORKSPACE_DB_BACKEND. On PostgreSQL the connection carries the
+    caller's `app.current_user_id`, which is the whole of 050's policy: the
+    owner sees their own rows, everyone else — platform admin included — sees
+    none."""
+    return workspace_connection()
 
 
 def _equations_is_postgres() -> bool:
-    return (os.getenv("EQUATIONS_DB_BACKEND") or "sqlite").strip().lower() == "postgres"
+    # WORKSPACE_DB_BACKEND, declared in config.py. This used to read
+    # EQUATIONS_DB_BACKEND straight from the environment, which `Settings`
+    # never saw and nothing validated.
+    return workspace_is_postgres()
 
 
 def init_db() -> None:
     if _equations_is_postgres():
-        raise PostgresMigrationRequired(
-            "equipment_equations is user-scoped and needs RLS policies from an "
-            "Alembic migration; refusing to create it unprotected"
-        )
+        # Migration 050 owns equipment_equations and its OWNER-ONLY policy
+        # (no admin clause). Nothing to create here; a runtime
+        # CREATE TABLE would produce it unprotected.
+        return
     conn = _conn()
     try:
         conn.executescript("""
@@ -84,7 +88,7 @@ def init_db() -> None:
         conn.close()
 
 
-def _row(r: sqlite3.Row) -> dict[str, Any]:
+def _row(r) -> dict[str, Any]:
     """The shape `StoredEquipmentEquation` expects, unchanged by the move."""
     return {
         "id": r["row_id"],

@@ -362,3 +362,100 @@ def test_calculation_boundary_canonical_vs_caller_supplied():
     assert part["basis"] == "caller_supplied"
     assert part["equipment_count"] == 3 and part["canonical_equipment_count"] == 12
     assert part["complete"] is False and "missing process blocks" in part["note"]
+
+
+# ── 8. Monte Carlo — the distribution, not a single LCOP (attack L) ──────────
+
+def _mc(**over):
+    from tea_engine.models import TEAMonteCarloRequest
+    base = dict(
+        project_id="p", pathway_id="pw", fuel_id="E_METHANOL",
+        country="United States", nameplate_capacity=100_000, nameplate_unit="t/yr",
+        assumptions={"discount_rate_pct": 8.0, "electricity_eur_mwh": 45.0,
+                     "capacity_factor": 0.55, "project_life_years": 25},
+        num_samples=500,
+    )
+    base.update(over)
+    return TEAMonteCarloRequest(**base)
+
+
+def test_monte_carlo_is_centred_bracketing_and_reproducible():
+    """The band brackets the point estimate and centres on it (lifetime held — see the
+    canary below), and a fixed seed reproduces it exactly."""
+    a = runner.run_monte_carlo(_mc())
+    assert a.lcop.p5 <= a.base_lcop <= a.lcop.p95
+    assert abs(a.lcop.mean / a.base_lcop - 1) < 0.03
+    assert a.num_valid == a.num_samples == 500
+    assert runner.run_monte_carlo(_mc()).lcop == a.lcop             # same seed → identical
+    assert runner.run_monte_carlo(_mc(seed=7)).lcop != a.lcop       # other seed → differs
+
+
+def test_monte_carlo_samples_the_dominant_drivers_with_provenance():
+    """OpenPyTEA holds feedstock prices and utilisation fixed by default, which would make
+    the band falsely narrow. GEX samples them and labels every varied input; a caller
+    override becomes a sponsor assumption."""
+    by = {b["input"]: b for b in runner.run_monte_carlo(_mc()).uncertainty_basis}
+    for name in ("Hydrogen price", "Electricity price", "Plant utilization"):
+        assert by[name]["std"] > 0 and by[name]["source_class"] == "model_default"
+    ov = {b["input"]: b for b in
+          runner.run_monte_carlo(_mc(price_rel_std={"hydrogen": 0.25})).uncertainty_basis}
+    assert ov["Hydrogen price"]["source_class"] == "sponsor_assumption"
+    assert ov["Hydrogen price"]["std"] > by["Hydrogen price"]["std"]
+
+
+def test_monte_carlo_holds_lifetime_fixed_and_says_so():
+    """The direct guard on the lifetime hold (see the canary). The centring test is NOT
+    enough: negative-verified 2026-09-22, re-enabling lifetime sampling on _mc's config
+    moves the mean only -2%, inside its 3% tolerance. So assert the hold itself."""
+    r = runner.run_monte_carlo(_mc())
+    assert "Project lifetime" not in {b["input"] for b in r.uncertainty_basis}
+    assert "lifetime" in r.held_fixed[0]
+
+
+def test_monte_carlo_links_to_compute_and_answers_a_target():
+    r = runner.run_monte_carlo(_mc())
+    assert r.cost_basis_hash == runner.run_tea(_req()).cost_basis_hash
+    t = runner.run_monte_carlo(_mc(target_lcop=r.lcop.p50))
+    assert 0.45 <= t.p_lcop_le_target <= 0.55
+
+
+def test_monte_carlo_refuses_specs_that_would_mislead():
+    """A typo'd stream, an absurd σ, and sampling lifetime (known upstream bias) are
+    refused rather than silently absorbed; sample count is bounded per request."""
+    for bad in ({"price_rel_std": {"hydrogn": 0.2}},
+                {"price_rel_std": {"hydrogen": 0.9}},
+                {"project_uncertainties": {"project_lifetime": {"std": 5}}}):
+        with pytest.raises(ValueError):
+            runner.run_monte_carlo(_mc(**bad))
+    from pydantic import ValidationError
+    for n in (10, 50_000):                 # OpenPyTEA's 1e6 default is unusable per request
+        with pytest.raises(ValidationError):
+            _mc(num_samples=n)
+
+
+def test_monte_carlo_needs_the_real_engine(monkeypatch):
+    monkeypatch.setenv("TEA_STUB", "1")
+    with pytest.raises(NotImplementedError):
+        runner.run_monte_carlo(_mc())
+
+
+def test_openpytea_mc_lifetime_bug_canary():
+    """CANARY — OpenPyTEA 2.1.0's vectorised Monte Carlo ignores per-sample lifetime:
+    samples at ~15 y and ~35 y return the same LCOP, although deterministically they
+    differ materially. GEX holds lifetime fixed because of it (MC_LIFETIME_HELD).
+    IF THIS TEST FAILS, upstream fixed the bug: re-enable lifetime sampling in
+    run_monte_carlo, drop MC_LIFETIME_HELD, and delete this canary."""
+    import numpy as np
+    from openpytea.analysis import monte_carlo
+    req = _req()
+    units, var_opex, _ = runner.resolve_process_function(req)
+    pu = {k: {"std": 0} for k in ("fixed_capital_factor", "fixed_opex_factor",
+                                   "interest_rate", "plant_utilization", "tax_rate")}
+    plant, _ = runner._build_plant(req, units, var_opex,
+                                   extra_config={"project_uncertainties": pu})
+    np.random.seed(1)
+    mc = monte_carlo(plant, num_samples=3000, batch_size=1000)
+    life = np.asarray(mc["inputs"]["Project lifetime"])
+    lcop = np.asarray(mc["metrics"]["LCOP"])
+    short, long_ = lcop[life < 17].mean(), lcop[life > 33].mean()
+    assert abs(short - long_) < 0.05, "upstream fixed the lifetime bug — see docstring"

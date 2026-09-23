@@ -71,9 +71,27 @@ def test_approval_rules_are_not_tenant_writable():
 
 def test_user_scoped_tables_are_admin_only():
     """
-    `permission_user_overrides` and `user_signing_keys` belong to a USER, but
-    the only tenant GUC is app.current_company_id. "A user may read their own
-    row" cannot be expressed, so they are admin-only.
+    `permission_user_overrides` and `user_signing_keys` are admin-only — still,
+    but no longer because the database cannot say otherwise.
+
+    REVISITED 2026-09-23, after `app.current_user_id` landed (it is bound on
+    both database paths, and migration 050 already rests an owner-only policy
+    on it). "A user may read their own row" is now expressible. These two stay
+    admin-only anyway, on the evidence:
+
+      · `permission_user_overrides` is read WHILE DECIDING permission —
+        `get_user_overrides(user_id)` is called from three sites in the
+        resolution path and from CISO routes, always for a named subject who is
+        NOT the caller. Nothing anywhere reads "my own overrides". An owner
+        clause would widen an authorization table for a caller that does not
+        exist, and the next reader would reasonably assume something uses it.
+      · `user_signing_keys` has no reader or writer at all: `css.py` creates it
+        and then signs with an HMAC derived from a dev master secret, never
+        consulting the table. 0 rows. It is dormant, not load-bearing, so its
+        policy is not what is wrong with it.
+
+    If a "show me my own permissions" screen is ever built, the owner clause is
+    a one-line migration and this docstring is the place that says so.
 
     Critically they must NOT be company-scoped: that would let a colleague read
     another user's permission overrides.
@@ -89,8 +107,8 @@ def test_user_scoped_tables_are_admin_only():
             assert "PLATFORM_ADMIN" in qual, f"{t}: not admin-scoped"
             assert "company_id =" not in qual.replace("app.current_company_id", ""), (
                 f"{t} is COMPANY-scoped — a colleague could read another user's "
-                "overrides. It must stay admin-only until an app.current_user_id "
-                "GUC exists."
+                "overrides. Owner-scoping is now possible (app.current_user_id "
+                "exists); company-scoping never was and never will be."
             )
     finally:
         conn.close()
@@ -243,3 +261,28 @@ def test_rls_is_enabled_and_forced_everywhere():
             assert r["relrowsecurity"] and r["relforcerowsecurity"], f"{t}: RLS weak"
     finally:
         conn.close()
+
+
+def test_reading_overrides_does_not_attempt_ddl_on_postgres():
+    """Regression: every override read ran CREATE TABLE IF NOT EXISTS first.
+
+    `init_permission_override_store()` was guarded for PostgreSQL;
+    `_ensure_override_table()` — called by `get_user_overrides`,
+    `set_user_override` and `clear_user_override` on EVERY call — was not. With
+    GOVERNANCE_DB_BACKEND=postgres that raised
+
+        InsufficientPrivilege: permission denied for schema public
+
+    and `get_user_overrides` sits in the permission RESOLUTION path, so it was
+    not a broken admin screen: every permission check that consulted overrides
+    raised. Measured and fixed 2026-09-23.
+    """
+    requires_pg()
+    from app.core.db_backend import governance_is_postgres
+    from app.core.permission_engine import get_user_overrides
+
+    if not governance_is_postgres():
+        pytest.skip("GOVERNANCE_DB_BACKEND is sqlite — the DDL path is legitimate there")
+
+    result = get_user_overrides("admin_greenearthx_com")
+    assert set(result) == {"grants", "revocations"}

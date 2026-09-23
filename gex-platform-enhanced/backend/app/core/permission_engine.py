@@ -1176,7 +1176,28 @@ def _override_conn() -> sqlite3.Connection:
     return governance_connection(company_id=PLATFORM_ADMIN)
 
 
-def _ensure_override_table(conn: sqlite3.Connection) -> None:
+def _ensure_override_table(conn) -> None:
+    """Create the table on SQLite; do nothing on PostgreSQL.
+
+    `init_permission_override_store()` was guarded for PostgreSQL but this —
+    which every override read and write calls on EVERY call — was not. Measured
+    2026-09-23, with GOVERNANCE_DB_BACKEND=postgres:
+
+        get_user_overrides('admin_greenearthx_com')
+        -> InsufficientPrivilege: permission denied for schema public
+
+    and `get_user_overrides` is called from the permission RESOLUTION path
+    (three sites), so this was not merely a broken admin screen: every
+    permission check that consulted overrides raised. `gex_app` having no
+    CREATE on schema public is what turned a silent schema divergence into a
+    loud failure — the guardrail working, at the cost of the feature.
+
+    Migration 042 owns this table, its CHECK constraints and its RLS policy.
+    """
+    from app.core.db_backend import governance_is_postgres
+
+    if governance_is_postgres():
+        return
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS permission_user_overrides (

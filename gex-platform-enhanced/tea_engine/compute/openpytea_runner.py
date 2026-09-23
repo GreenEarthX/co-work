@@ -14,12 +14,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 
 from tea_engine.models import (
     EvidenceEntryProposal,
+    LcopStats,
     PlantSummaryExtract,
     SensitivityVar,
     TEAComputeRequest,
+    TEAMonteCarloRequest,
+    TEAMonteCarloResult,
     TEAResult,
     TEASensitivityResult,
 )
@@ -158,8 +162,10 @@ def _validate_equipment(units) -> None:
         )
 
 
-def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float, str]:
-    """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop, currency)."""
+def _build_plant(req: TEAComputeRequest, units, var_opex, extra_config: dict | None = None):
+    """Assemble (not calculate) the OpenPyTEA Plant for a request. Shared by the point
+    estimate and the Monte Carlo so both run on the identical plant — same equipment,
+    currency, FX, utilisation. Returns (plant, base_currency)."""
     from openpytea.equipment import Equipment
     from openpytea.plant import Plant
 
@@ -185,7 +191,7 @@ def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float
     # exchange_rate touches only purchased/direct cost; variable OPEX (GEX's already-
     # base-currency feedstock prices) is untouched, so nothing is double-converted.
     fx_rate = integrity.usd_to_base_rate(base_ccy, req.fx_usd_to_eur)
-    plant = Plant({
+    config = {
         "name": req.pathway_id,
         "country": req.country,
         "process_type": req.plant_process_type,
@@ -197,7 +203,15 @@ def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float
         "project_lifetime": a.project_life_years,
         "plant_products": {req.fuel_id.lower(): {"production": _nameplate_kg_per_day(req)}},
         "variable_opex_inputs": var_opex,
-    })
+    }
+    if extra_config:
+        config.update(extra_config)
+    return Plant(config), base_ccy
+
+
+def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float, str]:
+    """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop, currency)."""
+    plant, base_ccy = _build_plant(req, units, var_opex)
     plant.calculate_all()
     d = plant.to_dict()
 
@@ -353,4 +367,192 @@ def run_sensitivity(req: TEAComputeRequest) -> TEASensitivityResult:
         base_lcop=base_lcop,
         tornado=tornado,
         run_evidence=base.run_evidence,
+    )
+
+
+# ── Monte Carlo (OpenPyTEA analysis.monte_carlo, headless) ──────────────────────
+# GEX default uncertainty for inputs OpenPyTEA holds fixed by default (every variable-
+# OPEX price, capacity factor): 10% relative σ truncated at ±2σ — the same ±20% band the
+# one-way tornado uses. Without it the dominant drivers (H2, power) are not sampled and
+# the band comes out falsely narrow — the false precision this endpoint exists to cure.
+MC_DEFAULT_REL_STD = 0.10
+MC_MAX_REL_STD = 0.50
+# UPSTREAM BUG — OpenPyTEA 2.1.0 (verified 2026-09-22): with project_lifetime sampled as
+# an array, the vectorised Monte Carlo levelises EVERY sample over the longest horizon —
+# samples at 10 y and at 30 y return the same LCOP — biasing the band ~6% LOW. Every
+# other vectorised input (interest, utilisation, prices, capital factor) was checked
+# per-sample against deterministic runs and is correct. GEX therefore holds lifetime
+# fixed and refuses a request to sample it; test_openpytea_mc_lifetime_bug_canary fails
+# the day upstream fixes it, which is the signal to re-enable.
+MC_LIFETIME_HELD = ("project lifetime — held at the point-estimate value: OpenPyTEA 2.1.0's "
+                    "vectorised Monte Carlo levelises every sample over the longest sampled "
+                    "horizon (samples at 10 y and 30 y return the same LCOP), which would "
+                    "bias the band low. Test lifetime with deterministic /tea/compute runs.")
+# OpenPyTEA samples via scipy truncnorm with no random_state, i.e. numpy's GLOBAL RNG.
+# Seed under a lock and restore the state afterwards, or concurrent requests interleave
+# draws and neither result is reproducible.
+_MC_LOCK = threading.Lock()
+
+
+def _band(mean: float, rel: float, lo: float | None = None, hi: float | None = None) -> dict:
+    """Truncated-normal spec: σ = rel·|mean|, bounds mean ± 2σ (clipped to [lo, hi])."""
+    if rel <= 0:
+        return {"std": 0.0}
+    std = abs(mean) * rel
+    low, high = mean - 2 * std, mean + 2 * std
+    if lo is not None:
+        low = max(lo, low)
+    if hi is not None:
+        high = min(hi, high)
+    return {"std": std, "min": low, "max": high}
+
+
+def _engine_version() -> str | None:
+    try:
+        from importlib.metadata import version
+        return version("openpytea")
+    except Exception:  # pragma: no cover
+        return None
+
+
+def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
+    _ensure_runnable()
+    if not (_HAS_OPENPYTEA and not _stub_allowed()):
+        raise NotImplementedError(
+            "Monte Carlo needs the real OpenPyTEA engine — the deterministic stub has no "
+            "distribution to sample.")
+    import numpy as np
+    from openpytea.analysis import monte_carlo
+
+    # 1) Point estimate on the plain compute inputs: identical cost_basis_hash to
+    #    /tea/compute (so the two link), and every integrity check (unit, FX band,
+    #    plausibility, provenance) runs exactly as it does there.
+    base_req = TEAComputeRequest.model_validate(
+        req.model_dump(include=set(TEAComputeRequest.model_fields), exclude_unset=True))
+    base = run_tea(base_req)
+
+    # 2) Uncertainty spec. An unknown stream or an out-of-range σ is refused, not
+    #    silently ignored — a typo must not quietly narrow the band.
+    units, var_opex, pf_meta = resolve_process_function(base_req)
+    unknown = set(req.price_rel_std) - set(var_opex)
+    if unknown:
+        raise ValueError(f"price_rel_std names unknown stream(s) {sorted(unknown)}; "
+                         f"streams in this run: {sorted(var_opex)}")
+    for s, rel in req.price_rel_std.items():
+        if not (0 <= float(rel) <= MC_MAX_REL_STD):
+            raise ValueError(f"price_rel_std[{s!r}]={rel} must be within [0, {MC_MAX_REL_STD}]")
+    mc_opex = {
+        stream: {**cfg, **_band(float(cfg["price"]),
+                                float(req.price_rel_std.get(stream, MC_DEFAULT_REL_STD)), lo=0.0)}
+        for stream, cfg in var_opex.items()
+    }
+    pu = dict(req.project_uncertainties)          # explicit OpenPyTEA spec wins
+    lt_spec = pu.get("project_lifetime")
+    if lt_spec is not None and float((lt_spec or {}).get("std", 5) or 0) > 0:
+        raise ValueError("project_lifetime cannot be sampled: " + MC_LIFETIME_HELD)
+    pu["project_lifetime"] = {"std": 0}           # held fixed — upstream bug, see above
+    if "plant_utilization" not in pu:
+        rel = (req.capacity_factor_rel_std if req.capacity_factor_rel_std is not None
+               else MC_DEFAULT_REL_STD)
+        pu["plant_utilization"] = _band(float(base_req.assumptions.capacity_factor), rel,
+                                        lo=0.01, hi=1.0)
+    plant, base_ccy = _build_plant(base_req, units, mc_opex,
+                                   extra_config={"project_uncertainties": pu})
+
+    # 3) Seeded, serialised, RNG-state-preserving run. No progress bar in a service: tqdm
+    #    reads TQDM_DISABLE at import, so the bar is switched off on the module instead.
+    import functools
+    import openpytea.analysis as _opa
+    n = req.num_samples
+    with _MC_LOCK:
+        state = np.random.get_state()
+        orig_tqdm = _opa.tqdm
+        _opa.tqdm = functools.partial(orig_tqdm, disable=True)
+        try:
+            np.random.seed(req.seed)
+            mc = monte_carlo(plant, num_samples=n, batch_size=min(1000, n))
+        finally:
+            _opa.tqdm = orig_tqdm
+            np.random.set_state(state)
+
+    # 4) Same co-product credit as the point estimate (a constant per-kg shift).
+    shift = (pf_meta["coproduct_revenue_per_t_primary"] / 1000.0
+             if pf_meta and pf_meta.get("coproduct_revenue_per_t_primary") else 0.0)
+    lcop = np.asarray(mc["metrics"]["LCOP"], dtype=float) - shift
+    valid = lcop[np.isfinite(lcop)]
+    if valid.size == 0:
+        raise ValueError("Monte Carlo produced no finite LCOP samples — check the inputs.")
+
+    p5, p10, p50, p90, p95 = (float(x) for x in np.percentile(valid, [5, 10, 50, 90, 95]))
+    stats = LcopStats(
+        mean=round(float(valid.mean()), 4), std=round(float(valid.std()), 4),
+        p5=round(p5, 4), p10=round(p10, 4), p50=round(p50, 4),
+        p90=round(p90, 4), p95=round(p95, 4),
+        min=round(float(valid.min()), 4), max=round(float(valid.max()), 4))
+    counts, edges = np.histogram(valid, bins=20)
+
+    # 5) Provenance of every varied input — what was actually sampled, and who said so.
+    stream_of = {f"{k.replace('_', ' ').title()} price": k for k in var_opex}
+    pu_key = {"Fixed capital factor": "fixed_capital_factor",
+              "Fixed opex factor": "fixed_opex_factor",
+              "Project lifetime": "project_lifetime",
+              "Interest rate": "interest_rate",
+              "Tax rate": "tax_rate"}
+    gex_default = f"GEX default: {MC_DEFAULT_REL_STD:.0%} relative σ, truncated ±2σ"
+    basis = []
+    held_fixed = [MC_LIFETIME_HELD]
+    for name, arr in mc["inputs"].items():
+        a = np.asarray(arr, dtype=float)
+        if float(a.std()) == 0.0:                 # not varied — list it, don't dress it up
+            if name != "Project lifetime":
+                held_fixed.append(f"{name.lower()} (σ = 0)")
+            continue
+        if name in stream_of:
+            caller = stream_of[name] in req.price_rel_std
+            src = "caller price_rel_std" if caller else gex_default
+        elif name == "Plant utilization":
+            caller = ("plant_utilization" in req.project_uncertainties
+                      or req.capacity_factor_rel_std is not None)
+            src = "caller override" if caller else gex_default
+        elif name in pu_key:
+            caller = pu_key[name] in req.project_uncertainties
+            src = "caller project_uncertainties" if caller else "OpenPyTEA default"
+        else:                                     # operator hourly rate — GEX doesn't set it
+            caller, src = False, "OpenPyTEA default"
+        basis.append({
+            "input": name, "distribution": "truncated normal",
+            "mean": round(float(a.mean()), 6), "std": round(float(a.std()), 6),
+            "min": round(float(a.min()), 6), "max": round(float(a.max()), 6),
+            "source_class": "sponsor_assumption" if caller else "model_default",
+            "source": src,
+        })
+
+    mc_hash = "sha256:" + hashlib.sha256(json.dumps({
+        "cost_basis_hash": base.cost_basis_hash, "num_samples": n, "seed": req.seed,
+        "price_rel_std": req.price_rel_std,
+        "capacity_factor_rel_std": req.capacity_factor_rel_std,
+        "project_uncertainties": req.project_uncertainties,
+    }, sort_keys=True, default=str).encode()).hexdigest()[:24]
+
+    target = req.target_lcop
+    return TEAMonteCarloResult(
+        engine=engine_name(), engine_version=_engine_version(),
+        cost_basis_hash=base.cost_basis_hash, mc_hash=mc_hash,
+        seed=req.seed, num_samples=n, num_valid=int(valid.size),
+        currency=base_ccy, base_lcop=base.lcop, lcop=stats,
+        target_lcop=target,
+        p_lcop_le_target=(round(float((valid <= target).mean()), 4)
+                          if target is not None else None),
+        histogram={"bin_edges": [round(float(e), 4) for e in edges],
+                   "counts": [int(c) for c in counts]},
+        uncertainty_basis=basis,
+        held_fixed=held_fixed + [
+            "equipment cost correlations (varied only through the global fixed-capital factor)",
+            "process stoichiometry, conversion yield and feedstock consumption rates",
+            "nameplate capacity and the process boundary",
+            "co-product prices / credit",
+            "FX rate and CEPCI escalation",
+        ],
+        base_result_status=base.result_status,
+        plausibility=base.plausibility,
     )

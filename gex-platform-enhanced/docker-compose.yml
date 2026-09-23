@@ -41,6 +41,14 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://gex_user:gex_password_dev@postgres:5432/gex_platform
+      AUTH_DB_BACKEND: postgres
+      EVIDENCE_DB_BACKEND: postgres
+      CAPITAL_DB_BACKEND: postgres
+      MARKET_DB_BACKEND: postgres
+      ENTITLEMENT_DB_BACKEND: postgres
+      EVENTSTORE_DB_BACKEND: postgres
+      FUELREF_DB_BACKEND: postgres
+      GOVERNANCE_DB_BACKEND: postgres
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: dev_secret_key_change_in_production
       ENVIRONMENT: development
@@ -81,6 +89,14 @@ services:
       dockerfile: ../docker/Dockerfile.backend
     environment:
       DATABASE_URL: postgresql://gex_user:gex_password_dev@postgres:5432/gex_platform
+      AUTH_DB_BACKEND: postgres
+      EVIDENCE_DB_BACKEND: postgres
+      CAPITAL_DB_BACKEND: postgres
+      MARKET_DB_BACKEND: postgres
+      ENTITLEMENT_DB_BACKEND: postgres
+      EVENTSTORE_DB_BACKEND: postgres
+      FUELREF_DB_BACKEND: postgres
+      GOVERNANCE_DB_BACKEND: postgres
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: dev_secret_key_change_in_production
     depends_on:
@@ -98,6 +114,14 @@ services:
       dockerfile: ../docker/Dockerfile.backend
     environment:
       DATABASE_URL: postgresql://gex_user:gex_password_dev@postgres:5432/gex_platform
+      AUTH_DB_BACKEND: postgres
+      EVIDENCE_DB_BACKEND: postgres
+      CAPITAL_DB_BACKEND: postgres
+      MARKET_DB_BACKEND: postgres
+      ENTITLEMENT_DB_BACKEND: postgres
+      EVENTSTORE_DB_BACKEND: postgres
+      FUELREF_DB_BACKEND: postgres
+      GOVERNANCE_DB_BACKEND: postgres
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: dev_secret_key_change_in_production
     depends_on:

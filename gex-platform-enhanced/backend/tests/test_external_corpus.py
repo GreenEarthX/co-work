@@ -34,10 +34,25 @@ LIC = dict(source="TEST_FIXTURE", license="none — synthetic unit fixture",
 
 
 @pytest.fixture(autouse=True)
-def temp_db(monkeypatch):
-    tmp = tempfile.mktemp(suffix=".db")
-    monkeypatch.setattr(xc, "DB_PATH", tmp)
+def temp_db(isolated_store):
+    """`isolated_store`, not a monkeypatched module path. `xc.DB_PATH` no
+    longer exists: the module follows DOMAIN_DB_BACKEND and resolves the store
+    per call, so a module-level path could not be honoured — and a test that
+    patches one would write the development database the moment the switch
+    said `postgres`."""
     xc.init_db()
+    # `isolated_store` is module-scoped — one throwaway database for the whole
+    # file — where the old fixture built a fresh one per test. Several tests
+    # here assert on an EMPTY corpus ("pending, not fabricated"), so the tables
+    # are cleared per test rather than relying on execution order.
+    conn = xc.get_db()
+    try:
+        for table in ("corpus_status_transitions", "external_projects",
+                      "corpus_taxonomy_map", "corpus_versions"):
+            conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+    finally:
+        conn.close()
     yield
 
 

@@ -39,6 +39,7 @@ const ComponentLibrary = ({ onCollapse, collapsed, onOpenProcurement }: Props) =
   const [customCarriers, setCustomCarriers] = useState<CarrierDef[]>([]);
   const [customGates, setCustomGates] = useState<GateDef[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [librarySaveError, setLibrarySaveError] = useState<string | null>(null);
 
   // Load the user's cloud-synced custom library on mount / user change so
   // additions made in one plant appear automatically across all plants.
@@ -60,9 +61,14 @@ const ComponentLibrary = ({ onCollapse, collapsed, onOpenProcurement }: Props) =
   useEffect(() => {
     if (!libraryLoaded) return;
     const t = setTimeout(() => {
+      // saveCustomLibrary now THROWS when the server refuses, rather than
+      // logging to a console nobody reads. Surfaced here so the palette can
+      // say "in this browser only" instead of implying it reached the account.
       saveCustomLibrary(
         { equipment: customEquipment, carriers: customCarriers, gates: customGates },
-      );
+      )
+        .then(() => setLibrarySaveError(null))
+        .catch((err: Error) => setLibrarySaveError(err.message));
     }, 500);
     return () => clearTimeout(t);
   }, [customEquipment, customCarriers, customGates, libraryLoaded]);
@@ -301,6 +307,14 @@ const ComponentLibrary = ({ onCollapse, collapsed, onOpenProcurement }: Props) =
           </button>
         </div>
         <p className="text-[10px] text-muted-foreground">{totalCount} items · Drag to canvas</p>
+        {librarySaveError && (
+          // Silence here used to mean "saved" when it meant "saved in this
+          // browser only". The user's custom palette follows their account, so
+          // a failure to reach it is worth one line of their attention.
+          <p className="mt-1 text-[10px] text-destructive" role="status">
+            {librarySaveError}
+          </p>
+        )}
       </div>
 
       {/* Tabs */}

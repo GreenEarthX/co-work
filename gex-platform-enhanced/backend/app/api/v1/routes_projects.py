@@ -15,6 +15,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from app.core.capacity_units import capacity_mtpd_to_mt_year
+from app.core.db_backend import domain_connection, domain_is_postgres
 from app.core.project_registry import (
     PROJECT_ACCESS_PROFILES,
     ProjectAccessProfile,
@@ -386,6 +387,11 @@ _FLAG_TRANSITIONS: dict[str, list[str]] = {
 
 
 def _ensure_flag_tables(conn):
+    if domain_is_postgres():
+        # 044 owns risk_flag_status / risk_flag_events and their policies.
+        # `id` is an identity column there, so the inserts below (which never
+        # name `id`) behave the same on both stores.
+        return
     conn.execute("""
         CREATE TABLE IF NOT EXISTS risk_flag_status (
             project_id TEXT NOT NULL,
@@ -412,18 +418,19 @@ def _ensure_flag_tables(conn):
 
 
 def _risk_flag_status_overlay(project_id: str) -> dict[str, str]:
-    import sqlite3
-    from app.core.project_registry import _DB_PATH
     try:
-        conn = sqlite3.connect(_DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = domain_connection()
         _ensure_flag_tables(conn)
         rows = conn.execute(
             "SELECT flag_id, status FROM risk_flag_status WHERE project_id = ?", (project_id,)
         ).fetchall()
         conn.close()
         return {r["flag_id"]: r["status"] for r in rows}
-    except sqlite3.Error:
+    except Exception:
+        # Fails soft to "no overlay" on purpose — an unreadable status table
+        # must not blank the risk flags themselves. Widened from sqlite3.Error
+        # when this moved to DOMAIN_DB_BACKEND: psycopg2 raises its own types,
+        # and an RLS-filtered read is not an error at all.
         return {}
 
 
@@ -447,9 +454,8 @@ async def patch_risk_flag(
     owner_function or EXECUTIVE — or be platform admin. Every transition is
     written to the append-only risk_flag_events audit table.
     """
-    import sqlite3
     from datetime import datetime, timezone
-    from app.core.project_registry import _DB_PATH, get_project_profile
+    from app.core.project_registry import get_project_profile
     from app.core.risk_flags import visible_risk_flags
 
     payload = _require_user(authorization)
@@ -483,8 +489,7 @@ async def patch_risk_flag(
 
     actor = payload.get("email", "unknown")
     now = datetime.now(timezone.utc).isoformat()
-    conn = sqlite3.connect(_DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = domain_connection()
     _ensure_flag_tables(conn)
     conn.execute(
         """INSERT INTO risk_flag_status (project_id, flag_id, status, updated_by, updated_at)
@@ -510,8 +515,6 @@ async def get_risk_flag_events(
     authorization: str | None = Header(default=None),
 ):
     """Append-only transition history for one risk flag (same visibility as the flag)."""
-    import sqlite3
-    from app.core.project_registry import _DB_PATH
     from app.core.risk_flags import visible_risk_flags
 
     payload = _require_user(authorization)
@@ -519,8 +522,7 @@ async def get_risk_flag_events(
     if visible is None or not any(f.id == flag_id for f in visible):
         raise HTTPException(status_code=404, detail="Risk flag not found")
 
-    conn = sqlite3.connect(_DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = domain_connection()
     _ensure_flag_tables(conn)
     rows = conn.execute(
         "SELECT old_status, new_status, actor, note, at FROM risk_flag_events WHERE project_id = ? AND flag_id = ? ORDER BY id DESC",

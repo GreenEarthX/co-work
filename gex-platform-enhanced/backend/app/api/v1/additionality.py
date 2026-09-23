@@ -33,19 +33,17 @@ DFI sub-persona (ABAC):
 Route prefix: /api/v1/additionality
 """
 
-import sqlite3
 import uuid
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
 # Unified DB — single store across all modules.
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/additionality", tags=["additionality"])
 
@@ -225,10 +223,12 @@ class ImpactKPIUpdate(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # so 044's project-scoped policies see THIS caller's tenant.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -241,7 +241,12 @@ def init_db():
     UPDM target (PostgreSQL): add FK to projects, concessional_tranches,
     sovereign_instruments, and enable RLS for DFI sub-persona.
     """
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS additionality_assessments (
             assessment_id          TEXT PRIMARY KEY,
@@ -547,7 +552,7 @@ def _impact_narrative(inp: AdditionalityInput, institution: DFIInstitution):
 @router.post("/assess", response_model=AdditionalityResult, status_code=201)
 def assess_additionality(
     inp: AdditionalityInput,
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Run a full additionality assessment for a DFI tranche.
@@ -602,7 +607,7 @@ def assess_additionality(
 def list_assessments(
     project_id: str,
     dfi: Optional[DFIInstitution] = Query(None),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     List all additionality assessments for a project.
@@ -618,7 +623,7 @@ def list_assessments(
 
 
 @router.get("/project/{project_id}/g10-status")
-def g10_additionality_status(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def g10_additionality_status(project_id: str, db: Any = Depends(get_db)):
     """
     G10 pre-condition check: are all committed DFI tranches additionality-cleared?
 
@@ -680,7 +685,7 @@ def g10_additionality_status(project_id: str, db: sqlite3.Connection = Depends(g
 def update_impact_kpis(
     assessment_id: str,
     kpi: ImpactKPIUpdate,
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Update development impact KPIs for a reporting period.
@@ -719,7 +724,7 @@ def update_impact_kpis(
 
 
 @router.get("/{assessment_id}/impact-history")
-def get_impact_history(assessment_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_impact_history(assessment_id: str, db: Any = Depends(get_db)):
     """
     Return all KPI snapshots for an assessment — shows impact trajectory over time.
     Used in DFI annual reporting and CISO/Executive dashboards.

@@ -88,11 +88,10 @@ Route prefix: /api/v1/pre-cod-metrics
 """
 
 import hashlib
-import sqlite3
 import uuid
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
@@ -101,8 +100,7 @@ from pydantic import BaseModel, Field
 # packages (CEC/FRI), so they must read the SAME store development_packages.py
 # writes to. Previously hard-coded to a second database file, which made the
 # metrics 404 ("no packages") for projects whose packages live in the platform DB.
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/pre-cod-metrics", tags=["pre-cod-metrics"])
 
@@ -268,11 +266,11 @@ class PreCODReport(BaseModel):
 # ════════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    # check_same_thread=False: FastAPI runs sync endpoints across threadpool
-    # workers (per-request connection, not shared concurrently).
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # so 044's project-scoped policies see THIS caller's tenant.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
     finally:
@@ -281,7 +279,12 @@ def get_db():
 
 def init_db():
     """Snapshot table for trend tracking. Call from main.py startup."""
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS pre_cod_snapshots (
             snapshot_id     TEXT PRIMARY KEY,
@@ -681,7 +684,7 @@ def _one_liner(signal: str, cec: float, fri: float,
 def compute_pre_cod_metrics(
     project_id: str,
     body: PreCODRequest,
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     packages_raw = db.execute(
         "SELECT * FROM development_packages WHERE project_id=?", (project_id,)
@@ -813,7 +816,7 @@ def compute_pre_cod_metrics(
 def get_metric_history(
     project_id: str,
     limit: int = Query(20, le=100),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     rows = db.execute("""
         SELECT snapshot_id, computed_at, cec_value, fri_value, rmr_value,
@@ -829,7 +832,7 @@ def get_metric_history(
 @router.get("/portfolio/summary")
 def portfolio_summary(
     project_ids: str = Query(..., description="Comma-separated project IDs"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     ids = [p.strip() for p in project_ids.split(",") if p.strip()]
     results = []

@@ -24,19 +24,17 @@ Integration points:
 SQLite pattern: matches development_packages.py / tokens_sqlite.py conventions.
 """
 
-import sqlite3
 import uuid
 import json
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/spend-wave", tags=["spend-wave"])
 
@@ -136,13 +134,12 @@ class SpendWaveSummary(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    # check_same_thread=False: FastAPI runs sync endpoints across threadpool
-    # workers; a request's dependency and endpoint can land on different
-    # threads. Connection stays per-request, not shared concurrently.
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # so 044's project-scoped policies see THIS caller's tenant.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -154,7 +151,12 @@ def init_db():
     Create spend_waves table + spend_wave_events audit table.
     Call from app/main.py startup alongside other init_db() calls.
     """
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS spend_waves (
             spend_wave_id      TEXT PRIMARY KEY,
@@ -285,7 +287,7 @@ def _row_to_response(row) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("", response_model=SpendWaveResponse, status_code=201)
-def create_spend_wave(sw: SpendWaveCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_spend_wave(sw: SpendWaveCreate, db: Any = Depends(get_db)):
     """
     Create a spend wave record — pre-FID annual time-phased spend.
     Enforces equity-first-loss invariant: senior/ECA/DFI cannot be drawn pre-FID.
@@ -319,7 +321,7 @@ def create_spend_wave(sw: SpendWaveCreate, db: sqlite3.Connection = Depends(get_
 
 
 @router.get("/{spend_wave_id}", response_model=SpendWaveResponse)
-def get_spend_wave(spend_wave_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_spend_wave(spend_wave_id: str, db: Any = Depends(get_db)):
     row = db.execute("SELECT * FROM spend_waves WHERE spend_wave_id=?", (spend_wave_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"Spend wave {spend_wave_id} not found")
@@ -331,7 +333,7 @@ def list_spend_waves(
     project_id: str,
     year: Optional[int] = Query(None),
     capital_layer: Optional[CapitalLayer] = Query(None),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """List all spend wave records for a project with optional year/capital_layer filters."""
     query = "SELECT * FROM spend_waves WHERE project_id=?"
@@ -350,7 +352,7 @@ def list_spend_waves(
 
 
 @router.get("/project/{project_id}/summary", response_model=SpendWaveSummary)
-def spend_wave_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def spend_wave_summary(project_id: str, db: Any = Depends(get_db)):
     """
     Aggregate spend wave view:
       - Total spend by year, by capital layer, and cross-tabulated
@@ -410,7 +412,7 @@ def spend_wave_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)
 
 
 @router.delete("/{spend_wave_id}")
-def delete_spend_wave(spend_wave_id: str, deleted_by: str, db: sqlite3.Connection = Depends(get_db)):
+def delete_spend_wave(spend_wave_id: str, deleted_by: str, db: Any = Depends(get_db)):
     """
     Soft delete via event log — marks the record as deleted in the audit trail.
     The row remains for audit purposes; hard deletes are never permitted.

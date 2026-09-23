@@ -1370,7 +1370,6 @@ export function StageGatesPage() {
   const [error, setError] = useState<string | null>(null);
   // Surfaced when an evidence-status action fails — never a silent dead-end.
   const [actionError, setActionError] = useState<string | null>(null);
-  const [seeding, setSeeding] = useState(false);
   const [health, setHealth] = useState<{
     status: string;
     platform_db?: string;
@@ -1426,17 +1425,10 @@ export function StageGatesPage() {
     }
   };
 
-  const handleSeedDemo = async () => {
-    setSeeding(true);
-    try {
-      await bankabilityAPI.seedDemo(selectedProjectId);
-      await loadData();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSeeding(false);
-    }
-  };
+  // "Seed Demo Data" removed 2026-09-23 along with POST /bankability/evidence/seed.
+  // One click wrote 52 invented evidence rows into whichever project was
+  // selected — real ones included — and the gates, bankability state and
+  // capital unlocks on this very page were then computed from them.
 
   // ── Loading state ──
   if (loading && !snapshot) {
@@ -1495,13 +1487,6 @@ export function StageGatesPage() {
               className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700"
             >
               Retry
-            </button>
-            <button
-              onClick={handleSeedDemo}
-              disabled={seeding}
-              className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-semibold hover:bg-amber-700"
-            >
-              {seeding ? "Seeding..." : "Seed Demo Data"}
             </button>
           </div>
         </div>
@@ -1576,13 +1561,6 @@ export function StageGatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleSeedDemo}
-            disabled={seeding}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 font-medium text-gray-600"
-          >
-            {seeding ? "Seeding..." : "Seed Demo"}
-          </button>
           <button
             onClick={loadData}
             disabled={loading}

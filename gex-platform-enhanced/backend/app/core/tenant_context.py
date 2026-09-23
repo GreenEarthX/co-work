@@ -191,7 +191,10 @@ async def build_abac_user_attributes(
         actor_type_per_project=actor_type_per_project,
         clearance_level=clearance,
         jurisdiction=payload.get("jurisdiction", ""),
-        kyc_status=payload.get("kyc_status", "VERIFIED"),
+        # Same rule as abac_middleware: absent claim -> UNVERIFIED. The two
+        # paths build the same UserAttributes and must not disagree about
+        # what a missing claim means.
+        kyc_status=payload.get("kyc_status", "UNVERIFIED"),
         nda_signed_with=set(payload.get("nda_signed_with", [])),
         assigned_audits=set(payload.get("assigned_audits", [])),
         capabilities=capabilities,
