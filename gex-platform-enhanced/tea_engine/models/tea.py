@@ -123,3 +123,56 @@ class TEASensitivityResult(BaseModel):
     base_lcop:       float
     tornado:         list[SensitivityVar]
     run_evidence:    EvidenceEntryProposal
+
+
+class TEAMonteCarloRequest(TEAComputeRequest):
+    """Monte Carlo over the SAME inputs as /tea/compute (OpenPyTEA analysis.monte_carlo,
+    headless). Answers attack L: a single deterministic LCOP is precise arithmetic, not
+    precise knowledge — this returns the distribution the assumptions actually imply."""
+    num_samples: int = Field(default=2000, ge=200, le=20000)   # OpenPyTEA defaults to 1e6 — unusable per request
+    seed:        int = 42                                       # fixed → reproducible, like the dated FX rate
+    target_lcop: Optional[float] = None                         # → P(LCOP ≤ target), in the base currency
+    # GEX default uncertainty: 10% relative σ, truncated at ±2σ (the ±20% tornado band),
+    # on every variable-OPEX price and on capacity factor. OpenPyTEA varies neither by
+    # default, which would make the band falsely narrow. Override per stream / for CF.
+    price_rel_std:           dict = Field(default_factory=dict)   # {stream: relative σ}
+    capacity_factor_rel_std: Optional[float] = Field(default=None, ge=0, le=0.5)
+    # Passthrough to OpenPyTEA project_uncertainties (fixed_capital_factor,
+    # fixed_opex_factor, project_lifetime, interest_rate, plant_utilization, tax_rate).
+    project_uncertainties:   dict = Field(default_factory=dict)
+
+
+class LcopStats(BaseModel):
+    mean: float
+    std:  float
+    p5:   float
+    p10:  float
+    p50:  float
+    p90:  float
+    p95:  float
+    min:  float
+    max:  float
+
+
+class TEAMonteCarloResult(BaseModel):
+    engine:             str
+    engine_version:     Optional[str] = None
+    cost_basis_hash:    str          # == /tea/compute on the same inputs (links the two)
+    mc_hash:            str          # cost basis + samples + seed + uncertainty spec
+    seed:               int
+    num_samples:        int
+    num_valid:          int          # finite samples actually summarised
+    currency:           str
+    base_lcop:          float        # the deterministic point estimate (/tea/compute)
+    lcop:               LcopStats
+    target_lcop:        Optional[float] = None
+    p_lcop_le_target:   Optional[float] = None
+    histogram:          dict         # {bin_edges: [...], counts: [...]}
+    uncertainty_basis:  list[dict]   # every varied input: sampled range + provenance
+    held_fixed:         list[str]    # what the distribution does NOT reflect
+    base_result_status: str          # carried from the point estimate
+    plausibility:       list[str] = Field(default_factory=list)
+    note: str = ("Distribution of LCOP implied by the stated screening assumptions — not "
+                 "a probability of the real project outcome. Its width is only as good as "
+                 "the uncertainty basis; inputs marked model_default are GEX/OpenPyTEA "
+                 "defaults, not project evidence.")

@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.core.db_backend import capital_connection
+from app.core.db_backend import capital_connection, capital_is_postgres
 
 # ── client account lifecycle ──────────────────────────────────────────────────
 
@@ -238,6 +238,11 @@ DDL = (
 
 
 def init_billing_db() -> None:
+    if capital_is_postgres():
+        # Migration 048 owns this DDL and its RLS policies. gex_app has no
+        # CREATE on schema public, so running it here raises
+        # InsufficientPrivilege — correctly. Run the migration instead.
+        return
     conn = capital_connection()
     try:
         for statement in DDL:
@@ -688,6 +693,8 @@ THROUGHPUT_DDL = (
 
 
 def init_throughput_db() -> None:
+    if capital_is_postgres():
+        return                      # 048 owns throughput_charges — see above.
     conn = capital_connection()
     try:
         for statement in THROUGHPUT_DDL:

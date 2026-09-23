@@ -17,19 +17,17 @@ Integration points:
 SQLite pattern: matches development_packages.py conventions.
 """
 
-import sqlite3
 import uuid
 import json
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/dfi-criteria", tags=["dfi-criteria"])
 
@@ -164,10 +162,12 @@ class ProjectDFISummary(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # so 044's project-scoped policies see THIS caller's tenant.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -179,7 +179,12 @@ def init_db():
     Create dfi_criteria + dfi_criteria_events tables.
     Call from app/main.py startup alongside other init_db() calls.
     """
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS dfi_criteria (
             criterion_id       TEXT PRIMARY KEY,
@@ -291,7 +296,7 @@ def _row_to_response(row) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("", response_model=CriterionResponse, status_code=201)
-def create_criterion(crit: CriterionCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_criterion(crit: CriterionCreate, db: Any = Depends(get_db)):
     """Create a single DFI criterion entry."""
     criterion_id = str(uuid.uuid4())
     now = _now()
@@ -317,7 +322,7 @@ def create_criterion(crit: CriterionCreate, db: sqlite3.Connection = Depends(get
 
 
 @router.get("/{criterion_id}", response_model=CriterionResponse)
-def get_criterion(criterion_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_criterion(criterion_id: str, db: Any = Depends(get_db)):
     row = db.execute("SELECT * FROM dfi_criteria WHERE criterion_id=?", (criterion_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"Criterion {criterion_id} not found")
@@ -329,7 +334,7 @@ def list_criteria(
     project_id: str,
     institution: Optional[DFIInstitution] = Query(None),
     status: Optional[CriterionStatus] = Query(None),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """List all DFI criteria for a project with optional filters."""
     query = "SELECT * FROM dfi_criteria WHERE project_id=?"
@@ -349,7 +354,7 @@ def list_criteria(
 def update_criterion(
     criterion_id: str,
     update: CriterionUpdate,
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Update criterion fields. Auto-stamps last_reviewed when status changes.
@@ -392,7 +397,7 @@ def update_criterion(
 
 
 @router.get("/project/{project_id}/summary", response_model=ProjectDFISummary)
-def project_dfi_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def project_dfi_summary(project_id: str, db: Any = Depends(get_db)):
     """Per-institution summary: total/met/blocking counts, readiness_pct."""
     rows = db.execute(
         "SELECT * FROM dfi_criteria WHERE project_id=?", (project_id,)
@@ -427,7 +432,7 @@ def project_dfi_summary(project_id: str, db: sqlite3.Connection = Depends(get_db
 
 
 @router.get("/project/{project_id}/blocking", response_model=list[CriterionResponse])
-def blocking_criteria(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def blocking_criteria(project_id: str, db: Any = Depends(get_db)):
     """List all criteria where blocks_drawdown=True AND status!=MET."""
     rows = db.execute(
         "SELECT * FROM dfi_criteria WHERE project_id=? AND blocks_drawdown=1 AND status!='MET' "
@@ -443,7 +448,7 @@ def seed_institution_criteria(
     institution: DFIInstitution,
     responsible_actor: str = Query(..., description="Default responsible actor for seeded criteria"),
     changed_by: str = Query(..., description="Actor performing the seed"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Auto-create all standard criteria for a given institution on a project.

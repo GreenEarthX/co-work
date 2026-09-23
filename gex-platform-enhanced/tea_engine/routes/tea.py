@@ -20,8 +20,14 @@ from tea_engine.auth.gex_jwt import (
     AuthenticatedUser,
     get_current_user_or_service as get_current_user,
 )
-from tea_engine.compute import run_sensitivity, run_tea
-from tea_engine.models import TEAComputeRequest, TEAResult, TEASensitivityResult
+from tea_engine.compute import run_monte_carlo, run_sensitivity, run_tea
+from tea_engine.models import (
+    TEAComputeRequest,
+    TEAMonteCarloRequest,
+    TEAMonteCarloResult,
+    TEAResult,
+    TEASensitivityResult,
+)
 import tea_engine.regimes as regimes
 from tea_engine.lca import LCAInput, LCAResult, compute_lca
 
@@ -111,6 +117,31 @@ def certification_gate_eval(
         return regimes.evaluate_certification_gate(fuel_id, claim_states)
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+
+@router.post("/monte-carlo", response_model=TEAMonteCarloResult)
+def monte_carlo_route(
+    request: TEAMonteCarloRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> TEAMonteCarloResult:
+    """LCOP distribution (P5–P95, histogram, P(LCOP ≤ target)) over the SAME inputs as
+    /tea/compute. Seeded and reproducible; every varied input carries its provenance.
+    Answers attack L — a single LCOP is precise arithmetic, not precise knowledge."""
+    logger.info("tea/monte-carlo project=%s n=%s seed=%s user=%s",
+                request.project_id, request.num_samples, request.seed, user.user_id)
+    try:
+        return run_monte_carlo(request)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    except KeyError as e:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"OpenPyTEA could not resolve the equipment specification: {e}",
+        ) from e
+    except NotImplementedError as e:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e
 
 
 @router.post("/sensitivity", response_model=TEASensitivityResult)

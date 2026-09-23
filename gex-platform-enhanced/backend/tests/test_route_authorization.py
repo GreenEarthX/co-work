@@ -8,16 +8,29 @@ call that bypasses the menu — and that role eligibility alone is NOT enough
 Run from backend/:  python -m pytest tests/test_route_authorization.py -q
 """
 import os
-import tempfile
+
+import pytest
 from datetime import datetime, timedelta, timezone
 
-os.environ.setdefault("GEX_PLATFORM_DB_PATH", os.path.join(tempfile.mkdtemp(), "route_auth.db"))
+# NOT isolated by an env var. `GEX_PLATFORM_DB_PATH` is a module-owned path the
+# stores stopped reading long ago (the architecture guardrail forbids it by name),
+# so the line that used to sit here isolated nothing and this module wrote the
+# DEVELOPMENT store on every run — SQLite before the 2026-09-22 cutover, and
+# PostgreSQL after it. The `isolated_store` fixture below is the real thing: a
+# throwaway SQLite file, with the slice switches pinned to sqlite for its lifetime.
 
 from fastapi import FastAPI                        # noqa: E402
 from fastapi.testclient import TestClient          # noqa: E402
 
 from app.core import entitlements as ent           # noqa: E402
 from app.core.project_registry import company_slug # noqa: E402
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _isolated_entitlements(isolated_store):
+    """Every test in this module runs against the throwaway store."""
+    ent.init_entitlements_db()
+
 from app.api.v1 import routes_finance_model as fm   # noqa: E402
 from app.api.v1 import routes_pricing_proxy as pp   # noqa: E402
 

@@ -30,19 +30,17 @@ ABAC alignment (abac.py):
 SQLite pattern: matches development_packages.py conventions.
 """
 
-import sqlite3
 import uuid
 import json
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/settlements", tags=["settlement-events"])
 
@@ -131,10 +129,12 @@ class SettlementProjectSummary(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # so 044's project-scoped policies see THIS caller's tenant.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -146,7 +146,12 @@ def init_db():
     Create SETTLEMENT_EVENTS table.
     Call from app/main.py startup alongside other init_db() calls.
     """
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS settlement_events (
             settlement_id          TEXT PRIMARY KEY,
@@ -274,7 +279,7 @@ def _row_to_response(row) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("", response_model=SettlementResponse, status_code=201)
-def create_settlement(s: SettlementCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_settlement(s: SettlementCreate, db: Any = Depends(get_db)):
     """
     Create a settlement event for a matched contract.
     Initial status is always PENDING.
@@ -319,7 +324,7 @@ def create_settlement(s: SettlementCreate, db: sqlite3.Connection = Depends(get_
 
 
 @router.get("/{settlement_id}", response_model=SettlementResponse)
-def get_settlement(settlement_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_settlement(settlement_id: str, db: Any = Depends(get_db)):
     row = db.execute("SELECT * FROM settlement_events WHERE settlement_id=?", (settlement_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"Settlement {settlement_id} not found")
@@ -327,7 +332,7 @@ def get_settlement(settlement_id: str, db: sqlite3.Connection = Depends(get_db))
 
 
 @router.get("/contract/{contract_id}", response_model=list[SettlementResponse])
-def list_by_contract(contract_id: str, db: sqlite3.Connection = Depends(get_db)):
+def list_by_contract(contract_id: str, db: Any = Depends(get_db)):
     """All settlements for a contract."""
     rows = db.execute(
         "SELECT * FROM settlement_events WHERE contract_id=? ORDER BY created_at DESC",
@@ -340,7 +345,7 @@ def list_by_contract(contract_id: str, db: sqlite3.Connection = Depends(get_db))
 def list_by_project(
     project_id: str,
     status: Optional[SettlementStatus] = Query(None),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """All settlements for a project with optional status filter."""
     query = "SELECT * FROM settlement_events WHERE project_id=?"
@@ -358,7 +363,7 @@ def confirm_settlement(
     settlement_id: str,
     payment_reference: str = Query(..., description="Bank payment reference"),
     changed_by: str = Query(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Advance settlement to CONFIRMED. Requires payment_reference.
@@ -403,7 +408,7 @@ def confirm_settlement(
 def reconcile_settlement(
     settlement_id: str,
     changed_by: str = Query(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Advance settlement to RECONCILED. Must be CONFIRMED first.
@@ -447,7 +452,7 @@ def dispute_settlement(
     settlement_id: str,
     reason: str = Query(..., min_length=10, description="Dispute reason"),
     changed_by: str = Query(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Mark settlement as DISPUTED. Only valid from PENDING.
@@ -493,7 +498,7 @@ def link_matrix_thread(
     settlement_id: str,
     matrix_thread_id: str = Query(..., description="Element-Matrix room/thread ID"),
     changed_by: str = Query(...),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ):
     """Link a settlement event to an Element-Matrix communication thread."""
     row = db.execute("SELECT * FROM settlement_events WHERE settlement_id=?", (settlement_id,)).fetchone()
@@ -514,7 +519,7 @@ def link_matrix_thread(
 
 
 @router.get("/project/{project_id}/summary", response_model=SettlementProjectSummary)
-def project_settlement_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def project_settlement_summary(project_id: str, db: Any = Depends(get_db)):
     """
     Aggregate settlement view for a project.
     Total settled volume/amount, breakdown by status, by counterparty.

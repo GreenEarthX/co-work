@@ -459,51 +459,22 @@ async def list_evidence_events(
     conn.close()
     return {"project_id": project_id, "events": [dict(r) for r in rows]}
 
-"""@router.post("/evidence/seed")
-async def seed_demo_evidence(project_id: str = Query(default="default")):
-   Seed demo evidence — self-contained, no engine call needed.
-    demo = {
-        """
-    
-@router.post("/evidence/seed")
-async def seed_demo_evidence(project_id: str = Query(default="default")):
-    gates = await _call_engine("/gates")
-    demo = {
-        "land_option_or_lease_executed": "VERIFIED", "zoning_compatibility_memo": "VERIFIED",
-        "stakeholder_map_v1": "SUBMITTED", "grid_interconnection_study": "VERIFIED",
-        "queue_position_evidence": "UNDER_REVIEW", "curtailment_assessment": "IN_PROGRESS",
-        "water_source_plan": "VERIFIED", "water_permit_pathway_memo": "NOT_STARTED",
-        # G1 expanded evidence (PPA + connection cost + dispatch + water volume)
-        "grid_connection_cost_estimate": "IN_PROGRESS", "connection_date_cod_compatibility_memo": "NOT_STARTED",
-        "ppa_register": "NOT_STARTED", "ppa_signed_or_term_sheet_evidence": "NOT_STARTED",
-        "ppa_volume_load_coverage_analysis": "NOT_STARTED", "ppa_tenor_debt_comparison": "NOT_STARTED",
-        "dispatch_load_factor_production_impact": "NOT_STARTED",
-        # G1 E-track (off-grid BTM generation)
-        "btm_generation_asset_evidence": "SUBMITTED", "generation_yield_study": "IN_PROGRESS",
-        "grid_independence_note": "NOT_STARTED", "backup_construction_power_plan": "NOT_STARTED",
-        "certification_scheme_selection": "VERIFIED", "additionality_evidence": "SUBMITTED",
-        "ghg_methodology_memo": "IN_PROGRESS", "feedstock_supply_loi": "VERIFIED",
-        "transport_logistics_study": "SUBMITTED", "storage_plan": "IN_PROGRESS",
-        "binding_offtake_term_sheet": "UNDER_REVIEW", "offtake_credit_assessment": "IN_PROGRESS",
-        "price_review_mechanism_memo": "NOT_STARTED", "epc_contract_heads_of_terms": "SUBMITTED",
-        "performance_guarantees_draft": "IN_PROGRESS", "epc_contractor_dd": "NOT_STARTED",
-        "ie_appointment_letter": "VERIFIED", "ie_technical_model_review": "IN_PROGRESS",
-        "ie_site_visit_report": "NOT_STARTED", "insurance_broker_mandate": "VERIFIED",
-        "insurance_market_report": "SUBMITTED", "insurance_term_sheet": "NOT_STARTED",
-        "financial_model_v1": "SUBMITTED", "model_audit_engagement": "IN_PROGRESS",
-        "sensitivity_analysis": "NOT_STARTED", "eia_submission": "IN_PROGRESS",
-        "construction_permit_application": "NOT_STARTED", "operating_permit_pathway": "NOT_STARTED",
-        "cp_checklist_draft": "NOT_STARTED", "legal_opinions_draft": "NOT_STARTED",
-        "security_package_structure": "NOT_STARTED", "commissioning_plan": "NOT_STARTED",
-        "performance_test_protocol": "NOT_STARTED", "handover_documentation_plan": "NOT_STARTED",
-    }
-    seeded = 0
-    for gate in gates:
-        for ek in gate.get("required_evidence", []):
-            _upsert_evidence(project_id, ek, demo.get(ek, "NOT_STARTED"), "demo_seed", f"Seeded demo")
-            seeded += 1
-    return {"seeded": seeded, "project_id": project_id}
-
+# REMOVED 2026-09-23 — POST /evidence/seed
+# ------------------------------------------
+# This endpoint wrote 52 fabricated evidence rows per call, as `demo_seed` with
+# the note "Seeded demo", straight into `bankability_evidence` — the table the
+# gates, the bankability state and the capital unlocks are computed from. Its
+# `project_id` was a query parameter with no allow-list, so it seeded REAL
+# projects as readily as the placeholder one.
+#
+# Measured before removal: 125 of 127 evidence rows in PostgreSQL were
+# `demo_seed`, and three `bankability_snapshots` had been computed from them —
+# a completion percentage and a risk classification derived entirely from
+# invented evidence, presented in the same UI as the two real rows.
+#
+# A demo fixture belongs in a test or a clearly-labelled sandbox, never behind
+# an HTTP verb that writes the system of record. If a seeded project is needed
+# for a demonstration, seed it into a throwaway database, not this one.
 
 @router.get("/regression/check")
 async def check_regression(project_id: str = Query(default="default")):

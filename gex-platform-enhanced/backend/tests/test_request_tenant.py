@@ -24,15 +24,18 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from app.core.db_backend import _tenant_context
+from app.core.db_backend import _tenant_context, _user_context
 from app.core.request_tenant import (
     NO_TENANT_CONTEXT,
+    NO_USER_CONTEXT,
     PLATFORM_ADMIN,
     company_from_payload,
     current_company,
+    current_user,
     payload_from_request,
     reset_current_company,
     set_current_company,
+    user_from_payload,
 )
 
 COMPANY = "hamburgone_com"
@@ -51,6 +54,10 @@ def _app() -> FastAPI:
             "contextvar": current_company(),
             "shim": _tenant_context(None, "probe"),
             "sqlalchemy": company_from_payload(payload_from_request(request)),
+            # The owner axis, resolved the same three ways.
+            "user_contextvar": current_user(),
+            "user_shim": _user_context(None),
+            "user_sqlalchemy": user_from_payload(payload_from_request(request)),
         }
 
     api.add_middleware(ABACMiddleware, phase=2)
@@ -226,9 +233,106 @@ def test_the_middleware_still_resets_the_tenant():
         for stmt in finallies for node in ast.walk(stmt)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    assert "reset_current_company" in called, (
+    assert "reset_identity" in called, (
         "dispatch no longer unbinds the tenant in a finally. Nothing in the "
         "HTTP tests will catch this — per-request task contexts hide it — but "
         "any in-process or context-reusing caller would inherit the previous "
         "caller's tenant."
+    )
+
+
+# ── The owner axis (added 2026-09-22, before canvas/plants move) ─────────────
+#
+# Canvas documents, plants and equipment equations are OWNER-scoped, not
+# company-scoped. Until this existed there was no `app.current_user_id`, so
+# migration 042 left its user-scoped tables admin-only and said why. These
+# tests are what that GUC has to be worth before an owner-only policy can rest
+# on it.
+
+def test_the_user_reaches_the_route_handler_and_both_paths_agree():
+    r = TestClient(_app()).get("/api/v1/__probe__",
+                               headers={"Authorization": f"Bearer {_token()}"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["user_contextvar"] == "probe_user", (
+        "the user ContextVar set in ABACMiddleware did not reach the handler"
+    )
+    assert body["user_shim"] == body["user_sqlalchemy"] == "probe_user", (
+        f"the two paths disagree on the owner: shim={body['user_shim']!r} "
+        f"sqlalchemy={body['user_sqlalchemy']!r} — an owner-only policy would "
+        "mean different things depending on which helper a route used"
+    )
+
+
+def test_a_platform_admin_is_still_just_one_user():
+    """THE decision this axis encodes, asserted rather than trusted.
+
+    `is_platform_admin` widens the TENANT to PLATFORM_ADMIN. It must not widen
+    the OWNER: staff are a user who is also staff, and an owner-only policy
+    that quietly admitted admins would make every private canvas readable by
+    anyone holding the flag.
+    """
+    r = TestClient(_app()).get("/api/v1/__probe__",
+                               headers={"Authorization": f"Bearer {_token(admin=True)}"})
+    body = r.json()
+    assert body["shim"] == PLATFORM_ADMIN, "tenant escalation stopped working"
+    assert body["user_shim"] == "probe_user", (
+        f"an admin token resolved the owner axis to {body['user_shim']!r} — "
+        "platform admin must not be an owner-axis escalation"
+    )
+    assert body["user_shim"] != PLATFORM_ADMIN
+
+
+def test_work_outside_a_request_owns_nothing():
+    """A background job has no caller, so it owns no rows — the deny sentinel,
+    never a blank or a NULL that an owner comparison would silently widen."""
+    assert current_user() is None
+    assert _user_context(None) == NO_USER_CONTEXT
+
+
+def test_an_explicit_owner_still_beats_the_bound_one():
+    """Same precedence as the tenant: explicit argument → bound caller →
+    sentinel. The copiers rely on this to write one owner's rows at a time."""
+    from app.core.request_tenant import set_current_user, reset_current_user
+
+    token = set_current_user("bound_user")
+    try:
+        assert _user_context(None) == "bound_user"
+        assert _user_context("explicit_user") == "explicit_user"
+    finally:
+        reset_current_user(token)
+    assert _user_context(None) == NO_USER_CONTEXT
+
+
+def test_the_middleware_unbinds_the_user_too():
+    """Both axes are reset together. A pooled worker holding half an identity —
+    tenant cleared, owner still set — is the failure this guards."""
+    client = TestClient(_app())
+    client.get("/api/v1/__probe__", headers={"Authorization": f"Bearer {_token()}"})
+    assert current_user() is None, "the owner axis leaked out of the request"
+    assert current_company() is None, "the tenant leaked out of the request"
+
+
+@pytest.mark.parametrize("hostile", [
+    "bob'; SET app.current_user_id = 'alice",
+    "alice' OR '1'='1",
+    "owner\nSET app.current_company_id = 'PLATFORM_ADMIN",
+])
+def test_a_hostile_user_id_is_refused_not_escaped(hostile):
+    """`SET` cannot take a bind parameter, so the value is interpolated. A value
+    that is not a user id is REFUSED — not escaped, not silently swapped for the
+    sentinel, which would hide a broken token behind an empty screen."""
+    from app.core.db_backend import _safe_user
+
+    with pytest.raises(ValueError):
+        _safe_user(hostile)
+
+
+def test_the_deny_sentinel_cannot_collide_with_a_real_user_id():
+    """The sentinel must not be spellable as a user id, or a crafted account
+    could impersonate 'no caller' — or worse, match rows written under it."""
+    import re
+
+    assert not re.fullmatch(r"[A-Za-z0-9_.@-]{1,190}", NO_USER_CONTEXT), (
+        "NO_USER_CONTEXT is a legal user_id shape — it could be registered"
     )

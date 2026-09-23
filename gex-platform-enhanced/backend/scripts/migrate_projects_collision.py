@@ -49,21 +49,26 @@ from app.core.project_registry import company_slug  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--execute", action="store_true")
+    # 033 renamed the SQLite source tables to *_retired_pg_collision_20260807.
+    # Rebuilding an emptied PostgreSQL needs to read them under that name.
+    ap.add_argument("--source-suffix", default="",
+                    help="suffix of the SQLite source tables, e.g. _retired_pg_collision_20260807")
     args = ap.parse_args()
+    sfx = args.source_suffix
 
     pg_url = os.environ.get("DATABASE_URL") or settings.DATABASE_URL
     print(f"SQLite : {settings.SQLITE_DB_PATH}")
     print(f"Postgres: {pg_url.split('@')[-1]}")
     print(f"Mode   : {'EXECUTE' if args.execute else 'DRY RUN'}\n")
 
-    lite = sqlite3.connect(settings.SQLITE_DB_PATH)
+    lite = sqlite3.connect(f"file:{settings.SQLITE_DB_PATH}?mode=ro", uri=True)
     lite.row_factory = sqlite3.Row
     engine = create_engine(pg_url)
     problems: list[str] = []
 
-    rows = lite.execute("SELECT * FROM projects").fetchall()
-    ctx = lite.execute("SELECT * FROM project_context").fetchall()
-    events = lite.execute("SELECT * FROM project_context_events").fetchall()
+    rows = lite.execute(f"SELECT * FROM projects{sfx}").fetchall()
+    ctx = lite.execute(f"SELECT * FROM project_context{sfx}").fetchall()
+    events = lite.execute(f"SELECT * FROM project_context_events{sfx}").fetchall()
     print(f"── source: {len(rows)} projects, {len(ctx)} context, {len(events)} events\n")
 
     with engine.begin() as pg:

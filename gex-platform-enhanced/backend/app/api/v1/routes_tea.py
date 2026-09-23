@@ -22,7 +22,6 @@ Mount in main.py:
 from __future__ import annotations
 
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -43,6 +42,7 @@ except Exception:  # noqa: BLE001
         pass
 
 from app.core.config import settings
+from app.core.db_backend import domain_connection, domain_is_postgres
 from app.api.v1.evidence_ledger import (
     EvidenceCategory,
     EvidenceCreate,
@@ -52,7 +52,6 @@ from app.api.v1.evidence_ledger import (
 
 router = APIRouter()
 
-DB_PATH = settings.SQLITE_DB_PATH
 TEA_ENGINE_URL = os.getenv("TEA_ENGINE_URL", "http://localhost:8002")
 ENGINE_TIMEOUT = 30.0
 # Currencies GEX can convert OpenPyTEA's USD costs into — must match the benchmark
@@ -74,12 +73,12 @@ LEGAL_TRANSITIONS = {
 # ───────────────────────────────────────────────────────────────────────────
 
 def get_db():
-    # check_same_thread=False: async endpoints receive this connection from a
-    # threadpool-run dependency but use it on the event loop — different threads.
-    # Safe here because each request gets its own connection (never shared).
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # Follows DOMAIN_DB_BACKEND, resolved per request. Each request gets its own
+    # connection (never shared), so the async endpoints that receive it from a
+    # threadpool-run dependency are safe on either store.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
     finally:
@@ -88,7 +87,13 @@ def get_db():
 
 def init_db():
     """Create the append-only model_base_case claim table. Call from main.py."""
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # 044 owns model_base_case and pathway_claims, 046 added
+        # model_base_case.result_status (the ALTER below is the SQLite-only
+        # equivalent), and 049 owns project_currency. gex_app cannot run DDL,
+        # and a runtime-created table would carry no RLS policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS model_base_case (
             claim_id                TEXT PRIMARY KEY,
@@ -175,8 +180,7 @@ def release_ready_state(project_id: str, pathway_id: Optional[str] = None) -> Op
     opex_eur_per_year, cost_basis_hash} — the figures the PF proxy reconciles a
     release-gated compute against (Gap P1).
     """
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = domain_connection()
     try:
         q = ("SELECT claim_id, state, capex_eur, opex_eur_per_year, cost_basis_hash "
              "FROM model_base_case WHERE project_id=? AND valid_to IS NULL "
@@ -201,7 +205,7 @@ def release_ready_state(project_id: str, pathway_id: Optional[str] = None) -> Op
     }
 
 
-def _row(r: sqlite3.Row) -> dict:
+def _row(r) -> dict:
     d = dict(r)
     d["is_release_ready"] = d["state"] in TERMINAL_VALID
     return d
@@ -210,8 +214,7 @@ def _row(r: sqlite3.Row) -> dict:
 def _project_currency(project_id: str) -> Optional[str]:
     """The project's persisted working currency, or None if unset (→ default EUR).
     Standalone connection so the compute path can resolve it without the DI plumbing."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = domain_connection()
     try:
         row = conn.execute(
             "SELECT base_currency FROM project_currency WHERE project_id=?", (project_id,)
@@ -241,6 +244,16 @@ class ComputeRequest(BaseModel):
     fx_usd_to_eur: Optional[float] = None
     fx_override_reason: Optional[str] = None
     reconciliation_group_id: Optional[str] = None
+
+
+class MonteCarloRequest(ComputeRequest):
+    """The /compute inputs plus the Monte Carlo spec (validated again on :8002)."""
+    num_samples: int = 2000
+    seed: int = 42
+    target_lcop: Optional[float] = None
+    price_rel_std: dict = {}
+    capacity_factor_rel_std: Optional[float] = None
+    project_uncertainties: dict = {}
 
 
 class ApprovalRequest(BaseModel):
@@ -280,43 +293,33 @@ async def _call_tea(path: str, payload: dict, auth_header: Optional[str]) -> dic
         raise HTTPException(503, "TEA engine unavailable (port 8002)")
 
 
-# ───────────────────────────────────────────────────────────────────────────
-# Routes
-# ───────────────────────────────────────────────────────────────────────────
+def _fx_override_gate(request: Request, body: "ComputeRequest") -> Optional[dict]:
+    """Increment 3: an FX override is CFO/finance-authorised ONLY and needs a recorded
+    reason. Authority + audit are enforced here; the ±5% band is re-checked in the TEA
+    engine (a source invariant), so an out-of-band rate surfaces as a 422 from :8002
+    regardless of who asked. Returns the audit record, or None when no override."""
+    if body.fx_usd_to_eur is None:
+        return None
+    payload = (getattr(request.state, "auth_user_payload", None)
+               or getattr(request.state, "user_payload", None) or {})
+    from app.core.entitlements import is_finance_role
+    authorised = bool(payload.get("is_platform_admin")) or is_finance_role(
+        business_function=payload.get("business_function"),
+        service_type=payload.get("service_type"))
+    if not authorised:
+        raise HTTPException(403, "FX override requires finance (CFO/Treasury) authority.")
+    if not (body.fx_override_reason or "").strip():
+        raise HTTPException(422, "FX override requires fx_override_reason (recorded for audit).")
+    return {"rate": body.fx_usd_to_eur, "reason": body.fx_override_reason.strip(),
+            "approved_by": payload.get("user_id") or payload.get("email") or "unknown"}
 
-@router.post("/compute/{project_id}", status_code=201)
-async def compute_base_case(
-    project_id: str,
-    request: Request,
-    body: ComputeRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db),
-) -> dict[str, Any]:
-    """Run TEA on :8002, record the run as evidence, create a submitted base-case claim."""
-    auth = request.headers.get("Authorization")
 
-    # Increment 3: an FX override is CFO/finance-authorised ONLY, needs a recorded
-    # reason, and is bounded to ±5% of the benchmark. Authority + audit are enforced
-    # here; the ±5% band is re-checked in the TEA engine (a source invariant), so an
-    # out-of-band rate surfaces as a 422 from :8002 regardless of who asked.
-    fx_override = None
-    if body.fx_usd_to_eur is not None:
-        payload = (getattr(request.state, "auth_user_payload", None)
-                   or getattr(request.state, "user_payload", None) or {})
-        from app.core.entitlements import is_finance_role
-        authorised = bool(payload.get("is_platform_admin")) or is_finance_role(
-            business_function=payload.get("business_function"),
-            service_type=payload.get("service_type"))
-        if not authorised:
-            raise HTTPException(403, "FX override requires finance (CFO/Treasury) authority.")
-        if not (body.fx_override_reason or "").strip():
-            raise HTTPException(422, "FX override requires fx_override_reason (recorded for audit).")
-        fx_override = {"rate": body.fx_usd_to_eur, "reason": body.fx_override_reason.strip(),
-                       "approved_by": payload.get("user_id") or payload.get("email") or "unknown"}
-
-    # Increment 2: an explicit request currency wins; else the project's persisted
-    # choice; else EUR.
+def _tea_payload(project_id: str, body: "ComputeRequest") -> dict:
+    """The :8002 request for a TEA run. Increment 2: an explicit request currency wins;
+    else the project's persisted choice; else EUR. Shared by /compute and /monte-carlo so
+    the two always run on the same inputs (and so share a cost_basis_hash)."""
     base_currency = (body.base_currency or _project_currency(project_id) or "EUR").upper()
-    tea_payload = {
+    return {
         "project_id": project_id,
         "pathway_id": body.pathway_id,
         "process_units": body.process_units,
@@ -327,6 +330,23 @@ async def compute_base_case(
         "base_currency": base_currency,
         **({"fx_usd_to_eur": body.fx_usd_to_eur} if body.fx_usd_to_eur is not None else {}),
     }
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Routes
+# ───────────────────────────────────────────────────────────────────────────
+
+@router.post("/compute/{project_id}", status_code=201)
+async def compute_base_case(
+    project_id: str,
+    request: Request,
+    body: ComputeRequest = Body(...),
+    db: Any = Depends(get_db),
+) -> dict[str, Any]:
+    """Run TEA on :8002, record the run as evidence, create a submitted base-case claim."""
+    auth = request.headers.get("Authorization")
+    fx_override = _fx_override_gate(request, body)      # increment 3: CFO authority + reason
+    tea_payload = _tea_payload(project_id, body)        # increment 2: currency resolution
     result = await _call_tea("/compute", tea_payload, auth)
     ps = result["plant_summary"]
     # G1/G2 propagation: carry the TEA integrity verdict onto the base case so an
@@ -424,11 +444,36 @@ async def compute_base_case(
     }
 
 
+@router.post("/monte-carlo/{project_id}")
+async def monte_carlo_lcop(
+    project_id: str,
+    request: Request,
+    body: MonteCarloRequest = Body(...),
+) -> dict[str, Any]:
+    """LCOP distribution over the SAME inputs as /compute (so the result's cost_basis_hash
+    equals the base case's). Analysis, not a claim: nothing is written to the ledger and no
+    base case is created or superseded. Same currency resolution and CFO FX gate."""
+    auth = request.headers.get("Authorization")
+    fx_override = _fx_override_gate(request, body)
+    payload = {
+        **_tea_payload(project_id, body),
+        "num_samples": body.num_samples,
+        "seed": body.seed,
+        "price_rel_std": body.price_rel_std,
+        "project_uncertainties": body.project_uncertainties,
+        **({"target_lcop": body.target_lcop} if body.target_lcop is not None else {}),
+        **({"capacity_factor_rel_std": body.capacity_factor_rel_std}
+           if body.capacity_factor_rel_std is not None else {}),
+    }
+    result = await _call_tea("/monte-carlo", payload, auth)
+    return {**result, "fx_override": fx_override}
+
+
 @router.get("/base-case/{project_id}")
 def current_base_case(
     project_id: str,
     pathway_id: Optional[str] = None,
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """The current live base case (most recent non-superseded), with release-readiness."""
     q = ("SELECT * FROM model_base_case WHERE project_id=? AND valid_to IS NULL "
@@ -454,7 +499,7 @@ class ProjectCurrency(BaseModel):
 
 @router.get("/project/{project_id}/currency")
 def get_project_currency(
-    project_id: str, db: sqlite3.Connection = Depends(get_db),
+    project_id: str, db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """The project's working currency (defaults to EUR if the client hasn't set one)."""
     row = db.execute("SELECT * FROM project_currency WHERE project_id=?", (project_id,)).fetchone()
@@ -466,7 +511,7 @@ def get_project_currency(
 @router.put("/project/{project_id}/currency")
 def set_project_currency(
     project_id: str, body: ProjectCurrency, request: Request,
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """The client's users set the project's working currency. Must be a currency GEX can
     convert into; recorded with the setter for audit. Project access is enforced by the
@@ -494,7 +539,7 @@ def approve_base_case(
     claim_id: str,
     body: ApprovalRequest,
     x_demo_user: Optional[str] = Header(default=None),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """IE/CFO approval_decision: folds submitted → verified (or rejected).
 
@@ -610,7 +655,7 @@ async def compute_lca_claims(
     project_id: str,
     request: Request,
     body: ComputeRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """Run the regime-correct LCA on :8002, record it as evidence, and create the
     g_co2e_per_mj + ghg_saving claims (submitted) — the GHG equivalent of the
@@ -682,7 +727,7 @@ async def compute_lca_claims(
 def approve_claim(
     claim_id: str, body: ApprovalRequest,
     x_demo_user: Optional[str] = Header(default=None),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """Generic pathway-claim approval (IE / certifier). Folds submitted → verified;
     blocks tea_engine self-approval and illegal transitions. Approver identity from
@@ -737,7 +782,7 @@ async def certification_gate_from_ledger(
     request: Request,
     fuel_id: str,
     pathway_id: Optional[str] = None,
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """Close the loop: read the project's PERSISTED live claims and evaluate the
     certification gate for the fuel's regime via :8002. The gate opens only when
@@ -756,7 +801,7 @@ async def certification_gate_from_ledger(
 @router.get("/canonical/{project_id}")
 def canonical_projection(
     project_id: str,
-    db: sqlite3.Connection = Depends(get_db),
+    db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """THE canonical read: fold the persisted canonical ledger into claim
     projections, and run the live projection-equivalence check (Migration Spec

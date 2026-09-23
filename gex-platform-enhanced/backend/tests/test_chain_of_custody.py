@@ -43,7 +43,11 @@ LOT = {
 
 
 @pytest.fixture()
-def client():
+def client(isolated_store):
+    """`isolated_store` is not optional. Without it this fixture drove the
+    DEVELOPMENT store: three `created_by='test'` lots from earlier runs are
+    still in `backend/gex_platform.db`, and once DOMAIN_DB_BACKEND became
+    `postgres` the same tests would have written the real PostgreSQL."""
     from app.api.v1.mass_balance import init_db, router
 
     init_db()

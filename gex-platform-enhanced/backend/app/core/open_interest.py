@@ -40,7 +40,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.core.contractual_rating_engine import CREDIT_ORDINAL
-from app.core.db_backend import capital_connection
+from app.core.db_backend import capital_connection, capital_is_postgres
 
 PRODUCER = "PRODUCER"
 OFFTAKER = "OFFTAKER"
@@ -262,6 +262,9 @@ DDL = (
 
 
 def init_open_interest_db() -> None:
+    if capital_is_postgres():
+        # Migration 048 owns open_interests and its policy.
+        return
     conn = capital_connection()
     try:
         for statement in DDL:
@@ -315,7 +318,12 @@ def publish_interest(company_id: str, side: str, created_by: str,
 
 
 def _all_interests() -> list[dict]:
-    conn = capital_connection()
+    # PLATFORM_ADMIN deliberately, and only here. Discovery must read rows this
+    # company does not own — 048's policy is ownership, not confidentiality —
+    # and `is_visible()` below is the confidentiality rule, including the part
+    # where an admin does NOT bypass a publisher. Every use is logged by
+    # `_tenant_context`. Nothing that WRITES an interest uses this connection.
+    conn = capital_connection(company_id="PLATFORM_ADMIN" if capital_is_postgres() else None)
     try:
         cur = conn.execute("SELECT * FROM open_interests")
         return [dict(r) for r in cur.fetchall()]

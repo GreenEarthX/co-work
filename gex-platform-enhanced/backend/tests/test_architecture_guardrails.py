@@ -60,6 +60,69 @@ def test_no_module_owned_database_paths():
     assert not violations, "DB doctrine violations:\n" + "\n".join(violations)
 
 
+def test_no_module_opens_sqlite_without_consulting_a_backend_switch():
+    """A module that calls `sqlite3.connect` must also ask which store it is on.
+
+    This is the defect the 2026-09-22 cutover exposed: thirteen modules opened
+    SQLite on a path captured at import and consulted no switch, so flipping
+    the eight `*_DB_BACKEND` settings moved their DATA to PostgreSQL while
+    their WRITES kept going to SQLite. 30 tables became a snapshot pretending
+    to be a migration, and `mass_balance_lots` had already diverged.
+
+    Matched against the AST, not the text, so the prose above — which names
+    every forbidden idiom — cannot trip it. A module is compliant when it calls
+    some `*_is_postgres()`; how it then branches is its own business.
+
+    The rule is scoped to tables PostgreSQL actually has, read from the Alembic
+    migrations rather than from a live database — so this runs with the
+    database stopped, and a module whose store has no PostgreSQL home yet
+    (canvas, plants, equipment equations) is not flagged for something it
+    cannot do.
+    """
+    import ast
+
+    pg_tables: set[str] = set()
+    for mig in (BACKEND / "alembic" / "versions").glob("*.py"):
+        src = mig.read_text()
+        for node in ast.walk(ast.parse(src)):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "create_table" and node.args
+                    and isinstance(node.args[0], ast.Constant)):
+                pg_tables.add(str(node.args[0].value).lower())
+    assert "mass_balance_lots" in pg_tables, "migration scan found nothing — the scan is broken"
+
+    violations = []
+    for f, src in _py_sources():
+        if f.name == "db_backend.py":      # the shim IS the switch
+            continue
+        tree = ast.parse(src)
+        connects, asks = [], False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if (isinstance(fn, ast.Attribute) and fn.attr == "connect"
+                    and isinstance(fn.value, ast.Name) and fn.value.id == "sqlite3"):
+                connects.append(node.lineno)
+            name = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", "")
+            if name == "is_postgres" or name.endswith("_is_postgres"):
+                asks = True
+        if not connects or asks:
+            continue
+        written = {m.group(1).lower() for m in re.finditer(
+            r"(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_][a-z0-9_]*)", src, re.I)}
+        shared = sorted(written & pg_tables)
+        if shared:
+            violations.append(
+                f"{f.relative_to(BACKEND)}:{connects[0]} — writes {', '.join(shared)} "
+                "to SQLite with no *_is_postgres() check, while PostgreSQL owns "
+                "those tables too"
+            )
+    assert not violations, (
+        "Modules that bypass the backend switches:\n" + "\n".join(violations)
+    )
+
+
 def test_sqlite_path_is_absolute_and_cwd_independent():
     from app.core.config import settings, BACKEND_ROOT
 

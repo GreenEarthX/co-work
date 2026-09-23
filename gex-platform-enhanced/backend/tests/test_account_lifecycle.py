@@ -229,3 +229,78 @@ def test_new_accounts_default_to_pending_in_the_postgres_schema():
     # reintroduced on the Postgres side.
     assert 'server_default="VERIFIED"' not in revision
     assert 'sa.Column("is_active", sa.Integer(), nullable=False, server_default="0")' in revision
+
+
+# ── kyc_status must not default to a claim of verification ──────────────────
+
+def test_no_store_defaults_kyc_status_to_verified():
+    """A default is a claim nobody made.
+
+    `auth_users.kyc_status` defaulted to 'VERIFIED' in the SQLite DDL and in the
+    seeder, so any row created without an explicit value asserted a KYC check
+    that had never happened — measured 2026-09-23, 19 of 20 rows did, while the
+    KYC record itself was still sitting in a browser. PostgreSQL's default
+    (migration 030) was already UNVERIFIED.
+
+    Matched against the source rather than a live database so it runs with
+    PostgreSQL stopped, and covers both stores' DDL in one place.
+    """
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+
+    auth_src = (backend / "app" / "core" / "auth.py").read_text()
+    ddl = re.search(r"kyc_status\s+TEXT\s+NOT NULL\s+DEFAULT\s+'([A-Z_]+)'", auth_src)
+    assert ddl, "could not find the kyc_status column definition in auth.py"
+    assert ddl.group(1) != "VERIFIED", (
+        "the SQLite auth_users DDL defaults kyc_status to VERIFIED again — every "
+        "row created without an explicit value would claim a KYC check nobody ran"
+    )
+
+    seeder = re.search(r'seed\.get\("kyc_status",\s*"([A-Z_]+)"\)', auth_src)
+    assert seeder, "could not find the seeder's kyc_status fallback"
+    assert seeder.group(1) != "VERIFIED", (
+        "the demo seeder writes VERIFIED again — a seeded account that cannot be "
+        "told apart from a vetted one makes the vetting meaningless"
+    )
+
+    migration = (backend / "alembic" / "versions" / "030_auth_slice.py").read_text()
+    pg = re.search(r'"kyc_status".*?server_default="([A-Z_]+)"', migration)
+    assert pg and pg.group(1) != "VERIFIED", (
+        "the PostgreSQL column default for kyc_status is now VERIFIED"
+    )
+
+
+def test_no_auth_path_treats_a_missing_kyc_claim_as_verified():
+    """An absent claim is not a passed check.
+
+    Five places in the auth path defaulted a missing `kyc_status` to VERIFIED:
+    the `UserAttributes` dataclass, both paths that build it
+    (`abac_middleware`, `tenant_context`), the permission context, and the
+    payload rebuilt from JWT claims. A token that said nothing about KYC was
+    therefore treated as verified by `requires_kyc:VERIFIED`.
+
+    Source-matched so it runs with the database stopped. SEED is permitted —
+    demo mode uses it deliberately, and it does not satisfy the gate either.
+    """
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    patterns = [
+        ("app/core/abac.py", r"kyc_status: str = \"([A-Z_]+)\""),
+        ("app/core/abac_middleware.py", r'getattr\(user, "kyc_status", "([A-Z_]+)"\)'),
+        ("app/core/abac_middleware.py", r'kyc_status=payload\.get\("kyc_status", "([A-Z_]+)"\)'),
+        ("app/core/tenant_context.py", r'kyc_status=payload\.get\("kyc_status", "([A-Z_]+)"\)'),
+        ("app/core/auth.py", r'"kyc_status": claims\.get\("kyc_status", "([A-Z_]+)"\)'),
+    ]
+    offenders = []
+    for rel, pat in patterns:
+        src = (backend / rel).read_text()
+        m = re.search(pat, src)
+        assert m, f"{rel}: the kyc_status fallback this guards has moved — re-point it"
+        if m.group(1) == "VERIFIED":
+            offenders.append(f"{rel} defaults a missing kyc_status to VERIFIED")
+    assert not offenders, (
+        "fail-open kyc_status defaults are back:\n" + "\n".join(offenders))

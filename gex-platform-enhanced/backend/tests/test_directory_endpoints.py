@@ -190,14 +190,24 @@ def test_gate_status_is_staff_only_because_it_maps_people_to_internal_gates(clie
 
 # ── the store ────────────────────────────────────────────────────────────────
 
-def test_postgres_is_refused_rather_than_created_unprotected(monkeypatch):
+def test_the_store_never_creates_the_pii_tables_on_postgres(monkeypatch):
     """A PII table created by CREATE TABLE IF NOT EXISTS on PostgreSQL would
-    carry no RLS policy — the mistake this module undoes."""
-    from app.core.ecosystem_store import PostgresMigrationRequired
+    carry no RLS policy — the mistake this module undoes.
+
+    Until migration 047 this module refused outright. 047 creates the five
+    tables WITH a policy, so refusing would only stop the app booting on a
+    database that already has them. What must not change is who creates them:
+    `init_db()` is a no-op on PostgreSQL and issues no DDL there. This test
+    fails loudly if anyone reintroduces runtime DDL against PostgreSQL.
+    """
+    def _explode(*a, **kw):
+        raise AssertionError(
+            "init_db() opened a PostgreSQL connection — the directory schema "
+            "belongs to migration 047, not to the runtime")
 
     monkeypatch.setattr(directory_store, "governance_is_postgres", lambda: True)
-    with pytest.raises(PostgresMigrationRequired):
-        directory_store.init_db()
+    monkeypatch.setattr(directory_store, "governance_connection", _explode)
+    directory_store.init_db()
 
 
 def test_reconciliation_measures_the_gap_between_directory_and_accounts():

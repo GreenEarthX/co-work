@@ -306,7 +306,12 @@ def _ensure_tables(conn) -> None:
             company_logo_url TEXT,
             clearance_level TEXT NOT NULL DEFAULT 'STANDARD',
             jurisdiction TEXT NOT NULL DEFAULT 'EU',
-            kyc_status TEXT NOT NULL DEFAULT 'VERIFIED',
+            -- UNVERIFIED, matching PostgreSQL (migration 030). This said
+            -- 'VERIFIED' until 2026-09-23, so every row created without an
+            -- explicit value claimed a KYC check that had never happened —
+            -- and 19 of 20 accounts did. Seeded rows say 'SEED' (see the
+            -- seeder below); a real registration is UNVERIFIED until vetted.
+            kyc_status TEXT NOT NULL DEFAULT 'UNVERIFIED',
             nda_signed_with_json TEXT NOT NULL DEFAULT '[]',
             assigned_audits_json TEXT NOT NULL DEFAULT '[]',
             -- Prosumer / trade attributes (Phase 3)
@@ -521,7 +526,10 @@ def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> None:
             seed.get("company_logo_url"),
             seed.get("clearance_level", "STANDARD"),
             seed.get("jurisdiction", "EU"),
-            seed.get("kyc_status", "VERIFIED"),
+            # SEED, not VERIFIED: nobody checked a seeded account, and a
+            # status column that cannot tell a demo row from a vetted one
+            # makes the vetting meaningless.
+            seed.get("kyc_status", "SEED"),
             json.dumps(nda_signed_with),
             json.dumps(seed.get("assigned_audits", [])),
             json.dumps(seed.get("capabilities", [])),
@@ -870,7 +878,9 @@ def get_user_payload_from_token(token: str) -> dict[str, Any]:
         "company_logo_url": claims.get("company_logo_url"),
         "clearance_level": claims.get("clearance_level", "STANDARD"),
         "jurisdiction": claims.get("jurisdiction", ""),
-        "kyc_status": claims.get("kyc_status", "VERIFIED"),
+        # Absent claim -> UNVERIFIED, fail closed. (A service token is
+        # explicitly "N/A" above: it has no KYC because it is not a person.)
+        "kyc_status": claims.get("kyc_status", "UNVERIFIED"),
         "nda_signed_with": claims.get("nda_signed_with", []),
         "assigned_audits": claims.get("assigned_audits", []),
         "actor_type_per_project": claims.get("actor_type_per_project", {}),

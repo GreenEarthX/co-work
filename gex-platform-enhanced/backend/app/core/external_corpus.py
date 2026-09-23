@@ -28,14 +28,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.core.config import settings
+from app.core.db_backend import domain_connection, domain_is_postgres
 
-DB_PATH = settings.SQLITE_DB_PATH
 
 EXTERNAL_PRIOR = "EXTERNAL_PRIOR"          # provenance label on every output
 GEX_STATUSES = ["concept", "feasibility", "fid", "construction",
@@ -49,12 +48,19 @@ _TOP_K = 10
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Follows DOMAIN_DB_BACKEND, resolved per call — never a path captured at
+    import, which is how this module used to write the development database
+    whatever the switches said."""
+    return domain_connection()
 
 
 def init_db() -> None:
+    if domain_is_postgres():
+        # 044 owns corpus_versions, external_projects, corpus_taxonomy_map and
+        # corpus_status_transitions, with their RLS policies. executescript is
+        # a sqlite3 method and does not exist on the PostgreSQL shim — which is
+        # the point: DDL belongs in a migration.
+        return
     conn = get_db()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS corpus_versions (
@@ -133,7 +139,8 @@ def _map_label(conn, source: str, field: str, raw: Optional[str]) -> tuple[Optio
         (source, field, raw)).fetchone()
     if row is None:
         conn.execute(   # record the unseen label so the census sees it
-            "INSERT OR IGNORE INTO corpus_taxonomy_map (source, field, raw_label) VALUES (?,?,?)",
+            "INSERT INTO corpus_taxonomy_map (source, field, raw_label) VALUES (?,?,?) "
+            "ON CONFLICT DO NOTHING",
             (source, field, raw))
         return None, True
     return (row["gex_value"], row["gex_value"] is None)
@@ -219,7 +226,7 @@ def import_snapshot(*, source: str, source_version: str, license: str,
             "provenance": EXTERNAL_PRIOR}
 
 
-def _latest_rows(conn) -> list[sqlite3.Row]:
+def _latest_rows(conn) -> list:
     """Non-quarantined rows of the latest version per source."""
     return conn.execute("""
         SELECT ep.* FROM external_projects ep

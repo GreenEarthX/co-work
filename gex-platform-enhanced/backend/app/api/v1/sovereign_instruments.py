@@ -30,19 +30,17 @@ ABAC alignment (abac.py):
 SQLite pattern: matches development_packages.py conventions.
 """
 
-import sqlite3
 import uuid
 import json
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/sovereign-instruments", tags=["sovereign-instruments"])
 
@@ -146,10 +144,12 @@ class GlobalSummary(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # so 044's project-scoped policies see THIS caller's tenant.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -161,7 +161,12 @@ def init_db():
     Create SOVEREIGN_INSTRUMENTS table.
     Call from app/main.py startup alongside other init_db() calls.
     """
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_instruments (
             instrument_id            TEXT PRIMARY KEY,
@@ -284,7 +289,7 @@ def _row_to_response(row) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("", response_model=InstrumentResponse, status_code=201)
-def create_instrument(inst: InstrumentCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_instrument(inst: InstrumentCreate, db: Any = Depends(get_db)):
     """
     Create a sovereign instrument (debt-for-nature swap, green bond, etc.).
     Initial status is DRAFT.
@@ -318,7 +323,7 @@ def create_instrument(inst: InstrumentCreate, db: sqlite3.Connection = Depends(g
 
 
 @router.get("/{instrument_id}", response_model=InstrumentResponse)
-def get_instrument(instrument_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_instrument(instrument_id: str, db: Any = Depends(get_db)):
     row = db.execute("SELECT * FROM sovereign_instruments WHERE instrument_id=?", (instrument_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"Instrument {instrument_id} not found")
@@ -326,7 +331,7 @@ def get_instrument(instrument_id: str, db: sqlite3.Connection = Depends(get_db))
 
 
 @router.get("/project/{project_id}", response_model=list[InstrumentResponse])
-def list_by_project(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def list_by_project(project_id: str, db: Any = Depends(get_db)):
     """All instruments for a project."""
     rows = db.execute(
         "SELECT * FROM sovereign_instruments WHERE project_id=? ORDER BY created_at DESC",
@@ -336,7 +341,7 @@ def list_by_project(project_id: str, db: sqlite3.Connection = Depends(get_db)):
 
 
 @router.get("/nation/{country_code}", response_model=list[InstrumentResponse])
-def list_by_nation(country_code: str, db: sqlite3.Connection = Depends(get_db)):
+def list_by_nation(country_code: str, db: Any = Depends(get_db)):
     """All instruments for a nation."""
     rows = db.execute(
         "SELECT * FROM sovereign_instruments WHERE host_nation=? ORDER BY created_at DESC",
@@ -349,7 +354,7 @@ def list_by_nation(country_code: str, db: sqlite3.Connection = Depends(get_db)):
 def update_instrument(
     instrument_id: str,
     update: InstrumentUpdate,
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Update instrument fields. Every change is logged to the event chain.
@@ -392,7 +397,7 @@ def advance_instrument(
     instrument_id: str,
     changed_by: str = Query(...),
     justification: Optional[str] = Query(None, description="Reason for state transition"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Advance instrument status one step forward in the state machine.
@@ -437,7 +442,7 @@ def cancel_instrument(
     instrument_id: str,
     changed_by: str = Query(...),
     reason: str = Query(..., min_length=10, description="Cancellation reason"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Cancel an instrument from any non-terminal state.
@@ -472,7 +477,7 @@ def link_token(
     instrument_id: str,
     token_id: str = Query(..., description="Token ID to link"),
     changed_by: str = Query(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Add a token_id to linked_token_ids. Creates the provenance chain
@@ -506,7 +511,7 @@ def link_token(
 
 
 @router.get("/summary", response_model=GlobalSummary)
-def global_summary(db: sqlite3.Connection = Depends(get_db)):
+def global_summary(db: Any = Depends(get_db)):
     """
     Global summary of all sovereign instruments.
     Total instruments, by type, by nation, total carbon commitment.

@@ -179,6 +179,13 @@ DOMAIN_PREFIXES: dict[str, str] = {
     # platform
     "/api/v1/auth": "platform",
     "/api/v1/onboarding": "platform",
+    # KYC/KYB self-service. "platform", not "governance": governance restricts
+    # writes to EXECUTIVE, and every user must be able to submit their OWN
+    # identity record whatever their business function. The asymmetry that
+    # matters is inside the router — POST /kyc/verify/{user} is GEX staff only,
+    # and migration 051's policy lets a user reach their own profile and no
+    # colleague's.
+    "/api/v1/kyc": "platform",
     "/api/v1/events": "platform",
     "/api/v1/comms": "platform",
     "/api/v1/task-flow": "platform",

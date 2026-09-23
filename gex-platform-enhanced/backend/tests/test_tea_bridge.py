@@ -29,19 +29,27 @@ if str(REPO_ROOT) not in sys.path:
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(isolated_store, monkeypatch):
     import app.api.v1.routes_tea as rt
 
-    # 1) isolate the bridge DB to a temp file, then create its tables there.
-    monkeypatch.setattr(rt, "DB_PATH", str(tmp_path / "bridge.db"))
+    # 1) isolate the bridge DB, then create its tables there. `isolated_store`,
+    #    not a monkeypatched `rt.DB_PATH`: that attribute is gone, because the
+    #    module now follows DOMAIN_DB_BACKEND and resolves its store per call.
+    #    A test that patched a module path would have written the development
+    #    database the moment that switch said `postgres`.
     rt.init_db()
 
     # 2) controlled TEA response: a pathway containing 'implausible' comes back
     #    IMPLAUSIBLE with a flag; anything else is a clean SCREENING run.
     calls: list = []
+    paths: list = []
 
     async def fake_call_tea(path, payload, auth):
         calls.append(payload)
+        paths.append(path)
+        if path == "/monte-carlo":
+            return {"engine": "openpytea", "mc_hash": "sha256:mc", "cost_basis_hash": "sha256:t",
+                    "lcop": {"p10": 1.7, "p50": 2.2, "p90": 2.9}}
         imp = "implausible" in payload.get("pathway_id", "")
         return {
             "engine": "openpytea",
@@ -82,6 +90,7 @@ def client(tmp_path, monkeypatch):
     app.include_router(rt.router, prefix="/api/v1/tea")
     tc = TestClient(app)
     tc.tea_calls = calls   # payloads the bridge forwarded to :8002 (assert resolution)
+    tc.tea_paths = paths   # which :8002 route each payload went to
     return tc
 
 
@@ -193,6 +202,29 @@ def test_explicit_request_currency_overrides_project_setting(client):
     client.put("/api/v1/tea/project/P-CCY2/currency", json={"base_currency": "USD"})
     client.post("/api/v1/tea/compute/P-CCY2", json=_fx_body(base_currency="EUR"))
     assert client.tea_calls[-1]["base_currency"] == "EUR"   # explicit request wins
+
+
+def test_monte_carlo_proxy_forwards_inputs_and_resolved_currency(client):
+    client.put("/api/v1/tea/project/P-MC/currency", json={"base_currency": "USD"})
+    r = client.post("/api/v1/tea/monte-carlo/P-MC",
+                    json=_fx_body(num_samples=500, seed=7, target_lcop=2.0))
+    assert r.status_code == 200 and r.json()["lcop"]["p50"] == 2.2
+    assert client.tea_paths[-1] == "/monte-carlo"
+    sent = client.tea_calls[-1]
+    assert sent["base_currency"] == "USD"            # same resolution as /compute
+    assert sent["num_samples"] == 500 and sent["seed"] == 7 and sent["target_lcop"] == 2.0
+
+
+def test_monte_carlo_proxy_enforces_the_cfo_fx_gate(client):
+    r = client.post("/api/v1/tea/monte-carlo/P-MC",
+                    json=_fx_body(fx_usd_to_eur=0.90, fx_override_reason="conservative"))
+    assert r.status_code == 403
+
+
+def test_monte_carlo_is_analysis_not_a_claim(client):
+    """A Monte Carlo run creates or supersedes no base case."""
+    assert client.post("/api/v1/tea/monte-carlo/P-MC2", json=_fx_body()).status_code == 200
+    assert client.get("/api/v1/tea/base-case/P-MC2").status_code == 404
 
 
 def test_missing_result_status_does_not_block(client, monkeypatch):

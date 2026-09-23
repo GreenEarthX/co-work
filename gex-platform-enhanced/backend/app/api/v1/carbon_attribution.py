@@ -29,19 +29,17 @@ ABAC alignment (abac.py):
 SQLite pattern: matches development_packages.py conventions.
 """
 
-import sqlite3
 import uuid
 import json
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.config import settings
-DB_PATH = settings.SQLITE_DB_PATH
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/carbon-attribution", tags=["carbon-attribution"])
 
@@ -128,10 +126,12 @@ class NationSummary(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # so 044's project-scoped policies see THIS caller's tenant.
+    conn = domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -143,7 +143,12 @@ def init_db():
     Create CARBON_ATTRIBUTION_EVENTS table.
     Call from app/main.py startup alongside other init_db() calls.
     """
-    conn = sqlite3.connect(DB_PATH)
+    if domain_is_postgres():
+        # Migrations 043/044 own these tables and their RLS policies. gex_app
+        # has no CREATE on schema public, so this DDL cannot run there — and
+        # must not: a runtime-created table would carry no policy.
+        return
+    conn = domain_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS carbon_attribution_events (
             attribution_id         TEXT PRIMARY KEY,
@@ -267,7 +272,7 @@ def _row_to_response(row) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("", response_model=AttributionResponse, status_code=201)
-def create_attribution(a: AttributionCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_attribution(a: AttributionCreate, db: Any = Depends(get_db)):
     """
     Create a carbon attribution record for a settlement.
     Validates host_nation_share_pct + buyer_share_pct == 100.
@@ -311,7 +316,7 @@ def create_attribution(a: AttributionCreate, db: sqlite3.Connection = Depends(ge
 
 
 @router.get("/{attribution_id}", response_model=AttributionResponse)
-def get_attribution(attribution_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_attribution(attribution_id: str, db: Any = Depends(get_db)):
     row = db.execute("SELECT * FROM carbon_attribution_events WHERE attribution_id=?", (attribution_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"Attribution {attribution_id} not found")
@@ -319,7 +324,7 @@ def get_attribution(attribution_id: str, db: sqlite3.Connection = Depends(get_db
 
 
 @router.get("/settlement/{settlement_id}", response_model=list[AttributionResponse])
-def list_by_settlement(settlement_id: str, db: sqlite3.Connection = Depends(get_db)):
+def list_by_settlement(settlement_id: str, db: Any = Depends(get_db)):
     """Attribution records for a settlement."""
     rows = db.execute(
         "SELECT * FROM carbon_attribution_events WHERE settlement_id=? ORDER BY created_at DESC",
@@ -332,7 +337,7 @@ def list_by_settlement(settlement_id: str, db: sqlite3.Connection = Depends(get_
 def list_by_project(
     project_id: str,
     host_nation: Optional[str] = Query(None, description="Filter by ISO country code"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """All attributions for a project with optional host_nation filter."""
     query = "SELECT * FROM carbon_attribution_events WHERE project_id=?"
@@ -351,7 +356,7 @@ def advance_attribution(
     changed_by: str = Query(...),
     sovereign_certifier: Optional[str] = Query(None, description="Required when advancing to VERIFIED"),
     registry_ref: Optional[str] = Query(None, description="Set when advancing to REGISTERED"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Advance attribution status one step forward.
@@ -419,7 +424,7 @@ def advance_attribution(
 
 
 @router.get("/nation/{country_code}/summary", response_model=NationSummary)
-def nation_summary(country_code: str, db: sqlite3.Connection = Depends(get_db)):
+def nation_summary(country_code: str, db: Any = Depends(get_db)):
     """
     Total attributed carbon by nation — regulator view.
     Shows total volume, host/buyer splits, by status, by certifier.

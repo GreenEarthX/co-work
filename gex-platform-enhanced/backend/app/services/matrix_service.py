@@ -29,10 +29,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 from app.core.config import settings
+from app.core.db_backend import domain_connection, domain_is_postgres
 
 logger = logging.getLogger("gex.matrix")
 
@@ -42,7 +42,6 @@ MATRIX_HOMESERVER_URL = os.getenv("MATRIX_HOMESERVER_URL", "http://localhost:800
 MATRIX_AS_TOKEN       = os.getenv("MATRIX_AS_TOKEN", "")        # Application Service token
 MATRIX_HS_TOKEN       = os.getenv("MATRIX_HS_TOKEN", "")        # Homeserver verification token
 MATRIX_BOT_USER_ID    = os.getenv("MATRIX_BOT_USER_ID", "@gex_platform:gex.internal")
-DB_PATH               = settings.SQLITE_DB_PATH
 
 # ─── ABAC → Matrix power level mapping ────────────────────────────────────────
 
@@ -81,14 +80,18 @@ GATE_ROOM_SPEC: dict[str, dict] = {
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
 
-def _db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _db():
+    """Follows DOMAIN_DB_BACKEND — matrix_rooms, matrix_members, matrix_events
+    and admin_log are 044 tables, so they live wherever that switch points."""
+    return domain_connection()
 
 
 def ensure_matrix_schema() -> None:
     """Create matrix_rooms, matrix_events, admin_log tables if absent."""
+    if domain_is_postgres():
+        # 044 owns these tables and their policies; executescript below is a
+        # sqlite3 method that the PostgreSQL shim deliberately lacks.
+        return
     with _db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS matrix_rooms (
@@ -297,14 +300,19 @@ async def create_project_room(
     # ── Persist to local DB ─────────────────────────────────────────────────
     with _db() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO matrix_rooms (id, project_id, gate_id, alias, topic) VALUES (?,?,?,?,?)",
+            "INSERT INTO matrix_rooms (id, project_id, gate_id, alias, topic) "
+            "VALUES (?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
             (matrix_room_id, project_id, gate_id, room_alias, topic),
         )
         for m in approved_members:
             conn.execute(
-                """INSERT OR REPLACE INTO matrix_members
+                """INSERT INTO matrix_members
                    (room_id, user_id, company_id, actor_type, power_level)
-                   VALUES (?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT (room_id, user_id) DO UPDATE SET
+                     company_id = excluded.company_id,
+                     actor_type = excluded.actor_type,
+                     power_level = excluded.power_level""",
                 (matrix_room_id, m["user_id"], m["company_id"], m["actor_type"], m["power_level"]),
             )
 
@@ -366,9 +374,13 @@ async def add_user_to_room(
 
     with _db() as conn:
         conn.execute(
-            """INSERT OR REPLACE INTO matrix_members
+            """INSERT INTO matrix_members
                (room_id, user_id, company_id, actor_type, power_level)
-               VALUES (?,?,?,?,?)""",
+               VALUES (?,?,?,?,?)
+               ON CONFLICT (room_id, user_id) DO UPDATE SET
+                 company_id = excluded.company_id,
+                 actor_type = excluded.actor_type,
+                 power_level = excluded.power_level""",
             (room_id, user_id, company_id, actor_type, power),
         )
 

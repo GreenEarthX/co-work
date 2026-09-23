@@ -149,7 +149,13 @@ class UserAttributes:
     actor_type_per_project: dict[str, list[ActorType]]  # project_id → [ActorType, …]  (prosumer = multiple)
     clearance_level: ClearanceLevel = ClearanceLevel.STANDARD
     jurisdiction: str = ""
-    kyc_status: str = "VERIFIED"
+    # UNVERIFIED, not VERIFIED. This is the default for a UserAttributes
+    # built without the field, and a default is a claim nobody made: it
+    # used to mean "we do not know whether this person passed KYC, so
+    # assume they did". `requires_kyc:VERIFIED` is a real gate
+    # (ecosystem.project_profile.project.edit), so the unknown case must
+    # fail closed. Fixed 2026-09-23 with the seeded-account statuses.
+    kyc_status: str = "UNVERIFIED"
     nda_signed_with: Set[str] = field(default_factory=set)
     assigned_audits: Set[str] = field(default_factory=set)  # project_ids for certifiers
     # ── Prosumer / trade attributes (Phase 3) ──

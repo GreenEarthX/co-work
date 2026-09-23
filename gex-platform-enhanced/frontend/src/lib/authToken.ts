@@ -124,3 +124,26 @@ export function discardExpiredSession(): boolean {
   clearAuthSession()
   return true
 }
+
+
+/**
+ * The signed-in user's id, from the token's `sub` claim — or null.
+ *
+ * NOT an authorization decision: the server derives the owner from the bearer
+ * token and accepts no other answer. This exists so per-user BROWSER state can
+ * be namespaced, and so one person's cached work can never be read — or worse,
+ * uploaded — under the next person's account on a shared browser.
+ */
+export function getAuthUserId(): string | null {
+  const token = getAuthToken()
+  if (!token) return null
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+  try {
+    const claims = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    const sub = claims?.sub ?? claims?.user_id
+    return typeof sub === 'string' && sub.length > 0 ? sub : null
+  } catch {
+    return null
+  }
+}
