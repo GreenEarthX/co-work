@@ -20,9 +20,6 @@ node_modules/
 docker/gex-platform-enhanced/
 docker/gex_pf_engine/
 docker/gex_fuel_catalog.json
-branch_structure.json
-temp_auto_push.bat
-temp_interactive_push.bat
 
 # Local Claude Code permissions — machine paths, personal to one developer
 **/.claude/settings.local.json

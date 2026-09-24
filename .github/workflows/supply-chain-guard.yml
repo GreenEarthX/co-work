@@ -1,0 +1,79 @@
+name: supply-chain-guard
+
+# Fails the build if a build-time config file looks like the loader that was
+# force-pushed into this repository on 2026-08-19 (commit 720af77): a normal
+# looking config with an obfuscated payload hidden after a long run of spaces.
+#
+# Config files are executed by Node whenever the frontend is started or built,
+# so they are the highest-value place to hide a loader and the cheapest place
+# to check.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build-config files are small, single-purpose and payload-free
+        shell: bash
+        run: |
+          set -uo pipefail
+          MAX=8192            # tailwind.config.js is legitimately ~3.9 KB
+          MAXWS=100           # payload hid behind 507 spaces on one line
+          fail=0
+
+          # High-signal loader markers. Deliberately NOT 'child_process' or
+          # Hostnames are matched as fragments: the obfuscator splits string
+          # literals into ~10-char pieces, so a full hostname never appears.
+          # 'createRequire' alone: both appear in legitimate code in this repo.
+          IOC='global\['"'"'_V'"'"'\]|global\.o=|eth_getBlockByNumber|eth_blockNumber|eth_getTransactionCount|publicnode\.com|drpc\.org|drpc\.io|blastapi\.io|23\.27\.20\.187'
+
+          mapfile -t CONFIGS < <(git ls-files \
+            | grep -Ev '(^|/)(node_modules|dist|build)/' \
+            | grep -E '(postcss|tailwind|vite|vitest|next|babel|jest|rollup|webpack|svelte|nuxt|eslint)\.config\.(js|cjs|mjs|ts)$|(^|/)\.eslintrc(\..*)?$|(^|/)\.babelrc(\..*)?$')
+
+          echo "Checking ${#CONFIGS[@]} build-config file(s)"
+          for f in "${CONFIGS[@]}"; do
+            sz=$(wc -c < "$f" | tr -d ' ')
+            printf '  %-60s %s bytes\n' "$f" "$sz"
+
+            if [ "$sz" -gt "$MAX" ]; then
+              echo "::error file=$f::config is $sz bytes (limit $MAX) - a build config this large is suspicious"
+              fail=1
+            fi
+
+            # A long horizontal whitespace run is the giveaway: it pushes the
+            # payload off the right-hand edge of the editor.
+            if grep -nqE "[[:space:]]{${MAXWS},}" "$f"; then
+              echo "::error file=$f::contains a run of >=${MAXWS} whitespace characters - payload may be hidden past the right edge"
+              fail=1
+            fi
+
+            if grep -nqE "$IOC" "$f"; then
+              echo "::error file=$f::matches a known malware-loader indicator"
+              fail=1
+            fi
+          done
+
+          # The C2 markers must not appear anywhere in tracked source.
+          echo "Scanning tracked source for C2 indicators"
+          if git ls-files \
+               | grep -Ev '(^|/)(node_modules|dist|build)/' \
+               | xargs -r grep -InE "$IOC" 2>/dev/null; then
+            echo "::error::known C2 indicator found in tracked source (see matches above)"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "supply-chain-guard FAILED"
+            exit 1
+          fi
+          echo "supply-chain-guard passed"
