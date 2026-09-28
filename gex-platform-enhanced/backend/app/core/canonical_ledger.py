@@ -54,6 +54,20 @@ def substrate() -> str:
     if CANONICAL_DATABASE_URL.startswith(("postgres://", "postgresql://")):
         return "postgres"
     if _DEV_WAIVER:
+        # Ask which store the platform is actually on before taking the SQLite
+        # waiver. Migration 053 gave PostgreSQL these tables, so on a postgres
+        # deployment the waiver would accumulate canonical truth in a local file
+        # while every other store holds the rest — precisely the split-brain the
+        # 2026-09-22 cutover exposed, where writes kept going to SQLite after the
+        # data had moved. The waiver is only honest on a non-postgres deployment.
+        from app.core.db_backend import domain_is_postgres
+
+        if domain_is_postgres():
+            raise SubstrateError(
+                "GEX_CANONICAL_DEV=1 refused: DOMAIN_DB_BACKEND is postgres and "
+                "migration 053 gives PostgreSQL the canonical ledger tables, so the "
+                "SQLite waiver would split canonical truth across two stores. Set "
+                "CANONICAL_DATABASE_URL to the runtime DSN (gex_app) instead.")
         return "sqlite-dev"
     return "unconfigured"
 
@@ -62,7 +76,27 @@ def _connect():
     sub = substrate()
     if sub == "postgres":
         import psycopg2
-        return psycopg2.connect(CANONICAL_DATABASE_URL), "postgres"
+
+        # Migration 053 FORCES RLS on these tables, so this connection must carry a
+        # tenant context or every write is refused ("new row violates row-level
+        # security policy") and every read returns nothing. A raw psycopg2 connect
+        # leaves app.current_company_id NULL, which is exactly that.
+        #
+        # Reuse the ONE derivation (request_tenant, via db_backend) rather than
+        # adding a second: explicit -> bound caller -> NO_TENANT_CONTEXT deny
+        # sentinel. The owner axis is set alongside the tenant, never on its own.
+        from app.core.db_backend import (
+            _safe_company, _safe_user, _tenant_context, _user_context,
+        )
+
+        conn = psycopg2.connect(CANONICAL_DATABASE_URL)
+        company = _tenant_context(None, "canonical_ledger")
+        cur = conn.cursor()
+        # Session-scoped SET, not SET LOCAL: append_entry commits, and SET LOCAL is
+        # reset at COMMIT — the context would vanish mid-write.
+        cur.execute(f"SET app.current_company_id = '{_safe_company(company)}'")
+        cur.execute(f"SET app.current_user_id = '{_safe_user(_user_context(None))}'")
+        return conn, "postgres"
     if sub == "sqlite-dev":
         conn = sqlite3.connect(_SQLITE_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -123,13 +157,36 @@ _DDL = [
 
 
 def init_db() -> str:
+    """Ensure the substrate is usable. DDL only where no migration owns the schema.
+
+    On PostgreSQL the schema belongs to Alembic (migration 053), not to the runtime:
+    `gex_app` holds no CREATE on schema public — measured, it is refused even for
+    `CREATE TABLE IF NOT EXISTS` against a table that already exists — and a
+    runtime-created table would carry no RLS policy. So here we VERIFY rather than
+    create, and say plainly which migration is missing if it has not run.
+
+    On the explicitly-flagged sqlite-dev substrate there are no migrations, so the
+    DDL still runs; that path is a dev crutch and every entry it writes is stamped
+    `substrate: "sqlite-dev"` to disclose it.
+    """
     conn, sub = _connect()
-    cur = conn.cursor()
-    for ddl in _DDL:
-        cur.execute(ddl)
-    conn.commit()
-    conn.close()
-    return sub
+    try:
+        cur = conn.cursor()
+        if sub == "postgres":
+            cur.execute("SELECT to_regclass('public.canonical_ledger_entries')")
+            if (cur.fetchone() or [None])[0] is None:
+                raise SubstrateError(
+                    "canonical ledger tables are absent from CANONICAL_DATABASE_URL. "
+                    "The runtime does not create them (no DDL rights, and a "
+                    "runtime-made table would carry no RLS policy) — run "
+                    "`alembic upgrade auth_slice@head` to apply migration 053.")
+            return sub
+        for ddl in _DDL:
+            cur.execute(ddl)
+        conn.commit()
+        return sub
+    finally:
+        conn.close()
 
 
 def _q(conn, sql: str, args: tuple = ()):  # paramstyle bridge

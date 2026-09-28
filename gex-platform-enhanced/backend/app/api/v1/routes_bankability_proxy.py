@@ -37,6 +37,78 @@ class EvidenceUpdateRequest(BaseModel):
     new_status: str
     submitted_by: Optional[str] = None
     notes: Optional[str] = None
+    # How far the underlying instrument has progressed — INTENT, INDICATIVE,
+    # AGREED, EXECUTED or EFFECTIVE. Declared by the submitter; a reviewer may
+    # confirm or lower it, never raise it. See _validate_evidence_write.
+    maturity: Optional[str] = None
+
+
+# Statuses a producer moves an item through, and statuses a reviewer sets.
+# Maturity may be RAISED only on the producer side: the party asserting what an
+# instrument is must not be the party that verifies it, and verification must
+# never make a term sheet into a contract.
+_PRODUCER_STATUSES = {"NOT_STARTED", "IN_PROGRESS", "SUBMITTED"}
+_REVIEWER_STATUSES = {"UNDER_REVIEW", "VERIFIED", "REJECTED", "EXPIRED"}
+
+
+def _validate_evidence_write(evidence_key: str, new_status: Optional[str],
+                             maturity: Optional[str], existing_maturity: Optional[str]) -> None:
+    """Refuse writes the gate engine could only misread. Raises HTTPException(422)."""
+    from app.core.bankability_engine import (
+        GATE_REGISTRY, MATURITY_LEVELS, RETIRED_EVIDENCE,
+    )
+
+    retired = RETIRED_EVIDENCE.get(evidence_key)
+    if retired:
+        raise HTTPException(status_code=422, detail={
+            "code": "EVIDENCE_KEY_RETIRED",
+            "evidence_key": evidence_key,
+            "replaced_by": retired["replaced_by"],
+            "reason": retired["reason"],
+            "message": (f"'{evidence_key}' was retired in evidence rules 3.0.0 and no gate "
+                        f"scores it. Submit '{retired['replaced_by']}' instead."),
+        })
+    live = {k for g in GATE_REGISTRY for k in g.required_evidence}
+    if evidence_key not in live:
+        # An unknown key can never count toward any gate, so accepting it would
+        # record evidence that looks filed and is invisible to every decision.
+        raise HTTPException(status_code=422, detail={
+            "code": "EVIDENCE_KEY_UNKNOWN",
+            "evidence_key": evidence_key,
+            "message": f"'{evidence_key}' is not an evidence item of any gate.",
+        })
+    if new_status is not None and new_status not in _PRODUCER_STATUSES | _REVIEWER_STATUSES:
+        raise HTTPException(status_code=422, detail={
+            "code": "EVIDENCE_STATUS_UNKNOWN",
+            "new_status": new_status,
+            "message": (f"'{new_status}' is not an evidence status. A misspelt VERIFIED "
+                        f"would otherwise be stored and silently never count."),
+        })
+    if maturity is None:
+        return
+    if maturity not in MATURITY_LEVELS:
+        raise HTTPException(status_code=422, detail={
+            "code": "MATURITY_UNKNOWN",
+            "maturity": maturity,
+            "allowed": MATURITY_LEVELS,
+            "message": f"'{maturity}' is not a maturity level.",
+        })
+    if new_status in _REVIEWER_STATUSES:
+        if existing_maturity not in MATURITY_LEVELS:
+            raise HTTPException(status_code=422, detail={
+                "code": "MATURITY_MUST_BE_DECLARED_AT_SUBMISSION",
+                "message": ("Maturity is declared by the submitter. A reviewer can confirm "
+                            "or lower it, but cannot introduce it — resubmit the item with "
+                            "its maturity declared."),
+            })
+        if MATURITY_LEVELS.index(maturity) > MATURITY_LEVELS.index(existing_maturity):
+            raise HTTPException(status_code=422, detail={
+                "code": "VERIFICATION_CANNOT_RAISE_MATURITY",
+                "declared_maturity": existing_maturity,
+                "requested_maturity": maturity,
+                "message": (f"Declared as {existing_maturity}. Review can confirm that or "
+                            f"lower it; raising it to {maturity} needs a new submission."),
+            })
 
 
 def _get_db():
@@ -54,6 +126,20 @@ def _get_db():
 
 
 def _ensure_tables(conn):
+    # SQLite only. On PostgreSQL the schema is owned by migrations 034 and 054,
+    # and this DDL is not valid there — AUTOINCREMENT is SQLite syntax, and the
+    # runtime role gex_app has no CREATE on schema public in any case.
+    #
+    # Found 2026-09-26: this ran unconditionally, so it raised
+    # `syntax error at or near "AUTOINCREMENT"` on every call under
+    # EVIDENCE_DB_BACKEND=postgres. Every function here calls it first, so every
+    # evidence read and write on PostgreSQL failed — evaluate, update, list,
+    # document upload, audit trail, health. The UI showed ABAC's 403 before the
+    # handler ran, and the tests pin SQLite, so neither surfaced it.
+    # Guarded by tests/test_evidence_pg_path.py, which runs against PostgreSQL.
+    from app.core.db_backend import evidence_is_postgres
+    if evidence_is_postgres():
+        return
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bankability_evidence (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,6 +150,9 @@ def _ensure_tables(conn):
             submitted_at TEXT, verified_at TEXT,
             document_hash TEXT, notes TEXT,
             updated_at TEXT DEFAULT (datetime('now')),
+            maturity TEXT,
+            assignee_user_id TEXT, assigned_by TEXT, assigned_at TEXT, due_date TEXT,
+            committed_at TEXT, committed_by TEXT,
             UNIQUE(project_id, evidence_key)
         )
     """)
@@ -101,9 +190,52 @@ def _ensure_tables(conn):
             new_status TEXT NOT NULL,
             actor TEXT NOT NULL,
             at TEXT NOT NULL,
-            document_sha256 TEXT
+            document_sha256 TEXT,
+            old_maturity TEXT,
+            new_maturity TEXT,
+            old_assignee TEXT,
+            new_assignee TEXT,
+            old_due_date TEXT,
+            new_due_date TEXT
         )
     """)
+    # Commitment cards (058) — structured terms behind offtake, EPC, schedule,
+    # supply and model; replaced per card, history append-only.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS commitment_terms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            card_type TEXT NOT NULL,
+            terms_json TEXT NOT NULL,
+            updated_by TEXT, updated_at TEXT,
+            UNIQUE(project_id, card_type)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS commitment_terms_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            card_type TEXT NOT NULL,
+            old_json TEXT,
+            new_json TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            at TEXT NOT NULL
+        )
+    """)
+    # Maturity became load-bearing in evidence rules 3.0.0. On PostgreSQL the
+    # columns come from migration 054 (this function has returned by now); this
+    # covers a SQLite file created before it.
+    # Assignment (055) likewise.
+    for table, columns in (("bankability_evidence", ("maturity", "assignee_user_id", "assigned_by",
+                                                     "assigned_at", "due_date", "committed_at",
+                                                     "committed_by")),
+                           ("evidence_events", ("old_maturity", "new_maturity",
+                                                "old_assignee", "new_assignee",
+                                                "old_due_date", "new_due_date"))):
+        present = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for col in columns:
+            if col not in present:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
     conn.commit()
 
 
@@ -112,35 +244,68 @@ def _load_evidence(project_id="default"):
     _ensure_tables(conn)
     rows = conn.execute("SELECT * FROM bankability_evidence WHERE project_id = ?", (project_id,)).fetchall()
     conn.close()
+
+    def _col(r, name):
+        # Tolerant on read only: a failed read breaks the whole evaluation, and
+        # a missing column means "not declared" / "not assigned" — the engine
+        # fails an undeclared maturity closed.
+        try:
+            return r[name]
+        except (KeyError, IndexError):
+            return None
+
     return [{"key": r["evidence_key"], "status": r["status"], "submitted_by": r["submitted_by"],
              "verified_by": r["verified_by"], "submitted_at": r["submitted_at"],
              "verified_at": r["verified_at"], "document_hash": r["document_hash"],
-             "notes": r["notes"]} for r in rows]
+             "notes": r["notes"], "maturity": _col(r, "maturity"),
+             "assignee_user_id": _col(r, "assignee_user_id"), "due_date": _col(r, "due_date"),
+             "committed_at": _col(r, "committed_at")}
+            for r in rows]
 
 
-def _upsert_evidence(project_id, evidence_key, status, submitted_by=None, notes=None, document_sha256=None):
+def _existing_maturity(project_id, evidence_key):
+    conn = _get_db()
+    _ensure_tables(conn)
+    row = conn.execute(
+        "SELECT maturity FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
+        (project_id, evidence_key),
+    ).fetchone()
+    conn.close()
+    return row["maturity"] if row else None
+
+
+def _upsert_evidence(project_id, evidence_key, status, submitted_by=None, notes=None,
+                     document_sha256=None, maturity=None):
     conn = _get_db()
     _ensure_tables(conn)
     old = conn.execute(
-        "SELECT status FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
+        "SELECT status, maturity FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
         (project_id, evidence_key),
     ).fetchone()
     old_status = old["status"] if old else None
+    old_maturity = old["maturity"] if old else None
+    new_maturity = maturity if maturity is not None else old_maturity
     conn.execute("""
-        INSERT INTO bankability_evidence (project_id, evidence_key, status, submitted_by, notes, updated_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO bankability_evidence (project_id, evidence_key, status, submitted_by, notes, maturity, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(project_id, evidence_key)
         DO UPDATE SET status=excluded.status,
             submitted_by=COALESCE(excluded.submitted_by, bankability_evidence.submitted_by),
             notes=COALESCE(excluded.notes, bankability_evidence.notes),
+            maturity=COALESCE(excluded.maturity, bankability_evidence.maturity),
             updated_at=datetime('now')
-    """, (project_id, evidence_key, status, submitted_by, notes))
-    # Append-only audit: every status transition is recorded with its actor.
-    if old_status != status:
+    """, (project_id, evidence_key, status, submitted_by, notes, maturity))
+    # Append-only audit: every status transition AND every maturity change is
+    # recorded with its actor. Maturity is load-bearing from rules 3.0.0, so a
+    # change from INTENT to EXECUTED that left the status alone must still leave
+    # a trace — otherwise the most consequential edit would be the invisible one.
+    if old_status != status or old_maturity != new_maturity:
         conn.execute(
-            "INSERT INTO evidence_events (project_id, evidence_key, old_status, new_status, actor, at, document_sha256) "
-            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?)",
-            (project_id, evidence_key, old_status, status, submitted_by or "system", document_sha256),
+            "INSERT INTO evidence_events (project_id, evidence_key, old_status, new_status, actor, at, "
+            "document_sha256, old_maturity, new_maturity) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)",
+            (project_id, evidence_key, old_status, status, submitted_by or "system",
+             document_sha256, old_maturity, new_maturity),
         )
     conn.commit()
     conn.close()
@@ -187,6 +352,140 @@ def _physical_payload(project_id: str) -> dict:
     return {"power_model": None, "project_phase": None, "financing_model": None}
 
 
+# ── Applicability — nobody is asked for evidence the project does not need ──
+
+_NOT_APPLICABLE_MESSAGE = {
+    "POWER_MODEL": "does not apply to this project's power model",
+    "FINANCING_MODEL": "protects a lender and does not apply to balance-sheet funding",
+}
+
+
+def _inapplicable(project_id: str, evidence_key: str) -> str | None:
+    """POWER_MODEL / FINANCING_MODEL when the item does not apply to the project's
+    declared premise; None when it does. Same rule as the engine's
+    not_applicable_reason (tests/test_gate_registries_agree.py)."""
+    from app.core.bankability_engine import inapplicability
+
+    ctx = _physical_payload(project_id)
+    return inapplicability(evidence_key, ctx.get("power_model"), ctx.get("financing_model"))
+
+
+# ── Assignment — a named person owns each evidence request (migration 055) ──
+
+def _account_directory(user_ids) -> dict:
+    """user_id -> {name, business_function, company_id, account_state} from the
+    auth store. Auth tables carry no RLS, so this resolves regardless of tenant.
+    Tolerant: a name lookup must never break a gate evaluation."""
+    ids = sorted({u for u in user_ids if u})
+    if not ids:
+        return {}
+    try:
+        from app.core.auth import auth_db_connection
+        conn = auth_db_connection()
+        try:
+            rows = conn.execute(
+                "SELECT user_id, user_name, business_function, company_id, account_state "
+                f"FROM auth_users WHERE user_id IN ({','.join('?' for _ in ids)})", tuple(ids),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+    return {r["user_id"]: {"name": r["user_name"], "business_function": r["business_function"],
+                           "company_id": r["company_id"], "account_state": r["account_state"]}
+            for r in rows}
+
+
+def _optional_actor(authorization: str | None) -> Optional[dict]:
+    """The caller if a valid bearer is present, else None — for reads that only
+    personalise (who may commit, who may reassign) and must not fail on it."""
+    try:
+        return _require_actor(authorization) if authorization else None
+    except HTTPException:
+        return None
+
+
+def _attach_assignments(snapshot: dict, evidence: list, actor: Optional[dict] = None,
+                        project_id: Optional[str] = None) -> dict:
+    """Add who owns each item, whether they have committed to a date, and whether
+    it is overdue, to the engine's evidence_detail. The engine scores evidence;
+    it does not know people or deadlines — this is the platform's.
+
+    With an actor, also say what THIS caller may do: commit (only the assignee)
+    and reassign (the owning company or a platform admin)."""
+    from app.core.evidence_due_dates import OVERDUE, NOT_COMMITTED, commitment_state
+
+    by_key = {e["key"]: e for e in evidence}
+    people = _account_directory(e.get("assignee_user_id") for e in evidence)
+    can_assign = False
+    if actor and project_id:
+        can_assign = bool(actor.get("is_platform_admin")) or actor.get("company_id") == _project_owner(project_id)
+    gates = snapshot.get("gate_evaluations") or []
+    for gate in (gates.values() if isinstance(gates, dict) else gates):
+        overdue = uncommitted = 0
+        for item in gate.get("evidence_detail") or []:
+            ev = by_key.get(item.get("key"))
+            not_applicable = item.get("status") == "NOT_APPLICABLE"
+            if not ev:
+                # No request raised yet. The owner can still assign one — the
+                # assign endpoint creates it — unless the item does not apply.
+                item["commitment"] = "UNASSIGNED"
+                item["can_assign"] = can_assign and not not_applicable
+                item["can_commit"] = False
+                continue
+            uid = ev.get("assignee_user_id")
+            item["assignee_user_id"] = uid
+            item["assignee_name"] = (people.get(uid) or {}).get("name") if uid else None
+            item["assignee_function"] = (people.get(uid) or {}).get("business_function") if uid else None
+            item["due_date"] = ev.get("due_date")
+            item["committed_at"] = ev.get("committed_at")
+            item["request_note"] = ev.get("notes")
+            if not_applicable:
+                # A request raised for an item the project does not need: it is
+                # not open work, cannot be committed to, and counts nowhere. The
+                # owner may withdraw it; the row itself stays as the record.
+                item["commitment"], item["days_overdue"] = "NOT_REQUIRED", 0
+                item["can_commit"] = item["can_assign"] = False
+                item["can_withdraw"] = can_assign and bool(uid)
+                continue
+            state, days = commitment_state({**ev, "status": item.get("status", ev.get("status"))})
+            item["commitment"], item["days_overdue"] = state, days
+            item["can_commit"] = bool(actor and uid and actor.get("user_id") == uid and state != "DONE")
+            item["can_assign"] = can_assign
+            overdue += state == OVERDUE
+            uncommitted += state == NOT_COMMITTED
+        gate["overdue_count"], gate["uncommitted_count"] = overdue, uncommitted
+    return snapshot
+
+
+def _load_terms(project_id: str) -> dict:
+    """The project's commitment cards as {card_type: terms}. Tolerant: a card that
+    cannot be read is absent, and the engine treats absent data as NOT_EVALUABLE
+    rather than failing the whole evaluation."""
+    try:
+        conn = _get_db()
+        _ensure_tables(conn)
+        rows = conn.execute(
+            "SELECT card_type, terms_json FROM commitment_terms WHERE project_id = ?", (project_id,)
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        try:
+            out[r["card_type"]] = json.loads(r["terms_json"] or "{}")
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _engine_context(project_id: str) -> dict:
+    """Everything the engine needs besides evidence: power, phase and financing
+    model, and (rules 4.0.0) the commitment cards."""
+    return {**_physical_payload(project_id), "terms": _load_terms(project_id)}
+
+
 async def _call_engine(path, method="GET", json_data=None):
     url = f"{ENGINE_URL}/api/v1/bankability{path}"
     headers = engine_auth_headers()
@@ -203,15 +502,16 @@ async def _call_engine(path, method="GET", json_data=None):
 
 
 @router.get("/evaluate")
-async def evaluate_project(project_id: str = Query(default="default")):
+async def evaluate_project(project_id: str = Query(default="default"),
+                           authorization: str | None = Header(default=None)):
     evidence = _load_evidence(project_id)
     previous_state = _get_project_state(project_id)
     snapshot = await _call_engine("/evaluate", method="POST", json_data={
         "project_id": project_id, "evidence": evidence, "previous_state": previous_state,
-        **_physical_payload(project_id),
+        **_engine_context(project_id),
     })
     _store_snapshot(project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
-    return snapshot
+    return _attach_assignments(snapshot, evidence, _optional_actor(authorization), project_id)
 
 
 @router.get("/evaluate/persona")
@@ -221,21 +521,21 @@ async def evaluate_for_persona(
 ):
     evidence = _load_evidence(project_id)
     previous_state = _get_project_state(project_id)
-    return await _call_engine("/evaluate/persona", method="POST", json_data={
+    return _attach_assignments(await _call_engine("/evaluate/persona", method="POST", json_data={
         "project_id": project_id, "evidence": evidence, "persona": persona, "previous_state": previous_state,
-        **_physical_payload(project_id),
-    })
+        **_engine_context(project_id),
+    }), evidence)
 
 
 @router.get("/projects/{project_id}/bankability/{persona}")
 async def get_project_bankability_for_persona(project_id: str, persona: str):
     evidence = _load_evidence(project_id)
     previous_state = _get_project_state(project_id)
-    return await _call_engine("/evaluate/persona", method="POST", json_data={
+    return _attach_assignments(await _call_engine("/evaluate/persona", method="POST", json_data={
         "project_id": project_id, "evidence": evidence,
         "persona": persona.upper(), "previous_state": previous_state,
-        **_physical_payload(project_id),
-    })
+        **_engine_context(project_id),
+    }), evidence)
 
 
 @router.get("/executive/portfolio")
@@ -258,7 +558,7 @@ async def get_executive_portfolio():
             persona_view = await _call_engine("/evaluate/persona", method="POST", json_data={
                 "project_id": project_id, "evidence": evidence,
                 "persona": "EXECUTIVE", "previous_state": row["current_state"],
-                **_physical_payload(project_id),
+                **_engine_context(project_id),
             })
         except Exception:
             persona_view = json.loads(row["snapshot_json"]) if row["snapshot_json"] else {}
@@ -309,22 +609,361 @@ async def get_rules():
 
 
 @router.post("/evidence")
-async def update_evidence(request: EvidenceUpdateRequest):
-    _upsert_evidence(request.project_id, request.evidence_key, request.new_status, request.submitted_by, request.notes)
+async def update_evidence(request: EvidenceUpdateRequest,
+                          authorization: str | None = Header(default=None)):
+    _validate_evidence_write(
+        request.evidence_key, request.new_status, request.maturity,
+        _existing_maturity(request.project_id, request.evidence_key) if request.maturity else None,
+    )
+    _upsert_evidence(request.project_id, request.evidence_key, request.new_status,
+                     request.submitted_by, request.notes, maturity=request.maturity)
     evidence = _load_evidence(request.project_id)
     previous_state = _get_project_state(request.project_id)
     snapshot = await _call_engine("/evaluate", method="POST", json_data={
         "project_id": request.project_id, "evidence": evidence, "previous_state": previous_state,
-        **_physical_payload(request.project_id),
+        **_engine_context(request.project_id),
     })
     _store_snapshot(request.project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
-    return snapshot
+    return _attach_assignments(snapshot, evidence, _optional_actor(authorization), request.project_id)
 
 
 @router.get("/evidence")
 async def list_evidence(project_id: str = Query(default="default")):
     evidence = _load_evidence(project_id)
     return {"project_id": project_id, "evidence": evidence, "count": len(evidence)}
+
+
+
+class EvidenceAssignRequest(BaseModel):
+    project_id: str
+    evidence_key: str
+    assignee_user_id: Optional[str] = None   # None unassigns
+
+
+class EvidenceCommitRequest(BaseModel):
+    project_id: str
+    evidence_key: str
+    due_date: str                            # YYYY-MM-DD, today or later
+
+
+def _project_owner(project_id: str) -> Optional[str]:
+    from app.core.projects_store import fetch_project
+    try:
+        row = fetch_project(project_id)
+    except Exception:
+        return None
+    return (row or {}).get("owner_tenant_id")
+
+
+def _owner_gate(actor: dict, project_id: str) -> str:
+    """The project's owning company, if the caller may manage its requests."""
+    owner = _project_owner(project_id)
+    if owner is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "PROJECT_HAS_NO_OWNER",
+            "message": f"'{project_id}' has no owning company, so there is no one to assign it to."})
+    if not actor.get("is_platform_admin") and actor.get("company_id") != owner:
+        raise HTTPException(status_code=403, detail={
+            "code": "NOT_PROJECT_OWNER",
+            "message": "Only the company that owns this project can assign its evidence requests."})
+    return owner
+
+
+@router.post("/evidence/assign")
+async def assign_evidence(request: EvidenceAssignRequest,
+                          authorization: str | None = Header(default=None)):
+    """Name the person who must produce an evidence item.
+
+    Only the company that owns the project (or a platform admin) may assign, and
+    only to an ACTIVE account of that company: a request routed to another
+    tenant would disclose the project to it. Creates the item as an open
+    NOT_STARTED request if it has no row yet.
+
+    Assignment CREATES a request; the assignee ACCEPTS it by committing to a date
+    (POST /evidence/commit). So a reassignment clears the date and the
+    commitment — a date is one person's word and does not pass to the next.
+    Every change is audited.
+    """
+    actor = _require_actor(authorization)
+    _validate_evidence_write(request.evidence_key, None, None, None)
+    owner = _owner_gate(actor, request.project_id)
+    reason = _inapplicable(request.project_id, request.evidence_key)
+    if reason and request.assignee_user_id:
+        # Withdrawing (assignee None) stays allowed: it is how a request raised
+        # for an item the project does not need is taken back.
+        raise HTTPException(status_code=422, detail={
+            "code": "ITEM_NOT_APPLICABLE", "reason": reason,
+            "message": f"'{request.evidence_key}' {_NOT_APPLICABLE_MESSAGE[reason]}, so there is "
+                       "nothing to request. An existing request can only be withdrawn."})
+    if request.assignee_user_id:
+        person = _account_directory([request.assignee_user_id]).get(request.assignee_user_id)
+        if not person or person["company_id"] != owner or person["account_state"] != "ACTIVE":
+            raise HTTPException(status_code=422, detail={
+                "code": "ASSIGNEE_NOT_AN_ACTIVE_ACCOUNT_OF_THE_OWNER",
+                "message": "Assign to an active account of the company that owns the project."})
+
+    who = actor.get("user_id") or actor.get("email") or "unknown"
+    conn = _get_db()
+    _ensure_tables(conn)
+    old = conn.execute(
+        "SELECT status, assignee_user_id, due_date FROM bankability_evidence "
+        "WHERE project_id = ? AND evidence_key = ?",
+        (request.project_id, request.evidence_key),
+    ).fetchone()
+    old_assignee = old["assignee_user_id"] if old else None
+    changed = old is None or old_assignee != request.assignee_user_id
+    if old and changed:
+        conn.execute(
+            "UPDATE bankability_evidence SET assignee_user_id = ?, due_date = NULL, committed_at = NULL, "
+            "committed_by = NULL, assigned_by = ?, assigned_at = datetime('now'), updated_at = datetime('now') "
+            "WHERE project_id = ? AND evidence_key = ?",
+            (request.assignee_user_id, who, request.project_id, request.evidence_key))
+    elif old is None:
+        conn.execute(
+            "INSERT INTO bankability_evidence (project_id, evidence_key, status, assignee_user_id, "
+            "assigned_by, assigned_at, updated_at) "
+            "VALUES (?, ?, 'NOT_STARTED', ?, ?, datetime('now'), datetime('now'))",
+            (request.project_id, request.evidence_key, request.assignee_user_id, who))
+    status = old["status"] if old else "NOT_STARTED"
+    if changed:
+        conn.execute(
+            "INSERT INTO evidence_events (project_id, evidence_key, old_status, new_status, actor, at, "
+            "old_assignee, new_assignee, old_due_date, new_due_date) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, NULL)",
+            (request.project_id, request.evidence_key, old["status"] if old else None, status, who,
+             old_assignee, request.assignee_user_id, old["due_date"] if old else None))
+    conn.commit()
+    conn.close()
+    return {"project_id": request.project_id, "evidence_key": request.evidence_key, "status": status,
+            "assignee_user_id": request.assignee_user_id, "commitment": "NOT_COMMITTED"
+            if request.assignee_user_id else "UNASSIGNED", "assigned_by": who}
+
+
+@router.post("/evidence/commit")
+async def commit_evidence(request: EvidenceCommitRequest,
+                          authorization: str | None = Header(default=None)):
+    """The assignee accepts a request by committing to a date — or moves it.
+
+    Only the assignee can commit: a date set on someone's behalf is a date they
+    never gave. Not even a platform admin can. The date must be today or later;
+    moving a committed date is allowed and every change is audited, so a slipped
+    date stays visible as a slip.
+    """
+    from app.core.evidence_due_dates import parse_commitment_date
+
+    actor = _require_actor(authorization)
+    try:
+        parse_commitment_date(request.due_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "DUE_DATE_INVALID", "message": str(exc)
+                            if "passed" in str(exc) else "due_date must be YYYY-MM-DD."})
+    conn = _get_db()
+    _ensure_tables(conn)
+    row = conn.execute(
+        "SELECT status, assignee_user_id, due_date FROM bankability_evidence "
+        "WHERE project_id = ? AND evidence_key = ?",
+        (request.project_id, request.evidence_key),
+    ).fetchone()
+    if not row or not row["assignee_user_id"]:
+        conn.close()
+        raise HTTPException(status_code=409, detail={
+            "code": "NOT_ASSIGNED", "message": "Nobody is assigned to this request yet."})
+    if row["assignee_user_id"] != actor.get("user_id"):
+        conn.close()
+        raise HTTPException(status_code=403, detail={
+            "code": "ONLY_THE_ASSIGNEE_CAN_COMMIT",
+            "message": "Only the person assigned to this request can commit to a date for it."})
+    if row["status"] == "VERIFIED":
+        conn.close()
+        raise HTTPException(status_code=409, detail={
+            "code": "ALREADY_VERIFIED", "message": "This item is verified; there is nothing left to commit to."})
+    reason = _inapplicable(request.project_id, request.evidence_key)
+    if reason:
+        conn.close()
+        raise HTTPException(status_code=409, detail={
+            "code": "ITEM_NOT_APPLICABLE", "reason": reason,
+            "message": f"'{request.evidence_key}' {_NOT_APPLICABLE_MESSAGE[reason]}; there is nothing "
+                       "to commit to. The project owner can withdraw the request."})
+    who = actor["user_id"]
+    conn.execute(
+        "UPDATE bankability_evidence SET due_date = ?, committed_at = datetime('now'), committed_by = ?, "
+        "updated_at = datetime('now') WHERE project_id = ? AND evidence_key = ?",
+        (request.due_date, who, request.project_id, request.evidence_key))
+    if row["due_date"] != request.due_date:
+        conn.execute(
+            "INSERT INTO evidence_events (project_id, evidence_key, old_status, new_status, actor, at, "
+            "old_assignee, new_assignee, old_due_date, new_due_date) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?)",
+            (request.project_id, request.evidence_key, row["status"], row["status"], who,
+             who, who, row["due_date"], request.due_date))
+    conn.commit()
+    conn.close()
+    return {"project_id": request.project_id, "evidence_key": request.evidence_key,
+            "due_date": request.due_date, "committed_by": who, "commitment": "COMMITTED",
+            "moved_from": row["due_date"]}
+
+
+@router.get("/evidence/assignable")
+async def list_assignable_accounts(project_id: str = Query(...),
+                                   authorization: str | None = Header(default=None)):
+    """Active accounts of the project's owning company — the only valid assignees."""
+    actor = _require_actor(authorization)
+    owner = _owner_gate(actor, project_id)
+    try:
+        from app.core.auth import auth_db_connection
+        conn = auth_db_connection()
+        try:
+            rows = conn.execute(
+                "SELECT user_id, user_name, business_function FROM auth_users "
+                "WHERE company_id = ? AND account_state = 'ACTIVE' ORDER BY user_name",
+                (owner,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        rows = []
+    return {"project_id": project_id, "company_id": owner,
+            "accounts": [{"user_id": r["user_id"], "name": r["user_name"],
+                          "business_function": r["business_function"]} for r in rows]}
+
+
+@router.get("/evidence/assigned-to-me")
+async def list_my_evidence_requests(authorization: str | None = Header(default=None)):
+    """Open evidence requests assigned to the caller, overdue first, then uncommitted.
+
+    Requests on items the project does not need (its power model, or lender
+    protection under balance-sheet funding) are not open work: they are listed
+    apart under `not_required` and counted nowhere."""
+    from app.core.bankability_engine import EVIDENCE_GATE_MAP
+    from app.core.evidence_due_dates import commitment_state
+
+    actor = _require_actor(authorization)
+    conn = _get_db()
+    _ensure_tables(conn)
+    rows = conn.execute(
+        "SELECT project_id, evidence_key, status, assignee_user_id, due_date, committed_at, notes, "
+        "assigned_at FROM bankability_evidence "
+        "WHERE assignee_user_id = ? AND status <> 'VERIFIED' ORDER BY project_id, evidence_key",
+        (actor.get("user_id"),),
+    ).fetchall()
+    conn.close()
+    order = {"OVERDUE": 0, "NOT_COMMITTED": 1, "COMMITTED": 2}
+    out, not_required = [], []
+    for r in rows:
+        reason = _inapplicable(r["project_id"], r["evidence_key"])
+        if reason:
+            not_required.append({**dict(r), "gate_id": EVIDENCE_GATE_MAP.get(r["evidence_key"]),
+                                 "commitment": "NOT_REQUIRED", "not_applicable_reason": reason})
+            continue
+        state, days = commitment_state(dict(r))
+        out.append({**dict(r), "gate_id": EVIDENCE_GATE_MAP.get(r["evidence_key"]),
+                    "commitment": state, "days_overdue": days})
+    out.sort(key=lambda x: (order.get(x["commitment"], 3), -x["days_overdue"], x["due_date"] or ""))
+    return {"user_id": actor.get("user_id"), "count": len(out),
+            "overdue": sum(x["commitment"] == "OVERDUE" for x in out),
+            "not_committed": sum(x["commitment"] == "NOT_COMMITTED" for x in out),
+            "requests": out, "not_required": not_required}
+
+
+# ── Commitment cards (rules 4.0.0) ───────────────────────────────────────────
+
+class TermsWriteRequest(BaseModel):
+    project_id: str
+    card_type: str      # offtake | epc | schedule | supply | model
+    terms: dict = {}    # replaces the card; {} clears it
+
+
+@router.get("/terms")
+async def get_commitment_terms(project_id: str = Query(...),
+                               authorization: str | None = Header(default=None)):
+    """The project's commitment cards, plus the field specification the UI
+    renders its forms from (the same spec the engine reads). `can_edit` mirrors
+    the write rule in put_commitment_terms, so the screen offers editing only to
+    those the write will accept."""
+    from app.core.bankability_engine import COMMITMENT_CARD_FIELDS, TERMS_CARD_GATE
+
+    actor = _require_actor(authorization)
+    owner = _project_owner(project_id)
+    can_edit = owner is not None and (bool(actor.get("is_platform_admin")) or actor.get("company_id") == owner)
+    conn = _get_db()
+    _ensure_tables(conn)
+    rows = conn.execute(
+        "SELECT card_type, terms_json, updated_by, updated_at FROM commitment_terms WHERE project_id = ?",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    cards = {}
+    for r in rows:
+        try:
+            terms = json.loads(r["terms_json"] or "{}")
+        except (TypeError, ValueError):
+            terms = {}
+        cards[r["card_type"]] = {"terms": terms, "updated_by": r["updated_by"], "updated_at": r["updated_at"]}
+    return {"project_id": project_id, "cards": cards, "can_edit": can_edit,
+            "card_fields": COMMITMENT_CARD_FIELDS, "card_gates": TERMS_CARD_GATE}
+
+
+@router.put("/terms")
+async def put_commitment_terms(request: TermsWriteRequest,
+                               authorization: str | None = Header(default=None)):
+    """Replace one commitment card. Only the company that owns the project (or a
+    platform admin) may write its cards — they are the producer's statement of
+    what it has signed and been promised. Every change is audited, old and new."""
+    from app.core.commitment_terms import TermsValidationError, validate_card
+
+    actor = _require_actor(authorization)
+    _owner_gate(actor, request.project_id)
+    try:
+        clean = validate_card(request.card_type, request.terms)
+    except TermsValidationError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "TERMS_INVALID", "problems": exc.problems,
+            "message": "The card was not saved: " + "; ".join(exc.problems)})
+
+    who = actor.get("user_id") or actor.get("email") or "unknown"
+    new_json = json.dumps(clean, sort_keys=True)
+    conn = _get_db()
+    _ensure_tables(conn)
+    old = conn.execute(
+        "SELECT terms_json FROM commitment_terms WHERE project_id = ? AND card_type = ?",
+        (request.project_id, request.card_type),
+    ).fetchone()
+    old_json = old["terms_json"] if old else None
+    if old is None:
+        conn.execute(
+            "INSERT INTO commitment_terms (project_id, card_type, terms_json, updated_by, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'))",
+            (request.project_id, request.card_type, new_json, who))
+    elif old_json != new_json:
+        conn.execute(
+            "UPDATE commitment_terms SET terms_json = ?, updated_by = ?, updated_at = datetime('now') "
+            "WHERE project_id = ? AND card_type = ?",
+            (new_json, who, request.project_id, request.card_type))
+    if old_json != new_json:
+        conn.execute(
+            "INSERT INTO commitment_terms_events (project_id, card_type, old_json, new_json, actor, at) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'))",
+            (request.project_id, request.card_type, old_json, new_json, who))
+    conn.commit()
+    conn.close()
+    return {"project_id": request.project_id, "card_type": request.card_type, "terms": clean,
+            "changed": old_json != new_json, "updated_by": who}
+
+
+@router.get("/terms/events")
+async def list_commitment_terms_events(project_id: str = Query(...),
+                                       authorization: str | None = Header(default=None)):
+    """Append-only history of card changes."""
+    _require_actor(authorization)
+    conn = _get_db()
+    _ensure_tables(conn)
+    rows = conn.execute(
+        "SELECT card_type, old_json, new_json, actor, at FROM commitment_terms_events "
+        "WHERE project_id = ? ORDER BY id DESC LIMIT 200",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    return {"project_id": project_id, "events": [dict(r) for r in rows]}
 
 
 # ── Evidence documents — evidence without a document is a claim ─────────────
@@ -359,6 +998,9 @@ async def upload_evidence_document(
     from pathlib import Path
 
     actor = _require_actor(authorization)
+    # Validate before touching disk: evidence_key names a directory below, and
+    # an unknown or retired key would store a file no gate can ever see.
+    _validate_evidence_write(evidence_key, None, None, None)
     content = await file.read()
     if len(content) > _MAX_DOC_BYTES:
         raise HTTPException(status_code=413, detail="Document exceeds 25 MB limit")
@@ -447,12 +1089,14 @@ async def list_evidence_events(
     project_id: str = Query(...),
     authorization: str | None = Header(default=None),
 ):
-    """Append-only evidence status-transition audit trail."""
+    """Append-only evidence audit trail: status transitions, maturity changes and reassignments."""
     _require_actor(authorization)
     conn = _get_db()
     _ensure_tables(conn)
     rows = conn.execute(
-        "SELECT evidence_key, old_status, new_status, actor, at, document_sha256 FROM evidence_events "
+        "SELECT evidence_key, old_status, new_status, actor, at, document_sha256, "
+        "old_maturity, new_maturity, old_assignee, new_assignee, old_due_date, new_due_date "
+        "FROM evidence_events "
         "WHERE project_id = ? ORDER BY id DESC LIMIT 500",
         (project_id,),
     ).fetchall()
@@ -482,7 +1126,7 @@ async def check_regression(project_id: str = Query(default="default")):
     previous_state = _get_project_state(project_id)
     return await _call_engine("/regression/check", method="POST", json_data={
         "project_id": project_id, "evidence": evidence, "previous_state": previous_state,
-        **_physical_payload(project_id),
+        **_engine_context(project_id),
     })
 
 

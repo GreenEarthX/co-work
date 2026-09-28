@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gex_user"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -92,6 +92,13 @@ services:
       - "8001:8001"
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      # One identity issuer (ADR 2026-07-06): engines verify GEX platform
+      # JWTs only. Must match the backend SECRET_KEY (HS256), or set
+      # GEX_JWKS_URL for RS256 key discovery. In production the engine never
+      # trusts the dev default below: with SECRET_KEY unset it refuses HS256
+      # and accepts only RS256 tokens from the backend's JWKS.
+      GEX_JWT_SECRET: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      GEX_JWKS_URL: http://backend:8000/api/v1/auth/jwks
     networks:
       - gex_net
 

@@ -65,21 +65,30 @@ def test_project_scoped_memory_does_not_collide(tmp_path):
     assert memory.history("project_b")[0]["project_id"] == "project_b"
 
 
-def test_curve_api_contracts_include_provenance_and_memory():
-    client = TestClient(app)
+def test_curve_api_contracts_include_provenance_and_memory(service_client):
     payload = load_config("api_curve_project")
 
-    cal = client.post("/pf/curve/calibrate", json=payload)
+    cal = service_client.post("/pf/curve/calibrate", json=payload)
     assert cal.status_code == 200
     assert cal.json()["fit"]["r2_vs_fundamental"] > 0.97
 
-    pricing = client.post("/pf/curve/pricing", json={**payload, "taus": [1, 5]})
+    pricing = service_client.post("/pf/curve/pricing", json={**payload, "taus": [1, 5]})
     assert pricing.status_code == 200
     body = pricing.json()
     assert body["measure"] == "Q"
     assert body["seed"] == payload["simulation"]["seed"]
     assert "provenance" in body
 
-    memory = client.get("/pf/curve/api_curve_project/memory")
+    memory = service_client.get("/pf/curve/api_curve_project/memory")
     assert memory.status_code == 200
     assert memory.json()["history"]
+
+
+def test_curve_calibrate_refuses_unauthenticated_call(curve_service):
+    anonymous = TestClient(app)
+    payload = load_config("api_anonymous_project")
+
+    refused = anonymous.post("/pf/curve/calibrate", json=payload)
+    assert refused.status_code == 401
+    assert refused.headers["www-authenticate"] == "Bearer"
+    assert curve_service.history("api_anonymous_project") == []

@@ -41,6 +41,9 @@ class EvaluateRequest(BaseModel):
     power_model: Optional[str] = None      # OFF_GRID_BTM | GRID_CONNECTED | HYBRID
     project_phase: Optional[str] = None    # development | construction | commissioning | operating
     financing_model: Optional[str] = None  # PROJECT_FINANCE | BALANCE_SHEET
+    # Commitment cards (rules 4.0.0): {offtake, epc, schedule, supply, model}.
+    # Drive the offtake/EPC ladders, coherence checks and post-FID triggers.
+    terms: dict = {}
 
 class PersonaEvaluateRequest(BaseModel):
     project_id: str = "default"
@@ -50,6 +53,7 @@ class PersonaEvaluateRequest(BaseModel):
     power_model: Optional[str] = None
     project_phase: Optional[str] = None
     financing_model: Optional[str] = None
+    terms: dict = {}
 
 class RegressionCheckRequest(BaseModel):
     project_id: str = "default"
@@ -57,6 +61,8 @@ class RegressionCheckRequest(BaseModel):
     previous_state: Optional[str] = None
     power_model: Optional[str] = None
     project_phase: Optional[str] = None
+    financing_model: Optional[str] = None
+    terms: dict = {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -73,6 +79,7 @@ async def evaluate_endpoint(request: EvaluateRequest):
         power_model=request.power_model,
         project_phase=request.project_phase,
         financing_model=request.financing_model,
+        terms=request.terms,
     )
 
 
@@ -87,6 +94,7 @@ async def evaluate_persona_endpoint(request: PersonaEvaluateRequest):
         power_model=request.power_model,
         project_phase=request.project_phase,
         financing_model=request.financing_model,
+        terms=request.terms,
     )
 
 
@@ -111,6 +119,8 @@ async def regression_check_endpoint(request: RegressionCheckRequest):
         previous_state=request.previous_state,
         power_model=request.power_model,
         project_phase=request.project_phase,
+        financing_model=request.financing_model,
+        terms=request.terms,
     )
     return {
         "project_id": request.project_id,

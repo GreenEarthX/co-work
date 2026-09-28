@@ -37,8 +37,13 @@ PROVENANCE MARKER on real people who predate the vetting flow, not a marker of
 fake accounts. Deleting them would delete the platform's actual users. The
 marker is how they are found; it is not a verdict on them.
 
-The two genuine `bankability_evidence` rows (anna.keller@rheinwerk.de and
-thierry.groell@etfuels.com) stay, and after this run they are the whole table.
+CORRECTED 2026-09-26: the two `bankability_evidence` rows this script calls
+genuine (anna.keller@rheinwerk.de, thierry.groell@etfuels.com) are real people
+with INVENTED content — confirmed by the platform owner. All 127 evidence rows
+were converted by scripts/convert_invented_evidence.py into open requests
+assigned to real accounts (originals archived in bankability_evidence_archive).
+No `demo_seed` evidence remains, so the evidence part of this script now
+matches nothing; the rest of it is unaffected.
 
 REVERSIBILITY
 -------------
@@ -112,7 +117,8 @@ def main() -> int:
               "who predate vetting, not demo accounts")
         real = conn.execute(text(
             "SELECT COUNT(*) FROM bankability_evidence WHERE submitted_by <> 'demo_seed'")).scalar()
-        print(f"KEPT: {real} genuine bankability_evidence row(s)")
+        print(f"KEPT: {real} bankability_evidence row(s) not written by demo_seed "
+              "(since 2026-09-26: open requests assigned to real accounts)")
 
     if not args.execute:
         print("\nDry run. Re-run with --execute to delete.")

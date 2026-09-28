@@ -203,10 +203,12 @@ def fx_meta(base_currency: str, override: Optional[float] = None) -> dict:
 
 
 def cost_basis_block(base_currency: str, cost_year: Optional[int], is_stub: bool,
-                     fx: Optional[dict] = None) -> dict:
+                     fx: Optional[dict] = None, engine: Optional[str] = None,
+                     engine_version: Optional[str] = None) -> dict:
     if is_stub:
         return {"currency": (base_currency or "EUR").upper(), "cost_year": None,
                 "cepci_basis": None, "fx_normalised": False, "fx": None,
+                "engine": engine, "engine_version": engine_version,
                 "note": "Illustrative stub — not a real cost basis; no CEPCI/currency basis."}
     base = (base_currency or "EUR").upper()
     fx = fx or fx_meta(base)
@@ -217,12 +219,18 @@ def cost_basis_block(base_currency: str, cost_year: Optional[int], is_stub: bool
         note = (f"OpenPyTEA USD correlations converted to {base} at {fx['rate']} "
                 f"({fx['source']}), escalated to CEPCI {cost_year}. Feedstock/variable "
                 f"OPEX is already {base} (priced by GEX) — not double-converted.")
+    if engine_version:
+        # The priced numbers move with the engine, so the engine is part of the basis
+        # (see cost_basis_hash). An upgrade must be visible on the artefact itself.
+        note += f" Priced by {engine or 'openpytea'} {engine_version}."
     return {
         "currency": base,
         "cost_year": cost_year,
         "cepci_basis": f"CEPCI {cost_year}" if cost_year else None,
         "fx_normalised": True,
         "fx": fx,
+        "engine": engine,
+        "engine_version": engine_version,
         "note": note,
     }
 

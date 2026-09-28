@@ -94,7 +94,11 @@ def _build_entry(gate: GateDefinition) -> GateRegistryEntry:
         prerequisites=GATE_PREREQUISITES.get(gate.id, []),
         linked_screens=GATE_SCREENS.get(gate.id, []),
         unlocks_capital=[c.value for c in gate.unlocks_capital],
-        min_completion_for_next=60.0,
+        # The engine requires EVERY applicable item verified — `is_complete` is
+        # `verified == applicable_total`, not a threshold. This field previously
+        # advertised 60.0 for every gate, which told the interface a gate
+        # advanced at a completion the engine never accepts.
+        min_completion_for_next=100.0,
     )
 
 

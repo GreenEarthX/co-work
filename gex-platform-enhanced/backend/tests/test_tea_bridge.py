@@ -53,6 +53,7 @@ def client(isolated_store, monkeypatch):
         imp = "implausible" in payload.get("pathway_id", "")
         return {
             "engine": "openpytea",
+            "engine_version": "3.0.0",
             "cost_basis_hash": "sha256:t-" + payload["pathway_id"][:8],
             "lcop": 49.7 if imp else 2.4,
             "plant_summary": {
@@ -116,6 +117,101 @@ def test_result_status_is_stored_on_the_base_case(client):
     assert body["result_status"] == "SCREENING"
     assert body["base_case"]["result_status"] == "SCREENING"
     assert body["plausibility"] == []
+
+
+def test_sqlite_and_postgres_agree_on_model_base_case_columns(isolated_store):
+    """Every column the runtime writes or reads must exist in BOTH stores.
+
+    `init_db()` returns early under PostgreSQL — `gex_app` holds no DDL rights and a
+    runtime-created table would carry no RLS policy — so the additive ALTERs in it
+    only ever reach SQLite. A column added there WITHOUT a matching Alembic migration
+    therefore 500s in production the moment it is written or selected, while every
+    SQLite-backed test stays green.
+
+    That is not hypothetical: `engine_version` shipped as a SQLite-only ALTER on
+    2026-09-23 and PostgreSQL raised UndefinedColumn on the compute INSERT and on
+    `release_ready_state`'s SELECT — `POST /api/v1/tea/compute` and every
+    release-gated PF call were broken — until migration 052 added it. 046 was the
+    same mistake with `result_status`. This test is the thing that was missing.
+    """
+    from pg_support import pg_admin
+
+    conn_pg, cur = pg_admin()          # skips if PostgreSQL is unreachable
+    import app.api.v1.routes_tea as rt
+
+    rt.init_db()                       # isolated_store pins the switches to sqlite
+    conn = rt.domain_connection()
+    try:
+        sqlite_cols = {r[1] for r in
+                       conn.execute("PRAGMA table_info(model_base_case)").fetchall()}
+    finally:
+        conn.close()
+    assert "engine_version" in sqlite_cols, "guards the guard — the SQLite ALTER ran"
+
+    try:
+        cur.execute("SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name='model_base_case'")
+        pg_cols = {r["column_name"] for r in cur.fetchall()}
+    finally:
+        conn_pg.close()
+
+    missing = sqlite_cols - pg_cols
+    assert not missing, (
+        f"model_base_case columns exist in SQLite but NOT in PostgreSQL: "
+        f"{sorted(missing)}. init_db() cannot ALTER under PostgreSQL — add an "
+        f"Alembic migration on the auth_slice branch, as 046 and 052 did.")
+
+
+def test_every_not_null_postgres_column_is_named_in_the_insert(isolated_store):
+    """A write must not depend on which store it lands in.
+
+    The SQLite DDL defaults `subject_node` ('financial_model'), `claim_type`
+    ('model_base_case') and `state` ('submitted'); the migrated PostgreSQL table
+    carries NO default on ANY of its NOT NULL columns. `compute_base_case` omitted
+    the first two and relied on the SQLite defaults, so every
+    POST /api/v1/tea/compute 500'd with NotNullViolation on the real store while the
+    SQLite-backed suite stayed green (2026-09-24 — the same root cause as
+    refresh_tokens.created_at, and the third instance of this class).
+
+    Column EXISTENCE parity is not enough to catch it, which is why this sits beside
+    that test rather than inside it: the columns were all present, they just had no
+    defaults. So assert the code's own INSERT names every column PostgreSQL will
+    demand.
+    """
+    import re
+    from pathlib import Path
+
+    from pg_support import pg_admin
+
+    conn_pg, cur = pg_admin()          # skips if PostgreSQL is unreachable
+    try:
+        cur.execute("""SELECT column_name FROM information_schema.columns
+                       WHERE table_name='model_base_case'
+                         AND is_nullable='NO' AND column_default IS NULL""")
+        must_supply = {r["column_name"] for r in cur.fetchall()}
+    finally:
+        conn_pg.close()
+    assert "subject_node" in must_supply, "guards the guard — postgres demands this one"
+
+    src = Path(__file__).resolve().parents[1] / "app" / "api" / "v1" / "routes_tea.py"
+    m = re.search(r"INSERT INTO model_base_case\s*\((.*?)\)\s*VALUES",
+                  src.read_text(), re.S)
+    assert m, "could not locate the model_base_case INSERT in routes_tea.py"
+    named = {c.strip() for c in m.group(1).split(",") if c.strip()}
+
+    missing = must_supply - named
+    assert not missing, (
+        f"PostgreSQL requires these NOT NULL columns and provides no default, but the "
+        f"INSERT in routes_tea.py does not name them: {sorted(missing)}. SQLite may "
+        f"default them — PostgreSQL does not, so supply them explicitly.")
+
+
+def test_engine_version_is_stored_on_the_base_case(client):
+    """The engine that priced a basis is part of that basis: 2.1.0 -> 3.0.0 moved CAPEX
+    +2.0% on byte-identical inputs. A stored base case must say which engine produced
+    it, or a re-verification pass has nothing to select on."""
+    _compute(client, "P-VER", "adv-ok")
+    assert client.get("/api/v1/tea/base-case/P-VER").json()["engine_version"] == "3.0.0"
 
 
 def test_screening_basis_can_be_verified(client):
@@ -242,6 +338,8 @@ def test_missing_result_status_does_not_block(client, monkeypatch):
 
     body = _compute(client, "P-LEGACY", "adv-legacy")
     assert body["result_status"] is None
+    # same for engine_version: an engine too old to report one stores NULL, not a guess
+    assert client.get("/api/v1/tea/base-case/P-LEGACY").json()["engine_version"] is None
     r = _approve(client, body["base_case"]["claim_id"])
     assert r.status_code == 200, r.text
     assert r.json()["base_case"]["state"] == "verified"

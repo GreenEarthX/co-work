@@ -69,12 +69,19 @@ def issue_refresh_token(user_id: str, family_id: str | None = None, expire_days:
 
     conn = _get_conn()
     try:
+        # created_at is supplied EXPLICITLY, not left to a column default. The SQLite
+        # DDL above defaults it (`datetime('now')`); the migrated PostgreSQL table
+        # carries `revoked`'s default but not this one, so omitting it raised
+        # NotNullViolation and EVERY login 500'd once AUTH_DB_BACKEND flipped to
+        # postgres. A write must not depend on which store it happens to land in.
         conn.execute(
             """
-            INSERT INTO refresh_tokens (token_id, family_id, user_id, token_hash, expires_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO refresh_tokens
+                (token_id, family_id, user_id, token_hash, expires_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (token_id, fid, user_id, _hash_token(raw), expires_at),
+            (token_id, fid, user_id, _hash_token(raw), expires_at,
+             datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
     finally:

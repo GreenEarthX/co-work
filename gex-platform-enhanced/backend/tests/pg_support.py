@@ -47,6 +47,7 @@ __all__ = [
     "pg_as_tenant",
     "requires_pg",
     "as_platform_admin",
+    "pg_bypassrls_connect",
 ]
 
 _CONNECT_TIMEOUT = 3
@@ -169,3 +170,30 @@ def as_platform_admin():
         yield
     finally:
         reset_current_company(token)
+
+
+def pg_bypassrls_connect():
+    """A psycopg2 connection that RLS does not bind, or None.
+
+    ALEMBIC_DATABASE_URL is `gex_user` — superuser and BYPASSRLS — so it is the
+    only honest answer to "how many rows actually exist", which RLS deliberately
+    hides from `gex_app` (migration 045). A test comparing what PLATFORM_ADMIN
+    sees against the true total needs that, and cannot get it from pg_connect().
+
+    Returns None rather than skipping when ALEMBIC_DATABASE_URL is not exported,
+    so a caller keeps its other assertions instead of going dark — the failure
+    mode that left test_rls_isolation's selectivity check dead from 045 onward.
+
+    Lives here because this module is the suite's ONLY psycopg2.connect site,
+    which test_architecture_guardrails enforces against the AST.
+    """
+    dsn = os.getenv("ALEMBIC_DATABASE_URL")
+    if not dsn:
+        return None
+
+    import psycopg2
+
+    try:
+        return psycopg2.connect(dsn, connect_timeout=_CONNECT_TIMEOUT)
+    except Exception:
+        return None

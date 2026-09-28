@@ -103,6 +103,7 @@ def init_db():
             claim_type              TEXT NOT NULL DEFAULT 'model_base_case',
             state                   TEXT NOT NULL DEFAULT 'submitted',
             engine                  TEXT,
+            engine_version          TEXT,
             cost_basis_hash         TEXT NOT NULL,
             capex_eur               REAL,
             opex_eur_per_year       REAL,
@@ -127,6 +128,11 @@ def init_db():
     _mbc_cols = {r[1] for r in conn.execute("PRAGMA table_info(model_base_case)").fetchall()}
     if "result_status" not in _mbc_cols:
         conn.execute("ALTER TABLE model_base_case ADD COLUMN result_status TEXT")
+    # The engine that priced a basis is part of that basis (see cost_basis_hash): the
+    # 2.1.0 -> 3.0.0 upgrade moved CAPEX +2.0% on identical inputs. Rows written before
+    # this column stay NULL — that NULL is how you find the bases that predate it.
+    if "engine_version" not in _mbc_cols:
+        conn.execute("ALTER TABLE model_base_case ADD COLUMN engine_version TEXT")
     # General claim table (mirrors efuel_truth_stack Claim) — home for GHG and
     # other pathway claims that walk the 9-state machine, like model_base_case.
     conn.execute("""
@@ -182,7 +188,8 @@ def release_ready_state(project_id: str, pathway_id: Optional[str] = None) -> Op
     """
     conn = domain_connection()
     try:
-        q = ("SELECT claim_id, state, capex_eur, opex_eur_per_year, cost_basis_hash "
+        q = ("SELECT claim_id, state, capex_eur, opex_eur_per_year, cost_basis_hash, "
+             "engine_version "
              "FROM model_base_case WHERE project_id=? AND valid_to IS NULL "
              "AND state NOT IN ('superseded','rejected','expired','failed')")
         args: list[Any] = [project_id]
@@ -202,6 +209,8 @@ def release_ready_state(project_id: str, pathway_id: Optional[str] = None) -> Op
         "capex_eur": row["capex_eur"],
         "opex_eur_per_year": row["opex_eur_per_year"],
         "cost_basis_hash": row["cost_basis_hash"],
+        # NULL on bases priced before the column existed — that NULL is how you find them.
+        "engine_version": row["engine_version"],
     }
 
 
@@ -388,16 +397,25 @@ async def compute_base_case(
         )
 
     # 3) create the submitted (PROVISIONAL) base-case claim.
+    #    subject_node and claim_type are supplied EXPLICITLY, not left to a column
+    #    default. The SQLite DDL above defaults them ('financial_model' /
+    #    'model_base_case'); the migrated PostgreSQL table carries NO default on ANY
+    #    of its NOT NULL columns, so omitting them raised NotNullViolation and every
+    #    compute 500'd on the real store. A write must not depend on which store it
+    #    happens to land in — same lesson as refresh_tokens.created_at.
     db.execute("""
         INSERT INTO model_base_case
-        (claim_id, project_id, pathway_id, state, engine, cost_basis_hash,
+        (claim_id, project_id, pathway_id, subject_node, claim_type, state,
+         engine, engine_version, cost_basis_hash,
          capex_eur, opex_eur_per_year, lcop, result_status,
          nameplate_capacity, nameplate_unit,
          run_evidence_id, supersedes_claim_id, reconciliation_group_id,
          valid_from, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
-        claim_id, project_id, body.pathway_id, "submitted", result["engine"],
+        claim_id, project_id, body.pathway_id, "financial_model", "model_base_case",
+        "submitted", result["engine"],
+        result.get("engine_version"),
         result["cost_basis_hash"], ps["capex_eur"], ps["opex_eur_per_year"],
         result["lcop"], result_status, ps["nameplate_capacity"], ps["nameplate_unit"],
         run_evidence_id, prior["claim_id"] if prior else None,

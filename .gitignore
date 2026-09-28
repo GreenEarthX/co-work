@@ -35,4 +35,4 @@ gex-platform-enhanced/backend/data/canvas_blobs/
 gex-platform-enhanced/backend/data/package_docs/
 
 # Operational artefacts from a specific migration run — not source, not a release
-backend/db_backups/
+**/db_backups/

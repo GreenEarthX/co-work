@@ -91,7 +91,8 @@ class EvidenceEntryProposal(BaseModel):
 
 class TEAResult(BaseModel):
     engine:           str                 # "openpytea" | "stub"
-    cost_basis_hash:  str                 # deterministic hash of the request config
+    engine_version:   Optional[str] = None  # priced numbers move with it → part of the cost basis
+    cost_basis_hash:  str                 # deterministic hash of the request config AND the engine
     lcop:             float               # levelized cost of product (per nameplate unit)
     plant_summary:    PlantSummaryExtract
     run_evidence:     EvidenceEntryProposal

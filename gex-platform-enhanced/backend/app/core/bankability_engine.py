@@ -87,6 +87,7 @@ class StakeholderPersona(str, Enum):
     PRODUCER = "PRODUCER"           # Production management, construction gates
     FINANCE = "FINANCE"             # Risk, milestones, covenants, model
     REGULATOR = "REGULATOR"         # Verification, audit, IE sign-off
+    OFFTAKER = "OFFTAKER"           # The buyer: certification, offtake, EPC, permits, FID, delivery (4.0.0)
     EXECUTIVE = "EXECUTIVE"         # Strategic KPIs, full progression visibility
 
 
@@ -102,28 +103,17 @@ PERSONA_DEPARTMENTS: dict[StakeholderPersona, set[Department]] = {
         Department.INDEPENDENT_ENGINEER, Department.LENDERS,
         Department.LEGAL,
     },
+    # 4.0.0 — the buyer reads commercial, legal and engineering evidence: the
+    # contract it signs, the plant's ability to deliver it, and the certificate.
+    StakeholderPersona.OFFTAKER: {
+        Department.SALES, Department.LEGAL, Department.ENGINEERING,
+    },
     StakeholderPersona.EXECUTIVE: set(Department),  # sees everything
 }
 
-# Which gates each persona has primary interest in
-# (Executives see all gates; others see their operational subset)
-PERSONA_GATES: dict[StakeholderPersona, list[str]] = {
-    StakeholderPersona.PRODUCER: [
-        "G0_SITE_RIGHTS", "G1_GRID_UTILITIES_REALITY",
-        "G3_INPUTS_SECURED", "G5_EPC_RISK_PRICED",
-        "G9_PERMITS_SAFE", "G11_COD_STABILIZATION",
-    ],
-    StakeholderPersona.FINANCE: [
-        "G4_OFFTAKE_BANKABLE", "G6_IE_SIGNOFF",
-        "G8_AUDIT_GRADE_MODEL", "G10_FINANCIAL_CLOSE_CP",
-        "G7_INSURANCE_BOUND",
-    ],
-    StakeholderPersona.REGULATOR: [
-        "G2_CERTIFICATION_PATH_LOCKED", "G6_IE_SIGNOFF",
-        "G7_INSURANCE_BOUND", "G9_PERMITS_SAFE",
-    ],
-    StakeholderPersona.EXECUTIVE: [],  # empty = all gates
-}
+# PERSONA_GATES is derived from each gate's own `personas`, exactly as in the
+# runtime engine — defined after GATE_REGISTRY below. (The hand-written copy
+# that lived here gave REGULATOR a gate the runtime did not.)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -134,122 +124,240 @@ class GateDefinition(BaseModel):
     id: str
     name: str
     required_evidence: list[str]
+    # Two distinct ownership axes, identical to the runtime registry in
+    # gex_pf_engine/backend/pf_engine/core/bankability_engine.py.
+    #   owners / accountable_functions = who DOES the work (org function)
+    #   personas                       = who SEES the gate (platform visibility)
+    # They were previously one field meaning different things in each registry,
+    # which is why the two disagreed on every gate.
     owners: list[Department]
+    personas: list[str] = []
     unlocks_capital: list[CapitalType]
     unlocks_state: Optional[BankabilityState] = None
 
+    @property
+    def accountable_functions(self) -> list[str]:
+        return [o.value for o in self.owners]
 
+
+# Generated from the runtime engine's GATES
+# (gex_pf_engine/backend/pf_engine/core/bankability_engine.py, rules 4.0.0)
+# and held identical to it by tests/test_gate_registries_agree.py. Edit both, or
+# the build fails. The reasoning for each gate's evidence lives beside the
+# runtime definition, not here.
 GATE_REGISTRY: list[GateDefinition] = [
     GateDefinition(
-        id="G0_SITE_RIGHTS", name="Site & Rights Secured",
-        required_evidence=["land_option_or_lease_executed", "zoning_compatibility_memo", "stakeholder_map_v1"],
+        id="G0_SITE_RIGHTS", name="Site Rights & Social License",
+        required_evidence=[
+            "land_option_or_lease_executed",
+            "zoning_compatibility_memo",
+            "stakeholder_map_v1",
+            "site_technical_suitability",
+        ],
         owners=[Department.PROJECT, Department.LEGAL],
-        unlocks_capital=[CapitalType.GRANTS_TA, CapitalType.SEED_VC_ANGEL],
+        personas=["PRODUCER", "EXECUTIVE"],
+        unlocks_capital=[CapitalType.GRANTS_TA],
         unlocks_state=BankabilityState.TECHNICALLY_PLAUSIBLE,
     ),
     GateDefinition(
-        id="G1_GRID_UTILITIES_REALITY", name="Power, Water & Critical Utility Access",
-        # Superset across power models — mirrors the RUNTIME registry in
-        # gex_pf_engine/backend/app/core/bankability_engine.py (EVIDENCE_META
-        # there scopes items per power_model and escalates severity by phase).
-        # This vendored copy serves routes_gate_registry only; keep in sync.
+        id="G1_GRID_UTILITIES_REALITY", name="Power, Utilities & Technology Basis",
         required_evidence=[
-            # A. Power Access (GRID_CONNECTED / HYBRID)
             "grid_interconnection_study",
             "queue_position_evidence",
             "grid_connection_cost_estimate",
             "connection_date_cod_compatibility_memo",
-            # B. Renewable Power Procurement (GRID_CONNECTED / HYBRID)
             "ppa_register",
             "ppa_signed_or_term_sheet_evidence",
             "ppa_volume_load_coverage_analysis",
             "ppa_tenor_debt_comparison",
-            # C. Curtailment & Dispatch (ALL power models)
             "curtailment_assessment",
             "dispatch_load_factor_production_impact",
-            # D. Water Supply & Permitting (ALL power models)
             "water_source_plan",
             "water_permit_pathway_memo",
-            # E. BTM Generation (OFF_GRID_BTM / HYBRID)
             "btm_generation_asset_evidence",
             "generation_yield_study",
             "grid_independence_note",
             "backup_construction_power_plan",
+            "technology_maturity_dossier",
+            "technology_licensor_term_sheet",
+            "integrated_mass_energy_balance",
         ],
         owners=[Department.ENGINEERING, Department.PROJECT, Department.FINANCE],
+        personas=["PRODUCER"],
         unlocks_capital=[CapitalType.SEED_VC_ANGEL],
+        unlocks_state=BankabilityState.TECHNICALLY_PLAUSIBLE,
     ),
     GateDefinition(
-        id="G2_CERTIFICATION_PATH_LOCKED", name="Certification Path Locked (RFNBO/GoO/ISCC)",
-        required_evidence=["certification_route_definition", "power_sourcing_alignment_note", "mrv_plan_v1"],
+        id="G2_CERTIFICATION_PATH_LOCKED", name="Green Certification Pathway",
+        required_evidence=[
+            "certification_scheme_selection",
+            "additionality_evidence",
+            "power_sourcing_alignment_note",
+            "ghg_methodology_memo",
+            "mrv_plan_v1",
+            "product_qualification_pathway",
+        ],
         owners=[Department.ENGINEERING, Department.LEGAL],
-        unlocks_capital=[CapitalType.SEED_VC_ANGEL],
-    ),
-    GateDefinition(
-        id="G3_INPUTS_SECURED", name="Key Inputs Secured",
-        required_evidence=["power_supply_structure_defined", "co2_or_biomass_supply_strategy", "logistics_concept_note"],
-        owners=[Department.ENGINEERING, Department.PROJECT, Department.FINANCE],
-        unlocks_capital=[CapitalType.SEED_VC_ANGEL],
-    ),
-    GateDefinition(
-        id="G4_OFFTAKE_BANKABLE", name="Offtake Bankable",
-        required_evidence=["binding_offtake_contract_executed", "assignment_rights", "step_in_rights", "take_or_pay_floor", "termination_payment_formula", "credit_support_package", "hedgeable_pricing_index"],
-        owners=[Department.SALES, Department.LEGAL, Department.FINANCE],
-        unlocks_capital=[CapitalType.STRATEGIC_EQUITY, CapitalType.PROJECT_EQUITY],
+        personas=["REGULATOR", "OFFTAKER"],
+        unlocks_capital=[],
         unlocks_state=BankabilityState.COMMERCIALLY_PLAUSIBLE,
     ),
     GateDefinition(
-        id="G5_EPC_RISK_PRICED", name="EPC Risk Priced & Transferred",
-        required_evidence=["epc_contract_fixed_price_or_capped_gmp", "date_certain_schedule", "liquidated_damages_schedule", "performance_test_protocol", "interface_matrix", "oem_warranties"],
+        id="G3_INPUTS_SECURED", name="Feedstock & Logistics Terms",
+        required_evidence=[
+            "feedstock_supply_agreement",
+            "transport_logistics_study",
+            "storage_plan",
+            "feedstock_spec_eligibility",
+        ],
+        owners=[Department.ENGINEERING, Department.PROJECT, Department.FINANCE],
+        personas=["PRODUCER"],
+        unlocks_capital=[CapitalType.STRATEGIC_EQUITY],
+        unlocks_state=BankabilityState.COMMERCIALLY_PLAUSIBLE,
+    ),
+    GateDefinition(
+        id="G4_OFFTAKE_BANKABLE", name="Binding Offtake",
+        required_evidence=[
+            "binding_offtake_contract_executed",
+            "offtake_credit_assessment",
+            "credit_support_package",
+            "take_or_pay_floor",
+            "termination_payment_formula",
+            "assignment_rights",
+            "step_in_rights",
+            "hedgeable_pricing_index",
+            "price_review_mechanism_memo",
+            "offtake_seller_obligations",
+        ],
+        owners=[Department.SALES, Department.LEGAL, Department.FINANCE],
+        personas=["FINANCE", "OFFTAKER"],
+        unlocks_capital=[CapitalType.PROJECT_EQUITY],
+        unlocks_state=BankabilityState.BUILDABLE,
+    ),
+    GateDefinition(
+        id="G5_EPC_RISK_PRICED", name="EPC Risk Priced",
+        required_evidence=[
+            "epc_contract_fixed_price_or_capped_gmp",
+            "liquidated_damages_schedule",
+            "date_certain_schedule",
+            "performance_test_protocol",
+            "interface_matrix",
+            "oem_warranties",
+            "epc_contractor_dd",
+            "feed_complete_class3",
+            "technology_licence_process_guarantee",
+            "long_lead_items_reserved",
+            "epc_security_package",
+            "independent_technical_review",
+        ],
         owners=[Department.PROJECT, Department.ENGINEERING, Department.LEGAL],
-        unlocks_capital=[CapitalType.PROJECT_EQUITY, CapitalType.DFI_MEZZ_GUARANTEES],
+        personas=["PRODUCER", "EXECUTIVE", "OFFTAKER"],
+        unlocks_capital=[],
         unlocks_state=BankabilityState.BUILDABLE,
     ),
     GateDefinition(
         id="G6_IE_SIGNOFF", name="Independent Engineer Sign-off",
-        required_evidence=["ie_report_issued", "energy_balance_verified", "capex_opinion_reasonableness", "opex_opinion_reasonableness", "completion_test_definitions"],
+        required_evidence=[
+            "ie_report_issued",
+            "energy_balance_verified",
+            "capex_opinion_reasonableness",
+            "opex_opinion_reasonableness",
+            "completion_test_definitions",
+        ],
         owners=[Department.INDEPENDENT_ENGINEER, Department.LENDERS],
-        unlocks_capital=[CapitalType.DFI_MEZZ_GUARANTEES, CapitalType.SENIOR_DEBT_COMMITMENT],
+        personas=["FINANCE", "REGULATOR"],
+        unlocks_capital=[CapitalType.DFI_MEZZ_GUARANTEES],
         unlocks_state=BankabilityState.STRUCTURALLY_BANKABLE,
     ),
     GateDefinition(
-        id="G7_INSURANCE_BOUND", name="Insurance Bound (CAR/EAR + DSU/BI + Liability)",
-        required_evidence=["car_ear_bound", "dsu_bi_bound", "liability_bound", "lenders_loss_payee", "deductibles_accepted", "exclusions_register_reviewed"],
+        id="G7_INSURANCE_BOUND", name="Insurability Confirmed",
+        required_evidence=[
+            "insurance_term_sheet",
+            "insurance_market_report",
+            "deductibles_accepted",
+            "exclusions_register_reviewed",
+            "foak_exclusions_warranty_backstop",
+        ],
         owners=[Department.TREASURY, Department.LEGAL, Department.LENDERS],
-        unlocks_capital=[CapitalType.SENIOR_DEBT_COMMITMENT],
-        unlocks_state=BankabilityState.CREDIT_APPROVED,
+        personas=["FINANCE"],
+        unlocks_capital=[],
+        unlocks_state=BankabilityState.STRUCTURALLY_BANKABLE,
     ),
     GateDefinition(
-        id="G8_AUDIT_GRADE_MODEL", name="Audit-Grade Model Signed Off",
-        required_evidence=["base_case_model", "downside_cases", "covenant_suite_defined", "dsra_maintenance_reserve_logic", "hedging_plan", "model_consistency_with_ie"],
+        id="G8_AUDIT_GRADE_MODEL", name="Audit-Grade Financial Model",
+        required_evidence=[
+            "base_case_model",
+            "model_audit_opinion",
+            "downside_cases",
+            "covenant_suite_defined",
+            "dsra_maintenance_reserve_logic",
+            "hedging_plan",
+            "model_consistency_with_ie",
+        ],
         owners=[Department.FINANCE, Department.LENDERS],
+        personas=["FINANCE"],
         unlocks_capital=[CapitalType.SENIOR_DEBT_COMMITMENT],
         unlocks_state=BankabilityState.CREDIT_APPROVED,
     ),
     GateDefinition(
-        id="G9_PERMITS_SAFE", name="Permits Complete + Appeal Risk Managed",
-        required_evidence=["eia_permit_granted", "ancillary_permits_granted", "legal_opinion_on_appeal_risk", "stakeholder_management_plan_v2"],
+        id="G9_PERMITS_SAFE", name="Permits Granted & Appeal Risk Managed",
+        required_evidence=[
+            "eia_permit_granted",
+            "construction_permit_granted",
+            "ancillary_permits_granted",
+            "legal_opinion_on_appeal_risk",
+            "operating_permit_pathway",
+            "stakeholder_management_plan_v2",
+        ],
         owners=[Department.PROJECT, Department.LEGAL],
-        unlocks_capital=[CapitalType.SENIOR_DEBT_COMMITMENT],
-        unlocks_state=BankabilityState.CREDIT_APPROVED,
+        personas=["PRODUCER", "REGULATOR", "OFFTAKER"],
+        unlocks_capital=[],
+        unlocks_state=BankabilityState.FINANCEABLE,
     ),
     GateDefinition(
-        id="G10_FINANCIAL_CLOSE_CP", name="Financial Close (CP Checklist Satisfied)",
-        required_evidence=["cp_checklist_completed", "equity_injected", "dsra_funded", "security_package_perfected", "insurance_certificates_delivered", "all_major_contracts_executed"],
+        id="G10_FINANCIAL_CLOSE_CP", name="Financial Close",
+        required_evidence=[
+            "cp_checklist_completed",
+            "equity_injected",
+            "dsra_funded",
+            "security_package_perfected",
+            "insurance_certificates_delivered",
+            "all_major_contracts_executed",
+            "legal_opinions_issued",
+            "om_contract_or_organisation",
+        ],
         owners=[Department.LENDERS, Department.LEGAL, Department.TREASURY, Department.FINANCE],
+        personas=["FINANCE", "OFFTAKER"],
         unlocks_capital=[CapitalType.DEBT_DRAWDOWN],
         unlocks_state=BankabilityState.FINANCEABLE,
     ),
     GateDefinition(
-        id="G11_COD_STABILIZATION", name="COD + Stabilization",
-        required_evidence=["cod_certificate", "performance_tests_passed", "six_to_twelve_months_stable_ops", "mrv_reporting_live"],
+        id="G11_COD_STABILIZATION", name="COD & Stabilization",
+        required_evidence=[
+            "cod_certificate",
+            "performance_tests_passed",
+            "operating_permit_effective",
+            "mrv_reporting_live",
+            "six_to_twelve_months_stable_ops",
+            "certificates_issued",
+            "first_deliveries_accepted",
+        ],
         owners=[Department.PROJECT, Department.ENGINEERING, Department.FINANCE],
+        personas=["PRODUCER", "EXECUTIVE", "OFFTAKER"],
         unlocks_capital=[CapitalType.REFINANCE_BONDS_INFRA],
-        unlocks_state=BankabilityState.REFINANCING_ELIGIBLE,
+        unlocks_state=BankabilityState.OPERATIONAL,
     ),
 ]
 
 GATE_INDEX: dict[str, GateDefinition] = {g.id: g for g in GATE_REGISTRY}
+
+# Which gates each persona sees — derived, never hand-kept. EXECUTIVE keeps the
+# historic "empty = all gates" convention of this module.
+PERSONA_GATES: dict[StakeholderPersona, list[str]] = {
+    p: [g.id for g in GATE_REGISTRY if p.value in g.personas]
+    for p in StakeholderPersona if p != StakeholderPersona.EXECUTIVE
+}
+PERSONA_GATES[StakeholderPersona.EXECUTIVE] = []  # empty = all gates
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -317,6 +425,428 @@ REGRESSION_RULES: list[RegressionRule] = [
 # ═══════════════════════════════════════════════════════════════════════════════
 # EVIDENCE STATUS (input from the platform DB)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The evidence bar — rules 4.0.0 (3.0.0 "the stronger bar", plus the multi-party
+# items of 27 Sept 2026), identical to the runtime.
+#
+# MATURITY is a separate axis from verification. Verification answers "is this
+# document authentic?"; maturity answers "how far has the instrument got?". A
+# VERIFIED item counts only when its declared maturity meets REQUIRED_MATURITY,
+# and undeclared maturity fails closed. Before 3.0.0 the only maturity signal
+# was the key's name, so an LOI uploaded into an "..._executed" slot satisfied it.
+MATURITY_LEVELS: list[str] = ["INTENT", "INDICATIVE", "AGREED", "EXECUTED", "EFFECTIVE"]
+
+MATURITY_DEFINITIONS: dict[str, str] = {
+    "INTENT": "Plan, mandate, letter of intent, MOU, strategy, or application in preparation.",
+    "INDICATIVE": "Term sheet, quotation, indication of terms, or application submitted.",
+    "AGREED": "Agreed-form document with all terms settled, not yet signed or granted.",
+    "EXECUTED": "Signed, bound, granted, issued or passed.",
+    "EFFECTIVE": "In force: conditions precedent satisfied, policy incepted, appeal period expired.",
+}
+
+REQUIRED_MATURITY: dict[str, str] = {
+    "land_option_or_lease_executed": "EXECUTED",
+    "ppa_signed_or_term_sheet_evidence": "INDICATIVE",
+    "feedstock_supply_agreement": "INDICATIVE",
+    "binding_offtake_contract_executed": "EXECUTED",
+    "credit_support_package": "EXECUTED",
+    "technology_licensor_term_sheet": "INDICATIVE",
+    "epc_contract_fixed_price_or_capped_gmp": "AGREED",
+    "oem_warranties": "AGREED",
+    "technology_licence_process_guarantee": "AGREED",
+    "long_lead_items_reserved": "AGREED",
+    "epc_security_package": "AGREED",
+    "ie_report_issued": "EXECUTED",
+    "insurance_term_sheet": "INDICATIVE",
+    "model_audit_opinion": "EXECUTED",
+    "eia_permit_granted": "EXECUTED",
+    "construction_permit_granted": "EXECUTED",
+    "ancillary_permits_granted": "EXECUTED",
+    "legal_opinion_on_appeal_risk": "EXECUTED",
+    "cp_checklist_completed": "EFFECTIVE",
+    "equity_injected": "EXECUTED",
+    "dsra_funded": "EXECUTED",
+    "security_package_perfected": "EFFECTIVE",
+    "insurance_certificates_delivered": "EFFECTIVE",
+    "all_major_contracts_executed": "EXECUTED",
+    "legal_opinions_issued": "EXECUTED",
+    "om_contract_or_organisation": "EXECUTED",
+    "cod_certificate": "EXECUTED",
+    "performance_tests_passed": "EXECUTED",
+    "operating_permit_effective": "EFFECTIVE",
+    "certificates_issued": "EXECUTED",
+    "first_deliveries_accepted": "EXECUTED",
+}
+
+# Keys removed in 3.0.0. Rows on them remain as history — they are true records
+# of what happened — but no gate scores them, and a retired key is never
+# re-labelled as its replacement: an EIA *submission* must not become a *grant*.
+RETIRED_EVIDENCE: dict[str, dict[str, str]] = {
+    "feedstock_supply_loi": {"gate": "G3_INPUTS_SECURED", "replaced_by": "feedstock_supply_agreement", "reason": "An LOI is an intention; G3 requires indicative terms."},
+    "binding_offtake_term_sheet": {"gate": "G4_OFFTAKE_BANKABLE", "replaced_by": "binding_offtake_contract_executed", "reason": "A term sheet is not binding offtake."},
+    "epc_contract_heads_of_terms": {"gate": "G5_EPC_RISK_PRICED", "replaced_by": "epc_contract_fixed_price_or_capped_gmp", "reason": "Heads of terms do not price risk; G5 requires the agreed form."},
+    "performance_guarantees_draft": {"gate": "G5_EPC_RISK_PRICED", "replaced_by": "liquidated_damages_schedule", "reason": "Guarantees and LDs are settled in the agreed-form EPC."},
+    "ie_appointment_letter": {"gate": "G6_IE_SIGNOFF", "replaced_by": "ie_report_issued", "reason": "An appointment is not a sign-off."},
+    "ie_technical_model_review": {"gate": "G6_IE_SIGNOFF", "replaced_by": "energy_balance_verified", "reason": "Replaced by the IE's specific technical opinions."},
+    "ie_site_visit_report": {"gate": "G6_IE_SIGNOFF", "replaced_by": "ie_report_issued", "reason": "Site findings are contained in the issued report."},
+    "insurance_broker_mandate": {"gate": "G7_INSURANCE_BOUND", "replaced_by": "insurance_term_sheet", "reason": "A mandate is not evidence of insurability."},
+    "financial_model_v1": {"gate": "G8_AUDIT_GRADE_MODEL", "replaced_by": "base_case_model", "reason": "Renamed to the locked base case."},
+    "model_audit_engagement": {"gate": "G8_AUDIT_GRADE_MODEL", "replaced_by": "model_audit_opinion", "reason": "An engagement is not an audit."},
+    "sensitivity_analysis": {"gate": "G8_AUDIT_GRADE_MODEL", "replaced_by": "downside_cases", "reason": "Lender downside cases subsume one-factor sensitivities."},
+    "eia_submission": {"gate": "G9_PERMITS_SAFE", "replaced_by": "eia_permit_granted", "reason": "A submission is not a permit."},
+    "construction_permit_application": {"gate": "G9_PERMITS_SAFE", "replaced_by": "construction_permit_granted", "reason": "An application is not a permit."},
+    "cp_checklist_draft": {"gate": "G10_FINANCIAL_CLOSE_CP", "replaced_by": "cp_checklist_completed", "reason": "A draft checklist is not close."},
+    "legal_opinions_draft": {"gate": "G10_FINANCIAL_CLOSE_CP", "replaced_by": "legal_opinions_issued", "reason": "Draft opinions are not a closing condition met."},
+    "security_package_structure": {"gate": "G10_FINANCIAL_CLOSE_CP", "replaced_by": "security_package_perfected", "reason": "A structure is not perfected security."},
+    "commissioning_plan": {"gate": "G11_COD_STABILIZATION", "replaced_by": "performance_tests_passed", "reason": "A plan is not a passed test."},
+    "handover_documentation_plan": {"gate": "G11_COD_STABILIZATION", "replaced_by": "cod_certificate", "reason": "Acceptance is evidenced by the COD / taking-over certificate."},
+    "certification_route_definition": {"gate": "G2_CERTIFICATION_PATH_LOCKED", "replaced_by": "certification_scheme_selection", "reason": "Duplicate concept."},
+    "power_supply_structure_defined": {"gate": "G3_INPUTS_SECURED", "replaced_by": "ppa_register", "reason": "Power supply is evidenced in G1."},
+    "co2_or_biomass_supply_strategy": {"gate": "G3_INPUTS_SECURED", "replaced_by": "feedstock_supply_agreement", "reason": "A strategy is not a supply."},
+    "logistics_concept_note": {"gate": "G3_INPUTS_SECURED", "replaced_by": "transport_logistics_study", "reason": "A concept note is not a study."},
+    "car_ear_bound": {"gate": "G7_INSURANCE_BOUND", "replaced_by": "insurance_certificates_delivered", "reason": "Binding happens at financial close, not before credit approval."},
+    "dsu_bi_bound": {"gate": "G7_INSURANCE_BOUND", "replaced_by": "insurance_certificates_delivered", "reason": "Binding happens at financial close, not before credit approval."},
+    "liability_bound": {"gate": "G7_INSURANCE_BOUND", "replaced_by": "insurance_certificates_delivered", "reason": "Binding happens at financial close, not before credit approval."},
+    "lenders_loss_payee": {"gate": "G7_INSURANCE_BOUND", "replaced_by": "insurance_certificates_delivered", "reason": "Loss-payee endorsement is shown on the certificates at close."},
+}
+
+
+def maturity_meets(declared: Optional[str], required: Optional[str]) -> bool:
+    """True when `declared` is at or above `required`. Unknown fails closed."""
+    if not required:
+        return True
+    if declared not in MATURITY_LEVELS:
+        return False
+    return MATURITY_LEVELS.index(declared) >= MATURITY_LEVELS.index(required)
+
+
+# Every evidence key the platform may receive, mapped to its gate. Authorization
+# resolves an incoming evidence_key through this map (abac.gate_for_evidence);
+# an unresolved key leaves gate_id None and rule R5 denies every actor. Retired
+# keys resolve to the gate they were retired from, so a stale client gets the
+# write handler's explanation of what replaced the key rather than a bare 403.
+EVIDENCE_GATE_MAP: dict[str, str] = {
+    **{ek: info["gate"] for ek, info in RETIRED_EVIDENCE.items()},
+    **{ek: g.id for g in GATE_REGISTRY for ek in g.required_evidence},
+}
+
+
+# The organisational function that produces each evidence item — copied from the
+# engine's EVIDENCE_META (owner_function) and held identical to it by
+# tests/test_gate_registries_agree.py. A function is not a person: evidence
+# requests are assigned to a named account of the owning company by
+# resolve_assignee() below, and this map is the first half of that decision.
+EVIDENCE_OWNER_FUNCTION: dict[str, str] = {
+    # G0_SITE_RIGHTS
+    "land_option_or_lease_executed": "LEGAL",
+    "zoning_compatibility_memo": "LEGAL",
+    "stakeholder_map_v1": "PROJECT",
+    "site_technical_suitability": "ENGINEERING",
+    # G1_GRID_UTILITIES_REALITY
+    "grid_interconnection_study": "ENGINEERING",
+    "queue_position_evidence": "ENGINEERING",
+    "grid_connection_cost_estimate": "ENGINEERING",
+    "connection_date_cod_compatibility_memo": "ENGINEERING",
+    "ppa_register": "SALES",
+    "ppa_signed_or_term_sheet_evidence": "SALES",
+    "ppa_volume_load_coverage_analysis": "ENGINEERING",
+    "ppa_tenor_debt_comparison": "FINANCE",
+    "curtailment_assessment": "ENGINEERING",
+    "dispatch_load_factor_production_impact": "ENGINEERING",
+    "water_source_plan": "ENGINEERING",
+    "water_permit_pathway_memo": "LEGAL",
+    "btm_generation_asset_evidence": "ENGINEERING",
+    "generation_yield_study": "ENGINEERING",
+    "grid_independence_note": "ENGINEERING",
+    "backup_construction_power_plan": "PROJECT",
+    "technology_maturity_dossier": "ENGINEERING",
+    "technology_licensor_term_sheet": "ENGINEERING",
+    "integrated_mass_energy_balance": "ENGINEERING",
+    # G2_CERTIFICATION_PATH_LOCKED
+    "certification_scheme_selection": "LEGAL",
+    "additionality_evidence": "ENGINEERING",
+    "power_sourcing_alignment_note": "ENGINEERING",
+    "ghg_methodology_memo": "ENGINEERING",
+    "mrv_plan_v1": "ENGINEERING",
+    "product_qualification_pathway": "ENGINEERING",
+    # G3_INPUTS_SECURED
+    "feedstock_supply_agreement": "PROJECT",
+    "transport_logistics_study": "ENGINEERING",
+    "storage_plan": "ENGINEERING",
+    "feedstock_spec_eligibility": "ENGINEERING",
+    # G4_OFFTAKE_BANKABLE
+    "binding_offtake_contract_executed": "SALES",
+    "offtake_credit_assessment": "FINANCE",
+    "credit_support_package": "FINANCE",
+    "take_or_pay_floor": "LEGAL",
+    "termination_payment_formula": "LEGAL",
+    "assignment_rights": "LEGAL",
+    "step_in_rights": "LEGAL",
+    "hedgeable_pricing_index": "FINANCE",
+    "price_review_mechanism_memo": "LEGAL",
+    "offtake_seller_obligations": "LEGAL",
+    # G5_EPC_RISK_PRICED
+    "epc_contract_fixed_price_or_capped_gmp": "PROJECT",
+    "liquidated_damages_schedule": "LEGAL",
+    "date_certain_schedule": "PROJECT",
+    "performance_test_protocol": "ENGINEERING",
+    "interface_matrix": "ENGINEERING",
+    "oem_warranties": "ENGINEERING",
+    "epc_contractor_dd": "PROJECT",
+    "feed_complete_class3": "ENGINEERING",
+    "technology_licence_process_guarantee": "ENGINEERING",
+    "long_lead_items_reserved": "PROJECT",
+    "epc_security_package": "LEGAL",
+    "independent_technical_review": "INDEPENDENT_ENGINEER",
+    # G6_IE_SIGNOFF
+    "ie_report_issued": "INDEPENDENT_ENGINEER",
+    "energy_balance_verified": "INDEPENDENT_ENGINEER",
+    "capex_opinion_reasonableness": "INDEPENDENT_ENGINEER",
+    "opex_opinion_reasonableness": "INDEPENDENT_ENGINEER",
+    "completion_test_definitions": "INDEPENDENT_ENGINEER",
+    # G7_INSURANCE_BOUND
+    "insurance_term_sheet": "TREASURY",
+    "insurance_market_report": "TREASURY",
+    "deductibles_accepted": "TREASURY",
+    "exclusions_register_reviewed": "LEGAL",
+    "foak_exclusions_warranty_backstop": "TREASURY",
+    # G8_AUDIT_GRADE_MODEL
+    "base_case_model": "FINANCE",
+    "model_audit_opinion": "FINANCE",
+    "downside_cases": "FINANCE",
+    "covenant_suite_defined": "FINANCE",
+    "dsra_maintenance_reserve_logic": "FINANCE",
+    "hedging_plan": "TREASURY",
+    "model_consistency_with_ie": "FINANCE",
+    # G9_PERMITS_SAFE
+    "eia_permit_granted": "LEGAL",
+    "construction_permit_granted": "LEGAL",
+    "ancillary_permits_granted": "LEGAL",
+    "legal_opinion_on_appeal_risk": "LEGAL",
+    "operating_permit_pathway": "LEGAL",
+    "stakeholder_management_plan_v2": "PROJECT",
+    # G10_FINANCIAL_CLOSE_CP
+    "cp_checklist_completed": "LEGAL",
+    "equity_injected": "FINANCE",
+    "dsra_funded": "TREASURY",
+    "security_package_perfected": "LEGAL",
+    "insurance_certificates_delivered": "TREASURY",
+    "all_major_contracts_executed": "LEGAL",
+    "legal_opinions_issued": "LEGAL",
+    "om_contract_or_organisation": "PROJECT",
+    # G11_COD_STABILIZATION
+    "cod_certificate": "ENGINEERING",
+    "performance_tests_passed": "ENGINEERING",
+    "operating_permit_effective": "LEGAL",
+    "mrv_reporting_live": "ENGINEERING",
+    "six_to_twelve_months_stable_ops": "ENGINEERING",
+    "certificates_issued": "ENGINEERING",
+    "first_deliveries_accepted": "SALES",
+}
+
+
+# Rules 4.0.0 — financing scope per ITEM. Only these items protect an external
+# lender; for BALANCE_SHEET funding they are not applicable and no request is
+# raised for them. Held identical to the runtime by tests/test_gate_registries_agree.py.
+EVIDENCE_SCOPE: dict[str, str] = {
+    "credit_support_package": "PROJECT_FINANCE",
+    "take_or_pay_floor": "PROJECT_FINANCE",
+    "termination_payment_formula": "PROJECT_FINANCE",
+    "assignment_rights": "PROJECT_FINANCE",
+    "step_in_rights": "PROJECT_FINANCE",
+    "hedgeable_pricing_index": "PROJECT_FINANCE",
+    "ie_report_issued": "PROJECT_FINANCE",
+    "energy_balance_verified": "PROJECT_FINANCE",
+    "capex_opinion_reasonableness": "PROJECT_FINANCE",
+    "opex_opinion_reasonableness": "PROJECT_FINANCE",
+    "completion_test_definitions": "PROJECT_FINANCE",
+    "deductibles_accepted": "PROJECT_FINANCE",
+    "base_case_model": "PROJECT_FINANCE",
+    "model_audit_opinion": "PROJECT_FINANCE",
+    "downside_cases": "PROJECT_FINANCE",
+    "covenant_suite_defined": "PROJECT_FINANCE",
+    "dsra_maintenance_reserve_logic": "PROJECT_FINANCE",
+    "hedging_plan": "PROJECT_FINANCE",
+    "model_consistency_with_ie": "PROJECT_FINANCE",
+    "cp_checklist_completed": "PROJECT_FINANCE",
+    "dsra_funded": "PROJECT_FINANCE",
+    "security_package_perfected": "PROJECT_FINANCE",
+    "legal_opinions_issued": "PROJECT_FINANCE",
+}
+
+# Gates whose every item protects a lender — waived for balance-sheet funding.
+LENDER_ONLY_GATES: frozenset[str] = frozenset(
+    g.id for g in GATE_REGISTRY
+    if all(EVIDENCE_SCOPE.get(k) == "PROJECT_FINANCE" for k in g.required_evidence)
+)
+
+# Power-model scoping — the runtime's EVIDENCE_META "applies_to", for the items
+# restricted to some power models only. Every other item applies to all. Before
+# this copy existed the platform could not tell whether an item applied, so the
+# 2026-09-26 conversion raised requests for behind-the-meter evidence on a
+# grid-connected plant, and nothing refused assigning or committing to them.
+# Held identical to the runtime by tests/test_gate_registries_agree.py.
+EVIDENCE_POWER_MODELS: dict[str, list[str]] = {
+    "grid_interconnection_study": ["GRID_CONNECTED", "HYBRID"],
+    "queue_position_evidence": ["GRID_CONNECTED", "HYBRID"],
+    "grid_connection_cost_estimate": ["GRID_CONNECTED", "HYBRID"],
+    "connection_date_cod_compatibility_memo": ["GRID_CONNECTED", "HYBRID"],
+    "ppa_register": ["GRID_CONNECTED", "HYBRID"],
+    "ppa_signed_or_term_sheet_evidence": ["GRID_CONNECTED", "HYBRID"],
+    "ppa_volume_load_coverage_analysis": ["GRID_CONNECTED", "HYBRID"],
+    "ppa_tenor_debt_comparison": ["GRID_CONNECTED", "HYBRID"],
+    "btm_generation_asset_evidence": ["OFF_GRID_BTM", "HYBRID"],
+    "generation_yield_study": ["OFF_GRID_BTM", "HYBRID"],
+    "grid_independence_note": ["OFF_GRID_BTM", "HYBRID"],
+    "backup_construction_power_plan": ["OFF_GRID_BTM", "HYBRID"],
+}
+
+
+def inapplicability(key: str, power_model: str | None, financing_model: str | None) -> str | None:
+    """Why an item does not apply to a project, or None if it does.
+
+    Mirrors the engine's not_applicable_reason exactly (a test compares every
+    item under every premise): POWER_MODEL first, then FINANCING_MODEL. An
+    undeclared power model applies everything — the engine scores the superset.
+    """
+    models = EVIDENCE_POWER_MODELS.get(key)
+    if models and power_model and power_model not in models:
+        return "POWER_MODEL"
+    if financing_model == "BALANCE_SHEET" and EVIDENCE_SCOPE.get(key) == "PROJECT_FINANCE":
+        return "FINANCING_MODEL"
+    return None
+
+
+# Rules 4.0.0 — commitment cards. The structured terms a project records for its
+# offtake, EPC, schedule, supply and model; the engine derives the offtake (O0–O7)
+# and EPC (E0–E6) ladders and the coherence checks from them. Types: str, number,
+# bool, date (YYYY-MM-DD), list (of strings), enum:A|B|C. Held identical to the
+# runtime's COMMITMENT_CARD_FIELDS by tests/test_gate_registries_agree.py.
+COMMITMENT_CARD_FIELDS: dict[str, dict[str, str]] = {
+    "offtake": {
+        "counterparty_name": "str",
+        "counterparty_role": "enum:END_USER|OBLIGATED_SUPPLIER|TRADER|INTERMEDIARY|EQUITY_PARTNER",
+        "buyer_investment_grade": "bool",
+        "credit_support": "bool",
+        "commitment_form": "enum:TAKE_OR_PAY|TAKE_IF_TENDERED|TAKE_AND_PAY|TAKE_IF_DELIVERED|FRAMEWORK",
+        "take_or_pay_pct": "number",
+        "contracted_tonnes_per_year": "number",
+        "tenor_years": "number",
+        "price_mechanism": "enum:FIXED|COST_PLUS|INDEX_PLUS_PREMIUM|FLOOR_CAP|OTHER",
+        "cps_satisfied": "bool",
+        "conditions_precedent": "list",
+        "longstop_date": "date",
+        "first_delivery_date": "date",
+        "delay_ld_cap_eur": "number",
+        "product_spec_standard": "str",
+        "certification_scheme": "str",
+        "compliance_regime": "list",
+        "fm_definition_ref": "str",
+        "change_in_law_allocated": "bool",
+    },
+    "epc": {
+        "contractor_name": "str",
+        "contracting_model": "enum:LSTK|EPCM|SPLIT_PACKAGES|EPC_CONVERSION|OWNER_INTEGRATED",
+        "contract_price_eur": "number",
+        "guaranteed_completion_date": "date",
+        "guaranteed_capacity_tonnes_per_year": "number",
+        "expected_availability_pct": "number",
+        "delay_ld_cap_eur": "number",
+        "performance_ld_cap_eur": "number",
+        "guaranteed_product_spec": "str",
+        "contingency_eur": "number",
+        "sponsor_support_eur": "number",
+        "fm_definition_ref": "str",
+        "counterparty_insolvent": "bool",
+    },
+    "schedule": {
+        "permits_expected_date": "date",
+        "appeal_period_months": "number",
+        "fid_target_date": "date",
+        "construction_months_p80": "number",
+        "commissioning_allowance_months": "number",
+        "forecast_cod_date": "date",
+    },
+    "supply": {
+        "feedstock_required_tonnes_per_year": "number",
+        "feedstock_contracted_tonnes_per_year": "number",
+        "feedstock_tenor_years": "number",
+        "power_required_mwh_per_year": "number",
+        "power_contracted_mwh_per_year": "number",
+        "power_tenor_years": "number",
+        "power_meets_certification": "bool",
+        "co2_source_eligible": "bool",
+        "certification_scheme": "str",
+        "fm_definition_ref": "str",
+        "support_or_ppa_revoked": "bool",
+        "certification_suspended": "bool",
+    },
+    "model": {
+        "debt_tenor_years": "number",
+        "model_contracted_tonnes_per_year": "number",
+        "model_offtake_tenor_years": "number",
+        "model_epc_price_eur": "number",
+    },
+}
+
+# Which gate a card belongs to — for write authorisation (abac R5 resolves every
+# bankability write to a gate) and for display. Supply feeds G3's feedstock and
+# G1's power; it is written by the producer's inputs team, so it sits with G3.
+TERMS_CARD_GATE: dict[str, str] = {
+    "offtake": "G4_OFFTAKE_BANKABLE",
+    "epc": "G5_EPC_RISK_PRICED",
+    "schedule": "G5_EPC_RISK_PRICED",
+    "supply": "G3_INPUTS_SECURED",
+    "model": "G8_AUDIT_GRADE_MODEL",
+}
+
+# Evidence owner function -> auth_users.business_function. The account vocabulary
+# is coarser than the evidence one: there is no LEGAL or PROJECT business
+# function, so those items route to the company's EXECUTIVE, who is accountable
+# for them in every gate's RACI. INDEPENDENT_ENGINEER maps to nothing on purpose:
+# the IE is appointed by the lenders and is never an account of the producer.
+OWNER_FUNCTION_TO_BUSINESS_FUNCTION: dict[str, Optional[str]] = {
+    "ENGINEERING": "ENGINEERING",
+    "SALES": "COMMERCIAL",
+    "FINANCE": "FINANCE_TREASURY",
+    "TREASURY": "FINANCE_TREASURY",
+    "LEGAL": "EXECUTIVE",
+    "PROJECT": "EXECUTIVE",
+    "INDEPENDENT_ENGINEER": None,
+}
+
+
+def resolve_assignee(evidence_key: str, accounts: list[dict]) -> tuple[Optional[str], str]:
+    """Pick the account that should own an evidence request, and say why.
+
+    `accounts` are the ACTIVE auth_users rows of the company that owns the
+    project (dicts with user_id and business_function). Returns
+    (user_id or None, reason). Deterministic: among several accounts with the
+    same function, the lowest user_id wins, so a re-run assigns the same person.
+    Falls back to the EXECUTIVE when the company has nobody in the function, and
+    returns None — an honest gap, never a guess — when there is no one to ask.
+    """
+    owner = EVIDENCE_OWNER_FUNCTION.get(evidence_key)
+    if owner is None:
+        return None, f"'{evidence_key}' is not a live evidence item"
+    target = OWNER_FUNCTION_TO_BUSINESS_FUNCTION.get(owner)
+    if target is None:
+        return None, f"{owner} is an external party, not an account of the producer"
+    by_function: dict[str, list[str]] = {}
+    for a in accounts:
+        by_function.setdefault(a.get("business_function") or "", []).append(a["user_id"])
+    if by_function.get(target):
+        if target == "EXECUTIVE":
+            return (sorted(by_function[target])[0],
+                    f"{owner} item; accounts carry no {owner} function, so the company's EXECUTIVE owns it")
+        return sorted(by_function[target])[0], f"{owner} item, assigned to the company's {target} account"
+    if target != "EXECUTIVE" and by_function.get("EXECUTIVE"):
+        return (sorted(by_function["EXECUTIVE"])[0],
+                f"{owner} item; the company has no {target} account, so it routes to its EXECUTIVE")
+    missing = target if target == "EXECUTIVE" else f"{target} or EXECUTIVE"
+    return None, f"{owner} item; the company has no {missing} account to assign it to"
+
 
 class EvidenceStatus(str, Enum):
     """

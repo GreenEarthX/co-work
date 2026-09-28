@@ -32,7 +32,7 @@ import os
 
 import pytest
 
-from pg_support import pg_connect
+from pg_support import pg_bypassrls_connect, pg_connect
 
 DSN = os.getenv("DATABASE_URL", "")
 APP_ROLE = "gex_app"
@@ -144,6 +144,26 @@ def test_an_unset_tenant_context_reveals_nothing(conn):
     assert _visible_projects(cur, None) == 0
 
 
+def _true_total_or_none() -> int | None:
+    """Real `projects` row count from a credential RLS does not bind, or None.
+
+    Delegates the connection to pg_support, which is the suite's only
+    psycopg2.connect site — an architecture guardrail enforces that, and it
+    caught an earlier version of this helper that connected directly.
+    """
+    conn = pg_bypassrls_connect()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as k:
+            k.execute("SELECT count(*) FROM projects")
+            return k.fetchone()[0]
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
 def test_platform_admin_sees_everything_and_a_tenant_sees_less(conn):
     """
     Isolation is only meaningful if it is selective: the admin sentinel must
@@ -156,20 +176,34 @@ def test_platform_admin_sees_everything_and_a_tenant_sees_less(conn):
     if not cur.fetchone():
         pytest.skip("app role not created yet (migration 031 not applied)")
 
-    cur.execute("SELECT count(*) FROM projects")
-    total = cur.fetchone()[0]
-    if total == 0:
-        pytest.skip("no projects seeded")
-
+    # Ground truth for "every project" must NOT come from a bare count on this
+    # connection. Migration 045 pointed DATABASE_URL at `gex_app`, which has no
+    # BYPASSRLS, so RLS binds here and a count with no company GUC returns 0 via
+    # the deny sentinel. This test used to gate on that count, so from 045 onward
+    # it skipped unconditionally — "no projects seeded" against a seeded database.
+    # RLS working correctly was what disabled the guardrail that checks RLS.
     admin = _visible_projects(cur, "PLATFORM_ADMIN")
     owner = _visible_projects(cur, "etfuels_sa")
 
-    assert admin == total, "PLATFORM_ADMIN must see every project"
+    if admin == 0:
+        pytest.skip("no projects visible even to PLATFORM_ADMIN — nothing seeded")
+
     assert owner > 0, "the owning tenant must see its own projects"
-    assert owner < total, (
+    assert owner < admin, (
         "the owning tenant sees every project in the database — isolation is "
         "not filtering. Check that the connection is not a superuser."
     )
+
+    # The original intent — "PLATFORM_ADMIN sees EVERY project" — needs a row
+    # count nobody is filtering. Only a BYPASSRLS credential can supply one, so
+    # it is asserted when ALEMBIC_DATABASE_URL is exported and skipped silently
+    # when it is not. The selectivity assertions above never depend on it.
+    total = _true_total_or_none()
+    if total is not None:
+        assert admin == total, (
+            f"PLATFORM_ADMIN sees {admin} of {total} projects — the admin "
+            "sentinel is not seeing every row"
+        )
 
 
 # ── The configuration mistake that silently disables everything ─────────────

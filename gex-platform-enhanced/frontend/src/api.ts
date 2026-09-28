@@ -23,7 +23,14 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
     const error = await response
       .json()
       .catch(() => ({ detail: "Unknown error" }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    // Structured refusals ({code, message}) must reach the user as their
+    // message, not as "[object Object]".
+    const detail = error.detail;
+    throw new Error(
+      (detail && typeof detail === "object" && detail.message) ||
+        (typeof detail === "string" && detail) ||
+        `HTTP ${response.status}`,
+    );
   }
 
   return response.json();
@@ -280,16 +287,60 @@ export const bankabilityAPI = {
 
   getRules: () => fetchAPI("/bankability/rules"),
 
+  // `maturity` (INTENT | INDICATIVE | AGREED | EXECUTED | EFFECTIVE) is declared
+  // on submission. Under evidence rules 3.0.0 a VERIFIED instrument counts only
+  // at or above its required maturity. The backend refuses a reviewer-side status
+  // that raises it, and refuses retired or unknown evidence keys with a 422
+  // naming what to submit instead.
   updateEvidence: (data: {
     project_id?: string;
     evidence_key: string;
     new_status: string;
     submitted_by?: string;
     notes?: string;
+    maturity?: string;
   }) =>
     fetchAPI("/bankability/evidence", {
       method: "POST",
       body: JSON.stringify({ project_id: "default", ...data }),
+    }),
+
+  // Name the person who must produce an evidence item (owner company or
+  // platform admin only; assignee must be an active account of the owner).
+  // Reassignment clears the due date: a date is the assignee's own commitment.
+  assignEvidence: (data: {
+    project_id: string;
+    evidence_key: string;
+    assignee_user_id: string | null;
+  }) =>
+    fetchAPI("/bankability/evidence/assign", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // Only the assignee can commit; the date must be today or later.
+  commitEvidence: (data: { project_id: string; evidence_key: string; due_date: string }) =>
+    fetchAPI("/bankability/evidence/commit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  assignableAccounts: (projectId: string) =>
+    fetchAPI(`/bankability/evidence/assignable?project_id=${encodeURIComponent(projectId)}`),
+
+  myEvidenceRequests: () => fetchAPI("/bankability/evidence/assigned-to-me"),
+
+  // Commitment cards (rules 4.0.0): structured offtake / EPC / schedule /
+  // supply / model terms. The engine grades the offtake (O0–O7) and EPC (E0–E6)
+  // ladders and runs coherence checks from them. Owner company or platform
+  // admin only; a save replaces the whole card and is audited.
+  getTerms: (projectId: string) =>
+    fetchAPI(`/bankability/terms?project_id=${encodeURIComponent(projectId)}`),
+
+  saveTerms: (data: { project_id: string; card_type: string; terms: Record<string, unknown> }) =>
+    fetchAPI("/bankability/terms", {
+      method: "PUT",
+      body: JSON.stringify(data),
     }),
 
   listEvidence: (projectId: string = "default") =>

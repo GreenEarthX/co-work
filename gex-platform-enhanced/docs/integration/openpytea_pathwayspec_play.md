@@ -129,7 +129,7 @@ trust** — and it is why OpenPyTEA is adopted *behind* the truth stack, not bes
    /tea/compute` takes the pathway `engineering` layer → returns a **provisional**
    `PlantSummary` extract (`verification_state=UNVERIFIED`,
    `model_claim_state=submitted`) + a `projection_snapshot` evidence proposal;
-   `POST /tea/sensitivity` → tornado. `openpytea==2.1.0` is pinned and installs
+   `POST /tea/sensitivity` → tornado. `openpytea==3.0.0` is pinned and installs
    cleanly (numpy/scipy/pandas/matplotlib wheels on py3.14). The real runner builds
    `openpytea.Equipment` per process unit and an `openpytea.Plant`, runs
    `calculate_all()`, and extracts `capital_costs.fixed_capital` (CAPEX),

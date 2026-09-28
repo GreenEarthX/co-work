@@ -297,10 +297,12 @@ def gate_number(gate_id: Optional[str]) -> Optional[str]:
 
 _EVIDENCE_TO_GATE: dict[str, str] = {}
 try:
-    from app.core.bankability_engine import GATE_REGISTRY as _GR
-    for _g in _GR:
-        for _ev in getattr(_g, "required_evidence", []):
-            _EVIDENCE_TO_GATE[_ev] = _g.id
+    # EVIDENCE_GATE_MAP covers BOTH evidence vocabularies — the registry's own
+    # required_evidence and the 29 additional keys the runtime engine scores.
+    # Building this from GATE_REGISTRY alone left those 29 unresolved, and an
+    # unresolved key means gate_id None, at which point R5 denies every actor.
+    from app.core.bankability_engine import EVIDENCE_GATE_MAP as _MAP
+    _EVIDENCE_TO_GATE = dict(_MAP)
 except Exception:
     _EVIDENCE_TO_GATE = {}
 
@@ -308,6 +310,21 @@ except Exception:
 def gate_for_evidence(evidence_key: Optional[str]) -> Optional[str]:
     """Resolve an evidence_key to its owning gate id (or None if unmapped)."""
     return _EVIDENCE_TO_GATE.get(evidence_key) if evidence_key else None
+
+
+def gate_for_terms_card(card_type: Optional[str]) -> Optional[str]:
+    """Resolve a commitment card (rules 4.0.0) to the gate it belongs to.
+
+    A card write (PUT /bankability/terms) carries card_type, not evidence_key.
+    Unresolved, R5 would see gate_id None and deny every actor — the same trap
+    gate_for_evidence exists for."""
+    if not card_type:
+        return None
+    try:
+        from app.core.bankability_engine import TERMS_CARD_GATE
+    except Exception:
+        return None
+    return TERMS_CARD_GATE.get(card_type)
 
 
 # ═══════════════════════════════════════════════════════════════

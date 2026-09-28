@@ -4,9 +4,6 @@ import copy
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from pf_engine.main import app
 from pf_engine.pricing.gabillon.engine import GabillonCurveEngine
 from pf_engine.pricing.gabillon.service import GabillonService
 from pf_engine.pricing.memory import ProjectCalibrationMemory
@@ -73,17 +70,16 @@ def test_total_equals_additive_decomposition(tmp_path):
     assert "provenance" in result
 
 
-def test_offtake_api_reuses_cached_calibration():
-    client = TestClient(app)
+def test_offtake_api_reuses_cached_calibration(service_client):
     project_id = "api_offtake_project"
     curve_payload = curve_config(project_id)
     value_payload = offtake_config(project_id)
 
-    missing = client.post("/pf/offtake/value", json=value_payload)
+    missing = service_client.post("/pf/offtake/value", json=value_payload)
     assert missing.status_code == 409
 
-    assert client.post("/pf/curve/calibrate", json=curve_payload).status_code == 200
-    value = client.post("/pf/offtake/value", json=value_payload)
+    assert service_client.post("/pf/curve/calibrate", json=curve_payload).status_code == 200
+    value = service_client.post("/pf/offtake/value", json=value_payload)
     assert value.status_code == 200
     assert value.json()["seed"] == value_payload["simulation"]["seed"]
 

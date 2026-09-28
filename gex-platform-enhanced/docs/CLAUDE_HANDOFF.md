@@ -283,7 +283,16 @@ this document had never carried. Every artefact below was re-verified in the tre
   e-methane and ammonia; **green H₂ is still absent**.
 - **OpenPyTEA correlation caveats.** Its boilers/heaters/furnaces category is unreliable at
   MW scale and the kettle-reboiler correlation is pathological; the registry curates around
-  them. `openpytea==2.1.0` is pinned in `tea_engine/requirements.txt`.
+  them. **`openpytea==3.0.0`** is pinned in `tea_engine/requirements.txt` (upgraded from
+  2.1.0 on 2026-09-23). `>= 3.0` is required, not preferred: `run_monte_carlo` refuses an
+  older engine at `MIN_OPENPYTEA_MC`. 3.0 added the `random_seed` parameter the service
+  seeds with — 2.x sampled through numpy's global RNG, which no longer reproduces — and
+  fixed the vectorised-MC bug that levelised every sample over the longest horizon, so
+  `project_lifetime` is sampled again instead of held fixed. The upgrade also moved priced
+  numbers (e-methanol CAPEX +2.0% on identical inputs), which is why `cost_basis_hash` now
+  covers the engine and its version, and `model_base_case` stores `engine_version`.
+  **Base cases verified under 2.1.0 are ~2% below what 3.0 computes and `_RECONCILE_TOL`
+  is 1%, so they need re-verification before a release-gated PF compute will pass.**
 - **The regime fork is real code, not a plan.** `tea_engine/regimes.py` forks certification
   gate, GHG method and subsidy across RFNBO · ADVANCED_BIOFUEL · BIOFUEL_CROP · RCF ·
   LOW_CARBON, and `evaluate_certification_gate()` rejects the wrong regime's evidence.
@@ -406,6 +415,181 @@ the package moved `app/` → `pf_engine/` the same day.
   balance from the custody ledger
 
 Frontend backups of the landing page are in `frontend/.backups/` (this is not a git repo).
+
+**2026-09-10/11 — energy-economics constants**
+
+Five defects that put a wrong number in front of a lender. Each was verified by hand
+against the source before being changed, and each is guarded by a test that was
+negative-verified: the defect reintroduced, the guardrail confirmed to fire, the defect
+removed again.
+
+- `backend/app/services/dscr_aggregator.py` — **`power_opex_share` was never settable.**
+  `getattr(self, "power_opex_share", 0.73)` sat under a docstring saying a caller could
+  override it. The identifier occurred **exactly twice in the tree** — that docstring and
+  that `getattr` — so it always returned 0.73. Both heatmap axes act on the power term, so
+  one constant set every cell of the grid and every break-even power price a credit
+  committee reads. Now a real constructor argument with **no default**; when it is absent
+  the surface, the sensitivity rows and the break-evens are omitted rather than
+  fabricated, and a new `DSCRResult.sensitivity_basis` separates
+  `none_no_cashflow_basis` from `none_power_opex_split_not_supplied`. That follows the
+  `debt_service_source` idiom already in the file: an empty grid because a project has no
+  debt service yet and an empty grid because nobody supplied the split are different facts.
+- `backend/app/services/dscr_sensitivity.py` and `routes_finance_model.py` — **seven of
+  eleven `DEFAULT_PARAMS` terms were frozen** under the comment "every caller may
+  override"; the one real caller passed four. `base_efficiency_pct = 72.0` is the
+  denominator of the efficiency axis, so a plant at 55% was stressed against 72%. Project
+  values now reach the model, and both it and `power_opex_share` are query parameters that
+  `frontend/src/api.ts` can send.
+- `backend/app/core/plant_builder.py` and `routes_plant_builder.py` — **the equipment
+  catalogue implied 200 kWh/kg.** `annual_power_mwh` and `capacity_tonnes_year` were two
+  independent literals whose *ratio* is a specific energy consumption that nothing stated
+  and nothing checked: PEM 200.00 against its own description's "55 kWh/kg", SOEC 132.76
+  against "~37", alkaline 204.65 at **8,800 full-load hours in a year that contains
+  8,760**, and water at 400–465 kg/kg against the 9 kg/kg `mass_balance.py:31` states.
+  `capacity_factor`, `availability`, `load_factor` and `8760` appeared **zero times** in
+  the engine, so full uptime was asserted and never priced. Items now declare `rated_mw`
+  and `sec_kwh_per_kg` once and both annual figures are derived, so the drift is
+  unrepresentable; `capacity_factor` moved **onto `PlantConfiguration` with no default**,
+  because how long a plant runs follows from the power contract and not from the
+  equipment — a derived converter costed without one returns 422. Power in LCOH went from
+  €9,000/t to €2,475/t, and LCOH now responds to capacity factor at all: €11,393 / €7,843
+  / €5,469 per tonne at cf 0.30 / 0.50 / 0.90.
+- `../gex_pf_engine/backend/pf_engine/core/engine.py:343` — **1000× production defect.**
+  `capacity_mtpd * 365` with the kg-per-tonne factor missing, while `price_eur_kg` and
+  `opex_eur_kg` are per kilogram. A 100 MTPD project at €5/kg reported €182,500/yr
+  instead of €182.5M/yr, i.e. universal covenant breach. The fixed line is now :343
+  (`model_project_lifetime` starts at :319); the explanatory comment block added with the
+  fix occupies :335–342, which is why an earlier draft of this entry cited :335.
+  **`cfads.py:57-58` already carried the correct form, with an explicit comment about the
+  ×1000** — the bug was found and fixed once and the second copy was never touched. Same
+  defect class as the `capital_bridge.py` 1000× entry above.
+  **Mind the path** (enumerated from the live app 2026-09-25): the engine route is
+  `@router.post("/model/lifetime")` at `routes_model.py:236` under prefix `/api/v1/model`
+  (`pf_engine/main.py:113`), so it serves `POST /api/v1/model/model/lifetime` — a doubled
+  segment every sibling route in that file avoids (`/cfads/…`, `/waterfall/…`,
+  `/integrate/…`). `POST /api/v1/model/lifetime` is **not** a registered route and 404s.
+  The platform proxies it at `POST /api/v1/finance-model/lifetime`
+  (`routes_finance_model.py:225`), and the hint string at `pre_cod_metrics.py:522` tells
+  the user `POST /api/v1/finance-model/model/lifetime`, which is neither of them.
+- `backend/app/core/decision_twin.py` — **an RFNBO pillar that could not fail.** The
+  RED III temporal-matching check hardcoded `"passed": True` and downgraded its
+  consequence to a medium warning, while its three sibling checks (GHG savings, renewable
+  share, geographical correlation) each derive `passed` from input and set the project
+  ineligible. Annual correlation therefore returned RFNBO-eligible. Now fails as critical
+  per Delegated Regulation (EU) 2023/1184 Art. 6 — monthly qualifies until 31 Dec 2029,
+  hourly from 1 Jan 2030, annual at no point — with the monthly case warning about the
+  2030 cliff. Evaluating that cliff properly needs the project's COD year, which the
+  signature does not carry; see §8 for the 45V sibling, which is worse.
+
+**Tests added 2026-09-10/11:** `tests/test_plant_builder_energy.py` (10) and six added to
+`tests/test_dscr_sensitivity.py` (17 total in that file). **One** is an AST guardrail —
+`test_no_fabricated_power_share_default_returns` (:260), which walks the tree for
+`getattr(…, "power_opex_share", <number>)` because its own explanation names the pattern it
+forbids. Its neighbour `test_no_module_carries_its_own_sensitivity_model` (:298) is still
+**regex/text**-matched and carries the two offending patterns inline, so it is a candidate
+to convert — see §7 on guardrails that match their own prose.
+
+**2026-09-25/26 — evidence rules 3.0.0, "the stronger bar"**
+
+Product decision, 2026-09-25: adopt the stronger evidence bar. Implemented from
+`GEX_Bankability_Ambition_Gap_and_Remediation_Standard.docx` and the gate document.
+**Neither registry was adopted verbatim** — the platform registry's 69-key bar,
+the obvious candidate, was weaker or wrong in five places: it dropped
+`additionality_evidence` from G2 (an RFNBO pillar and deal-killer), accepted a
+"strategy" and "concept note" for a gate named "Inputs Secured" (G3), contained
+**no audit** in a gate named "Audit-Grade Model" (G8), dropped legal opinions from
+Financial Close (G10), and required insurance **bound with lenders as loss payee at
+STRUCTURALLY_BANKABLE** (G7) — two states before lenders approve credit, which on a
+strictly sequential ladder is a deadlock. One canonical set of **77** items was built
+gate by gate from both, against the standard's truth conditions.
+
+- `../gex_pf_engine/backend/pf_engine/core/bankability_engine.py` — rules **3.0.0**.
+  Achievement gates require achievements (G9 permits GRANTED, G10 CPs SATISFIED, G11
+  tests PASSED, G8 audit OPINION); readiness gates (G1, G2, G3, G7) stay readiness at
+  the maturity their stage allows, and every readiness instrument must be EXECUTED at
+  G10. New **maturity axis** `INTENT < INDICATIVE < AGREED < EXECUTED < EFFECTIVE`: a
+  VERIFIED item counts only at or above `REQUIRED_MATURITY` (24 instruments);
+  undeclared maturity fails closed. `RETIRED_EVIDENCE` (26 keys, each with a named
+  replacement — a retired key is never relabelled as its replacement). Metadata for
+  all 77 items (was 19). Per-gate `determination` SATISFIED / BLOCKED / INCOMPLETE /
+  WAIVED. Capital output adds `decision_eligible` (GEX makes a capital decision
+  *eligible*; it does not commit capital) — `is_unlocked` kept as an alias. G3 and G7
+  renamed ("Feedstock & Logistics Terms", "Insurability Confirmed"); their ids keep
+  SECURED / BOUND for stability.
+- `backend/app/core/bankability_engine.py` — registry **generated from** the engine;
+  identical in evidence, names, maturity and retirement history. `EVIDENCE_GATE_MAP`
+  resolves all 103 live + retired keys for authorization.
+- `backend/alembic/versions/054_evidence_maturity.py` — `bankability_evidence.maturity`;
+  `evidence_events.old_maturity / new_maturity`. **Applied** to the dev database.
+- `backend/app/api/v1/routes_bankability_proxy.py` — write path accepts maturity;
+  refuses retired keys (422 naming the replacement), unknown keys, unknown statuses and
+  unknown maturities; **maker/checker**: producer-side statuses may declare or raise
+  maturity, reviewer-side statuses may only confirm or lower it, and may not introduce
+  one the submitter never declared. Every maturity change is audited, including one that
+  leaves the status alone.
+- **Pre-existing defect found and fixed:** `_ensure_tables` ran SQLite DDL
+  unconditionally, so under `EVIDENCE_DB_BACKEND=postgres` it raised
+  `syntax error at or near "AUTOINCREMENT"` on every call — **every evidence read and
+  write on PostgreSQL failed** (evaluate, update, list, upload, audit trail, health).
+  Hidden because ABAC's 403 ran first in the UI and every test pinned SQLite. Now
+  SQLite-only; migrations own the PG schema.
+- `frontend/src/features/finance/StageGatesPage.tsx` — maturity selector on submission
+  (required for instrument items), evidence labels, maturity status per row, WAIVED
+  badge, shortfall count. `UnlockChainPanel.tsx` — eligibility language, not "unlock".
+  `api.ts` sends maturity.
+- Measured effect on the stored data: 125 of 127 rows are demo seed; the two other rows
+  are G1 studies and unaffected; all five projects are SPECULATIVE before and after.
+  **Corrected 2026-09-26:** those two rows (Anna Keller, Rheinwerk; Thierry Groell,
+  ETFuels) are real people with **invented content** — confirmed by the platform owner.
+  All 127 rows were invented. See the next entry.
+
+**2026-09-26 — invented evidence became real work for real people (migrations 055, 056)**
+
+- The 127 invented rows were archived verbatim to `bankability_evidence_archive` and
+  converted by `backend/scripts/convert_invented_evidence.py` (dry run by default; rules in
+  `app/core/evidence_conversion.py`): **53** reset to open NOT_STARTED requests, **36** on
+  retired keys replaced by **32** open requests for their successor keys (never relabelled),
+  **38** on the owner-less `default` project removed. Result: **85 open requests**, zero
+  statuses, submitters, verifiers or maturities carried over. Backup before the change:
+  `files/db_backups/evidence_before_055_2026-09-26.sql`.
+- Each request is assigned to an **ACTIVE account of the company that owns the project**, by
+  the item's owner function (`bankability_engine.EVIDENCE_OWNER_FUNCTION` → `resolve_assignee`):
+  ENGINEERING→ENGINEERING, SALES→COMMERCIAL, FINANCE/TREASURY→FINANCE_TREASURY, LEGAL/PROJECT→
+  EXECUTIVE (accounts carry no such function), INDEPENDENT_ENGINEER→never (external party),
+  missing function→EXECUTIVE, else **unassigned with the reason recorded**. Measured:
+  HamburgOne 45 of 47 assigned (Lisa Friedrich 24, Mark Puntz 18, Lucie Mertz 3; 2 are IE items);
+  Rheinwerk 1 of 1 (Anna Keller); **ETFuels 7 of 37** — ETFuels has only Commercial and
+  Finance accounts, so its Legal, Project and Engineering items have no one to go to. That gap
+  is the next onboarding action, not a defect to paper over.
+- The 20 accounts were not modified. No vetting column was touched.
+- Migration **055**: `assignee_user_id`, `assigned_by`, `assigned_at`, `due_date` on
+  `bankability_evidence`; `old_assignee`/`new_assignee` on `evidence_events`; the archive table
+  (FORCED RLS, same tenant policy as 034). `due_date` is never defaulted — a deadline is the
+  client's commitment.
+- Migration **056**: found while verifying 055 as `gex_app` — migration 031's DEFAULT PRIVILEGES
+  give every new table full DML to the runtime, so the archive was deletable, and the
+  "append-only" `evidence_events` was **updatable and deletable by the runtime since 034**.
+  Revoked: archive SELECT-only, events SELECT+INSERT only. `tests/test_evidence_history_pg.py`
+  failed before 056 and passes after. **Any new table inherits full DML — revoke explicitly.**
+- API: `POST /bankability/evidence/assign` (owner company or platform admin only; assignee must
+  be an ACTIVE account of the owner — routing to another tenant would disclose the project);
+  `GET /bankability/evidence/assigned-to-me`; gate views carry `assignee_name`, `due_date`;
+  the audit trail returns reassignments. Stage Gates "Owner" column shows the person.
+  Verified live as Lisa Friedrich: 24 requests, names rendered, through RLS on PostgreSQL.
+- The legacy SQLite file still held all 127 invented rows (25 VERIFIED) — flipping
+  `EVIDENCE_DB_BACKEND` back to sqlite would have resurrected them. Mirrored from PostgreSQL
+  with `--mirror-sqlite` after a `VACUUM INTO` backup; `test_evidence_slice` parity caught it.
+- Tests: `test_evidence_conversion.py` (14), `test_evidence_assignment.py` (14),
+  `test_evidence_history_pg.py` (7), registry agreement +1 (owner functions). Negative-verified:
+  the IE routing rule, both tenant guards on assign, and the 056 revoke.
+
+**Tests added 2026-09-25/26:** `../gex_pf_engine/backend/tests/test_bankability_gates.py`
+(24 — the engine had **no tests of its own** before this), `tests/test_evidence_maturity_writes.py`
+(19), `tests/test_evidence_pg_path.py` (3, runs **against PostgreSQL** — the only way the
+AUTOINCREMENT defect could be caught), and `tests/test_gate_registries_agree.py` extended to
+assert evidence, names, maturity and retirement are identical (T14). Every new guardrail was
+negative-verified; one — the helper `maturity_meets` failing open — passed for a reason
+nobody had checked until the mutation proved it, and got its own test.
 
 **Tests added earlier:** 13 files, plus `tests/pg_support.py` (the single PostgreSQL entry point) — token lifecycle (18), TEA (19), account lifecycle (22),
 projects canonical (14), RLS isolation, evidence (12), slice-5 characterization (41),
@@ -1630,9 +1814,271 @@ cannot re-trigger the test. Delete the archive once a release has passed.
     still needs a real provider** wired to the session, and `projectAccess` should not be
     deciding admin rights client-side at all.
 
+### Energy-economics constants — measured 2026-09-10/11, re-verified 2026-09-25
+
+Found by an eight-family sweep of hardcoded constants; 135 raw findings, 64 put through an
+adversarial verifier that re-derived the evidence and traced whether the number reaches a
+screen. The ten below are the ones that survived verification and are **not** fixed. Five
+siblings were fixed — see §6. Every item here was re-confirmed against the live tree on
+2026-09-25, after the PostgreSQL cutover.
+
+The recurring shape is worth more than any single entry: **one calculation living in two
+places with only one of them fixed**, and **constants dressed as configurable parameters**.
+The diagnostic for the second is cheap — grep the identifier across both trees and count.
+If it appears only in its own definition and its own default, it is not overridable,
+whatever the docstring says.
+
+18. **The bankability route always returns 500, and fixing the crash makes it worse.**
+    `POST /api/v1/finance/financial-model/run` (`app/api/endpoints/finance.py:339`,
+    registered `main.py:679`) raises `NameError: name 'settings' is not defined` on every
+    call, from `app/services/financial_model.py:289`. The only
+    `from app.core.config import settings` sits **inside an 83-line string literal at lines
+    6–88**, so it never binds — confirmed by AST, not grep.
+    **Do not simply add the import.** That activates a route whose engine builds
+    `ScenarioInputs()` from pure defaults — no project data, no match data — so every
+    `match_id` returns a byte-identical DSCR and the handler emits *"Bankable. DSCR 1.72x
+    exceeds 1.3x threshold. Proceed to settlement."* Its `power_price_index` is a
+    dimensionless index pinned at 100 in the base case, so `power_drift` is always exactly
+    zero: **electricity cannot move that DSCR by construction.** `FinancialModelRequest`
+    declares `capex_index` and `subsidy_pct` as "optional overrides" and the handler passes
+    only `match_id`. `state_machine.py:498` also imports it as a DD postcondition, so this
+    is not cosmetic. It needs real project inputs or an honest refusal — a product call.
+    Same shape as defect 1 above (`/api/v1/contracts/summary`), which is tracked; this one
+    was not.
+19. **The Cost DNA waterfall is built on three unsourced constants.**
+    `../gex_pf_engine/backend/pf_engine/core/price_lineage.py` — `capex_proxy` share of
+    LCOH `0.65` (:320, repeated inline at :339), `avg_tenor = 15` (:321), `risk_free = 0.03`
+    labelled "ECB policy rate proxy" (:313). They produce the *Financing Spread*,
+    *Concessional Absorption* and *Grace Period Benefit* rows of
+    `frontend/src/features/pricing/MoleculeLineage.tsx`, rendered on the Dashboard, and the
+    3.0% is quoted on screen as the authoritative basis.
+20. **bps→DSCR transfer coefficients are unnamed literals.**
+    `backend/app/core/structuring_engine.py:320` and `:390` (`0.0008`), `:633` (`0.0006`),
+    `:634` (`0.0005`). `GET /api/v1/structuring/{id}/recommend` and `/gaps` render them
+    through `PackageBuilder.tsx`, `StructuringTimeline.tsx` and `GapAnalysis.tsx`. Note
+    `dscr_sensitivity.py`'s own docstring records that assumed elasticities were removed
+    from the DSCR surface because they disagreed with the grid; this second implementation
+    survived.
+21. **One project, two headline capacities.** Enumerated 2026-09-25 across
+    `frontend/src/**/*.ts{,x}`. Three screens annualise at **330** —
+    `features/capacity/CapacityPage.tsx:63`, `features/marketplace/MarketplacePage.tsx:400`
+    and `:982`, `features/finance/DemandPipeline.tsx:56`. Three annualise
+    `capacity_mtpd` at **365** — `features/projects/ProjectsPage.tsx:168`,
+    `features/projects/ProjectProfilePage.tsx:335`,
+    `features/finance/FinanceDashboardPage.tsx:143` — plus two shared lib modules,
+    `lib/narrative.ts:37` and `lib/capacityUnits.ts:1`
+    (`CAPACITY_DAYS_PER_YEAR = 365`), both imported only by `ProjectProfilePage`.
+    Separately `features/finance/RevenueOfftakePage.tsx:302` annualises a *contracted*
+    daily volume at 365, which is a different quantity. 365/330 = 1.106, so the same
+    project's headline annual capacity is **10.6% larger** depending on which screen is
+    open. `lib/capacityUnits.ts` is the obvious single home; nothing currently forces its
+    use.
+22. **Every project is scored as a 100 t/day plant.**
+    `../gex_pf_engine/backend/pf_engine/api/routes_model.py:328` —
+    `production_mtpd=100.0,  # Would come from capacity` — inside
+    `@router.post("/integrate/calculate-from-capacity")` (:310). The request model does
+    carry a `production_mtpd` field (:33) and another route passes it through honestly
+    (:143); this one ignores it. Feeds
+    `result.cfads.utilization`, `uncontracted_capacity_mtpd` and the CFADS/DSCR built on
+    `effective_production_mtpd`.
+23. **45V accepts a temporal-matching parameter it never reads.**
+    `backend/app/core/decision_twin.py:450` takes `temporal_matching: str = "annual"`;
+    `evaluate_45v` has five checks — Molecule, Jurisdiction, Tier, Additionality,
+    Prevailing Wage — and **no temporal or deliverability check at all**. Unlike its RED III
+    sibling (fixed, §6) this is a *missing* pillar rather than a broken one; adding it needs
+    a COD year the signature does not carry and a decision on the 2030 hourly cliff.
+24. **Zero-carbon electricity is applied unconditionally.** `tea_engine/lca.py:58` sets
+    `ELECTRICITY_EF["eu_renewable"]["ef"] = 0.0` gCO2e/kWh and `:63` maps **both** EU
+    methods (`annex_v`, `annex_vi`) to it. Zero is defensible for genuinely additional,
+    hourly- and geo-matched renewables, and the file is honest about its own status
+    (`EF_VERIFIED_BY = None`, "Do NOT flip ascertained on the strength of these defaults").
+    The defect is that it applies whether or not the project meets the three pillars, so a
+    project failing additionality still gets zero-carbon electricity in its CI.
+25. **A carbon-intensity conversion implies an LHV of 3.6 MJ/kg.**
+    `frontend/src/engine/units/conversionFactors.ts:306` —
+    `linear('gCO2e/MJ', 'kgCO2e/kg', 0.001 * 3.6)`. Hydrogen's LHV is 120 MJ/kg; 3.6 is the
+    kWh→MJ factor from the line above, copied. ~33× on a number that decides certification.
+    `unitFamilies.ts:55` declares `requiresContext: ['gwp_version','lhv_hhv']` — the
+    registry has the slot and the conversion ignores it.
+26. **Two places take a user's number and apply a different one.**
+    **(a) TEA contingency is dropped on the real path.** `tea_engine/models/tea.py:38`
+    declares `contingency_pct: float = 15.0`; the value is validated and unit-registered
+    (`integrity.py:105`). But `_build_plant` (`compute/openpytea_runner.py:199-243`)
+    assembles the OpenPyTEA config with **no `contingency` / `fixed_capital_factors`
+    key**, so the real path silently falls back to OpenPyTEA's own process-type table
+    (`venv/.../openpytea/plant.py:165-167`, `"X": 0.1`, applied at `:765-767`).
+    Measured 2026-09-25 by building a Plant exactly as `_build_plant` does:
+    contingency/(isbl+osbl) = **0.1 exactly** (isbl 255,458.49, osbl 76,637.55,
+    contingency 33,209.60). Only the `_stub_numbers` path
+    (`openpytea_runner.py:135`) honours the request. A user who sets 15% gets 10%.
+    *(An earlier draft of this entry cited `:181-191` and was retracted as false; the
+    line was wrong, the defect is real — `:181-191` is `_validate_equipment`.)*
+    **(b) A sponsor's stated equity return is discarded.**
+    `backend/app/api/v1/capital_bridge.py:193` `DEFAULT_EQUITY_COST = 0.12` overrides a
+    user-supplied column at `:1113` and `:1128` — precisely: `rate_pct` is an optional
+    user field on every tranche (`:249`, persisted `:429`), debt tranches use it
+    (`:1105`), and `SEED_EQUITY` / `SPONSOR_EQUITY` tranches discard it for the 0.12
+    constant in both WACC loops. So a sponsor who states their own equity return is
+    ignored, while a lender's rate is honoured. Same family as the `power_opex_share`
+    defect fixed in §6: the API advertises a control that does nothing.
+    Related and unverified: `openpytea_runner.py:135` also carries a **`6200.0` €/unit
+    capex intensity** that no request field can set.
+27. **Two molecule price tables and four covenant floors.**
+    `frontend/src/features/projects/ProjectsPage.tsx:45` and
+    `features/marketplace/MarketplacePage.tsx:117` disagree — H2 4500 vs 5500, e-NG **1100
+    vs 120**. Separately the DSCR covenant floor is 1.20 in `DSCRHeatmap.tsx`, 1.25 in
+    `FinanceDashboardPage.tsx:297`, 1.30/1.10 bands in `CovenantsPage.tsx` and `CFOReport`,
+    and 1.2 in `DebtCashflowWaterfall` — four screens, four breach thresholds.
+
+**Not in this list, deliberately.** 71 of the 135 findings carry only one agent's
+judgement — the verifier pass ran out of budget before three families — and are leads
+rather than defects. 5 were false positives, all of them the §6 plant-builder fix being
+correctly detected as already remediated. The full dossier and the verifier verdicts were
+rebuilt from workflow journal `wf_21cc0cd0-1f5`.
+
+### Found during the rules-3.0.0 work — measured 2026-09-26
+
+28. **Seeded projects display gate data the engine does not produce.**
+    `frontend/src/data/customerProjects.ts` hand-writes gate summaries — names,
+    completion percentages, blocking items — for demonstration projects, and the UI
+    renders them instead of engine output. It gives **19 names for 12 gates**, and some
+    are the wrong gate: five G11 entries carry *certification* content (45V, RFNBO, SAF
+    mandate) under "GHG Pathway Verified", and seven G3 entries carry *EPC/technology*
+    content under "Technology Vendor Locked". The ETFuels Rattlesnake Gap header shows
+    "Structurally Bankable" while the engine rates that project SPECULATIVE. **Do not
+    rename in place** — renaming G11 to "COD & Stabilization" would put 45V LCA text
+    under a Commercial Operation gate. Replace the fixture with engine output.
+29. **The gates screen does not use the real upload endpoint.** `POST
+    /bankability/evidence/document` stores files with a SHA-256; `StageGatesPage`
+    attaches documents with `URL.createObjectURL` and never calls it, so
+    `document_hash` is never populated from the UI.
+30. **The evidence write handler has no authorization of its own.** (The new assign
+    endpoint does check the caller's company; `POST /evidence` still does not.) The maturity
+    maker/checker rule is enforced by status transition, not by actor, so a party that
+    can write can still move its own item to VERIFIED. Binding verification to actor
+    class, organisation and project role is the remaining P0 in the standard.
+31. **Operational: the admin account reads as a guest.** ABAC refuses project
+    bankability to `admin@greenearthx.com` — "Guest users may only access PUBLIC
+    resources. Complete KYC verification". Correct behaviour for an account with no KYC;
+    it means the gates screen cannot be exercised with that account.
+32. **ETFuels has 30 unassignable evidence requests.** Its only accounts are Commercial and
+    Finance/Treasury; Legal, Project and Engineering items on Rattlesnake Gap and Pecos have
+    no one to go to. Onboard an Executive and an Engineering account through the vetted
+    `/register` path, then run `scripts/convert_invented_evidence.py --assign-open --apply
+    --mirror-sqlite`. Simulated read-only 2026-09-26: the Executive takes 16 (legal +
+    project), the Engineer 12; 2 are Independent Engineer items and stay unassigned by
+    design. Do not route them to an account of another company.
+33. **Due dates — BUILT 2026-09-26 (migration 057); now waiting on the clients.** Assignment
+    creates a request; the **assignee alone** accepts it by committing to a date
+    (`POST /bankability/evidence/commit`, today or later — not even a platform admin can
+    commit for someone). Until then the item shows **"Not yet committed"**. Reassignment
+    clears the date (it was the previous person's word). Moving a date is allowed and
+    audited (`old_due_date`/`new_due_date`), so a slip stays visible. State is derived at
+    read time in `app/core/evidence_due_dates.py` — UNASSIGNED / NOT_COMMITTED / COMMITTED /
+    OVERDUE / DONE — so overdue never goes stale. Gate headers show "N overdue" and "N not
+    yet committed"; `GET /evidence/assigned-to-me` sorts overdue first. Stage Gates has
+    **Commit to a date** (assignee only) and **Reassign** (owner company or GEX admin; list
+    from `GET /evidence/assignable`, owner's ACTIVE accounts only). The platform never
+    defaults a date — **no request in the database has one yet**, and none was entered on a
+    client's behalf during verification. Tests: `test_evidence_due_dates.py` (10),
+    `test_evidence_assignment.py` (now 24); assignee-only and overdue boundary
+    negative-verified. `fetchAPI` now shows a structured refusal's message instead of
+    "[object Object]".
+
+### Evidence rules 4.0.0 — built 2026-09-27/28
+
+34. **Rules 4.0.0 — BUILT (engine + platform + migration 058); now waiting on the
+    clients' commitment terms.** Decision: `docs/GEX-Twelve-Gates-Multi-Party-Review.docx`.
+    Still twelve gates. Financing scope moved from gates to items (23 lender-protection
+    items; G6 and G8 waived whole for balance-sheet funding, G4/G7/G10 no longer are);
+    offtake ladder O0–O7 and EPC ladder E0–E6, derived — never entered; ten coherence
+    checks C1–C10 (a FAIL blocks its gate; "data missing" blocks nothing and is never a
+    pass); post-FID triggers T1–T3; lenses PRODUCER/OFFTAKER/CAPITAL/CERTIFIER on every
+    item; OFFTAKER persona; 16 items added (77 → 93); G1 renamed "Power, Utilities &
+    Technology Basis"; each state also names the commitment it makes possible. Engine
+    detail in `../gex_pf_engine/README.md`.
+    - **Commitment cards** (`offtake`, `epc`, `schedule`, `supply`, `model`): migration
+      **058** — `commitment_terms` (runtime may SELECT/INSERT/UPDATE, not DELETE) and
+      `commitment_terms_events` (SELECT/INSERT only), both under FORCED RLS. Validation in
+      `app/core/commitment_terms.py` against `COMMITMENT_CARD_FIELDS`, which
+      `test_gate_registries_agree.py` holds identical to the engine's. `GET/PUT
+      /bankability/terms` (owner company or GEX admin writes; `can_edit` tells the screen),
+      `GET /bankability/terms/events`. Every evaluation sends the cards as `terms`.
+    - **Screen:** Stage Gates shows the state's commitment label, the O/E levels with the
+      engine's definitions and reasons (read from `/bankability/rules`, not duplicated), a
+      coherence summary, a "View as" lens filter, per-gate commitment chips, "Also
+      blocked" reasons, a coherence/trigger section, and a spec-driven **Commitment terms**
+      editor. Not-applicable items now render as "Not required" — before this they fell
+      back to Not Started with a **Start** button.
+    - **State of the data:** no card has been entered for any project (0 rows), so every
+      project reads O0/E0 and 9 of the 10 checks are NOT_EVALUABLE. Nothing was entered
+      on a client's behalf during verification.
+    - **Tests:** engine `test_bankability_gates.py` 86; platform
+      `test_commitment_terms.py` 25, `test_commitment_terms_pg.py` 7, registry agreement
+      +5; every new guard mutation-tested. Full suite 2026-09-28: **844 pass, 17 skip,
+      0 fail** with both exports.
+    - **Open:** reconcile the offtake card with `OfftakeContract` (registered in
+      `COMMITMENT_OBJECT_ROLES` as a projection, not a contract register); the cards are
+      the producer's statement and are not checked against the documents.
+35. **Six requests on items that do not apply — found and contained 2026-09-28.** The
+    2026-09-26 conversion (item 32) raised requests without an applicability check,
+    because the platform had no copy of the engine's power-model scoping: four ask
+    HamburgOne people (Mark Puntz ×3, Lisa Friedrich ×1) for behind-the-meter generation
+    evidence on a grid-connected plant; two unassigned ones ask Rattlesnake Gap (off-grid)
+    for grid-connection evidence. They inflated "not yet committed" (G1 showed 16 against
+    15 applicable items). Now: `EVIDENCE_POWER_MODELS` + `inapplicability()` mirror the
+    engine (agreement test covers every item under every premise); such requests are not
+    counted, cannot be committed to (409), cannot be (re)assigned (422
+    `ITEM_NOT_APPLICABLE`), are listed apart under `not_required` in `assigned-to-me`, and
+    `--assign-open` skips them. The owner may **withdraw** one (button on the row). **The
+    six rows are untouched** — withdrawing is the owner's call, not done on their behalf.
+36. **Two engine API tests have failed since 2026-09-09, unrelated to gates.**
+    `test_gabillon.py::test_curve_api_contracts_include_provenance_and_memory` and
+    `test_offtake.py::test_offtake_api_reuses_cached_calibration` get **401**: `main.py`
+    put every endpoint behind the GEX JWT guard after these tests were last touched, and
+    they send no token. Engine suite otherwise 209 pass.
+
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
+
+**Invented evidence (2026-09-26) — REJECTED:**
+
+- **Presenting the 125 seed rows as real people's submissions.** They were written by one
+  generator; there are no people behind them, and attributing documents to ETFuels or
+  HamburgOne that they never produced is fabricated evidence in the lenders' system of
+  record. They became open *requests* instead — the work is real, the claims are gone.
+- **Backfilling vetting columns** (phone, agreement) to make accounts look complete —
+  the NULLs are how unvetted accounts are found.
+- **Assigning a request to an account of another company** because the owner lacks the
+  function — it discloses the project. Unassigned with a reason is the correct state.
+- **Loosening `test_evidence_slice` parity** when it failed after the conversion — the
+  SQLite fallback really did still hold the invented rows.
+
+**Evidence rules 3.0.0 (2026-09-25/26) — the obvious fixes that are wrong:**
+
+- **Adopting the platform registry's 69-key evidence bar verbatim — REJECTED.** It is
+  the obvious "stronger bar", and it was weaker in G2 (no additionality), G3 (a
+  strategy counted as inputs secured), G8 (no audit in "Audit-Grade") and G10 (no legal
+  opinions), and it deadlocked G7. The canonical 77 items were built gate by gate.
+- **Requiring insurance BOUND, or lenders as loss payee, before FINANCEABLE — REJECTED.**
+  Lenders who have not approved credit cannot be named on a policy; on a strictly
+  sequential ladder that makes every later state unreachable.
+  `test_no_gate_requires_evidence_before_the_state_at_which_it_can_exist` fails if it
+  returns.
+- **Relabelling retired evidence rows as their replacements — REJECTED.** Mapping
+  `eia_submission` to `eia_permit_granted` would manufacture achievement evidence out of
+  intention evidence — the exact false positive 3.0.0 removes. Retired rows stay as
+  history; no gate scores them.
+- **Backfilling a maturity on existing evidence rows — REJECTED.** That would be the
+  engine inventing a fact about a document nobody has examined. NULL fails closed.
+- **Letting a reviewer set or raise maturity — REJECTED.** Verification confirms what an
+  instrument is; it must never turn a term sheet into a contract.
+- **Encoding maturity only in the evidence key's name — SUPERSEDED.** That was the
+  pre-3.0.0 state and it is not a control: an LOI in an `..._executed` slot satisfied it.
+- **Running `_ensure_tables` DDL on PostgreSQL — REMOVED.** It raised on every call.
+  Migrations own the PG schema.
 
 **CORRECTED 2026-09-08 — GEX *does* perform engineering mass balance.** An earlier version
 of this document said it did not. That was an audit of the backend only. The frontend
@@ -1707,7 +2153,13 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
-**Nothing is in flight.** The duplicate tenor labels (§8.8) were fixed 2026-09-14 in the
+**2026-09-28:** evidence rules 4.0.0 shipped end to end (§8 items 34–36). Nothing in
+flight; the next move is the clients' — commitment cards, and HamburgOne's call on the
+four not-applicable requests. Docker Desktop's restart again left `files-postgres-1`
+stopped (restart policy `no`, as on 2026-09-14); `docker start files-postgres-1` brought
+it back at head 058 with nothing lost. The paragraphs below are older.
+
+**Nothing is in flight (as of 2026-09-18).** The duplicate tenor labels (§8.8) were fixed 2026-09-14 in the
 sibling engine, with the frontend aligned and a parity test between them; the live engine
 serves the new labels, not yet seen on a signed-in page.
 

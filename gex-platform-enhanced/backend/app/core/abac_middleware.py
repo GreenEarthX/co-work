@@ -24,7 +24,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.core.abac import (
-    evaluate_access, get_visible_gates, gate_for_evidence,
+    evaluate_access, get_visible_gates, gate_for_evidence, gate_for_terms_card,
     UserAttributes, ResourceAttributes, ContextAttributes,
     Action, Sensitivity, Decision,
     ActorType, Capability, ClearanceLevel,
@@ -393,7 +393,8 @@ class ABACMiddleware(BaseHTTPMiddleware):
                 # Evidence write carries evidence_key, not a gate. Resolve the
                 # owning gate so R5 can authorise the gate owner — else gate_id
                 # is None and R5 denies EVERY actor ("write to gate None").
-                evidence_gate_id = gate_for_evidence(body.get("evidence_key"))
+                evidence_gate_id = (gate_for_evidence(body.get("evidence_key"))
+                                    or gate_for_terms_card(body.get("card_type")))
             except Exception:
                 project_id = project_id or normalize_project_id(request.query_params.get("project_id"))
             resource_type = "FINANCIAL_MODEL" if "/finance-model/" in path else "EVIDENCE"

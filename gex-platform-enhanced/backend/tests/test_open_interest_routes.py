@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from pg_support import requires_pg
+
 from app.api.v1 import routes_client_billing as rcb
 from app.api.v1 import routes_open_interest as roi
 from app.core import open_interest as oi
@@ -97,6 +99,12 @@ def test_confidentiality_identity_is_not_the_tenancy_identity():
     sentinel that matches no publisher rule — so staff saw every interest, including
     those that had explicitly blocked them.
     """
+    # Reaches PostgreSQL indirectly: viewer_from_request -> _profile_columns ->
+    # psycopg2. An unreachable database must SKIP, not FAIL — a red
+    # confidentiality test reads as "the admin bypasses confidentiality" when
+    # the only real problem is that the database is down.
+    requires_pg()
+
     from app.core.request_tenant import PLATFORM_ADMIN, company_from_payload
 
     payload = {"company_id": "greenearthx", "is_platform_admin": True}
@@ -126,6 +134,11 @@ def test_a_payload_without_a_company_yields_a_viewer_that_sees_nothing():
 def test_the_admin_flag_is_carried_but_still_does_not_bypass_confidentiality():
     """Domain authorization lets an admin WRITE anywhere. Per-interest confidentiality is
     a different decision and the admin does not bypass it — confirmed 2026-08-11."""
+    # Reaches PostgreSQL indirectly: viewer_from_request -> _profile_columns ->
+    # psycopg2. An unreachable database must SKIP, not FAIL — a red
+    # confidentiality test reads as "the admin bypasses confidentiality" when
+    # the only real problem is that the database is down.
+    requires_pg()
     viewer = roi.viewer_from_request(
         FakeRequest({"company_id": "greenearthx", "is_platform_admin": True})
     )

@@ -4,7 +4,8 @@ GEX platform JWT verification for engine services (ADR 2026-07-06).
 ONE identity issuer: the GEX platform backend (:8000, app/core/auth.py).
 This module replaces the previous third-party (Supabase-era) verifier —
 engines only accept platform-minted tokens. Deployed verbatim to every engine
-(tea_engine, gex_pf_engine); keep it dependency-light and package-agnostic.
+(tea_engine, deal_engine, and the sibling gex_pf_engine); keep it
+dependency-light and package-agnostic.
 
 Accepted tokens, both minted by the platform:
   - user tokens     (POST /api/v1/auth/login)         session_tier=authenticated
@@ -16,12 +17,18 @@ Algorithms, mirroring the platform's own selection:
 
 Environment
 -----------
-GEX_JWT_SECRET       Shared secret for HS256. Defaults to the platform DEV
-                     default so local dev works out of the box; production
-                     deployments MUST set it (the platform refuses to boot
-                     on the dev default, so mismatched engines fail closed).
+ENVIRONMENT          production | prod | staging (any case) is production, the
+                     same set the platform's app/core/config.py guards.
+                     Anything else, including unset, is development.
+GEX_JWT_SECRET       Shared secret for HS256. Outside production it defaults
+                     to the platform DEV default so local dev works out of the
+                     box. In production that default is never trusted: unset,
+                     empty or the dev default means HS256 tokens are refused,
+                     and the engine refuses to start unless GEX_JWKS_URL is
+                     set (an RS256-only platform needs no shared secret).
 GEX_JWKS_URL         Platform JWKS endpoint for RS256 verification.
-                     Default: http://localhost:8000/api/v1/auth/jwks
+                     Default: http://localhost:8000/api/v1/auth/jwks, which is
+                     only right when the engine shares a host with the platform.
 GEX_JWT_ISSUER       Default: https://api.greenearthx.com
 GEX_JWT_AUDIENCE     Default: gex-platform
 
@@ -52,17 +59,58 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 logger = logging.getLogger("gex.engine_auth")
 
 _DEV_SECRET_DEFAULT = "dev_secret_key_change_in_production"
+# The platform's production set (app/core/config.py): both sides of a token
+# must agree on what "production" means.
+_PRODUCTION_ENVIRONMENTS = ("production", "prod", "staging")
 
-GEX_JWT_SECRET = os.getenv("GEX_JWT_SECRET", _DEV_SECRET_DEFAULT)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip()
+IS_PRODUCTION = ENVIRONMENT.lower() in _PRODUCTION_ENVIRONMENTS
+
 GEX_JWKS_URL = os.getenv("GEX_JWKS_URL", "http://localhost:8000/api/v1/auth/jwks")
 GEX_JWT_ISSUER = os.getenv("GEX_JWT_ISSUER", "https://api.greenearthx.com")
 GEX_JWT_AUDIENCE = os.getenv("GEX_JWT_AUDIENCE", "gex-platform")
 JWKS_CACHE_TTL = int(os.getenv("GEX_JWKS_CACHE_TTL", "600"))
 
-if GEX_JWT_SECRET == _DEV_SECRET_DEFAULT:
+
+def _resolve_hs256_secret() -> Optional[str]:
+    """
+    The HS256 verification key, or None when HS256 must be refused.
+
+    Fails closed. Until 2026-09-28 an unset GEX_JWT_SECRET fell back to the dev
+    default in every environment, and docker-compose.prod.yml set neither it
+    nor GEX_JWKS_URL: a production engine accepted any HS256 token signed with
+    a secret printed in this file (measured: 200 on GET /pf/curve/{id}/memory).
+    The platform refusing to boot on that default stops it SIGNING with it; it
+    cannot stop an engine TRUSTING it. Only the engine can.
+    """
+    secret = os.getenv("GEX_JWT_SECRET", "")
+    if secret.strip() and secret != _DEV_SECRET_DEFAULT:
+        return secret
+    if not IS_PRODUCTION:
+        logger.warning(
+            "GEX_JWT_SECRET is the development default — acceptable for local dev only."
+        )
+        return _DEV_SECRET_DEFAULT
+    if not os.getenv("GEX_JWKS_URL", "").strip():
+        raise RuntimeError(
+            "FATAL: GEX_JWT_SECRET is unset or the development default in a "
+            f"{ENVIRONMENT} environment, and GEX_JWKS_URL is not set, so this "
+            "engine has no key it may trust. Set GEX_JWT_SECRET to the platform "
+            "SECRET_KEY (HS256) or GEX_JWKS_URL to the platform JWKS endpoint "
+            "(RS256) before starting."
+        )
     logger.warning(
-        "GEX_JWT_SECRET is the development default — acceptable for local dev only."
+        "GEX_JWT_SECRET is unset or the development default in a %s environment "
+        "— HS256 tokens are refused; only RS256 tokens verified against %s are "
+        "accepted.",
+        ENVIRONMENT,
+        GEX_JWKS_URL,
     )
+    return None
+
+
+# None means HS256 is refused: production without a real shared secret.
+GEX_JWT_SECRET: Optional[str] = _resolve_hs256_secret()
 
 
 # ── Identity ──────────────────────────────────────────────────────────────────
@@ -134,6 +182,8 @@ def verify_gex_token(token: str) -> AuthenticatedUser:
 
     alg = header.get("alg")
     if alg == "HS256":
+        if GEX_JWT_SECRET is None:
+            raise _unauthorized("HS256 is disabled — no shared secret is configured")
         key: Any = GEX_JWT_SECRET
     elif alg == "RS256":
         key = _rs256_key(header.get("kid"))

@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import threading
 
 from tea_engine.models import (
     EvidenceEntryProposal,
@@ -50,8 +49,43 @@ def engine_name() -> str:
     return "openpytea" if (_HAS_OPENPYTEA and not _stub_allowed()) else "stub"
 
 
+def _engine_version() -> str | None:
+    try:
+        from importlib.metadata import version
+        return version("openpytea")
+    except Exception:  # pragma: no cover
+        return None
+
+
+def _version_tuple(v: str | None) -> tuple:
+    """(3, 0, 0) from "3.0.0", and from "3.0.0rc1" / "3.0.0.post1" too — a pre-release
+    of 3.0 still carries the `random_seed` parameter, so refusing it would be a false
+    alarm. Unknown/unparseable sorts lowest, so a version we cannot read fails the
+    minimum check rather than passing it."""
+    import re
+    parts = []
+    for p in (v or "").split(".")[:3]:
+        m = re.match(r"\d+", p)
+        if not m:
+            break
+        parts.append(int(m.group()))
+    return tuple(parts)
+
+
 def cost_basis_hash(req: TEAComputeRequest) -> str:
-    blob = json.dumps(req.model_dump(), sort_keys=True, default=str).encode()
+    """The identity of a cost basis is the request AND the engine that priced it.
+
+    The request alone is not enough. Measured 2026-09-23: OpenPyTEA 2.1.0 -> 3.0.0
+    moved e-methanol CAPEX +2.0% (171,833,372 -> 175,255,929) on byte-identical
+    inputs while this hash stayed at sha256:61a2cbc34aff5b64cb138456. A verified
+    model_base_case would have changed meaning with nothing to show for it. The
+    engine and its version are part of the basis, so an upgrade surfaces as a new
+    hash instead of hiding inside the old one.
+    """
+    blob = json.dumps({"request": req.model_dump(),
+                       "engine": engine_name(),
+                       "engine_version": _engine_version()},
+                      sort_keys=True, default=str).encode()
     return "sha256:" + hashlib.sha256(blob).hexdigest()[:24]
 
 
@@ -265,7 +299,8 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
     # its own provenance (external_benchmark, or sponsor_assumption when overridden).
     fx = None if is_stub else integrity.fx_meta(currency, req.fx_usd_to_eur)
     cost_basis = integrity.cost_basis_block(
-        currency, None if is_stub else integrity.OPENPYTEA_TARGET_CEPCI_YEAR, is_stub, fx)
+        currency, None if is_stub else integrity.OPENPYTEA_TARGET_CEPCI_YEAR, is_stub, fx,
+        engine=engine_name(), engine_version=_engine_version())
     # G6: what the cost covers — canonical battery limits vs an unverified caller train.
     import tea_engine.process_functions as _pfx
     calc_boundary = integrity.calculation_boundary(
@@ -274,6 +309,7 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
 
     return TEAResult(
         engine=engine_name(),
+        engine_version=_engine_version(),
         cost_basis_hash=cbh,
         lcop=lcop,
         plant_summary=PlantSummaryExtract(
@@ -285,6 +321,7 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
         run_evidence=EvidenceEntryProposal(payload={
             "cost_basis_hash": cbh,
             "engine": engine_name(),
+            "engine_version": _engine_version(),
             "project_id": req.project_id,
             "pathway_id": req.pathway_id,
             "capex_eur": capex,
@@ -377,21 +414,46 @@ def run_sensitivity(req: TEAComputeRequest) -> TEASensitivityResult:
 # the band comes out falsely narrow — the false precision this endpoint exists to cure.
 MC_DEFAULT_REL_STD = 0.10
 MC_MAX_REL_STD = 0.50
-# UPSTREAM BUG — OpenPyTEA 2.1.0 (verified 2026-09-22): with project_lifetime sampled as
-# an array, the vectorised Monte Carlo levelises EVERY sample over the longest horizon —
-# samples at 10 y and at 30 y return the same LCOP — biasing the band ~6% LOW. Every
-# other vectorised input (interest, utilisation, prices, capital factor) was checked
-# per-sample against deterministic runs and is correct. GEX therefore holds lifetime
-# fixed and refuses a request to sample it; test_openpytea_mc_lifetime_bug_canary fails
-# the day upstream fixes it, which is the signal to re-enable.
-MC_LIFETIME_HELD = ("project lifetime — held at the point-estimate value: OpenPyTEA 2.1.0's "
-                    "vectorised Monte Carlo levelises every sample over the longest sampled "
-                    "horizon (samples at 10 y and 30 y return the same LCOP), which would "
-                    "bias the band low. Test lifetime with deterministic /tea/compute runs.")
-# OpenPyTEA samples via scipy truncnorm with no random_state, i.e. numpy's GLOBAL RNG.
-# Seed under a lock and restore the state afterwards, or concurrent requests interleave
-# draws and neither result is reproducible.
-_MC_LOCK = threading.Lock()
+# Monte Carlo needs OpenPyTEA >= 3.0 for two reasons, both load-bearing:
+#   · `random_seed` — 3.0 builds its own Generator per call. 2.x sampled through numpy's
+#     global RNG, which this service seeded under a lock; that no longer reproduces.
+#   · per-sample project lifetime — 2.1.0's vectorised MC levelised EVERY sample over the
+#     longest sampled horizon (10 y and 30 y returned the same LCOP), biasing the band
+#     low, so GEX held lifetime fixed. Fixed upstream in 3.0 and re-enabled here
+#     (measured 2026-09-23: short-vs-long-life LCOP gap 0.0013 -> 0.6077).
+MIN_OPENPYTEA_MC = (3, 0)
+# OpenPyTEA floors sampled lifetimes with `.astype(int)` and refuses anything below 3
+# (plant.py, calculate_cash_flow). Any band GEX hands it must stay above that after the
+# cast, or /monte-carlo rejects a request /compute just accepted.
+MIN_PROJECT_LIFETIME_YEARS = 3.0
+_TQDM_SILENCED = False
+
+
+def _silence_progress_bars() -> None:
+    """A service has nowhere to print a progress bar, and tqdm reads TQDM_DISABLE at
+    import — so the module attribute is patched instead. Once and permanently: the
+    old save/patch/restore ran per call, which raced when two runs overlapped."""
+    global _TQDM_SILENCED
+    if not _TQDM_SILENCED:
+        import functools
+        import openpytea.analysis as _opa
+        _opa.tqdm = functools.partial(_opa.tqdm, disable=True)
+        _TQDM_SILENCED = True
+
+
+def _is_constant(a) -> bool:
+    """Was this input actually held, at the scale it is measured on?
+
+    An exact `std == 0.0` test misclassifies a constant whose magnitude is large:
+    a vectorised constant carries float noise proportional to its own size, so
+    `E Methanol production` (mean 136,986 kg) came back with std 2.9e-11 and was
+    reported as SAMPLED, while `held_fixed` in the same response said the
+    stoichiometry was held. The response contradicted itself. Scale-relative, so
+    the verdict does not depend on the unit the quantity happens to be in.
+    """
+    import numpy as _np
+    a = _np.asarray(a, dtype=float)
+    return float(a.std()) <= 1e-9 * max(abs(float(a.mean())), 1.0)
 
 
 def _band(mean: float, rel: float, lo: float | None = None, hi: float | None = None) -> dict:
@@ -407,20 +469,18 @@ def _band(mean: float, rel: float, lo: float | None = None, hi: float | None = N
     return {"std": std, "min": low, "max": high}
 
 
-def _engine_version() -> str | None:
-    try:
-        from importlib.metadata import version
-        return version("openpytea")
-    except Exception:  # pragma: no cover
-        return None
-
-
 def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
     _ensure_runnable()
     if not (_HAS_OPENPYTEA and not _stub_allowed()):
         raise NotImplementedError(
             "Monte Carlo needs the real OpenPyTEA engine — the deterministic stub has no "
             "distribution to sample.")
+    if _version_tuple(_engine_version()) < MIN_OPENPYTEA_MC:
+        # Fail loudly rather than silently returning an unreproducible, low-biased band.
+        raise RuntimeError(
+            f"Monte Carlo requires OpenPyTEA >= 3.0 (installed: {_engine_version()}). "
+            "3.0 added the `random_seed` parameter this service seeds with, and fixed the "
+            "per-sample project-lifetime bug that biased 2.x bands low.")
     import numpy as np
     from openpytea.analysis import monte_carlo
 
@@ -447,10 +507,16 @@ def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
         for stream, cfg in var_opex.items()
     }
     pu = dict(req.project_uncertainties)          # explicit OpenPyTEA spec wins
-    lt_spec = pu.get("project_lifetime")
-    if lt_spec is not None and float((lt_spec or {}).get("std", 5) or 0) > 0:
-        raise ValueError("project_lifetime cannot be sampled: " + MC_LIFETIME_HELD)
-    pu["project_lifetime"] = {"std": 0}           # held fixed — upstream bug, see above
+    if "project_lifetime" not in pu:
+        # Anchored on the SPONSOR'S stated life, not OpenPyTEA's own 10-30 y default,
+        # which ignores the project entirely. Same treatment as plant_utilization.
+        # The floor is 3, not 1: OpenPyTEA casts sampled lifetimes with `.astype(int)`
+        # and hard-refuses anything below 3 (plant.py, calculate_cash_flow). A floor of
+        # 1 let a stated 3-year life draw 2.4 -> int 2 -> ValueError, so /compute
+        # accepted a request that /monte-carlo then rejected quoting an engine-internal
+        # message that contradicted the caller's own input.
+        pu["project_lifetime"] = _band(float(base_req.assumptions.project_life_years),
+                                       MC_DEFAULT_REL_STD, lo=MIN_PROJECT_LIFETIME_YEARS)
     if "plant_utilization" not in pu:
         rel = (req.capacity_factor_rel_std if req.capacity_factor_rel_std is not None
                else MC_DEFAULT_REL_STD)
@@ -459,21 +525,14 @@ def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
     plant, base_ccy = _build_plant(base_req, units, mc_opex,
                                    extra_config={"project_uncertainties": pu})
 
-    # 3) Seeded, serialised, RNG-state-preserving run. No progress bar in a service: tqdm
-    #    reads TQDM_DISABLE at import, so the bar is switched off on the module instead.
-    import functools
-    import openpytea.analysis as _opa
+    # 3) Seeded run. OpenPyTEA >= 3.0 takes `random_seed` and builds its own
+    #    Generator from it, so the result depends on nothing outside this call:
+    #    no global-RNG seeding, no state save/restore, no lock. Verified 2026-09-23 —
+    #    perturbing numpy's global RNG between runs leaves the output bit-identical,
+    #    and the seed alone reproduces it regardless of batch_size.
     n = req.num_samples
-    with _MC_LOCK:
-        state = np.random.get_state()
-        orig_tqdm = _opa.tqdm
-        _opa.tqdm = functools.partial(orig_tqdm, disable=True)
-        try:
-            np.random.seed(req.seed)
-            mc = monte_carlo(plant, num_samples=n, batch_size=min(1000, n))
-        finally:
-            _opa.tqdm = orig_tqdm
-            np.random.set_state(state)
+    _silence_progress_bars()
+    mc = monte_carlo(plant, num_samples=n, batch_size=min(1000, n), random_seed=req.seed)
 
     # 4) Same co-product credit as the point estimate (a constant per-kg shift).
     shift = (pf_meta["coproduct_revenue_per_t_primary"] / 1000.0
@@ -495,17 +554,23 @@ def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
     stream_of = {f"{k.replace('_', ' ').title()} price": k for k in var_opex}
     pu_key = {"Fixed capital factor": "fixed_capital_factor",
               "Fixed opex factor": "fixed_opex_factor",
-              "Project lifetime": "project_lifetime",
               "Interest rate": "interest_rate",
               "Tax rate": "tax_rate"}
     gex_default = f"GEX default: {MC_DEFAULT_REL_STD:.0%} relative σ, truncated ±2σ"
     basis = []
-    held_fixed = [MC_LIFETIME_HELD]
+    held_fixed = []
     for name, arr in mc["inputs"].items():
         a = np.asarray(arr, dtype=float)
-        if float(a.std()) == 0.0:                 # not varied — list it, don't dress it up
-            if name != "Project lifetime":
-                held_fixed.append(f"{name.lower()} (σ = 0)")
+        if name == "Project lifetime":
+            # Report the horizons ACTUALLY levelised over, not the floats that were
+            # drawn. OpenPyTEA casts with `.astype(int)` (plant.py, calculate_cash_flow),
+            # so the raw samples overstate the band: measured at a stated 25 y, the
+            # pre-floor array says max 27.75 y and mean 22.02 while every sample really
+            # ran on an integer 20..27, mean 21.55. Reporting what was drawn would claim
+            # a horizon no sample used.
+            a = np.floor(a)
+        if _is_constant(a):                       # not varied — list it, don't dress it up
+            held_fixed.append(f"{name.lower()} (σ = 0)")
             continue
         if name in stream_of:
             caller = stream_of[name] in req.price_rel_std
@@ -514,6 +579,10 @@ def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
             caller = ("plant_utilization" in req.project_uncertainties
                       or req.capacity_factor_rel_std is not None)
             src = "caller override" if caller else gex_default
+        elif name == "Project lifetime":
+            caller = "project_lifetime" in req.project_uncertainties
+            src = ("caller project_uncertainties" if caller
+                   else gex_default + ", anchored on the stated project life")
         elif name in pu_key:
             caller = pu_key[name] in req.project_uncertainties
             src = "caller project_uncertainties" if caller else "OpenPyTEA default"

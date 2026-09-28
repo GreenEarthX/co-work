@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from app.core.css import get_commitments_for_project
 from app.core.project_truth import get_project_truth
 from app.core.config import settings
+from app.core.db_backend import evidence_connection, evidence_is_postgres
 
 router = APIRouter(prefix="/project-activity", tags=["project-activity"])
 
@@ -168,14 +169,38 @@ def _load_commitment_events(project_id: str, project_name: str) -> list[dict[str
     return events
 
 
-def _load_evidence_event(project_id: str, project_name: str) -> list[dict[str, Any]]:
-    if not Path(DB_PATH).exists():
-        return []
 
+def _evidence_store():
+    """Evidence-slice connection on PostgreSQL, else SQLite at the module path.
+
+    `bankability_evidence` and `bankability_snapshots` are owned by migration 034
+    and carry FORCED RLS tenant policies. Reading them over SQLite bypassed those
+    policies completely — and this route takes `project_id` straight from the
+    path and performs no project-level authorization of its own, so on PostgreSQL
+    the database filter IS the access control. The SQLite copy held 127 evidence
+    rows across five projects spanning three tenants, all reachable by any
+    authenticated caller who could guess a project id.
+
+    `evidence_connection()` defaults to the bound caller (NO_TENANT_CONTEXT when
+    there is none), so a request sees its own tenant and a background call with no
+    caller sees nothing.
+    """
+    if evidence_is_postgres():
+        return evidence_connection()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _load_evidence_event(project_id: str, project_name: str) -> list[dict[str, Any]]:
+    on_pg = evidence_is_postgres()
+    if not on_pg and not Path(DB_PATH).exists():
+        return []
+
+    conn = _evidence_store()
     try:
-        if not _table_exists(conn, "bankability_evidence"):
+        # 034 owns the table on PostgreSQL; `sqlite_master` does not exist there.
+        if not on_pg and not _table_exists(conn, "bankability_evidence"):
             return []
 
         rows = conn.execute(
@@ -183,7 +208,7 @@ def _load_evidence_event(project_id: str, project_name: str) -> list[dict[str, A
             SELECT evidence_key, status, submitted_by, verified_by, updated_at
             FROM bankability_evidence
             WHERE project_id = ?
-            ORDER BY datetime(updated_at) DESC
+            ORDER BY updated_at DESC
             """,
             (project_id,),
         ).fetchall()
@@ -222,13 +247,13 @@ def _load_evidence_event(project_id: str, project_name: str) -> list[dict[str, A
 
 
 def _load_snapshot_event(project_id: str, project_name: str, truth: dict[str, Any]) -> list[dict[str, Any]]:
-    if not Path(DB_PATH).exists():
+    on_pg = evidence_is_postgres()
+    if not on_pg and not Path(DB_PATH).exists():
         return []
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = _evidence_store()
     try:
-        if not _table_exists(conn, "bankability_snapshots"):
+        if not on_pg and not _table_exists(conn, "bankability_snapshots"):
             return []
 
         row = conn.execute(

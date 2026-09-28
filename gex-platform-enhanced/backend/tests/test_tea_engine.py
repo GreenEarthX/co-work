@@ -336,6 +336,25 @@ def test_cost_basis_hash_deterministic_and_currency_sensitive():
             != runner.run_tea(_req(base_currency="USD")).cost_basis_hash)
 
 
+def test_cost_basis_hash_is_engine_version_sensitive(monkeypatch):
+    """The hash must move when the ENGINE moves, not only when the request does.
+
+    Measured 2026-09-23: OpenPyTEA 2.1.0 -> 3.0.0 shifted e-methanol CAPEX +2.0% on
+    byte-identical inputs while the hash stayed at sha256:61a2cbc34aff5b64cb138456 —
+    a verified model_base_case silently changed meaning. The engine that priced the
+    basis is part of the basis.
+    """
+    r = runner.run_tea(_req())
+    assert r.engine_version, "a real engine run must report its version"
+    assert r.cost_basis["engine_version"] == r.engine_version
+    assert r.engine_version in (r.cost_basis["note"] or "")
+
+    monkeypatch.setattr(runner, "_engine_version", lambda: "99.99.99")
+    other = runner.run_tea(_req())
+    assert other.cost_basis["engine_version"] == "99.99.99"
+    assert other.cost_basis_hash != r.cost_basis_hash, "an engine upgrade must rehash"
+
+
 def test_fx_override_bounded_to_conservative_band():
     """Increment 3: the ±5% band is a source invariant — an override beyond it raises
     (→ 422 via the route), regardless of who asked. Benchmark USD->EUR=0.924 → [0.8778, 0.9702]."""
@@ -403,13 +422,57 @@ def test_monte_carlo_samples_the_dominant_drivers_with_provenance():
     assert ov["Hydrogen price"]["std"] > by["Hydrogen price"]["std"]
 
 
-def test_monte_carlo_holds_lifetime_fixed_and_says_so():
-    """The direct guard on the lifetime hold (see the canary). The centring test is NOT
-    enough: negative-verified 2026-09-22, re-enabling lifetime sampling on _mc's config
-    moves the mean only -2%, inside its 3% tolerance. So assert the hold itself."""
+def test_monte_carlo_samples_lifetime_anchored_on_the_stated_life():
+    """Lifetime was held fixed against the 2.1.0 bug; 3.0 levelises each sample over ITS
+    OWN horizon, so it is sampled again. The band is anchored on the SPONSOR'S stated
+    life, not OpenPyTEA's project-blind 10-30 y default — a 25 y project must not be
+    told its lifetime might be 10 y because the library says so."""
     r = runner.run_monte_carlo(_mc())
-    assert "Project lifetime" not in {b["input"] for b in r.uncertainty_basis}
-    assert "lifetime" in r.held_fixed[0]
+    lt = {b["input"]: b for b in r.uncertainty_basis}["Project lifetime"]
+    assert lt["std"] > 0 and lt["source_class"] == "model_default"
+    assert "stated project life" in lt["source"]
+    assert 24.0 <= lt["mean"] <= 26.0                  # _mc states 25 y
+    assert 19.5 <= lt["min"] and lt["max"] <= 30.5     # 10% rel σ truncated ±2σ → [20, 30]
+    assert not any("lifetime" in h.lower() for h in r.held_fixed)
+
+
+def test_constant_inputs_are_held_fixed_not_reported_as_sampled():
+    """The band's stated basis must not contradict itself.
+
+    An exact `std == 0.0` test misclassified constants whose magnitude is large: a
+    vectorised constant carries float noise proportional to its own size, so
+    'E Methanol production' (mean ~137,000 kg) came back with std 2.9e-11 and was
+    listed as SAMPLED, while `held_fixed` in the SAME response said the stoichiometry
+    was held. A reviewer reading the provenance was told the stoichiometry was varied.
+    """
+    r = runner.run_monte_carlo(_mc())
+    varied = {b["input"]: b for b in r.uncertainty_basis}
+    for constant in ("Hydrogen consumption", "Co2 consumption", "E Methanol production"):
+        assert constant not in varied, f"{constant} is constant — must not be listed as sampled"
+        assert any(constant.lower() in h for h in r.held_fixed), f"{constant} must be declared held"
+    for v in varied.values():                       # nothing listed as varied may be flat
+        assert v["std"] > 0, f"{v['input']} listed as sampled with std=0"
+
+
+def test_lifetime_provenance_reports_the_horizons_actually_used():
+    """OpenPyTEA casts sampled lifetimes with `.astype(int)`, so the drawn floats are
+    not the horizons levelised over. Reporting the raw draws claimed a horizon no
+    sample used (measured: max 27.75 y reported vs 27 actually used)."""
+    lt = {b["input"]: b for b in runner.run_monte_carlo(_mc()).uncertainty_basis}["Project lifetime"]
+    for k in ("min", "max"):
+        assert float(lt[k]).is_integer(), f"lifetime {k}={lt[k]} is not a whole year"
+    assert lt["min"] >= runner.MIN_PROJECT_LIFETIME_YEARS
+
+
+@pytest.mark.parametrize("life", [3, 5, 25])
+def test_compute_and_monte_carlo_accept_the_same_short_life(life):
+    """Both endpoints must accept the same request. OpenPyTEA refuses a lifetime below
+    3 after its int cast, so a floor of 1 let a stated 3-year life draw 2.4 -> 2 ->
+    ValueError: /compute returned 201 and /monte-carlo 422'd on identical input,
+    quoting an engine-internal message that contradicted the caller."""
+    a = {"project_life_years": life}
+    assert runner.run_tea(_req(assumptions=a)).lcop > 0
+    assert runner.run_monte_carlo(_mc(assumptions=a, num_samples=200)).lcop.p50 > 0
 
 
 def test_monte_carlo_links_to_compute_and_answers_a_target():
@@ -420,11 +483,11 @@ def test_monte_carlo_links_to_compute_and_answers_a_target():
 
 
 def test_monte_carlo_refuses_specs_that_would_mislead():
-    """A typo'd stream, an absurd σ, and sampling lifetime (known upstream bias) are
-    refused rather than silently absorbed; sample count is bounded per request."""
+    """A typo'd stream and an absurd σ are refused rather than silently absorbed;
+    sample count is bounded per request. (Sampling project_lifetime used to be refused
+    too — that was the 2.1.0 workaround, retired once 3.0 fixed the bug.)"""
     for bad in ({"price_rel_std": {"hydrogn": 0.2}},
-                {"price_rel_std": {"hydrogen": 0.9}},
-                {"project_uncertainties": {"project_lifetime": {"std": 5}}}):
+                {"price_rel_std": {"hydrogen": 0.9}}):
         with pytest.raises(ValueError):
             runner.run_monte_carlo(_mc(**bad))
     from pydantic import ValidationError
@@ -439,12 +502,16 @@ def test_monte_carlo_needs_the_real_engine(monkeypatch):
         runner.run_monte_carlo(_mc())
 
 
-def test_openpytea_mc_lifetime_bug_canary():
-    """CANARY — OpenPyTEA 2.1.0's vectorised Monte Carlo ignores per-sample lifetime:
-    samples at ~15 y and ~35 y return the same LCOP, although deterministically they
-    differ materially. GEX holds lifetime fixed because of it (MC_LIFETIME_HELD).
-    IF THIS TEST FAILS, upstream fixed the bug: re-enable lifetime sampling in
-    run_monte_carlo, drop MC_LIFETIME_HELD, and delete this canary."""
+def test_openpytea_propagates_per_sample_lifetime():
+    """REGRESSION GUARD — the 2.1.0 canary, inverted now that upstream has fixed it.
+
+    2.1.0's vectorised Monte Carlo levelised EVERY sample over the longest sampled
+    horizon, so ~15 y and ~35 y samples returned the same LCOP (measured gap 0.0013)
+    and GEX had to hold lifetime fixed. 3.0 levelises per sample (gap 0.6077). A short
+    life must price HIGHER than a long one — that is the whole reason lifetime belongs
+    in the band. If this collapses again the band is biased low: hold lifetime fixed
+    again, do not relax the threshold.
+    """
     import numpy as np
     from openpytea.analysis import monte_carlo
     req = _req()
@@ -453,9 +520,29 @@ def test_openpytea_mc_lifetime_bug_canary():
                                    "interest_rate", "plant_utilization", "tax_rate")}
     plant, _ = runner._build_plant(req, units, var_opex,
                                    extra_config={"project_uncertainties": pu})
-    np.random.seed(1)
-    mc = monte_carlo(plant, num_samples=3000, batch_size=1000)
+    mc = monte_carlo(plant, num_samples=3000, batch_size=1000, random_seed=1)
     life = np.asarray(mc["inputs"]["Project lifetime"])
     lcop = np.asarray(mc["metrics"]["LCOP"])
     short, long_ = lcop[life < 17].mean(), lcop[life > 33].mean()
-    assert abs(short - long_) < 0.05, "upstream fixed the lifetime bug — see docstring"
+    assert short - long_ > 0.05, "lifetime no longer moves LCOP per sample — band biased low"
+
+
+def test_the_engine_version_guard_reads_real_version_strings():
+    """The guard must never admit a 2.x engine, and must not cry wolf on a legitimate
+    3.x — a pre-release of 3.0 still carries `random_seed`."""
+    admit = lambda v: runner._version_tuple(v) >= runner.MIN_OPENPYTEA_MC
+    for good in ("3.0.0", "3.0", "3.1", "3.0.1", "10.0.0", "3.0.0rc1", "3.0.0.post1"):
+        assert admit(good), f"{good} should be admitted"
+    for bad in ("2.1.0", "2.9.9", "1.0", "", None, "not-a-version"):
+        assert not admit(bad), f"{bad} must be refused"
+
+
+def test_monte_carlo_refuses_an_engine_too_old_to_seed(monkeypatch):
+    """2.x cannot be seeded through `random_seed` and carries the lifetime bug. Refuse
+    loudly (-> 503) rather than return an unreproducible, low-biased band."""
+    monkeypatch.setattr(runner, "_engine_version", lambda: "2.1.0")
+    with pytest.raises(RuntimeError, match="requires OpenPyTEA >= 3.0"):
+        runner.run_monte_carlo(_mc())
+    monkeypatch.setattr(runner, "_engine_version", lambda: None)   # unreadable → refuse too
+    with pytest.raises(RuntimeError):
+        runner.run_monte_carlo(_mc())

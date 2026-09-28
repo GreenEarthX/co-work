@@ -19,6 +19,8 @@ import { bankabilityAPI } from "@/api";
 interface GateEval { gate_id: string; gate_name: string; completion_pct: number; }
 interface CapitalUnlock {
   capital_type: string;
+  // Eligible for the capital provider's decision — not a commitment or drawdown.
+  decision_eligible?: boolean;
   is_unlocked: boolean;
   financing_applicable: boolean;
   gating_gates: string[];
@@ -50,7 +52,7 @@ export function UnlockChainPanel({ projectId, packages }: { projectId: string; p
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 p-4 text-sm text-[var(--text-muted)]">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading unlock chain…
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading capital eligibility…
       </div>
     );
   }
@@ -58,7 +60,7 @@ export function UnlockChainPanel({ projectId, packages }: { projectId: string; p
     return (
       <div className="flex items-start gap-2 rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>Could not load the unlock chain{error instanceof Error ? ` (${error.message})` : ""}.</span>
+        <span>Could not load capital eligibility{error instanceof Error ? ` (${error.message})` : ""}.</span>
       </div>
     );
   }
@@ -79,8 +81,9 @@ export function UnlockChainPanel({ projectId, packages }: { projectId: string; p
   return (
     <div className="space-y-3">
       <p className="text-[12px] text-[var(--text-secondary)]">
-        Each tranche of capital is gated by a bankability gate. A gate opens as its evidence is verified —
-        and that evidence is what your packages produce. This is where package work moves the project bridge.
+        Each capital decision needs a bankability gate satisfied first. A gate is satisfied when every item
+        is verified at the maturity it requires — and that evidence is what your packages produce. GEX
+        establishes that the evidence conditions are met; the capital provider still makes the decision.
       </p>
 
       <div className="space-y-2">
@@ -88,10 +91,10 @@ export function UnlockChainPanel({ projectId, packages }: { projectId: string; p
           <div key={c.capital_type} className="rounded border border-[var(--border)] bg-[var(--surface)] p-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {c.is_unlocked ? <Unlock className="h-4 w-4 text-emerald-500" /> : <Lock className="h-4 w-4 text-[var(--text-muted)]" />}
+                {(c.decision_eligible ?? c.is_unlocked) ? <Unlock className="h-4 w-4 text-emerald-500" /> : <Lock className="h-4 w-4 text-[var(--text-muted)]" />}
                 <span className="text-sm font-semibold text-[var(--text-primary)]">{human(c.capital_type)}</span>
               </div>
-              <span className="font-mono text-[11px] text-[var(--text-muted)]">{c.best_progress_pct.toFixed(0)}% to unlock</span>
+              <span className="font-mono text-[11px] text-[var(--text-muted)]">{c.best_progress_pct.toFixed(0)}% toward eligibility</span>
             </div>
 
             {c.gating_gates.map((gid) => {

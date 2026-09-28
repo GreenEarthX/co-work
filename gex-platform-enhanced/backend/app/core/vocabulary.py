@@ -368,6 +368,18 @@ COMMITMENT_OBJECT_ROLES: dict[str, dict[str, str]] = {
         "role": "Sovereign-issued support instruments and their event history.",
         "not_for": "Demand-side commitments.",
     },
+    "app.core.commitment_terms": {
+        "family": "NEITHER",
+        "role": "PROJECTION for gate coherence (evidence rules 4.0.0). The structured terms a "
+                "producer records from its verified contracts — offtake, EPC, schedule, supply, "
+                "model — so the bankability engine can grade commitments (O0–O7, E0–E6) and "
+                "compare one contract with another (coherence checks C1–C10).",
+        "not_for": "A contract register or a pricing source. The canonical offtake is "
+                   "OfftakeContract and capital support is Instrument; a card never replaces "
+                   "the signed document it summarises, and nothing is rated, priced or "
+                   "settled from it. Reconciling the offtake card with OfftakeContract is "
+                   "open work (CLAUDE_HANDOFF.md).",
+    },
     "project_context.offtake_*": {
         "family": "DEMAND",
         "role": "PROJECTION ONLY. Summary fields for display and filtering.",

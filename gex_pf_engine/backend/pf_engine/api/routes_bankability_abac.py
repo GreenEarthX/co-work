@@ -27,7 +27,7 @@ class ABACEvaluationRequest(BaseModel):
     """
     project_id: str
     evidence: list[dict]
-    visible_gates: List[str]  # Computed by Platform ABAC, e.g. ["G0_SITE_RIGHTS", "G4_OFFTAKE"]
+    visible_gates: List[str]  # Computed by Platform ABAC, e.g. ["G0_SITE_RIGHTS", "G4_OFFTAKE_BANKABLE"]
     previous_state: Optional[str] = None
     requesting_company_id: Optional[str] = None  # For audit trail
     requesting_actor_type: Optional[str] = None  # For audit trail
@@ -116,20 +116,20 @@ async def get_gates_for_actor(actor_type: str):
 
     # Extended mapping for the 11 actor types (matches ABAC GATE_VISIBILITY)
     EXTENDED_GATE_VISIBILITY = {
-        "PRODUCER": ["G0_SITE_RIGHTS", "G1_GRID_WATER", "G3_FEEDSTOCK_LOGISTICS",
-                     "G5_EPC", "G9_PERMITS", "G11_COD"],
-        "OFFTAKER": ["G4_OFFTAKE"],
-        "COMMERCIAL_BANKER": ["G4_OFFTAKE", "G6_IE_SIGNOFF", "G7_INSURANCE",
-                              "G8_MODEL_AUDIT", "G10_FINANCIAL_CLOSE"],
-        "DFI": ["G4_OFFTAKE", "G6_IE_SIGNOFF", "G7_INSURANCE",
-                "G8_MODEL_AUDIT", "G10_FINANCIAL_CLOSE"],
-        "INSURER": ["G5_EPC", "G6_IE_SIGNOFF", "G7_INSURANCE"],
-        "REGULATOR": ["G2_CERTIFICATION", "G6_IE_SIGNOFF", "G9_PERMITS"],
+        "PRODUCER": ["G0_SITE_RIGHTS", "G1_GRID_UTILITIES_REALITY", "G3_INPUTS_SECURED",
+                     "G5_EPC_RISK_PRICED", "G9_PERMITS_SAFE", "G11_COD_STABILIZATION"],
+        "OFFTAKER": ["G4_OFFTAKE_BANKABLE"],
+        "COMMERCIAL_BANKER": ["G4_OFFTAKE_BANKABLE", "G6_IE_SIGNOFF", "G7_INSURANCE_BOUND",
+                              "G8_AUDIT_GRADE_MODEL", "G10_FINANCIAL_CLOSE_CP"],
+        "DFI": ["G4_OFFTAKE_BANKABLE", "G6_IE_SIGNOFF", "G7_INSURANCE_BOUND",
+                "G8_AUDIT_GRADE_MODEL", "G10_FINANCIAL_CLOSE_CP"],
+        "INSURER": ["G5_EPC_RISK_PRICED", "G6_IE_SIGNOFF", "G7_INSURANCE_BOUND"],
+        "REGULATOR": ["G2_CERTIFICATION_PATH_LOCKED", "G6_IE_SIGNOFF", "G9_PERMITS_SAFE"],
         "GOV_AGENCY": [g["gate_id"] for g in get_gates()],  # All gates
-        "CERTIFIER": ["G2_CERTIFICATION", "G6_IE_SIGNOFF", "G9_PERMITS"],
-        "EPC_CONTRACTOR": ["G5_EPC", "G11_COD"],
-        "LOGISTICS_OPERATOR": ["G3_FEEDSTOCK_LOGISTICS"],
-        "TECHNOLOGY_PROVIDER": ["G5_EPC", "G11_COD"],
+        "CERTIFIER": ["G2_CERTIFICATION_PATH_LOCKED", "G6_IE_SIGNOFF", "G9_PERMITS_SAFE"],
+        "EPC_CONTRACTOR": ["G5_EPC_RISK_PRICED", "G11_COD_STABILIZATION"],
+        "LOGISTICS_OPERATOR": ["G3_INPUTS_SECURED"],
+        "TECHNOLOGY_PROVIDER": ["G5_EPC_RISK_PRICED", "G11_COD_STABILIZATION"],
         "EXECUTIVE": [g["gate_id"] for g in get_gates()],  # All gates
     }
 

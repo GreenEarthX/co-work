@@ -11,8 +11,9 @@
     },
     {
       "name": "backend",
-      "runtimeExecutable": "venv/bin/python",
-      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+      "runtimeExecutable": "env",
+      "_comment_canonical": "CANONICAL_DATABASE_URL must be a REAL env var, not a .env line: canonical_ledger.py reads os.getenv at import, and pydantic's env_file populates settings, never os.environ. It is the RUNTIME credential (gex_app) on purpose — migration 053 owns the schema and gex_app holds no DDL, so the ledger writes rows under FORCED RLS. Do NOT point it at gex_user. GEX_CANONICAL_DEV=1 would instead waive Decision 4 onto an unruled SQLite file; it is deliberately not set here.",
+      "runtimeArgs": ["CANONICAL_DATABASE_URL=postgresql://gex_app:gex_app_password_dev@localhost:55432/gex_platform", "venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
       "port": 8000,
       "cwd": "backend"
     },

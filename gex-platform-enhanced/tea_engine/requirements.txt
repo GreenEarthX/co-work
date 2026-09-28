@@ -9,8 +9,14 @@ PyJWT[crypto]==2.9.0
 httpx==0.27.2
 
 # Techno-economics engine (the thing this service wraps). Pulls its own
-# scientific stack (numpy, pandas, scipy, matplotlib, seaborn, tqdm, jinja2).
+# scientific stack (numpy, pandas, scipy, matplotlib, scienceplots, tqdm, jinja2).
 # Set TEA_STUB=1 to bypass it for CI / demo without the heavy deps.
-openpytea==2.1.0
+#
+# >= 3.0 is REQUIRED for Monte Carlo, not a preference (run_monte_carlo refuses an
+# older engine at MIN_OPENPYTEA_MC): 3.0 added the `random_seed` parameter this
+# service seeds with, and fixed the vectorised-MC bug that levelised every sample
+# over the longest horizon. Upgrading also moves priced numbers (~+2% CAPEX), which
+# is why the engine version is part of cost_basis_hash — see openpytea_runner.
+openpytea==3.0.0
 
 python-json-logger==2.0.7
