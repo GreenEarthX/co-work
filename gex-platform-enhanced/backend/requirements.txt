@@ -10,7 +10,10 @@ python-multipart==0.0.6
 sqlalchemy==2.0.25
 asyncpg==0.29.0
 alembic==1.13.1
-#psycopg2-binary==2.9.9
+# db_backend.py's raw-connection class (app/core/auth.py's narrow surface,
+# also read by projects_store.py and canonical_ledger.py) uses psycopg2
+# directly, not psycopg v3 — both drivers are in play, deliberately.
+psycopg2-binary==2.9.9
 psycopg == 3.3.2
 geoalchemy2==0.14.3
 

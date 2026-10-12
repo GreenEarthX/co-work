@@ -28,6 +28,7 @@ from app.core.abac import (
     UserAttributes, ResourceAttributes, ContextAttributes,
     Action, Sensitivity, Decision,
     ActorType, Capability, ClearanceLevel,
+    EVIDENCE_REVIEW_STATUSES,
 )
 from app.core.auth import get_user_payload_by_email, get_user_payload_from_token
 from app.core.permission_engine import check_permission as check_feature_permission
@@ -55,6 +56,12 @@ METHOD_ACTION_MAP = {
     "PATCH": Action.WRITE,
     "DELETE": Action.DELETE,
 }
+
+# The one evidence write. Its body carries the requested status, and a reviewer
+# status there is a VERIFY (see _is_evidence_review).
+EVIDENCE_WRITE_PATH = "/api/v1/bankability/evidence"
+# The gate screen — the one gate-less read an assigned reviewer may make (R3).
+EVALUATION_PATH = "/api/v1/bankability/evaluate"
 
 
 class ABACMiddleware(BaseHTTPMiddleware):
@@ -101,7 +108,17 @@ class ABACMiddleware(BaseHTTPMiddleware):
 
         # Extract resource attributes from the request path + body
         resource = await self._extract_resource(request)
+        review = await self._is_evidence_review(request)
         if not resource:
+            if review:
+                # A review with no identifiable project cannot be authorised. Waved
+                # through like a route without project data, it would skip R5 —
+                # the body's project_id is optional and the handler defaults it.
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Access denied",
+                             "reason": "An evidence review must name its project"},
+                )
             # If we can't determine the resource, allow the request
             # (this handles routes that don't map to specific project data)
             return await call_next(request)
@@ -115,7 +132,7 @@ class ABACMiddleware(BaseHTTPMiddleware):
         # Override action for specific endpoints
         if "/export" in path:
             action = Action.EXPORT
-        elif "/verify" in path:
+        elif "/verify" in path or review:
             action = Action.VERIFY
         elif "/share" in path:
             action = Action.SHARE
@@ -371,6 +388,24 @@ class ABACMiddleware(BaseHTTPMiddleware):
             aggregation_limit_mt=payload.get("aggregation_limit_mt"),
         )
 
+    @staticmethod
+    async def _is_evidence_review(request: Request) -> bool:
+        """True for an evidence write asking for a reviewer status.
+
+        The status is in the body, so the URL cannot tell a verification from a
+        submission — which is how a producer's VERIFIED went through as a WRITE
+        and R5's verify rule was never reached (Attack A, 2026-09-30). The body
+        is the one _extract_resource already read; Starlette caches it.
+        """
+        if request.method != "POST" or request.url.path.rstrip("/") != EVIDENCE_WRITE_PATH:
+            return False
+        try:
+            body = await request.json()
+        except Exception:
+            return False  # not JSON: the handler refuses it, nothing is written
+        status = body.get("new_status") if isinstance(body, dict) else None
+        return isinstance(status, str) and status in EVIDENCE_REVIEW_STATUSES
+
     async def _extract_resource(self, request: Request) -> Optional[ResourceAttributes]:
         """
         Extract resource attributes from the request path.
@@ -397,7 +432,14 @@ class ABACMiddleware(BaseHTTPMiddleware):
                                     or gate_for_terms_card(body.get("card_type")))
             except Exception:
                 project_id = project_id or normalize_project_id(request.query_params.get("project_id"))
+            # A read names its item in the query (GET /evidence/documents?evidence_key=…):
+            # resolve that gate too, so a reviewer's read is held to its own gates.
+            # Reads only — a write's gate comes from its body and nowhere else.
+            if request.method == "GET":
+                evidence_gate_id = gate_for_evidence(request.query_params.get("evidence_key"))
             resource_type = "FINANCIAL_MODEL" if "/finance-model/" in path else "EVIDENCE"
+            if request.method == "GET" and path.rstrip("/") == EVALUATION_PATH:
+                resource_type = "GATE_EVALUATION"
 
         # /api/v1/marketplace/* or /api/v1/matching/*
         elif "/marketplace/" in path or "/matching/" in path:
@@ -486,7 +528,7 @@ class ABACMiddleware(BaseHTTPMiddleware):
     def _default_sensitivity(resource_type: str) -> Sensitivity:
         if resource_type == "FINANCIAL_MODEL":
             return Sensitivity.RESTRICTED
-        if resource_type in {"DATA_ROOM", "CONTRACT", "EVIDENCE"}:
+        if resource_type in {"DATA_ROOM", "CONTRACT", "EVIDENCE", "GATE_EVALUATION"}:
             return Sensitivity.CONFIDENTIAL
         return Sensitivity.SHARED
 

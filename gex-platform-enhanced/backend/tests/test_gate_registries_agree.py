@@ -192,6 +192,15 @@ def test_both_registries_define_the_same_commitment_cards():
         assert gate in {g["gate_id"] for g in _runtime_gates()}, card
 
 
+def test_both_registries_label_every_capital_decision_the_same_way():
+    """Screens read the label; a label one copy changes and the other keeps is
+    a decision described two ways. Rules 4.1.0 relabelled the senior-debt
+    decision a conditional credit approval."""
+    rt = _runtime()
+    assert rt.CAPITAL_TYPE_LABELS == registry_module.CAPITAL_TYPE_LABELS
+    assert set(registry_module.CAPITAL_TYPE_LABELS) == {c.value for c in registry_module.CapitalType}
+
+
 def test_a_retired_key_still_resolves_to_a_gate_for_authorization():
     """
     A stale client submitting eia_submission should be told it was replaced by

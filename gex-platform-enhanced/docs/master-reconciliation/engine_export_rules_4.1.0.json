@@ -1,0 +1,1425 @@
+{
+ "exported_at": "2026-09-29T21:40:29.640654+00:00",
+ "source": "gex_pf_engine/backend/pf_engine/core/bankability_engine.py \u2014 get_rules() and get_gates()",
+ "rules": {
+  "rules_version": "4.1.0",
+  "state_order": [
+   "SPECULATIVE",
+   "TECHNICALLY_PLAUSIBLE",
+   "COMMERCIALLY_PLAUSIBLE",
+   "BUILDABLE",
+   "STRUCTURALLY_BANKABLE",
+   "CREDIT_APPROVED",
+   "FINANCEABLE",
+   "OPERATIONAL",
+   "REFINANCING_ELIGIBLE"
+  ],
+  "state_requirements": {
+   "TECHNICALLY_PLAUSIBLE": [
+    "G0_SITE_RIGHTS",
+    "G1_GRID_UTILITIES_REALITY"
+   ],
+   "COMMERCIALLY_PLAUSIBLE": [
+    "G2_CERTIFICATION_PATH_LOCKED",
+    "G3_INPUTS_SECURED"
+   ],
+   "BUILDABLE": [
+    "G4_OFFTAKE_BANKABLE",
+    "G5_EPC_RISK_PRICED"
+   ],
+   "STRUCTURALLY_BANKABLE": [
+    "G6_IE_SIGNOFF",
+    "G7_INSURANCE_BOUND"
+   ],
+   "CREDIT_APPROVED": [
+    "G8_AUDIT_GRADE_MODEL"
+   ],
+   "FINANCEABLE": [
+    "G9_PERMITS_SAFE",
+    "G10_FINANCIAL_CLOSE_CP"
+   ],
+   "OPERATIONAL": [
+    "G11_COD_STABILIZATION"
+   ],
+   "REFINANCING_ELIGIBLE": []
+  },
+  "state_commitment_labels": {
+   "SPECULATIVE": "Idea stage \u2014 nothing can be committed yet",
+   "TECHNICALLY_PLAUSIBLE": "Site and technology basis confirmed",
+   "COMMERCIALLY_PLAUSIBLE": "Commercially defined \u2014 offtake term sheets cover most of the output",
+   "BUILDABLE": "Commitment-ready \u2014 producer and offtaker can sign binding-with-conditions",
+   "STRUCTURALLY_BANKABLE": "Independently validated",
+   "CREDIT_APPROVED": "Credit approved \u2014 conditional until financial close",
+   "FINANCEABLE": "Committed \u2014 investment decision taken",
+   "OPERATIONAL": "Delivering \u2014 certified product accepted by the buyer",
+   "REFINANCING_ELIGIBLE": "Proven \u2014 refinancing possible"
+  },
+  "state_commitment_requirements": {
+   "COMMERCIALLY_PLAUSIBLE": {
+    "PROJECT_FINANCE": {
+     "offtake": "O2",
+     "offtake_coverage_pct": 60.0
+    },
+    "BALANCE_SHEET": {
+     "offtake": "O2",
+     "offtake_coverage_pct": 60.0
+    }
+   },
+   "STRUCTURALLY_BANKABLE": {
+    "PROJECT_FINANCE": {
+     "offtake": "O6"
+    }
+   },
+   "FINANCEABLE": {
+    "PROJECT_FINANCE": {
+     "offtake": "O7",
+     "offtake_effective": true,
+     "epc": "E6"
+    },
+    "BALANCE_SHEET": {
+     "offtake": "O5",
+     "offtake_effective": true,
+     "epc": "E6"
+    }
+   }
+  },
+  "gate_commitment_requirements": {
+   "G4_OFFTAKE_BANKABLE": [
+    "offtake",
+    "O4"
+   ],
+   "G5_EPC_RISK_PRICED": [
+    "epc",
+    "E4"
+   ]
+  },
+  "persona_gates": {
+   "PRODUCER": [
+    "G0_SITE_RIGHTS",
+    "G1_GRID_UTILITIES_REALITY",
+    "G3_INPUTS_SECURED",
+    "G5_EPC_RISK_PRICED",
+    "G9_PERMITS_SAFE",
+    "G11_COD_STABILIZATION"
+   ],
+   "FINANCE": [
+    "G4_OFFTAKE_BANKABLE",
+    "G6_IE_SIGNOFF",
+    "G7_INSURANCE_BOUND",
+    "G8_AUDIT_GRADE_MODEL",
+    "G10_FINANCIAL_CLOSE_CP"
+   ],
+   "REGULATOR": [
+    "G2_CERTIFICATION_PATH_LOCKED",
+    "G6_IE_SIGNOFF",
+    "G9_PERMITS_SAFE"
+   ],
+   "OFFTAKER": [
+    "G2_CERTIFICATION_PATH_LOCKED",
+    "G4_OFFTAKE_BANKABLE",
+    "G5_EPC_RISK_PRICED",
+    "G9_PERMITS_SAFE",
+    "G10_FINANCIAL_CLOSE_CP",
+    "G11_COD_STABILIZATION"
+   ],
+   "EXECUTIVE": [
+    "G0_SITE_RIGHTS",
+    "G1_GRID_UTILITIES_REALITY",
+    "G2_CERTIFICATION_PATH_LOCKED",
+    "G3_INPUTS_SECURED",
+    "G4_OFFTAKE_BANKABLE",
+    "G5_EPC_RISK_PRICED",
+    "G6_IE_SIGNOFF",
+    "G7_INSURANCE_BOUND",
+    "G8_AUDIT_GRADE_MODEL",
+    "G9_PERMITS_SAFE",
+    "G10_FINANCIAL_CLOSE_CP",
+    "G11_COD_STABILIZATION"
+   ]
+  },
+  "capital_types": [
+   "GRANTS_TA",
+   "SEED_VC_ANGEL",
+   "STRATEGIC_EQUITY",
+   "PROJECT_EQUITY",
+   "DFI_MEZZ_GUARANTEES",
+   "SENIOR_DEBT_COMMITMENT",
+   "DEBT_DRAWDOWN",
+   "REFINANCE_BONDS_INFRA"
+  ],
+  "capital_type_labels": {
+   "GRANTS_TA": "Grants & TA",
+   "SEED_VC_ANGEL": "Seed / VC / Angel",
+   "STRATEGIC_EQUITY": "Strategic Equity",
+   "PROJECT_EQUITY": "Project Equity",
+   "DFI_MEZZ_GUARANTEES": "DFI / Mezz / Guarantees",
+   "SENIOR_DEBT_COMMITMENT": "Senior Debt Credit Approval (conditional)",
+   "DEBT_DRAWDOWN": "Debt Drawdown",
+   "REFINANCE_BONDS_INFRA": "Refinance / Bonds / Infra"
+  },
+  "offtake_coverage_min_pct": 60.0,
+  "capital_scope": {
+   "DFI_MEZZ_GUARANTEES": "PROJECT_FINANCE",
+   "SENIOR_DEBT_COMMITMENT": "PROJECT_FINANCE",
+   "DEBT_DRAWDOWN": "PROJECT_FINANCE"
+  },
+  "capital_semantics": "A satisfied gate makes a project eligible for the named capital provider's decision. GEX does not commit, release or draw capital.",
+  "maturity_levels": [
+   "INTENT",
+   "INDICATIVE",
+   "AGREED",
+   "EXECUTED",
+   "EFFECTIVE"
+  ],
+  "maturity_definitions": {
+   "INTENT": "Plan, mandate, letter of intent, MOU, strategy, or application in preparation.",
+   "INDICATIVE": "Term sheet, quotation, indication of terms, or application submitted.",
+   "AGREED": "Agreed-form document with all terms settled, not yet signed or granted.",
+   "EXECUTED": "Signed, bound, granted, issued or passed.",
+   "EFFECTIVE": "In force: conditions precedent satisfied, policy incepted, appeal period expired."
+  },
+  "required_maturity": {
+   "land_option_or_lease_executed": "EXECUTED",
+   "ppa_signed_or_term_sheet_evidence": "INDICATIVE",
+   "feedstock_supply_agreement": "INDICATIVE",
+   "binding_offtake_contract_executed": "EXECUTED",
+   "credit_support_package": "EXECUTED",
+   "technology_licensor_term_sheet": "INDICATIVE",
+   "epc_contract_fixed_price_or_capped_gmp": "AGREED",
+   "oem_warranties": "AGREED",
+   "technology_licence_process_guarantee": "AGREED",
+   "long_lead_items_reserved": "AGREED",
+   "epc_security_package": "AGREED",
+   "ie_report_issued": "EXECUTED",
+   "insurance_term_sheet": "INDICATIVE",
+   "model_audit_opinion": "EXECUTED",
+   "eia_permit_granted": "EXECUTED",
+   "construction_permit_granted": "EXECUTED",
+   "ancillary_permits_granted": "EXECUTED",
+   "legal_opinion_on_appeal_risk": "EXECUTED",
+   "cp_checklist_completed": "EFFECTIVE",
+   "equity_injected": "EXECUTED",
+   "dsra_funded": "EXECUTED",
+   "security_package_perfected": "EFFECTIVE",
+   "insurance_certificates_delivered": "EFFECTIVE",
+   "all_major_contracts_executed": "EXECUTED",
+   "legal_opinions_issued": "EXECUTED",
+   "om_contract_or_organisation": "EXECUTED",
+   "cod_certificate": "EXECUTED",
+   "performance_tests_passed": "EXECUTED",
+   "operating_permit_effective": "EFFECTIVE",
+   "certificates_issued": "EXECUTED",
+   "first_deliveries_accepted": "EXECUTED"
+  },
+  "retired_evidence": {
+   "feedstock_supply_loi": {
+    "gate": "G3_INPUTS_SECURED",
+    "replaced_by": "feedstock_supply_agreement",
+    "reason": "An LOI is an intention; G3 requires indicative terms."
+   },
+   "binding_offtake_term_sheet": {
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "replaced_by": "binding_offtake_contract_executed",
+    "reason": "A term sheet is not binding offtake."
+   },
+   "epc_contract_heads_of_terms": {
+    "gate": "G5_EPC_RISK_PRICED",
+    "replaced_by": "epc_contract_fixed_price_or_capped_gmp",
+    "reason": "Heads of terms do not price risk; G5 requires the agreed form."
+   },
+   "performance_guarantees_draft": {
+    "gate": "G5_EPC_RISK_PRICED",
+    "replaced_by": "liquidated_damages_schedule",
+    "reason": "Guarantees and LDs are settled in the agreed-form EPC."
+   },
+   "ie_appointment_letter": {
+    "gate": "G6_IE_SIGNOFF",
+    "replaced_by": "ie_report_issued",
+    "reason": "An appointment is not a sign-off."
+   },
+   "ie_technical_model_review": {
+    "gate": "G6_IE_SIGNOFF",
+    "replaced_by": "energy_balance_verified",
+    "reason": "Replaced by the IE's specific technical opinions."
+   },
+   "ie_site_visit_report": {
+    "gate": "G6_IE_SIGNOFF",
+    "replaced_by": "ie_report_issued",
+    "reason": "Site findings are contained in the issued report."
+   },
+   "insurance_broker_mandate": {
+    "gate": "G7_INSURANCE_BOUND",
+    "replaced_by": "insurance_term_sheet",
+    "reason": "A mandate is not evidence of insurability."
+   },
+   "financial_model_v1": {
+    "gate": "G8_AUDIT_GRADE_MODEL",
+    "replaced_by": "base_case_model",
+    "reason": "Renamed to the locked base case."
+   },
+   "model_audit_engagement": {
+    "gate": "G8_AUDIT_GRADE_MODEL",
+    "replaced_by": "model_audit_opinion",
+    "reason": "An engagement is not an audit."
+   },
+   "sensitivity_analysis": {
+    "gate": "G8_AUDIT_GRADE_MODEL",
+    "replaced_by": "downside_cases",
+    "reason": "Lender downside cases subsume one-factor sensitivities."
+   },
+   "eia_submission": {
+    "gate": "G9_PERMITS_SAFE",
+    "replaced_by": "eia_permit_granted",
+    "reason": "A submission is not a permit."
+   },
+   "construction_permit_application": {
+    "gate": "G9_PERMITS_SAFE",
+    "replaced_by": "construction_permit_granted",
+    "reason": "An application is not a permit."
+   },
+   "cp_checklist_draft": {
+    "gate": "G10_FINANCIAL_CLOSE_CP",
+    "replaced_by": "cp_checklist_completed",
+    "reason": "A draft checklist is not close."
+   },
+   "legal_opinions_draft": {
+    "gate": "G10_FINANCIAL_CLOSE_CP",
+    "replaced_by": "legal_opinions_issued",
+    "reason": "Draft opinions are not a closing condition met."
+   },
+   "security_package_structure": {
+    "gate": "G10_FINANCIAL_CLOSE_CP",
+    "replaced_by": "security_package_perfected",
+    "reason": "A structure is not perfected security."
+   },
+   "commissioning_plan": {
+    "gate": "G11_COD_STABILIZATION",
+    "replaced_by": "performance_tests_passed",
+    "reason": "A plan is not a passed test."
+   },
+   "handover_documentation_plan": {
+    "gate": "G11_COD_STABILIZATION",
+    "replaced_by": "cod_certificate",
+    "reason": "Acceptance is evidenced by the COD / taking-over certificate."
+   },
+   "certification_route_definition": {
+    "gate": "G2_CERTIFICATION_PATH_LOCKED",
+    "replaced_by": "certification_scheme_selection",
+    "reason": "Duplicate concept."
+   },
+   "power_supply_structure_defined": {
+    "gate": "G3_INPUTS_SECURED",
+    "replaced_by": "ppa_register",
+    "reason": "Power supply is evidenced in G1."
+   },
+   "co2_or_biomass_supply_strategy": {
+    "gate": "G3_INPUTS_SECURED",
+    "replaced_by": "feedstock_supply_agreement",
+    "reason": "A strategy is not a supply."
+   },
+   "logistics_concept_note": {
+    "gate": "G3_INPUTS_SECURED",
+    "replaced_by": "transport_logistics_study",
+    "reason": "A concept note is not a study."
+   },
+   "car_ear_bound": {
+    "gate": "G7_INSURANCE_BOUND",
+    "replaced_by": "insurance_certificates_delivered",
+    "reason": "Binding happens at financial close, not before credit approval."
+   },
+   "dsu_bi_bound": {
+    "gate": "G7_INSURANCE_BOUND",
+    "replaced_by": "insurance_certificates_delivered",
+    "reason": "Binding happens at financial close, not before credit approval."
+   },
+   "liability_bound": {
+    "gate": "G7_INSURANCE_BOUND",
+    "replaced_by": "insurance_certificates_delivered",
+    "reason": "Binding happens at financial close, not before credit approval."
+   },
+   "lenders_loss_payee": {
+    "gate": "G7_INSURANCE_BOUND",
+    "replaced_by": "insurance_certificates_delivered",
+    "reason": "Loss-payee endorsement is shown on the certificates at close."
+   }
+  },
+  "evidence_scope": {
+   "credit_support_package": "PROJECT_FINANCE",
+   "take_or_pay_floor": "PROJECT_FINANCE",
+   "termination_payment_formula": "PROJECT_FINANCE",
+   "assignment_rights": "PROJECT_FINANCE",
+   "step_in_rights": "PROJECT_FINANCE",
+   "hedgeable_pricing_index": "PROJECT_FINANCE",
+   "ie_report_issued": "PROJECT_FINANCE",
+   "energy_balance_verified": "PROJECT_FINANCE",
+   "capex_opinion_reasonableness": "PROJECT_FINANCE",
+   "opex_opinion_reasonableness": "PROJECT_FINANCE",
+   "completion_test_definitions": "PROJECT_FINANCE",
+   "deductibles_accepted": "PROJECT_FINANCE",
+   "base_case_model": "PROJECT_FINANCE",
+   "model_audit_opinion": "PROJECT_FINANCE",
+   "downside_cases": "PROJECT_FINANCE",
+   "covenant_suite_defined": "PROJECT_FINANCE",
+   "dsra_maintenance_reserve_logic": "PROJECT_FINANCE",
+   "hedging_plan": "PROJECT_FINANCE",
+   "model_consistency_with_ie": "PROJECT_FINANCE",
+   "cp_checklist_completed": "PROJECT_FINANCE",
+   "dsra_funded": "PROJECT_FINANCE",
+   "security_package_perfected": "PROJECT_FINANCE",
+   "legal_opinions_issued": "PROJECT_FINANCE"
+  },
+  "lender_only_gates": [
+   "G6_IE_SIGNOFF",
+   "G8_AUDIT_GRADE_MODEL"
+  ],
+  "lenses": [
+   "PRODUCER",
+   "OFFTAKER",
+   "CAPITAL",
+   "CERTIFIER"
+  ],
+  "lens_definitions": {
+   "PRODUCER": "Can the developer build, run, certify and deliver what it is being asked to commit to?",
+   "OFFTAKER": "Can the buyer rely on receiving certified product, on time and to specification?",
+   "CAPITAL": "Can equity, lenders, development finance and insurers underwrite the risk allocation?",
+   "CERTIFIER": "Will the product be certifiable, and certified, under the scheme the market requires?"
+  },
+  "evidence_lenses": {
+   "land_option_or_lease_executed": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "zoning_compatibility_memo": [
+    "PRODUCER"
+   ],
+   "stakeholder_map_v1": [
+    "PRODUCER"
+   ],
+   "site_technical_suitability": [
+    "PRODUCER",
+    "OFFTAKER"
+   ],
+   "grid_interconnection_study": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "queue_position_evidence": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "grid_connection_cost_estimate": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "connection_date_cod_compatibility_memo": [
+    "PRODUCER",
+    "OFFTAKER",
+    "CAPITAL"
+   ],
+   "ppa_register": [
+    "PRODUCER",
+    "CAPITAL",
+    "CERTIFIER"
+   ],
+   "ppa_signed_or_term_sheet_evidence": [
+    "PRODUCER",
+    "CAPITAL",
+    "CERTIFIER"
+   ],
+   "ppa_volume_load_coverage_analysis": [
+    "PRODUCER",
+    "CERTIFIER"
+   ],
+   "ppa_tenor_debt_comparison": [
+    "CAPITAL"
+   ],
+   "curtailment_assessment": [
+    "PRODUCER",
+    "OFFTAKER",
+    "CAPITAL"
+   ],
+   "dispatch_load_factor_production_impact": [
+    "PRODUCER",
+    "OFFTAKER",
+    "CAPITAL"
+   ],
+   "water_source_plan": [
+    "PRODUCER"
+   ],
+   "water_permit_pathway_memo": [
+    "PRODUCER"
+   ],
+   "btm_generation_asset_evidence": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "generation_yield_study": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "grid_independence_note": [
+    "PRODUCER"
+   ],
+   "backup_construction_power_plan": [
+    "PRODUCER"
+   ],
+   "technology_maturity_dossier": [
+    "PRODUCER",
+    "OFFTAKER",
+    "CAPITAL"
+   ],
+   "technology_licensor_term_sheet": [
+    "PRODUCER"
+   ],
+   "integrated_mass_energy_balance": [
+    "PRODUCER",
+    "OFFTAKER"
+   ],
+   "certification_scheme_selection": [
+    "CERTIFIER",
+    "OFFTAKER",
+    "PRODUCER"
+   ],
+   "additionality_evidence": [
+    "CERTIFIER",
+    "OFFTAKER"
+   ],
+   "power_sourcing_alignment_note": [
+    "CERTIFIER",
+    "OFFTAKER"
+   ],
+   "ghg_methodology_memo": [
+    "CERTIFIER",
+    "OFFTAKER"
+   ],
+   "mrv_plan_v1": [
+    "CERTIFIER",
+    "OFFTAKER"
+   ],
+   "product_qualification_pathway": [
+    "PRODUCER",
+    "OFFTAKER",
+    "CERTIFIER"
+   ],
+   "feedstock_supply_agreement": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "transport_logistics_study": [
+    "PRODUCER",
+    "OFFTAKER"
+   ],
+   "storage_plan": [
+    "PRODUCER"
+   ],
+   "feedstock_spec_eligibility": [
+    "PRODUCER",
+    "CERTIFIER",
+    "OFFTAKER"
+   ],
+   "binding_offtake_contract_executed": [
+    "OFFTAKER",
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "offtake_credit_assessment": [
+    "CAPITAL",
+    "PRODUCER"
+   ],
+   "credit_support_package": [
+    "CAPITAL"
+   ],
+   "take_or_pay_floor": [
+    "CAPITAL"
+   ],
+   "termination_payment_formula": [
+    "CAPITAL"
+   ],
+   "assignment_rights": [
+    "CAPITAL"
+   ],
+   "step_in_rights": [
+    "CAPITAL"
+   ],
+   "hedgeable_pricing_index": [
+    "CAPITAL"
+   ],
+   "price_review_mechanism_memo": [
+    "OFFTAKER",
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "offtake_seller_obligations": [
+    "PRODUCER",
+    "OFFTAKER"
+   ],
+   "epc_contract_fixed_price_or_capped_gmp": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "liquidated_damages_schedule": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "date_certain_schedule": [
+    "PRODUCER",
+    "OFFTAKER",
+    "CAPITAL"
+   ],
+   "performance_test_protocol": [
+    "PRODUCER",
+    "OFFTAKER"
+   ],
+   "interface_matrix": [
+    "PRODUCER"
+   ],
+   "oem_warranties": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "epc_contractor_dd": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "feed_complete_class3": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "technology_licence_process_guarantee": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "long_lead_items_reserved": [
+    "PRODUCER",
+    "OFFTAKER"
+   ],
+   "epc_security_package": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "independent_technical_review": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "ie_report_issued": [
+    "CAPITAL"
+   ],
+   "energy_balance_verified": [
+    "CAPITAL"
+   ],
+   "capex_opinion_reasonableness": [
+    "CAPITAL"
+   ],
+   "opex_opinion_reasonableness": [
+    "CAPITAL"
+   ],
+   "completion_test_definitions": [
+    "CAPITAL"
+   ],
+   "insurance_term_sheet": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "insurance_market_report": [
+    "CAPITAL",
+    "PRODUCER"
+   ],
+   "deductibles_accepted": [
+    "CAPITAL"
+   ],
+   "exclusions_register_reviewed": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "foak_exclusions_warranty_backstop": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "base_case_model": [
+    "CAPITAL"
+   ],
+   "model_audit_opinion": [
+    "CAPITAL"
+   ],
+   "downside_cases": [
+    "CAPITAL"
+   ],
+   "covenant_suite_defined": [
+    "CAPITAL"
+   ],
+   "dsra_maintenance_reserve_logic": [
+    "CAPITAL"
+   ],
+   "hedging_plan": [
+    "CAPITAL"
+   ],
+   "model_consistency_with_ie": [
+    "CAPITAL"
+   ],
+   "eia_permit_granted": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "construction_permit_granted": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "ancillary_permits_granted": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "legal_opinion_on_appeal_risk": [
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "operating_permit_pathway": [
+    "PRODUCER"
+   ],
+   "stakeholder_management_plan_v2": [
+    "PRODUCER"
+   ],
+   "cp_checklist_completed": [
+    "CAPITAL"
+   ],
+   "equity_injected": [
+    "CAPITAL",
+    "PRODUCER"
+   ],
+   "dsra_funded": [
+    "CAPITAL"
+   ],
+   "security_package_perfected": [
+    "CAPITAL"
+   ],
+   "insurance_certificates_delivered": [
+    "PRODUCER",
+    "CAPITAL"
+   ],
+   "all_major_contracts_executed": [
+    "PRODUCER",
+    "OFFTAKER",
+    "CAPITAL"
+   ],
+   "legal_opinions_issued": [
+    "CAPITAL"
+   ],
+   "om_contract_or_organisation": [
+    "PRODUCER",
+    "OFFTAKER"
+   ],
+   "cod_certificate": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "performance_tests_passed": [
+    "PRODUCER",
+    "CAPITAL",
+    "OFFTAKER"
+   ],
+   "operating_permit_effective": [
+    "PRODUCER"
+   ],
+   "mrv_reporting_live": [
+    "CERTIFIER",
+    "OFFTAKER"
+   ],
+   "six_to_twelve_months_stable_ops": [
+    "CAPITAL",
+    "PRODUCER"
+   ],
+   "certificates_issued": [
+    "CERTIFIER",
+    "OFFTAKER",
+    "PRODUCER"
+   ],
+   "first_deliveries_accepted": [
+    "OFFTAKER",
+    "PRODUCER"
+   ]
+  },
+  "offtake_levels": [
+   "O0",
+   "O1",
+   "O2",
+   "O3",
+   "O4",
+   "O5",
+   "O6",
+   "O7"
+  ],
+  "offtake_level_definitions": {
+   "O0": "No verified offtake document with a declared maturity.",
+   "O1": "MoU or letter of intent: a buyer exists; nothing binds.",
+   "O2": "Term sheet, heads of agreement or agreed form: commercial fit, not binding.",
+   "O3": "Signed, but not a binding commitment: a framework, volume or price not firm, or conditions with no longstop.",
+   "O4": "Binding, subject to conditions precedent with a longstop date.",
+   "O5": "Binding and effective: conditions satisfied; obligations run from COD.",
+   "O6": "Firm take-or-pay or take-if-tendered from an investment-grade or credit-supported buyer.",
+   "O7": "Project-finance grade: O6 plus tenor covering debt, assignment, step-in, a termination payment and allocated change in law."
+  },
+  "take_or_pay_firm_pct": 60.0,
+  "epc_levels": [
+   "E0",
+   "E1",
+   "E2",
+   "E3",
+   "E4",
+   "E5",
+   "E6"
+  ],
+  "epc_level_definitions": {
+   "E0": "No contracting strategy and no verified EPC document.",
+   "E1": "Strategy defined: contracting model chosen, contractor candidates identified.",
+   "E2": "FEED complete (AACE Class 3 or better).",
+   "E3": "Priced proposal: a verified quotation or term sheet on the FEED basis.",
+   "E4": "Agreed form: price, schedule, guarantees, damages and caps, security and licence guarantee all agreed.",
+   "E5": "Executed; long-lead items ordered.",
+   "E6": "Effective and bankable: notice to proceed issued, security posted."
+  },
+  "commitment_card_fields": {
+   "offtake": {
+    "counterparty_name": "str",
+    "counterparty_role": "enum:END_USER|OBLIGATED_SUPPLIER|TRADER|INTERMEDIARY|EQUITY_PARTNER",
+    "planned_output_tonnes_per_year": "number",
+    "buyer_investment_grade": "bool",
+    "credit_support": "bool",
+    "commitment_form": "enum:TAKE_OR_PAY|TAKE_IF_TENDERED|TAKE_AND_PAY|TAKE_IF_DELIVERED|FRAMEWORK",
+    "take_or_pay_pct": "number",
+    "contracted_tonnes_per_year": "number",
+    "tenor_years": "number",
+    "price_mechanism": "enum:FIXED|COST_PLUS|INDEX_PLUS_PREMIUM|FLOOR_CAP|OTHER",
+    "cps_satisfied": "bool",
+    "conditions_precedent": "list",
+    "longstop_date": "date",
+    "first_delivery_date": "date",
+    "delay_ld_cap_eur": "number",
+    "product_spec_standard": "str",
+    "certification_scheme": "str",
+    "compliance_regime": "list",
+    "fm_definition_ref": "str",
+    "change_in_law_allocated": "bool"
+   },
+   "epc": {
+    "contractor_name": "str",
+    "contracting_model": "enum:LSTK|EPCM|SPLIT_PACKAGES|EPC_CONVERSION|OWNER_INTEGRATED",
+    "contract_price_eur": "number",
+    "guaranteed_completion_date": "date",
+    "guaranteed_capacity_tonnes_per_year": "number",
+    "expected_availability_pct": "number",
+    "delay_ld_cap_eur": "number",
+    "performance_ld_cap_eur": "number",
+    "guaranteed_product_spec": "str",
+    "contingency_eur": "number",
+    "sponsor_support_eur": "number",
+    "fm_definition_ref": "str",
+    "counterparty_insolvent": "bool"
+   },
+   "schedule": {
+    "permits_expected_date": "date",
+    "appeal_period_months": "number",
+    "fid_target_date": "date",
+    "construction_months_p80": "number",
+    "commissioning_allowance_months": "number",
+    "forecast_cod_date": "date"
+   },
+   "supply": {
+    "feedstock_required_tonnes_per_year": "number",
+    "feedstock_contracted_tonnes_per_year": "number",
+    "feedstock_tenor_years": "number",
+    "power_required_mwh_per_year": "number",
+    "power_contracted_mwh_per_year": "number",
+    "power_tenor_years": "number",
+    "power_meets_certification": "bool",
+    "co2_source_eligible": "bool",
+    "certification_scheme": "str",
+    "fm_definition_ref": "str",
+    "support_or_ppa_revoked": "bool",
+    "certification_suspended": "bool"
+   },
+   "model": {
+    "debt_tenor_years": "number",
+    "model_contracted_tonnes_per_year": "number",
+    "model_offtake_tenor_years": "number",
+    "model_epc_price_eur": "number"
+   }
+  },
+  "coherence_checks": [
+   {
+    "id": "C1",
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "lenses": [
+     "PRODUCER",
+     "OFFTAKER"
+    ],
+    "title": "First delivery after guaranteed completion plus commissioning allowance"
+   },
+   {
+    "id": "C2",
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "lenses": [
+     "PRODUCER",
+     "OFFTAKER",
+     "CAPITAL"
+    ],
+    "title": "Contracted volume within guaranteed capacity \u00d7 availability"
+   },
+   {
+    "id": "C3",
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "lenses": [
+     "PRODUCER",
+     "OFFTAKER"
+    ],
+    "title": "Offtake specification guaranteed by the EPC or licensor"
+   },
+   {
+    "id": "C4",
+    "gate": "G5_EPC_RISK_PRICED",
+    "lenses": [
+     "PRODUCER",
+     "CAPITAL"
+    ],
+    "title": "Offtake delay exposure backed by EPC damages, contingency and sponsor support"
+   },
+   {
+    "id": "C5",
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "lenses": [
+     "PRODUCER",
+     "OFFTAKER",
+     "CAPITAL"
+    ],
+    "title": "Longstop covers permits, investment decision, construction and commissioning"
+   },
+   {
+    "id": "C6",
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "lenses": [
+     "PRODUCER",
+     "CAPITAL"
+    ],
+    "title": "Feedstock and power contracted for the offtake's volume and tenor"
+   },
+   {
+    "id": "C7",
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "lenses": [
+     "CERTIFIER",
+     "OFFTAKER"
+    ],
+    "title": "Power and CO2 sourcing meet the certification the offtake requires"
+   },
+   {
+    "id": "C8",
+    "gate": "G4_OFFTAKE_BANKABLE",
+    "lenses": [
+     "CERTIFIER",
+     "OFFTAKER"
+    ],
+    "title": "Producer certifies under the scheme the offtake requires"
+   },
+   {
+    "id": "C9",
+    "gate": "G10_FINANCIAL_CLOSE_CP",
+    "lenses": [
+     "PRODUCER",
+     "OFFTAKER",
+     "CAPITAL"
+    ],
+    "title": "Force majeure aligned across offtake, EPC and supply contracts"
+   },
+   {
+    "id": "C10",
+    "gate": "G8_AUDIT_GRADE_MODEL",
+    "lenses": [
+     "CAPITAL"
+    ],
+    "title": "Model inputs equal contract terms; offtake tenor covers debt"
+   }
+  ],
+  "coherence_tolerance": 0.01,
+  "regression_triggers": [
+   {
+    "id": "T1",
+    "card": "supply",
+    "field": "support_or_ppa_revoked",
+    "gates": [
+     "G1_GRID_UTILITIES_REALITY"
+    ],
+    "title": "Power contract or public support terms revoked"
+   },
+   {
+    "id": "T2",
+    "card": "supply",
+    "field": "certification_suspended",
+    "gates": [
+     "G2_CERTIFICATION_PATH_LOCKED",
+     "G11_COD_STABILIZATION"
+    ],
+    "title": "Certification suspended"
+   },
+   {
+    "id": "T3",
+    "card": "epc",
+    "field": "counterparty_insolvent",
+    "gates": [
+     "G5_EPC_RISK_PRICED"
+    ],
+    "title": "EPC contractor or key OEM insolvent"
+   }
+  ]
+ },
+ "gates": [
+  {
+   "gate_id": "G0_SITE_RIGHTS",
+   "gate_name": "Site Rights & Social License",
+   "personas": [
+    "PRODUCER",
+    "EXECUTIVE"
+   ],
+   "accountable_functions": [
+    "PROJECT",
+    "LEGAL"
+   ],
+   "unlocks_capital": [
+    "GRANTS_TA"
+   ],
+   "unlocks_state": "TECHNICALLY_PLAUSIBLE",
+   "required_evidence": [
+    "land_option_or_lease_executed",
+    "zoning_compatibility_memo",
+    "stakeholder_map_v1",
+    "site_technical_suitability"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G1_GRID_UTILITIES_REALITY",
+   "gate_name": "Power, Utilities & Technology Basis",
+   "personas": [
+    "PRODUCER"
+   ],
+   "accountable_functions": [
+    "ENGINEERING",
+    "PROJECT",
+    "FINANCE"
+   ],
+   "unlocks_capital": [
+    "SEED_VC_ANGEL"
+   ],
+   "unlocks_state": "TECHNICALLY_PLAUSIBLE",
+   "required_evidence": [
+    "grid_interconnection_study",
+    "queue_position_evidence",
+    "grid_connection_cost_estimate",
+    "connection_date_cod_compatibility_memo",
+    "ppa_register",
+    "ppa_signed_or_term_sheet_evidence",
+    "ppa_volume_load_coverage_analysis",
+    "ppa_tenor_debt_comparison",
+    "curtailment_assessment",
+    "dispatch_load_factor_production_impact",
+    "water_source_plan",
+    "water_permit_pathway_memo",
+    "btm_generation_asset_evidence",
+    "generation_yield_study",
+    "grid_independence_note",
+    "backup_construction_power_plan",
+    "technology_maturity_dossier",
+    "technology_licensor_term_sheet",
+    "integrated_mass_energy_balance"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G2_CERTIFICATION_PATH_LOCKED",
+   "gate_name": "Green Certification Pathway",
+   "personas": [
+    "REGULATOR",
+    "OFFTAKER"
+   ],
+   "accountable_functions": [
+    "ENGINEERING",
+    "LEGAL"
+   ],
+   "unlocks_capital": [],
+   "unlocks_state": "COMMERCIALLY_PLAUSIBLE",
+   "required_evidence": [
+    "certification_scheme_selection",
+    "additionality_evidence",
+    "power_sourcing_alignment_note",
+    "ghg_methodology_memo",
+    "mrv_plan_v1",
+    "product_qualification_pathway"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G3_INPUTS_SECURED",
+   "gate_name": "Feedstock & Logistics Terms",
+   "personas": [
+    "PRODUCER"
+   ],
+   "accountable_functions": [
+    "ENGINEERING",
+    "PROJECT",
+    "FINANCE"
+   ],
+   "unlocks_capital": [
+    "STRATEGIC_EQUITY"
+   ],
+   "unlocks_state": "COMMERCIALLY_PLAUSIBLE",
+   "required_evidence": [
+    "feedstock_supply_agreement",
+    "transport_logistics_study",
+    "storage_plan",
+    "feedstock_spec_eligibility"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G4_OFFTAKE_BANKABLE",
+   "gate_name": "Binding Offtake",
+   "personas": [
+    "FINANCE",
+    "OFFTAKER"
+   ],
+   "accountable_functions": [
+    "SALES",
+    "LEGAL",
+    "FINANCE"
+   ],
+   "unlocks_capital": [
+    "PROJECT_EQUITY"
+   ],
+   "unlocks_state": "BUILDABLE",
+   "required_evidence": [
+    "binding_offtake_contract_executed",
+    "offtake_credit_assessment",
+    "credit_support_package",
+    "take_or_pay_floor",
+    "termination_payment_formula",
+    "assignment_rights",
+    "step_in_rights",
+    "hedgeable_pricing_index",
+    "price_review_mechanism_memo",
+    "offtake_seller_obligations"
+   ],
+   "lender_only": false,
+   "commitment_requirement": [
+    "offtake",
+    "O4"
+   ]
+  },
+  {
+   "gate_id": "G5_EPC_RISK_PRICED",
+   "gate_name": "EPC Risk Priced",
+   "personas": [
+    "PRODUCER",
+    "EXECUTIVE",
+    "OFFTAKER"
+   ],
+   "accountable_functions": [
+    "PROJECT",
+    "ENGINEERING",
+    "LEGAL"
+   ],
+   "unlocks_capital": [],
+   "unlocks_state": "BUILDABLE",
+   "required_evidence": [
+    "epc_contract_fixed_price_or_capped_gmp",
+    "liquidated_damages_schedule",
+    "date_certain_schedule",
+    "performance_test_protocol",
+    "interface_matrix",
+    "oem_warranties",
+    "epc_contractor_dd",
+    "feed_complete_class3",
+    "technology_licence_process_guarantee",
+    "long_lead_items_reserved",
+    "epc_security_package",
+    "independent_technical_review"
+   ],
+   "lender_only": false,
+   "commitment_requirement": [
+    "epc",
+    "E4"
+   ]
+  },
+  {
+   "gate_id": "G6_IE_SIGNOFF",
+   "gate_name": "Independent Engineer Sign-off",
+   "personas": [
+    "FINANCE",
+    "REGULATOR"
+   ],
+   "accountable_functions": [
+    "INDEPENDENT_ENGINEER",
+    "LENDERS"
+   ],
+   "unlocks_capital": [
+    "DFI_MEZZ_GUARANTEES"
+   ],
+   "unlocks_state": "STRUCTURALLY_BANKABLE",
+   "required_evidence": [
+    "ie_report_issued",
+    "energy_balance_verified",
+    "capex_opinion_reasonableness",
+    "opex_opinion_reasonableness",
+    "completion_test_definitions"
+   ],
+   "lender_only": true,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G7_INSURANCE_BOUND",
+   "gate_name": "Insurability Confirmed",
+   "personas": [
+    "FINANCE"
+   ],
+   "accountable_functions": [
+    "TREASURY",
+    "LEGAL",
+    "LENDERS"
+   ],
+   "unlocks_capital": [],
+   "unlocks_state": "STRUCTURALLY_BANKABLE",
+   "required_evidence": [
+    "insurance_term_sheet",
+    "insurance_market_report",
+    "deductibles_accepted",
+    "exclusions_register_reviewed",
+    "foak_exclusions_warranty_backstop"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G8_AUDIT_GRADE_MODEL",
+   "gate_name": "Audit-Grade Financial Model",
+   "personas": [
+    "FINANCE"
+   ],
+   "accountable_functions": [
+    "FINANCE",
+    "LENDERS"
+   ],
+   "unlocks_capital": [
+    "SENIOR_DEBT_COMMITMENT"
+   ],
+   "unlocks_state": "CREDIT_APPROVED",
+   "required_evidence": [
+    "base_case_model",
+    "model_audit_opinion",
+    "downside_cases",
+    "covenant_suite_defined",
+    "dsra_maintenance_reserve_logic",
+    "hedging_plan",
+    "model_consistency_with_ie"
+   ],
+   "lender_only": true,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G9_PERMITS_SAFE",
+   "gate_name": "Permits Granted & Appeal Risk Managed",
+   "personas": [
+    "PRODUCER",
+    "REGULATOR",
+    "OFFTAKER"
+   ],
+   "accountable_functions": [
+    "PROJECT",
+    "LEGAL"
+   ],
+   "unlocks_capital": [],
+   "unlocks_state": "FINANCEABLE",
+   "required_evidence": [
+    "eia_permit_granted",
+    "construction_permit_granted",
+    "ancillary_permits_granted",
+    "legal_opinion_on_appeal_risk",
+    "operating_permit_pathway",
+    "stakeholder_management_plan_v2"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G10_FINANCIAL_CLOSE_CP",
+   "gate_name": "Financial Close",
+   "personas": [
+    "FINANCE",
+    "OFFTAKER"
+   ],
+   "accountable_functions": [
+    "LENDERS",
+    "LEGAL",
+    "TREASURY",
+    "FINANCE"
+   ],
+   "unlocks_capital": [
+    "DEBT_DRAWDOWN"
+   ],
+   "unlocks_state": "FINANCEABLE",
+   "required_evidence": [
+    "cp_checklist_completed",
+    "equity_injected",
+    "dsra_funded",
+    "security_package_perfected",
+    "insurance_certificates_delivered",
+    "all_major_contracts_executed",
+    "legal_opinions_issued",
+    "om_contract_or_organisation"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  },
+  {
+   "gate_id": "G11_COD_STABILIZATION",
+   "gate_name": "COD & Stabilization",
+   "personas": [
+    "PRODUCER",
+    "EXECUTIVE",
+    "OFFTAKER"
+   ],
+   "accountable_functions": [
+    "PROJECT",
+    "ENGINEERING",
+    "FINANCE"
+   ],
+   "unlocks_capital": [
+    "REFINANCE_BONDS_INFRA"
+   ],
+   "unlocks_state": "OPERATIONAL",
+   "required_evidence": [
+    "cod_certificate",
+    "performance_tests_passed",
+    "operating_permit_effective",
+    "mrv_reporting_live",
+    "six_to_twelve_months_stable_ops",
+    "certificates_issued",
+    "first_deliveries_accepted"
+   ],
+   "lender_only": false,
+   "commitment_requirement": null
+  }
+ ],
+ "state_order": [
+  "SPECULATIVE",
+  "TECHNICALLY_PLAUSIBLE",
+  "COMMERCIALLY_PLAUSIBLE",
+  "BUILDABLE",
+  "STRUCTURALLY_BANKABLE",
+  "CREDIT_APPROVED",
+  "FINANCEABLE",
+  "OPERATIONAL",
+  "REFINANCING_ELIGIBLE"
+ ],
+ "evidence_labels": {
+  "land_option_or_lease_executed": "Land Option or Lease Executed",
+  "zoning_compatibility_memo": "Zoning Compatibility Memo",
+  "stakeholder_map_v1": "Stakeholder Map v1",
+  "site_technical_suitability": "Site Technical Suitability (major-hazard siting, geotechnics, logistics access)",
+  "grid_interconnection_study": "Grid Interconnection Study",
+  "queue_position_evidence": "Grid Queue Position / Capacity Reservation",
+  "grid_connection_cost_estimate": "Grid Connection Cost & Reinforcement Scope",
+  "connection_date_cod_compatibility_memo": "Connection Date vs COD Compatibility Memo",
+  "ppa_register": "PPA Register (counterparty, MW, \u20ac/MWh, tenor)",
+  "ppa_signed_or_term_sheet_evidence": "Signed PPA / Term Sheet / LOI Evidence",
+  "ppa_volume_load_coverage_analysis": "PPA Volume vs Plant Load Coverage Analysis",
+  "ppa_tenor_debt_comparison": "PPA Tenor vs Debt / Offtake Tenor Comparison",
+  "curtailment_assessment": "Curtailment Assessment (grid node congestion + load profile)",
+  "dispatch_load_factor_production_impact": "Dispatch / Load Factor Impact on Production Volume",
+  "water_source_plan": "Water Source Plan (volume, cost, seasonal availability)",
+  "water_permit_pathway_memo": "Water Permit / Abstraction / Discharge Pathway",
+  "btm_generation_asset_evidence": "BTM Generation Asset Spec & CAPEX",
+  "generation_yield_study": "Generation Yield Study (P50/P90)",
+  "grid_independence_note": "Grid-Independence Design Note",
+  "backup_construction_power_plan": "Backup / Construction Power Plan",
+  "technology_maturity_dossier": "Technology Maturity Dossier (readiness level, reference plants, operating hours, scale-up factor)",
+  "technology_licensor_term_sheet": "Technology Licensor Identified \u2014 Term Sheet",
+  "integrated_mass_energy_balance": "Integrated Mass & Energy Balance at Design Basis (incl. hydrogen buffer and turndown vs power profile)",
+  "certification_scheme_selection": "Certification Scheme Selected (RFNBO / RED III / 45V / ISCC)",
+  "additionality_evidence": "Additionality Evidence (generator age, no state aid)",
+  "power_sourcing_alignment_note": "Temporal & Geographic Correlation Alignment",
+  "ghg_methodology_memo": "GHG Methodology Memo",
+  "mrv_plan_v1": "MRV Plan v1 (monitoring, reporting, verification)",
+  "product_qualification_pathway": "Product Qualification Pathway (spec standard and annex status, e.g. ASTM D7566, ISO 6583)",
+  "feedstock_supply_agreement": "Feedstock Supply Terms (volume, quality, tenor)",
+  "transport_logistics_study": "Transport & Logistics Study",
+  "storage_plan": "Storage Plan",
+  "feedstock_spec_eligibility": "Feedstock Specification & Eligibility Matched to Design Basis and Certification Scheme",
+  "binding_offtake_contract_executed": "Executed Offtake Agreement",
+  "offtake_credit_assessment": "Offtaker Credit Assessment",
+  "credit_support_package": "Credit Support (parent guarantee / letter of credit)",
+  "take_or_pay_floor": "Take-or-Pay Floor",
+  "termination_payment_formula": "Termination Payment Formula",
+  "assignment_rights": "Assignment to Lenders",
+  "step_in_rights": "Lender Step-in Rights",
+  "hedgeable_pricing_index": "Hedgeable Pricing Index",
+  "price_review_mechanism_memo": "Price Review / Reopener Mechanism",
+  "offtake_seller_obligations": "Seller-Side Offtake Terms Reviewed (delivery, specification, delay and shortfall caps, certification warranty, longstop)",
+  "epc_contract_fixed_price_or_capped_gmp": "EPC Contract \u2014 Fixed Price or Capped GMP (agreed form)",
+  "liquidated_damages_schedule": "Delay & Performance Liquidated Damages",
+  "date_certain_schedule": "Date-Certain Construction Schedule",
+  "performance_test_protocol": "Performance Test Protocol",
+  "interface_matrix": "Interface Matrix (EPC / OEM / balance of plant)",
+  "oem_warranties": "OEM Warranties (agreed form)",
+  "epc_contractor_dd": "EPC Contractor Due Diligence",
+  "feed_complete_class3": "FEED Complete \u2014 AACE Class 3 or Better",
+  "technology_licence_process_guarantee": "Technology Licence & Process Performance Guarantee (or equivalent wrap)",
+  "long_lead_items_reserved": "Long-Lead Items Reserved",
+  "epc_security_package": "EPC Security Package & Damage Caps (performance bond, parent guarantee, retention)",
+  "independent_technical_review": "Independent Technical Review of FEED",
+  "ie_report_issued": "Independent Engineer Report \u2014 Issued (final)",
+  "energy_balance_verified": "Energy Balance Verified by the IE",
+  "capex_opinion_reasonableness": "IE Opinion \u2014 CAPEX Reasonableness",
+  "opex_opinion_reasonableness": "IE Opinion \u2014 OPEX Reasonableness",
+  "completion_test_definitions": "Completion Test Definitions (IE-agreed)",
+  "insurance_term_sheet": "Insurance Programme Terms \u2014 Quoted by Insurers",
+  "insurance_market_report": "Broker Market Report",
+  "deductibles_accepted": "Deductible Levels Accepted by Lenders",
+  "exclusions_register_reviewed": "Exclusions Register Reviewed",
+  "foak_exclusions_warranty_backstop": "First-of-a-Kind Exclusions & OEM Warranty Backstop Reviewed",
+  "base_case_model": "Locked Base-Case Financial Model",
+  "model_audit_opinion": "Model Audit Opinion \u2014 Issued",
+  "downside_cases": "Lender Downside Cases",
+  "covenant_suite_defined": "Covenant Suite Defined",
+  "dsra_maintenance_reserve_logic": "DSRA & Maintenance Reserve Logic",
+  "hedging_plan": "Hedging Plan (rates, FX, power)",
+  "model_consistency_with_ie": "Model Consistent with IE Findings",
+  "eia_permit_granted": "EIA / Environmental Permit \u2014 Granted",
+  "construction_permit_granted": "Construction Permit \u2014 Granted",
+  "ancillary_permits_granted": "Ancillary Permits \u2014 Granted",
+  "legal_opinion_on_appeal_risk": "Legal Opinion on Appeal Risk",
+  "operating_permit_pathway": "Operating Permit Pathway",
+  "stakeholder_management_plan_v2": "Stakeholder Management Plan v2",
+  "cp_checklist_completed": "Conditions Precedent Satisfied",
+  "equity_injected": "Funding Committed (equity injected, or board-approved funding)",
+  "dsra_funded": "Debt Service Reserve Funded",
+  "security_package_perfected": "Security Package Perfected",
+  "insurance_certificates_delivered": "Insurance Bound & Certificates Delivered (lenders as loss payee where project-financed)",
+  "all_major_contracts_executed": "All Major Project Contracts Executed (PPA, feedstock, EPC, O&M, offtake)",
+  "legal_opinions_issued": "Legal Opinions \u2014 Issued",
+  "om_contract_or_organisation": "O&M Contract or Operating Organisation in Place",
+  "cod_certificate": "COD / Taking-Over Certificate",
+  "performance_tests_passed": "Performance Tests Passed",
+  "operating_permit_effective": "Operating Permit \u2014 In Force",
+  "mrv_reporting_live": "MRV Reporting Live",
+  "six_to_twelve_months_stable_ops": "6\u201312 Months Stable Operation",
+  "certificates_issued": "Certification Audit Passed & First Certificates / Proofs of Sustainability Issued",
+  "first_deliveries_accepted": "First On-Specification Deliveries Accepted by the Offtaker"
+ }
+}

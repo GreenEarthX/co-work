@@ -191,7 +191,7 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [ALL] },
       { id: 'task-flow', path: '/finance-dashboard', label: 'Task Flow', section: '',
         visible_to: [ALL] },
-      { id: 'deal-killers', path: '/bankability-scores', label: 'Status & Blockers', section: '',
+      { id: 'deal-killers', path: '/bankability-scores', label: 'State & Blockers', section: '',
         visible_to: [ALL] },
       { id: 'adversarial-review', path: '/adversarial-review', label: 'Challenge Review', section: '',
         visible_to: [ALL] },
@@ -253,7 +253,7 @@ export const MENU_TABS: MenuTab[] = [
     label: 'Finance',
     items: [
       // ── Credit Assessment (always-open core) ──
-      { id: 'project-readiness', path: '/finance/bankability', label: 'Project Readiness', section: '',
+      { id: 'project-readiness', path: '/finance/bankability', label: 'Capital Eligibility', section: '',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
       { id: 'capital-stack', path: '/capital-stack', label: 'Capital Stack', section: '',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')],
@@ -379,7 +379,7 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [PROD('COMPLIANCE_LEGAL'), PROD('ENGINEERING'), TP('CERTIFIER'), OFT('COMPLIANCE_LEGAL'), OFT('COMMERCIAL')] },
       { id: 'evidence-hierarchy', path: '/evidence-hierarchy', label: 'Evidence Hierarchy', section: '',
         visible_to: [ALL] },
-      { id: 'verification-status', path: '/stage-gates', label: 'Verification Status', section: '',
+      { id: 'verification-status', path: '/stage-gates', label: 'Gates & Evidence', section: '',
         visible_to: [TP('CERTIFIER'), TP('BANK'), PROD('COMPLIANCE_LEGAL')] },
       { id: 'regulatory-registry', path: '/regulator-dashboard', label: 'Regulatory Registry', section: 'REGULATORY',
         visible_to: [PROD('COMPLIANCE_LEGAL'), { company_type: 'THIRD_PARTY', service_type: 'LEGAL' }] },

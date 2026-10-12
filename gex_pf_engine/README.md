@@ -22,7 +22,7 @@ GEX Project Finance Engine (port 8001)   ← this service
 
 | Module | Location | Purpose |
 | --- | --- | --- |
-| Bankability Engine | `pf_engine/core/bankability_engine.py` | 12-gate state machine, evidence rules 4.0.0: maturity axis, offtake/EPC ladders, coherence checks, lenses |
+| Bankability Engine | `pf_engine/core/bankability_engine.py` | 12-gate state machine, evidence rules 4.1.0: maturity axis, offtake/EPC ladders, offtake coverage, coherence checks, lenses |
 | CFADS Calculator | `app/core/cfads.py` | Cash flow available for debt service |
 | Waterfall Engine | `app/core/waterfall.py` | Senior/junior/mezz priority distribution |
 | Debt Sculpting | `app/core/debt/sculpting.py` | DSCR-sculpted repayment schedules |
@@ -125,6 +125,16 @@ level is met *and* no coherence check fails *and* no trigger is active;
 `state_label`, `next_state_label`, `commitments_blocking_next_state`; per item
 `scope`, `lenses`, `not_applicable_reason` (`POWER_MODEL` / `FINANCING_MODEL`).
 
+**Evidence rules 4.1.0 (2026-09-29) — stricter, can lower a state.** Evidence:
+`docs/master-reconciliation/00_market_evidence_gate_timing.md` in the platform repo.
+COMMERCIALLY_PLAUSIBLE now also needs offtake terms (O2 or better) covering at least
+`OFFTAKE_COVERAGE_MIN_PCT` = 60 % of planned output — the bar the EU Hydrogen Bank sets at
+application. Coverage = offtake card `contracted_tonnes_per_year` ÷ `planned_output_tonnes_per_year`
+(new field; EPC guaranteed capacity as fallback); an uncomputable coverage fails closed. Capital
+decisions carry display labels (`CAPITAL_TYPE_LABELS`, sent as `label` on each capital unlock);
+`SENIOR_DEBT_COMMITMENT` reads "Senior Debt Credit Approval (conditional)" and CREDIT_APPROVED's
+commitment label "Credit approved — conditional until financial close". Identifiers unchanged.
+
 **Maturity is a separate axis from verification.** `INTENT < INDICATIVE < AGREED
 < EXECUTED < EFFECTIVE`. Verification says a document is authentic; it does not
 make a term sheet into a contract. 31 instrument items (24 before 4.0.0) carry a `REQUIRED_MATURITY`;
@@ -159,7 +169,7 @@ question.
 
 **Current completion logic (rules 4.0.0, 2026-09-27):** an item counts when it is VERIFIED *and*, for instruments, at or above its required maturity; `completion_pct` counts items meeting both. A gate is complete when all its applicable items count *and* the commitment and coherence conditions above hold. Convergence is now measured only as far as the coherence checks reach: they compare the commitment cards with each other, not the content of the evidence documents (IE production against the model, for instance, is still unchecked). An empty card makes its checks `NOT_EVALUABLE`, which is shown, never counted as coherent.
 
-**Tests.** `tests/test_bankability_gates.py` — 86 collected (56 functions, some parametrized); 7 mutations of the new rules each caught. The engine had no tests of its own before 3.0.0.
+**Tests.** `tests/test_bankability_gates.py` — 96 collected; every 4.0.0 and 4.1.0 rule mutation-tested (7 + 7 caught). Engine suite 239 pass on 2026-09-29. The engine had no tests of its own before 3.0.0.
 
 ---
 

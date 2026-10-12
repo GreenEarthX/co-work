@@ -1,4 +1,4 @@
-// Screen: Stage gates screen (/stage-gates, /finance/stage-gates)
+// Screen: Gates & Evidence (/stage-gates, /finance/stage-gates)
 import { type ChangeEvent, useState, useEffect, useCallback } from "react";
 import {
   RefreshCw,
@@ -21,8 +21,9 @@ import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { HELP, TAB_DESCRIPTIONS } from "@/config/helpText";
 import { bankabilityAPI } from "@/lib/api";
 import { useSelectedProject } from "@/contexts/ProjectContext";
-import { useUserRole } from "@/contexts/UserRoleContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
+import { DeclaredVsEvidenced } from "@/components/DeclaredVsEvidenced";
+import { refusalReason } from "@/lib/engineReadout";
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES (match engine output models)
@@ -71,6 +72,10 @@ interface EvidenceItem {
   can_commit?: boolean; // the caller is the assignee
   can_assign?: boolean; // the caller's company owns the project (or GEX admin)
   can_withdraw?: boolean; // owner may take back a request on a not-applicable item
+  // The caller may take the reviewer side: an assigned, independent reviewer —
+  // never the submitter, its company or the project's owner. The server
+  // refuses Review, Verify and Reject from anyone else (Attack A, 2026-09-30).
+  can_review?: boolean;
   // Evidence rules 4.0.0. Financing scope is per item: PROJECT_FINANCE items
   // protect lenders and are not asked of a balance-sheet project. Lenses say
   // which parties rely on the item — views, never separate scores.
@@ -90,6 +95,9 @@ interface CommitmentLevel {
   effective?: boolean;
   form?: string | null;
   contracting_model?: string | null;
+  // Offtake only (4.1.0): share of output under offtake terms, and its basis.
+  coverage_pct?: number | null;
+  coverage_basis?: "PLANNED_OUTPUT" | "GUARANTEED_CAPACITY" | null;
 }
 
 interface CommitmentCheck {
@@ -199,6 +207,7 @@ interface GateEvaluation {
 
 interface CapitalUnlock {
   capital_type: string;
+  label?: string; // rules 4.1.0: the engine's display label (CAPITAL_TYPE_LABELS)
   // Eligibility for the capital provider's decision — GEX does not commit,
   // release or draw capital. `is_unlocked` is the engine's deprecated alias.
   decision_eligible?: boolean;
@@ -229,6 +238,8 @@ interface Snapshot {
   // and what the next state needs on them beyond gate evidence.
   rules_version?: string;
   financing_model?: string | null;
+  /** The phase the engine was told (project context), or null. */
+  project_phase?: string | null;
   state_label?: string | null;
   next_state_label?: string | null;
   commitments_blocking_next_state?: CommitmentShortfall[];
@@ -239,16 +250,20 @@ interface Snapshot {
 }
 
 interface EvidenceUpdateMeta {
-  submittedBy?: string;
   notes?: string;
   maturity?: Maturity;
+  // The document a verification attests to: the sha256 of one on file for the
+  // item. The server refuses VERIFIED without it. Who acted is never sent —
+  // the server takes it from the session.
+  documentSha256?: string;
 }
 
-interface UploadedReviewDocument {
-  name: string;
-  size: number;
-  uploadedAt: string;
-  url?: string;
+interface EvidenceDocument {
+  filename: string;
+  sha256: string;
+  size_bytes: number;
+  uploaded_by: string;
+  uploaded_at: string;
 }
 
 interface SubmissionDraft {
@@ -257,7 +272,7 @@ interface SubmissionDraft {
   leadsTo: string;
   documentName: string;
   documentSize: number;
-  documentUrl: string;
+  documentFile: File | null;
   notes: string;
   // What the submitted instrument actually is. Required when the item has a
   // maturity requirement; the reviewer can confirm or lower it, never raise it.
@@ -365,14 +380,15 @@ const CAPITAL_LABELS: Record<string, string> = {
   STRATEGIC_EQUITY: "Strategic Equity",
   PROJECT_EQUITY: "Project Equity",
   DFI_MEZZ_GUARANTEES: "DFI / Mezz / Guarantees",
-  SENIOR_DEBT_COMMITMENT: "Senior Debt Commitment",
+  // Fallback only: the engine sends each capital decision's label (4.1.0).
+  SENIOR_DEBT_COMMITMENT: "Senior Debt Credit Approval (conditional)",
   DEBT_DRAWDOWN: "Debt Drawdown",
   REFINANCE_BONDS_INFRA: "Refinance / Bonds / Infra",
 };
 
 const RELATED_VIEWS = [
-  { label: "Bankability", href: "/finance/bankability" },
-  { label: "Certainty", href: "/finance/bankability-scores" },
+  { label: "Capital Eligibility", href: "/finance/bankability" },
+  { label: "State & Blockers", href: "/finance/bankability-scores" },
   { label: "Evidence", href: "/finance/evidence-hierarchy" },
   { label: "Spend wave", href: "/finance/spend-wave" },
   { label: "Drawdown", href: "/finance/drawdown-timeline" },
@@ -408,38 +424,11 @@ function documentLabel(evidence: EvidenceItem): string {
   );
 }
 
-function documentNameFromNotes(notes?: string): string | null {
-  if (!notes) return null;
-  const match = notes.match(/Document:\s*([^|]+)/i);
-  return match ? match[1].trim() : null;
-}
-
-function hasFullDocument(
-  evidence: EvidenceItem,
-  uploadedDocuments: Record<string, UploadedReviewDocument>,
-): boolean {
-  return Boolean(
-    evidence.document_url ||
-      evidence.document_hash ||
-      evidence.document_ref ||
-      evidence.document_name ||
-      uploadedDocuments[evidence.key] ||
-      documentNameFromNotes(evidence.notes),
-  );
-}
-
-function currentDocumentName(
-  evidence: EvidenceItem,
-  uploadedDocuments: Record<string, UploadedReviewDocument>,
-): string | null {
-  return (
-    evidence.document_name ||
-    evidence.document_ref ||
-    uploadedDocuments[evidence.key]?.name ||
-    documentNameFromNotes(evidence.notes) ||
-    evidence.document_hash ||
-    null
-  );
+// A document is on file only when the server holds it with its hash. A file
+// kept in this browser, or a "Document: …" line in the notes, is not one: no
+// reviewer elsewhere could ever open it, and the server refuses to verify it.
+function documentOnFile(evidence: EvidenceItem): boolean {
+  return Boolean(evidence.document_hash);
 }
 
 function fileSizeLabel(size: number): string {
@@ -562,16 +551,6 @@ function gateQueueLabelClass(label: string): string {
   }
 }
 
-function gateCertaintyDimension(gate: GateEvaluation): string | null {
-  const text = `${gate.gate_name} ${gate.gate_id}`.toLowerCase();
-  if (/permit|environ|regulat|certif|compliance|esg|sustain|45v|rfnbo|licens|social/.test(text)) return "CERTIFICATION";
-  if (/offtake|ppa|revenue|price|market|commercial|buyer|demand/.test(text)) return "REVENUE";
-  if (/epc|construct|technolog|engineer|plant|commission|build/.test(text)) return "EXECUTION";
-  if (/cost|capex|opex|budget|financial.?model|debt|equity|capital|wacc|dscr/.test(text)) return "COST";
-  if (/insurance|guarantee|credit|counterpart|lender|bank|sovereign/.test(text)) return "COUNTERPARTY";
-  return null;
-}
-
 // ═══════════════════════════════════════════════════════════════
 // COMPONENTS
 // ═══════════════════════════════════════════════════════════════
@@ -617,47 +596,36 @@ function StateProgressionBar({
   );
 }
 
+// The phase and state line come from the engine snapshot this page already
+// holds; the project record supplies only the name, location and molecule.
 function ProjectContextBanner({
   projectId,
   project,
+  snapshot,
 }: {
   projectId: string;
   project?: {
     name: string;
     location: string;
     molecule: string;
-    status?: string;
-    phase?: string;
   };
+  snapshot?: Snapshot;
 }) {
   return (
     <div className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
       <div className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
         Project in Scope
       </div>
-      <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black text-slate-950">
-            {project?.name ?? projectId}
-          </h1>
+      <div className="mt-1">
+        <h1 className="text-2xl font-black text-slate-950">
+          {project?.name ?? projectId}
+        </h1>
+        {(project?.location || project?.molecule) && (
           <p className="mt-1 text-sm font-medium text-slate-600">
-            Stage Gates Review
-            {project?.location ? ` · ${project.location}` : ""}
-            {project?.molecule ? ` · ${project.molecule}` : ""}
+            {[project?.location, project?.molecule].filter(Boolean).join(" · ")}
           </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {project?.status && (
-            <span className="rounded border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
-              {project.status}
-            </span>
-          )}
-          {project?.phase && (
-            <span className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {project.phase}
-            </span>
-          )}
-        </div>
+        )}
+        {snapshot && <DeclaredVsEvidenced readout={snapshot} className="mt-2" />}
       </div>
     </div>
   );
@@ -739,7 +707,6 @@ function NextGoalPost({
           {blockingEntries.map(({ gate }) => {
             const remaining = gate.blocking_items.length;
             const pct = Math.round(gate.completion_pct);
-            const dim = gateCertaintyDimension(gate);
             return (
               <div
                 key={gate.gate_id}
@@ -763,11 +730,6 @@ function NextGoalPost({
                 <span className="w-20 flex-shrink-0 text-slate-500">
                   {remaining} remaining
                 </span>
-                {dim && (
-                  <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    {dim}
-                  </span>
-                )}
               </div>
             );
           })}
@@ -778,10 +740,15 @@ function NextGoalPost({
         {unlockableCapital.size > 0 && (
           <span className="text-xs text-slate-600">
             <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-              Unlocks
+              Makes eligible
             </span>{" "}
             {Array.from(unlockableCapital)
-              .map((c) => CAPITAL_LABELS[c] || c)
+              .map(
+                (c) =>
+                  snapshot.capital_unlocks.find((u) => u.capital_type === c)?.label ||
+                  CAPITAL_LABELS[c] ||
+                  c,
+              )
               .join(" · ")}
           </span>
         )}
@@ -1041,7 +1008,6 @@ function GateCard({
     meta?: EvidenceUpdateMeta,
   ) => void;
 }) {
-  const { role } = useUserRole();
   const [expanded, setExpanded] = useState(false);
   const [submitEvidence, setSubmitEvidence] = useState<EvidenceItem | null>(
     null,
@@ -1049,16 +1015,18 @@ function GateCard({
   const [reviewEvidence, setReviewEvidence] = useState<EvidenceItem | null>(
     null,
   );
-  const [uploadedDocuments, setUploadedDocuments] = useState<
-    Record<string, UploadedReviewDocument>
-  >({});
+  // Documents on file for the item under review, newest first (the server's).
+  const [reviewDocs, setReviewDocs] = useState<EvidenceDocument[] | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [submissionDraft, setSubmissionDraft] = useState<SubmissionDraft>({
     submitTo: gate.owners[0]?.replace(/_/g, " ") || "Gate owner",
     destination: REVIEW_DESTINATIONS[0],
     leadsTo: REVIEW_OUTCOMES[0],
     documentName: "",
     documentSize: 0,
-    documentUrl: "",
+    documentFile: null,
     notes: "",
     maturity: "",
   });
@@ -1084,42 +1052,50 @@ function GateCard({
       leadsTo: REVIEW_OUTCOMES[0],
       documentName: "",
       documentSize: 0,
-      documentUrl: "",
+      documentFile: null,
       notes: "",
       // Pre-fill with what was previously declared, so a resubmission keeps it.
       maturity: evidence.declared_maturity ?? "",
     });
+    setSubmitError(null);
     setSubmitEvidence(evidence);
   };
 
   const handleSubmissionFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const documentUrl = URL.createObjectURL(file);
     setSubmissionDraft((draft) => ({
       ...draft,
       documentName: file.name,
       documentSize: file.size,
-      documentUrl,
+      documentFile: file,
     }));
   };
 
-  const submitEvidenceForReview = () => {
-    if (!submitEvidence || !submissionDraft.documentName) return;
+  const submitEvidenceForReview = async () => {
+    if (!submitEvidence || !submissionDraft.documentFile) return;
     if (submitEvidence.required_maturity && !submissionDraft.maturity) return;
 
-    const uploadedAt = new Date().toISOString();
-    setUploadedDocuments((current) => ({
-      ...current,
-      [submitEvidence.key]: {
-        name: submissionDraft.documentName,
-        size: submissionDraft.documentSize,
-        uploadedAt,
-        url: submissionDraft.documentUrl,
-      },
-    }));
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      // The document goes to the server first, stored with its sha256: that is
+      // what a reviewer opens and verifies. Kept only in this browser, as it
+      // used to be, no reviewer could ever see it.
+      await bankabilityAPI.uploadEvidenceDocument(
+        projectId,
+        submitEvidence.key,
+        submissionDraft.documentFile,
+      );
+    } catch (err: any) {
+      setSubmitError(
+        `The document was not uploaded, so nothing was submitted: ${err?.message || "request failed"}`,
+      );
+      return;
+    } finally {
+      setSubmitting(false);
+    }
     onUpdateEvidence(submitEvidence.key, "SUBMITTED", {
-      submittedBy: role.user_name,
       maturity: submissionDraft.maturity || undefined,
       notes: [
         `Submit to: ${submissionDraft.submitTo}`,
@@ -1134,33 +1110,37 @@ function GateCard({
     setSubmitEvidence(null);
   };
 
-  const handleReviewFile = (
-    event: ChangeEvent<HTMLInputElement>,
-    evidence: EvidenceItem,
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // The review modal shows the documents on file. A reviewer verifies the
+  // newest by naming its hash; there is no upload here — a reviewer who
+  // supplied the document would become its submitter, and could not verify it.
+  const reviewKey = reviewEvidence?.key ?? null;
+  useEffect(() => {
+    if (!reviewKey) {
+      setReviewDocs(null);
+      return;
+    }
+    let cancelled = false;
+    bankabilityAPI
+      .listEvidenceDocuments(projectId, reviewKey)
+      .then((data: { documents: EvidenceDocument[] }) => {
+        if (!cancelled) setReviewDocs(data.documents);
+      })
+      .catch(() => {
+        if (!cancelled) setReviewDocs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, reviewKey]);
 
-    const uploadedAt = new Date().toISOString();
-    const documentUrl = URL.createObjectURL(file);
-    setUploadedDocuments((current) => ({
-      ...current,
-      [evidence.key]: {
-        name: file.name,
-        size: file.size,
-        uploadedAt,
-        url: documentUrl,
-      },
-    }));
-    const existingNotes = evidence.notes ? `${evidence.notes} | ` : "";
-    const notes = `${existingNotes}Document: ${file.name} | Review upload: full document attached`;
-    setReviewEvidence({
-      ...evidence,
-      document_name: file.name,
-      document_url: documentUrl,
-      notes,
+  // What Verify attests to: the newest document on file, as the server lists it.
+  const reviewSha = reviewDocs?.[0]?.sha256 ?? reviewEvidence?.document_hash;
+
+  const openDocument = (sha256: string) => {
+    setReviewError(null);
+    bankabilityAPI.openEvidenceDocument(sha256).catch((err: any) => {
+      setReviewError(`Could not open the document: ${err?.message || "request failed"}`);
     });
-    onUpdateEvidence(evidence.key, "UNDER_REVIEW", { notes });
   };
 
   return (
@@ -1285,7 +1265,8 @@ function GateCard({
                         }`}
                       >
                         <ImpactIcon className="h-3 w-3" />
-                        {CAPITAL_LABELS[impact.capital_type] ||
+                        {impact.label ||
+                          CAPITAL_LABELS[impact.capital_type] ||
                           impact.capital_type}
                         {!impact.is_unlocked &&
                           ` ${Math.round(impact.best_progress_pct)}%`}
@@ -1354,10 +1335,7 @@ function GateCard({
             {visibleEvidence.map((ev) => {
               const cfg = STATUS_CONFIG[ev.status] || STATUS_CONFIG.NOT_STARTED;
               const StatusIcon = cfg.icon;
-              const reviewDocumentReady = hasFullDocument(
-                ev,
-                uploadedDocuments,
-              );
+              const reviewDocumentReady = documentOnFile(ev);
               const notApplicable = ev.status === "NOT_APPLICABLE";
               return (
                 <div
@@ -1414,7 +1392,7 @@ function GateCard({
                       <div className="mt-1 truncate text-[11px] text-slate-500">
                         {ev.status === "IN_PROGRESS"
                           ? "Submission chain and full document required."
-                          : "Full document required before decision."}
+                          : "No document on file — it can be rejected, not verified."}
                       </div>
                     )}
                   </div>
@@ -1473,7 +1451,10 @@ function GateCard({
                         Define submit
                       </button>
                     )}
-                    {ev.status === "SUBMITTED" && (
+                    {/* Review, Verify and Reject only for an independent
+                        reviewer (can_review, computed by the server with the
+                        rule it enforces on the write). */}
+                    {ev.status === "SUBMITTED" && ev.can_review && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1489,6 +1470,11 @@ function GateCard({
                         Review
                       </button>
                     )}
+                    {ev.status === "SUBMITTED" && !ev.can_review && (
+                      <span className="text-[11px] text-slate-500">
+                        Awaiting independent review
+                      </span>
+                    )}
                     {ev.status === "UNDER_REVIEW" && (
                       <>
                         <button
@@ -1501,38 +1487,40 @@ function GateCard({
                           <FileText className="h-3 w-3" />
                           Document
                         </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (reviewDocumentReady) {
-                              onUpdateEvidence(ev.key, "VERIFIED");
-                            }
-                          }}
-                          disabled={!reviewDocumentReady}
-                          className={`rounded px-2 py-1 text-xs ${
-                            reviewDocumentReady
-                              ? "bg-green-600 text-white hover:bg-green-700"
-                              : "cursor-not-allowed bg-slate-100 text-slate-400"
-                          }`}
-                        >
-                          Verify
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (reviewDocumentReady) {
-                              onUpdateEvidence(ev.key, "REJECTED");
-                            }
-                          }}
-                          disabled={!reviewDocumentReady}
-                          className={`rounded px-2 py-1 text-xs ${
-                            reviewDocumentReady
-                              ? "bg-red-600 text-white hover:bg-red-700"
-                              : "cursor-not-allowed bg-slate-100 text-slate-400"
-                          }`}
-                        >
-                          Reject
-                        </button>
+                        {ev.can_review && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (reviewDocumentReady) {
+                                  onUpdateEvidence(ev.key, "VERIFIED", {
+                                    documentSha256: ev.document_hash,
+                                  });
+                                }
+                              }}
+                              disabled={!reviewDocumentReady}
+                              title={reviewDocumentReady ? undefined : "No document on file to verify"}
+                              className={`rounded px-2 py-1 text-xs ${
+                                reviewDocumentReady
+                                  ? "bg-green-600 text-white hover:bg-green-700"
+                                  : "cursor-not-allowed bg-slate-100 text-slate-400"
+                              }`}
+                            >
+                              Verify
+                            </button>
+                            {/* A missing document is a reason to reject, so
+                                rejecting never waits for one. */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onUpdateEvidence(ev.key, "REJECTED");
+                              }}
+                              className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        )}
                       </>
                     )}
                     {ev.status === "REJECTED" && (
@@ -1791,6 +1779,11 @@ function GateCard({
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+                  {submitError && (
+                    <p className="mr-auto text-xs font-medium text-red-700">
+                      {submitError}
+                    </p>
+                  )}
                   <button
                     onClick={() => setSubmitEvidence(null)}
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
@@ -1800,23 +1793,25 @@ function GateCard({
                   <button
                     onClick={submitEvidenceForReview}
                     disabled={
+                      submitting ||
                       !submissionDraft.submitTo ||
                       !submissionDraft.destination ||
                       !submissionDraft.leadsTo ||
-                      !submissionDraft.documentName ||
+                      !submissionDraft.documentFile ||
                       (!!submitEvidence.required_maturity && !submissionDraft.maturity)
                     }
                     className={`rounded-lg px-3 py-2 text-xs font-semibold ${
+                      !submitting &&
                       submissionDraft.submitTo &&
                       submissionDraft.destination &&
                       submissionDraft.leadsTo &&
-                      submissionDraft.documentName &&
+                      submissionDraft.documentFile &&
                       (!submitEvidence.required_maturity || submissionDraft.maturity)
                         ? "bg-slate-950 text-white hover:bg-slate-800"
                         : "cursor-not-allowed bg-slate-100 text-slate-400"
                     }`}
                   >
-                    Submit evidence
+                    {submitting ? "Uploading…" : "Submit evidence"}
                   </button>
                 </div>
               </div>
@@ -1885,7 +1880,7 @@ function GateCard({
                         Document hash
                       </div>
                       <div className="mt-1 truncate font-mono text-xs text-slate-900">
-                        {reviewEvidence.document_hash || "Pending hash"}
+                        {reviewEvidence.document_hash || "No document on file"}
                       </div>
                     </div>
                   </div>
@@ -1901,56 +1896,58 @@ function GateCard({
                     </div>
                   )}
 
-                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Full document required for decision
-                    </span>
-                    <input
-                      type="file"
-                      onChange={(event) =>
-                        handleReviewFile(event, reviewEvidence)
-                      }
-                      className="mt-2 block w-full text-sm text-slate-700 file:mr-3 file:rounded file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
-                    />
-                    {hasFullDocument(reviewEvidence, uploadedDocuments) ? (
-                      <p className="mt-2 text-xs font-medium text-slate-700">
-                        Decision enabled. Document:{" "}
-                        {currentDocumentName(reviewEvidence, uploadedDocuments)}
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Documents on file
+                    </div>
+                    {reviewDocs === null ? (
+                      <p className="mt-2 text-xs text-slate-500">Loading…</p>
+                    ) : reviewDocs.length === 0 ? (
+                      <p className="mt-2 text-xs text-amber-700">
+                        No document on file. It cannot be verified until its
+                        submitter uploads one; it can be rejected.
                       </p>
                     ) : (
-                      <p className="mt-2 text-xs text-amber-700">
-                        Verify and Reject remain locked until the full document
-                        is attached.
-                      </p>
+                      <ul className="mt-2 space-y-1.5">
+                        {reviewDocs.map((doc, i) => (
+                          <li key={doc.sha256} className="flex items-center gap-2 text-xs">
+                            <button
+                              onClick={() => openDocument(doc.sha256)}
+                              className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 font-semibold text-slate-800 hover:bg-slate-50"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              {doc.filename}
+                            </button>
+                            <span className="font-mono text-slate-500" title={doc.sha256}>
+                              {doc.sha256.slice(0, 12)}…
+                            </span>
+                            <span className="text-slate-500">
+                              {doc.uploaded_by} · {doc.uploaded_at}
+                            </span>
+                            {i === 0 && (
+                              <span className="font-semibold text-slate-700">
+                                newest — the one Verify attests to
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     )}
-                  </label>
+                    {reviewError && (
+                      <p className="mt-2 text-xs font-medium text-red-700">{reviewError}</p>
+                    )}
+                  </div>
 
                   <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                     <div className="text-sm font-semibold text-slate-900">
                       Review source
                     </div>
                     <p className="mt-1 text-sm text-slate-600">
-                      Open the attached file if present. If this demo record has
-                      no stored file URL, use the related workspace to inspect
-                      the term sheet, contract, or evidence pack before approving
-                      or rejecting.
+                      Open the document on file before deciding. The related
+                      workspace holds the term sheet, contract or evidence pack
+                      it refers to.
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {(reviewEvidence.document_url ||
-                        uploadedDocuments[reviewEvidence.key]?.url) && (
-                        <a
-                          href={
-                            reviewEvidence.document_url ||
-                            uploadedDocuments[reviewEvidence.key]?.url
-                          }
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          Open uploaded document
-                        </a>
-                      )}
                       <a
                         href={relatedReviewPath(reviewEvidence.key)}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
@@ -1963,44 +1960,49 @@ function GateCard({
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+                  {!reviewEvidence.can_review && (
+                    <p className="mr-auto text-xs text-slate-500">
+                      Only an assigned reviewer independent of the submitter and
+                      of the project's owner can verify or reject this item.
+                    </p>
+                  )}
                   <button
                     onClick={() => setReviewEvidence(null)}
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                   >
                     Close
                   </button>
-                  <button
-                    onClick={() => {
-                      if (hasFullDocument(reviewEvidence, uploadedDocuments)) {
-                        onUpdateEvidence(reviewEvidence.key, "REJECTED");
-                        setReviewEvidence(null);
-                      }
-                    }}
-                    disabled={!hasFullDocument(reviewEvidence, uploadedDocuments)}
-                    className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
-                      hasFullDocument(reviewEvidence, uploadedDocuments)
-                        ? "border-red-300 bg-white text-red-700 hover:bg-red-50"
-                        : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
-                    }`}
-                  >
-                    Reject
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (hasFullDocument(reviewEvidence, uploadedDocuments)) {
-                        onUpdateEvidence(reviewEvidence.key, "VERIFIED");
-                        setReviewEvidence(null);
-                      }
-                    }}
-                    disabled={!hasFullDocument(reviewEvidence, uploadedDocuments)}
-                    className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                      hasFullDocument(reviewEvidence, uploadedDocuments)
-                        ? "bg-slate-950 text-white hover:bg-slate-800"
-                        : "cursor-not-allowed bg-slate-100 text-slate-400"
-                    }`}
-                  >
-                    Verify
-                  </button>
+                  {reviewEvidence.can_review && (
+                    <>
+                      <button
+                        onClick={() => {
+                          onUpdateEvidence(reviewEvidence.key, "REJECTED");
+                          setReviewEvidence(null);
+                        }}
+                        className="rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (reviewSha) {
+                            onUpdateEvidence(reviewEvidence.key, "VERIFIED", {
+                              documentSha256: reviewSha,
+                            });
+                            setReviewEvidence(null);
+                          }
+                        }}
+                        disabled={!reviewSha}
+                        className={`rounded-lg px-3 py-2 text-xs font-semibold ${
+                          reviewSha
+                            ? "bg-slate-950 text-white hover:bg-slate-800"
+                            : "cursor-not-allowed bg-slate-100 text-slate-400"
+                        }`}
+                      >
+                        Verify
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -2295,7 +2297,16 @@ function CommitmentsPanel({
       name: "Offtake",
       lv: snapshot.offtake,
       defs: rules?.offtake_level_definitions,
-      extra: [snapshot.offtake?.form?.replace(/_/g, " "), snapshot.offtake?.effective ? "effective" : null]
+      extra: [
+        snapshot.offtake?.form?.replace(/_/g, " "),
+        snapshot.offtake?.effective ? "effective" : null,
+        // 4.1.0: commercial plausibility needs offtake terms for most of the output.
+        snapshot.offtake?.coverage_pct != null
+          ? `${snapshot.offtake.coverage_pct}% of ${
+              snapshot.offtake.coverage_basis === "GUARANTEED_CAPACITY" ? "guaranteed capacity" : "planned output"
+            } under terms`
+          : "coverage not recorded",
+      ]
         .filter(Boolean)
         .join(" · "),
     },
@@ -2382,11 +2393,6 @@ export function StageGatesPage() {
   const [error, setError] = useState<string | null>(null);
   // Surfaced when an evidence-status action fails — never a silent dead-end.
   const [actionError, setActionError] = useState<string | null>(null);
-  const [health, setHealth] = useState<{
-    status: string;
-    platform_db?: string;
-    engine?: string;
-  } | null>(null);
   const [rules, setRules] = useState<EngineRules | null>(null);
   const [lens, setLens] = useState<Lens | null>(null);
 
@@ -2404,15 +2410,9 @@ export function StageGatesPage() {
     try {
       const data = await bankabilityAPI.evaluate(selectedProjectId);
       setSnapshot(data);
-      setHealth(null);
     } catch (err: any) {
-      setError(err.message || "Failed to load bankability data");
-      try {
-        const status = await bankabilityAPI.health();
-        setHealth(status);
-      } catch {
-        setHealth(null);
-      }
+      // A refusal's reason is shown; an outage's detail (a port, a proxy) is not.
+      setError(refusalReason(err) ?? "");
     } finally {
       setLoading(false);
     }
@@ -2433,17 +2433,16 @@ export function StageGatesPage() {
         project_id: selectedProjectId,
         evidence_key: evidenceKey,
         new_status: newStatus,
-        submitted_by: meta?.submittedBy,
         notes: meta?.notes,
         maturity: meta?.maturity,
+        document_sha256: meta?.documentSha256,
       });
       setSnapshot(updated);
     } catch (err: any) {
       // Surface, don't swallow — a dead button with no feedback is the dead-end.
       console.error("Evidence update failed:", err);
       setActionError(
-        `Could not update "${formatEvidenceKey(evidenceKey)}" → ${newStatus}: ${err?.message || "request failed"}. ` +
-        `Check you are signed in and the bankability engine (port 8001) is reachable.`,
+        `The change to "${formatEvidenceKey(evidenceKey)}" was not saved: ${refusalReason(err) ?? "the gate engine did not answer"}.`,
       );
     }
   };
@@ -2464,7 +2463,7 @@ export function StageGatesPage() {
         <div className="flex items-center justify-center py-20">
           <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
           <span className="ml-3 text-gray-600">
-            Evaluating bankability gates...
+            Evaluating the gates...
           </span>
         </div>
       </div>
@@ -2472,7 +2471,7 @@ export function StageGatesPage() {
   }
 
   // ── Error state ──
-  if (error && !snapshot) {
+  if (error !== null && !snapshot) {
     return (
       <div className="space-y-6">
         <ProjectContextBanner
@@ -2481,29 +2480,9 @@ export function StageGatesPage() {
         />
         <div className="bg-red-50 border border-red-200 rounded-xl p-6">
           <h3 className="text-lg font-bold text-red-800 mb-2">
-            Bankability Data Error
+            The gate engine did not answer, so no determination is shown.
           </h3>
-          <p className="text-sm text-red-700 mb-4">{error}</p>
-          <div className="text-xs text-red-600 mb-4 space-y-1">
-            <p>
-              Project:{" "}
-              <span className="font-semibold">
-                {selectedProject?.name ?? selectedProjectId}
-              </span>
-            </p>
-            <p>
-              The screen loads through the platform backend proxy at{" "}
-              <span className="font-mono">/api/v1/bankability</span>, not
-              directly from the browser to port 8001.
-            </p>
-            {health && (
-              <p>
-                Proxy health: status={health.status} · db=
-                {health.platform_db ?? "unknown"} · engine=
-                {health.engine ?? "unknown"}
-              </p>
-            )}
-          </div>
+          {error && <p className="text-sm text-red-700 mb-4">{error}</p>}
           <div className="flex gap-3">
             <button
               onClick={loadData}
@@ -2576,6 +2555,7 @@ export function StageGatesPage() {
       <ProjectContextBanner
         projectId={selectedProjectId}
         project={selectedProject}
+        snapshot={snapshot}
       />
 
       {actionError && (
@@ -2589,7 +2569,7 @@ export function StageGatesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black text-gray-900">
-            Bankability Stage Gates
+            Gates &amp; Evidence
           </h1>
           <p className="text-sm text-gray-600 mt-1">
             {TAB_DESCRIPTIONS.STAGE_GATES}
@@ -2741,7 +2721,7 @@ export function StageGatesPage() {
               </div>
               <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Capital wait
+                  Capital waiting
                 </div>
                 <div className="mt-1 text-lg font-black text-slate-950">
                   {blockedCapitalCount}
@@ -2749,7 +2729,7 @@ export function StageGatesPage() {
               </div>
               <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Capital open
+                  Capital eligible
                 </div>
                 <div className="mt-1 text-lg font-black text-slate-950">
                   {unlockedCapitalCount}

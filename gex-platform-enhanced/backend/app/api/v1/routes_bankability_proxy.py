@@ -13,6 +13,7 @@ Architecture:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from typing import Optional
@@ -22,8 +23,10 @@ import httpx
 from app.services.engine_auth import engine_auth_headers
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel
+from app.core.abac import EVIDENCE_REVIEW_STATUSES, EVIDENCE_SUBMISSION_STATUSES
 from app.core.config import settings
 
+logger = logging.getLogger("gex.evidence")
 router = APIRouter()
 
 ENGINE_URL = os.getenv("GEX_ENGINE_URL", "http://localhost:8001")
@@ -35,20 +38,29 @@ class EvidenceUpdateRequest(BaseModel):
     project_id: str = "default"
     evidence_key: str
     new_status: str
+    # IGNORED. Who acted comes from the bearer token, never from the body: this
+    # field let a producer record "Independent Certifier" as the actor of its own
+    # verification (Attack A, 2026-09-30). Accepted so older clients do not fail;
+    # a value naming anyone but the caller is logged (_log_foreign_submitted_by).
     submitted_by: Optional[str] = None
     notes: Optional[str] = None
     # How far the underlying instrument has progressed — INTENT, INDICATIVE,
     # AGREED, EXECUTED or EFFECTIVE. Declared by the submitter; a reviewer may
     # confirm or lower it, never raise it. See _validate_evidence_write.
     maturity: Optional[str] = None
+    # The document a VERIFIED attests to: the sha256 of a document on file for
+    # this item (POST /evidence/document). Required for VERIFIED; any other
+    # status may name one. See _document_on_file.
+    document_sha256: Optional[str] = None
 
 
-# Statuses a producer moves an item through, and statuses a reviewer sets.
-# Maturity may be RAISED only on the producer side: the party asserting what an
-# instrument is must not be the party that verifies it, and verification must
-# never make a term sheet into a contract.
-_PRODUCER_STATUSES = {"NOT_STARTED", "IN_PROGRESS", "SUBMITTED"}
-_REVIEWER_STATUSES = {"UNDER_REVIEW", "VERIFIED", "REJECTED", "EXPIRED"}
+# Statuses a producer moves an item through, and statuses a reviewer sets —
+# defined once in app.core.abac, where the middleware classifies a reviewer
+# status as VERIFY. Maturity may be RAISED only on the producer side: the party
+# asserting what an instrument is must not be the party that verifies it, and
+# verification must never make a term sheet into a contract.
+_PRODUCER_STATUSES = EVIDENCE_SUBMISSION_STATUSES
+_REVIEWER_STATUSES = EVIDENCE_REVIEW_STATUSES
 
 
 def _validate_evidence_write(evidence_key: str, new_status: Optional[str],
@@ -274,8 +286,17 @@ def _existing_maturity(project_id, evidence_key):
     return row["maturity"] if row else None
 
 
-def _upsert_evidence(project_id, evidence_key, status, submitted_by=None, notes=None,
+def _upsert_evidence(project_id, evidence_key, status, actor, notes=None,
                      document_sha256=None, maturity=None):
+    """Write one evidence item and its append-only audit event.
+
+    `actor` is the AUTHENTICATED user id — never a name from a request body. It
+    is the event's actor, the submitter of a SUBMITTED and the verifier of a
+    VERIFIED. The body's submitted_by used to fill all three, so a producer's
+    own verification was recorded under a certifier's name (Attack A).
+    """
+    if not actor:
+        raise ValueError("an evidence write needs the authenticated user as its actor")
     conn = _get_db()
     _ensure_tables(conn)
     old = conn.execute(
@@ -285,26 +306,43 @@ def _upsert_evidence(project_id, evidence_key, status, submitted_by=None, notes=
     old_status = old["status"] if old else None
     old_maturity = old["maturity"] if old else None
     new_maturity = maturity if maturity is not None else old_maturity
+    # The submitter is who a reviewer must be independent of; the verifier, and
+    # the document verified, are what a lender reads. verified_by describes the
+    # CURRENT verification, so any other status clears it — the event log keeps
+    # the history. document_hash is the last document any write named.
+    submitter = actor if status == "SUBMITTED" else None
+    verifier = actor if status == "VERIFIED" else None
     conn.execute("""
-        INSERT INTO bankability_evidence (project_id, evidence_key, status, submitted_by, notes, maturity, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO bankability_evidence (project_id, evidence_key, status, submitted_by, submitted_at,
+                                          verified_by, verified_at, document_hash, notes, maturity,
+                                          updated_at)
+        VALUES (?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END,
+                ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END, ?, ?, ?,
+                datetime('now'))
         ON CONFLICT(project_id, evidence_key)
         DO UPDATE SET status=excluded.status,
             submitted_by=COALESCE(excluded.submitted_by, bankability_evidence.submitted_by),
+            submitted_at=COALESCE(excluded.submitted_at, bankability_evidence.submitted_at),
+            verified_by=excluded.verified_by,
+            verified_at=excluded.verified_at,
+            document_hash=COALESCE(excluded.document_hash, bankability_evidence.document_hash),
             notes=COALESCE(excluded.notes, bankability_evidence.notes),
             maturity=COALESCE(excluded.maturity, bankability_evidence.maturity),
             updated_at=datetime('now')
-    """, (project_id, evidence_key, status, submitted_by, notes, maturity))
+    """, (project_id, evidence_key, status, submitter, submitter, verifier, verifier,
+          document_sha256, notes, maturity))
     # Append-only audit: every status transition AND every maturity change is
     # recorded with its actor. Maturity is load-bearing from rules 3.0.0, so a
     # change from INTENT to EXECUTED that left the status alone must still leave
     # a trace — otherwise the most consequential edit would be the invisible one.
-    if old_status != status or old_maturity != new_maturity:
+    # So must every write that names a document: a second upload, or a second
+    # reviewer verifying the same item, changes no status but is an attestation.
+    if old_status != status or old_maturity != new_maturity or document_sha256:
         conn.execute(
             "INSERT INTO evidence_events (project_id, evidence_key, old_status, new_status, actor, at, "
             "document_sha256, old_maturity, new_maturity) "
             "VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)",
-            (project_id, evidence_key, old_status, status, submitted_by or "system",
+            (project_id, evidence_key, old_status, status, actor,
              document_sha256, old_maturity, new_maturity),
         )
     conn.commit()
@@ -405,14 +443,172 @@ def _optional_actor(authorization: str | None) -> Optional[dict]:
         return None
 
 
+# ── Review — separation of duties (Attack A, 2026-09-30) ─────────────────────
+# A reviewer status is a VERIFY. ABAC R5 has already required a reviewer role
+# and independence from the project's owner (abac.verification_refusal). What
+# only the stored submission can answer is checked here: the reviewer is not
+# the submitter, nor from the submitter's company.
+
+def _independence_refusal(actor: dict, submitter: Optional[str],
+                          account: Optional[dict]) -> Optional[tuple[int, str, str]]:
+    """(http status, code, message) if `actor` may not review a submission by
+    `submitter` (whose account is `account`), else None. Fails closed: no
+    submission, or one naming no account, cannot be reviewed."""
+    if not submitter:
+        return 409, "NOTHING_SUBMITTED", "Nothing has been submitted for this item, so there is nothing to review."
+    if submitter == actor.get("user_id"):
+        return (403, "SUBMITTER_CANNOT_REVIEW",
+                "You submitted this item. Someone independent of you and your company must review it.")
+    if account is None:
+        return (409, "SUBMITTER_NOT_IDENTIFIED",
+                "The submission names no account on this platform, so the reviewer's independence "
+                "cannot be checked. Its author must resubmit it.")
+    if account.get("company_id") == actor.get("company_id"):
+        return (403, "SUBMITTING_COMPANY_CANNOT_REVIEW",
+                "Your company submitted this item. Someone independent of it must review it.")
+    return None
+
+
+def _require_independent_reviewer(actor: dict, project_id: str, evidence_key: str) -> None:
+    conn = _get_db()
+    _ensure_tables(conn)
+    row = conn.execute(
+        "SELECT submitted_by FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
+        (project_id, evidence_key),
+    ).fetchone()
+    conn.close()
+    submitter = row["submitted_by"] if row else None
+    account = _account_directory([submitter]).get(submitter) if submitter else None
+    refusal = _independence_refusal(actor, submitter, account)
+    if refusal:
+        status, code, message = refusal
+        raise HTTPException(status_code=status, detail={"code": code, "message": message})
+
+
+def _document_on_file(project_id: str, evidence_key: str, new_status: str,
+                      document_sha256: Optional[str]) -> Optional[str]:
+    """The document this write names, provided it is on file for this very item.
+
+    VERIFIED must name one: a verification attests to a document, and without
+    this a producer verified 22 items with nothing attached (Attack A). Files
+    arrive through POST /evidence/document, which stores them with their sha256;
+    only a hash stored there for this project and item is accepted."""
+    sha = (document_sha256 or "").strip().lower() or None
+    if sha is None:
+        if new_status == "VERIFIED":
+            raise HTTPException(status_code=422, detail={
+                "code": "VERIFIED_REQUIRES_A_DOCUMENT",
+                "message": ("A verification attests to a document. Name the one you verified "
+                            "(document_sha256, from GET /evidence/documents)."),
+            })
+        return None
+    conn = _get_db()
+    _ensure_tables(conn)
+    row = conn.execute(
+        "SELECT sha256 FROM evidence_documents WHERE project_id = ? AND evidence_key = ? AND sha256 = ?",
+        (project_id, evidence_key, sha),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=422, detail={
+            "code": "DOCUMENT_NOT_ON_FILE",
+            "message": "That document is not on file for this item. Upload it first (POST /evidence/document).",
+        })
+    return sha
+
+
+def _log_foreign_submitted_by(submitted_by: Optional[str], actor: dict) -> None:
+    """The body's submitted_by is never stored. One naming someone other than the
+    caller is either a stale client or an attempt to put another person's name
+    on this write — either way worth a line in the log."""
+    if submitted_by and submitted_by not in {actor.get("user_id"), actor.get("email"), actor.get("user_name")}:
+        logger.warning("evidence write: ignored submitted_by=%r; the actor recorded is user=%s",
+                       submitted_by, actor.get("user_id"))
+
+
+def _reviewable_keys(actor: Optional[dict], project_id: Optional[str], evidence: list) -> set:
+    """Evidence keys this caller may take the reviewer side on: R5's verdict for
+    the item's gate, then independence from its submitter — the two checks the
+    write applies, so the screen offers Review, Verify and Reject exactly where
+    the write accepts them. Tolerant: a failed lookup offers nothing."""
+    submitted = [e for e in evidence if e.get("submitted_by")]
+    if not actor or not project_id or not submitted:
+        return set()
+    from app.core.abac import ResourceAttributes, gate_for_evidence, reviewer_gates, verification_refusal
+    from app.core.abac_middleware import ABACMiddleware
+    from app.core.project_registry import get_project_profile, normalize_project_id
+
+    try:
+        pid = normalize_project_id(project_id)
+        user = ABACMiddleware._user_from_payload(actor)
+        if not reviewer_gates(user, pid):
+            return set()   # not a reviewer on this project
+        profile = get_project_profile(pid)
+        accounts = _account_directory(e["submitted_by"] for e in submitted)
+    except Exception:
+        return set()
+    owner = profile.owner_company_id if profile else ""
+    by_gate: dict = {}
+    keys = set()
+    for e in submitted:
+        gate = gate_for_evidence(e["key"])
+        if gate not in by_gate:
+            by_gate[gate] = verification_refusal(
+                user, ResourceAttributes(project_id=pid, data_owner_company_id=owner, gate_id=gate))
+        if by_gate[gate] is None and _independence_refusal(
+                actor, e["submitted_by"], accounts.get(e["submitted_by"])) is None:
+            keys.add(e["key"])
+    return keys
+
+
+def _reviewer_only_scope(actor: Optional[dict], project_id: Optional[str]) -> Optional[frozenset]:
+    """The gates whose evidence this caller may see when its only access to the
+    project is a reviewer assignment; None when nothing is withheld.
+
+    Owner decision 2026-10-01: a reviewer reads the gate screen and the evidence
+    of the gates it reviews, nothing else (ABAC R3 lets it reach the screen). A
+    stakeholder sees what it always saw. Not tolerant on purpose: a scope that
+    cannot be worked out fails the request rather than showing everything."""
+    if not actor or not project_id:
+        return None
+    from app.core.abac import reviewer_gates
+    from app.core.abac_middleware import ABACMiddleware
+    from app.core.project_registry import get_project_profile, normalize_project_id
+
+    pid = normalize_project_id(project_id)
+    user = ABACMiddleware._user_from_payload(actor)
+    gates = reviewer_gates(user, pid)
+    if not gates:
+        return None
+    profile = get_project_profile(pid)
+    if profile is not None and user.company_id in profile.stakeholder_company_ids:
+        return None
+    return gates
+
+
+def _withhold_other_gates(gate: dict, scope: frozenset) -> None:
+    """Keep only the items of the gates in `scope`. By item, not by the gate's
+    own id: the item's gate is resolved the way ABAC resolves it."""
+    from app.core.abac import gate_for_evidence, gate_number
+
+    def keep(entry: dict) -> bool:
+        return gate_number(gate_for_evidence(entry.get("key"))) in scope
+
+    gate["evidence_detail"] = [i for i in gate.get("evidence_detail") or [] if keep(i)]
+    if gate.get("maturity_shortfalls"):
+        gate["maturity_shortfalls"] = [m for m in gate["maturity_shortfalls"] if keep(m)]
+
+
 def _attach_assignments(snapshot: dict, evidence: list, actor: Optional[dict] = None,
                         project_id: Optional[str] = None) -> dict:
     """Add who owns each item, whether they have committed to a date, and whether
     it is overdue, to the engine's evidence_detail. The engine scores evidence;
     it does not know people or deadlines — this is the platform's.
 
-    With an actor, also say what THIS caller may do: commit (only the assignee)
-    and reassign (the owning company or a platform admin)."""
+    With an actor, also say what THIS caller may do: commit (only the assignee),
+    reassign (the owning company or a platform admin) and review (an independent
+    reviewer — see _reviewable_keys). The document hash is the platform's too:
+    the engine does not pass it through, and a reviewer verifies by naming it."""
     from app.core.evidence_due_dates import OVERDUE, NOT_COMMITTED, commitment_state
 
     by_key = {e["key"]: e for e in evidence}
@@ -420,12 +616,17 @@ def _attach_assignments(snapshot: dict, evidence: list, actor: Optional[dict] = 
     can_assign = False
     if actor and project_id:
         can_assign = bool(actor.get("is_platform_admin")) or actor.get("company_id") == _project_owner(project_id)
+    reviewable = _reviewable_keys(actor, project_id, evidence)
+    scope = _reviewer_only_scope(actor, project_id)
     gates = snapshot.get("gate_evaluations") or []
     for gate in (gates.values() if isinstance(gates, dict) else gates):
+        if scope is not None:
+            _withhold_other_gates(gate, scope)
         overdue = uncommitted = 0
         for item in gate.get("evidence_detail") or []:
             ev = by_key.get(item.get("key"))
             not_applicable = item.get("status") == "NOT_APPLICABLE"
+            item["can_review"] = bool(ev) and not not_applicable and item.get("key") in reviewable
             if not ev:
                 # No request raised yet. The owner can still assign one — the
                 # assign endpoint creates it — unless the item does not apply.
@@ -433,6 +634,7 @@ def _attach_assignments(snapshot: dict, evidence: list, actor: Optional[dict] = 
                 item["can_assign"] = can_assign and not not_applicable
                 item["can_commit"] = False
                 continue
+            item["document_hash"] = ev.get("document_hash")
             uid = ev.get("assignee_user_id")
             item["assignee_user_id"] = uid
             item["assignee_name"] = (people.get(uid) or {}).get("name") if uid else None
@@ -611,12 +813,26 @@ async def get_rules():
 @router.post("/evidence")
 async def update_evidence(request: EvidenceUpdateRequest,
                           authorization: str | None = Header(default=None)):
+    """Set one evidence item's status, as a submitter or as a reviewer.
+
+    The actor is the bearer token's user, never the body. A reviewer status
+    (UNDER_REVIEW, VERIFIED, REJECTED, EXPIRED) is a VERIFY: ABAC R5 has
+    required a reviewer role and independence from the project's owner before
+    this runs; here the reviewer must also be independent of the submitter and
+    the submitting company, and VERIFIED must name a document on file.
+    """
+    actor = _require_actor(authorization)
+    _log_foreign_submitted_by(request.submitted_by, actor)
     _validate_evidence_write(
         request.evidence_key, request.new_status, request.maturity,
         _existing_maturity(request.project_id, request.evidence_key) if request.maturity else None,
     )
-    _upsert_evidence(request.project_id, request.evidence_key, request.new_status,
-                     request.submitted_by, request.notes, maturity=request.maturity)
+    if request.new_status in _REVIEWER_STATUSES:
+        _require_independent_reviewer(actor, request.project_id, request.evidence_key)
+    document = _document_on_file(request.project_id, request.evidence_key, request.new_status,
+                                 request.document_sha256)
+    _upsert_evidence(request.project_id, request.evidence_key, request.new_status, actor["user_id"],
+                     request.notes, document_sha256=document, maturity=request.maturity)
     evidence = _load_evidence(request.project_id)
     previous_state = _get_project_state(request.project_id)
     snapshot = await _call_engine("/evaluate", method="POST", json_data={
@@ -624,7 +840,7 @@ async def update_evidence(request: EvidenceUpdateRequest,
         **_engine_context(request.project_id),
     })
     _store_snapshot(request.project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
-    return _attach_assignments(snapshot, evidence, _optional_actor(authorization), request.project_id)
+    return _attach_assignments(snapshot, evidence, actor, request.project_id)
 
 
 @router.get("/evidence")
@@ -1014,20 +1230,22 @@ async def upload_evidence_document(
     dest = dest_dir / f"{sha[:12]}_{safe_name}"
     dest.write_bytes(content)
 
-    now_actor = actor.get("email", "unknown")
+    # The user id, as on every evidence write — the uploader becomes the
+    # submitter, and a reviewer's independence is checked against that id.
+    who = actor["user_id"]
     conn = _get_db()
     _ensure_tables(conn)
     conn.execute(
         "INSERT INTO evidence_documents (project_id, evidence_key, filename, sha256, size_bytes, stored_path, uploaded_by, uploaded_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
-        (project_id, evidence_key, safe_name, sha, len(content), str(dest), now_actor),
+        (project_id, evidence_key, safe_name, sha, len(content), str(dest), who),
     )
     conn.commit()
     conn.close()
 
     # Document arrival moves the item to SUBMITTED (never auto-VERIFIED —
     # verification is a separate, human transition).
-    _upsert_evidence(project_id, evidence_key, "SUBMITTED", submitted_by=now_actor, document_sha256=sha)
+    _upsert_evidence(project_id, evidence_key, "SUBMITTED", who, document_sha256=sha)
 
     return {
         "project_id": project_id,
@@ -1036,7 +1254,7 @@ async def upload_evidence_document(
         "sha256": sha,
         "size_bytes": len(content),
         "status": "SUBMITTED",
-        "uploaded_by": now_actor,
+        "uploaded_by": who,
     }
 
 

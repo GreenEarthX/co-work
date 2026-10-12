@@ -41,6 +41,11 @@ class ActorType(str, Enum):
     ECA = "ECA"
     # Unauthenticated / unvetted prospect — PUBLIC data only, no gate access
     GUEST = "GUEST"
+    # Evidence reviewers (owner decision 2026-10-02; CERTIFIER and INSURER above
+    # are two of the four). These two verify the gates REVIEWER_GATES gives them
+    # and submit nothing.
+    INDEPENDENT_ENGINEER = "INDEPENDENT_ENGINEER"
+    LENDERS_ADVISER = "LENDERS_ADVISER"     # legal, insurance, model audit
 
 
 class Sensitivity(str, Enum):
@@ -278,6 +283,44 @@ GATE_VISIBILITY: dict[ActorType, list[str]] = {
     ],
     # GUEST: no gate access — PUBLIC sensitivity resources only
     ActorType.GUEST: [],
+    # Reviewers write no gate: they review the ones in REVIEWER_GATES.
+    ActorType.INDEPENDENT_ENGINEER: [],
+    ActorType.LENDERS_ADVISER: [],
+}
+
+# Which reviewer may verify which gate — OWNER DECISION, 2026-10-02 (JML; Attack
+# A, docs/adversarial/2026-09-30_attack_A_producer_advance.md): "each may verify
+# the relevant and linked gate: the certifier, the independent engineer, the
+# lenders' adviser, the insurer". FOUR roles, all independent of GEX — the
+# platform enforces the evidence standard and verifies nothing itself. Keyed by
+# gate NUMBER, the vocabulary-agnostic identity; any listed role may verify any
+# item of its gates. Never the submitter, its company or the project's owner —
+# see verification_refusal.
+#
+# Relevant gate first, then the gates linked to it:
+#   certifier              G2 pathway, and G11 where the certificates are issued
+#   independent engineer   G6 its own report; G5 the FEED review, G1 the
+#                          technology basis, G0 site suitability, G3 feedstock
+#                          against the design basis, G11 performance tests
+#   lenders' adviser       G8 the model audit; G4, G9, G10 the legal and CP work,
+#                          G7 the lenders' insurance review, G0 land title
+#   insurer                G7 insurability — the quotes, exclusions and backstop
+#                          it issues itself
+#
+# Two consequences, both deliberate:
+#   * G0, G1 and G3 need an appointed independent engineer (G0 also takes a
+#     lenders' adviser). A concept-stage project with neither cannot verify
+#     anything, and stays at SPECULATIVE. Evidence is verified by an independent
+#     party or it is not verified.
+#   * Insurance BOUND at G10 (insurance_certificates_delivered) sits with the
+#     lenders' adviser, whose remit includes insurance; the insurer's own gate
+#     is G7. Giving the insurer G10 would hand it the legal opinions and the
+#     security package too, which gate-level scope cannot separate.
+REVIEWER_GATES: dict[ActorType, frozenset[str]] = {
+    ActorType.CERTIFIER: frozenset({"G2", "G11"}),
+    ActorType.INDEPENDENT_ENGINEER: frozenset({"G0", "G1", "G3", "G5", "G6", "G11"}),
+    ActorType.LENDERS_ADVISER: frozenset({"G0", "G4", "G7", "G8", "G9", "G10"}),
+    ActorType.INSURER: frozenset({"G7"}),
 }
 
 
@@ -359,6 +402,19 @@ def _actor_types_for_project(user: UserAttributes, project_id: str) -> list[Acto
     return [ActorType.GUEST]
 
 
+def reviewer_gates(user: UserAttributes, project_id: str) -> frozenset[str]:
+    """Gate numbers this user may review on this project; empty for everyone else.
+
+    A reviewer is ASSIGNED as a certifier always was: the role on the project
+    and the project among its assigned audits."""
+    if project_id not in user.assigned_audits:
+        return frozenset()
+    gates: set[str] = set()
+    for at in _actor_types_for_project(user, project_id):
+        gates |= REVIEWER_GATES.get(at, frozenset())
+    return frozenset(gates)
+
+
 def _rule_0_guest_gate(
     user: UserAttributes, resource: ResourceAttributes, context: ContextAttributes
 ) -> Optional[AccessDecision]:
@@ -415,8 +471,8 @@ def _rule_1_stakeholder_gate(
     if ActorType.GOV_AGENCY in actor_types and user.jurisdiction == context.project_jurisdiction:
         return None  # Government agency in same jurisdiction — pass through
 
-    if ActorType.CERTIFIER in actor_types and resource.project_id in user.assigned_audits:
-        return None  # Assigned certifier — pass through
+    if reviewer_gates(user, resource.project_id):
+        return None  # Assigned reviewer (certifier, IE, lenders' adviser, insurer) — pass through
 
     return AccessDecision(
         decision=Decision.DENY,
@@ -452,9 +508,14 @@ def _rule_3_evidence_sensitivity(
 
     actor_types = _actor_types_for_project(user, resource.project_id)
 
-    if ActorType.CERTIFIER in actor_types and resource.project_id in user.assigned_audits:
-        if resource.gate_id in GATE_VISIBILITY.get(ActorType.CERTIFIER, []):
-            return None  # Certifier on assigned audit, relevant gate
+    # An assigned reviewer reads the gate screen and the evidence and documents
+    # of the gates it reviews — nothing else (owner decision 2026-10-01). The
+    # screen's evidence of other gates is removed where it is served
+    # (routes_bankability_proxy._reviewer_only_scope).
+    reviewable = reviewer_gates(user, resource.project_id)
+    if reviewable and (resource.resource_type == "GATE_EVALUATION"
+                       or gate_number(resource.gate_id) in reviewable):
+        return None
 
     if ActorType.REGULATOR in actor_types and user.jurisdiction == context.project_jurisdiction:
         return None  # Regulator in jurisdiction
@@ -506,6 +567,38 @@ def _rule_4_financial_model_protection(
     )
 
 
+# ── Evidence review ──────────────────────────────────────────────────────────
+# The evidence write (POST /bankability/evidence) carries BOTH sides' statuses
+# in its body. These are the reviewer's; a write asking for one is a VERIFY,
+# whatever the URL says. The middleware used to switch to VERIFY only on a
+# "/verify" URL, so no evidence write was ever a VERIFY and the rule below was
+# never reached: a producer walked its own claims to VERIFIED (Attack A,
+# docs/adversarial/2026-09-30_attack_A_producer_advance.md).
+EVIDENCE_SUBMISSION_STATUSES = frozenset({"NOT_STARTED", "IN_PROGRESS", "SUBMITTED"})
+EVIDENCE_REVIEW_STATUSES = frozenset({"UNDER_REVIEW", "VERIFIED", "REJECTED", "EXPIRED"})
+
+
+def verification_refusal(user: UserAttributes, resource: ResourceAttributes) -> Optional[str]:
+    """Why this user may not take the reviewer side on this resource; None if they may.
+
+    Independence first: the company that owns the project never reviews its own
+    project's evidence, whatever role its token carries. Then the role: an
+    assigned reviewer whose role covers the item's gate (REVIEWER_GATES).
+
+    Separation from the SUBMITTER is checked where the submission is stored
+    (routes_bankability_proxy._require_independent_reviewer), not here.
+    """
+    if resource.data_owner_company_id and user.company_id == resource.data_owner_company_id:
+        return "The company that owns the project cannot review its own evidence"
+    gates = reviewer_gates(user, resource.project_id)
+    if not gates:
+        return "Only an assigned reviewer can verify evidence"
+    gate = gate_number(resource.gate_id)
+    if gate not in gates:
+        return f"Your reviewer role does not cover {gate or 'this item'}"
+    return None
+
+
 def _rule_5_write_permissions(
     user: UserAttributes, resource: ResourceAttributes, action: Action, context: ContextAttributes
 ) -> Optional[AccessDecision]:
@@ -516,12 +609,13 @@ def _rule_5_write_permissions(
     actor_types = _actor_types_for_project(user, resource.project_id)
 
     if action == Action.VERIFY:
-        if ActorType.CERTIFIER in actor_types and resource.project_id in user.assigned_audits:
-            return None  # Certifier can verify
+        reason = verification_refusal(user, resource)
+        if reason is None:
+            return None
         return AccessDecision(
             decision=Decision.DENY,
             rules_evaluated=["R5"],
-            denial_reason="Only assigned certifiers can verify evidence",
+            denial_reason=reason,
         )
 
     if action == Action.WRITE:
@@ -937,7 +1031,7 @@ class ActorClass(str, Enum):
     CAPITAL_RELEASER   = "CAPITAL_RELEASER"     # Controls whether committed capital can move
 
 
-# 15 ABAC actors → actor classes.
+# ABAC actors → actor classes.
 # An actor may hold multiple classes (DFI validates + absorbs + releases).
 ACTOR_CLASS_MAP: dict[ActorType, frozenset[ActorClass]] = {
     ActorType.PRODUCER:            frozenset({ActorClass.EVIDENCE_PRODUCER}),
@@ -955,6 +1049,8 @@ ACTOR_CLASS_MAP: dict[ActorType, frozenset[ActorClass]] = {
     ActorType.TECHNOLOGY_PROVIDER: frozenset({ActorClass.EVIDENCE_PRODUCER}),
     ActorType.EXECUTIVE:           frozenset({ActorClass.CAPITAL_RELEASER}),
     ActorType.GUEST:               frozenset(),
+    ActorType.INDEPENDENT_ENGINEER: frozenset({ActorClass.EVIDENCE_VALIDATOR}),
+    ActorType.LENDERS_ADVISER:     frozenset({ActorClass.EVIDENCE_VALIDATOR}),
 }
 
 

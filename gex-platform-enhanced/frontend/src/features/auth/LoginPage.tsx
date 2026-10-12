@@ -7,6 +7,10 @@ import type { UserRole } from '@/contexts/UserRoleContext';
 
 const AUTH_API_BASE_URL = '/api/v1';
 
+// One list renders both the sentence and the count, so they cannot disagree
+// (the page once said "4 Fuel Molecules" beside a sentence naming five).
+export const FUEL_MOLECULES = ['H₂', 'NH₃', 'e-NG', 'HVO', 'e-MeOH'] as const;
+
 // ─── Demo credentials ────────────────────────────────────────────────────────
 // Full GEX Ecosystem — sourced from gex_complete_ecosystem.json
 // All accounts share password: demo1234
@@ -337,7 +341,7 @@ export function LoginPage() {
           </h1>
           <p className="text-[1.05rem] leading-8 max-w-lg" style={{ color: 'var(--text-secondary)' }}>
             Bankability assessment, capital structuring, and compliance
-            for H₂, NH₃, e-NG ,HVO, and e-MeOH projects — from speculative to
+            for {FUEL_MOLECULES.slice(0, -1).join(', ')} and {FUEL_MOLECULES[FUEL_MOLECULES.length - 1]} projects — from speculative to
             financial close.
           </p>
 
@@ -346,7 +350,7 @@ export function LoginPage() {
             {[
               { value: '12', label: 'Bankability Gates' },
               { value: '9', label: 'Lifecycle States' },
-              { value: '4', label: 'Fuel Molecules' },
+              { value: String(FUEL_MOLECULES.length), label: 'Fuel Molecules' },
             ].map(({ value, label }) => (
               <div
                 key={label}

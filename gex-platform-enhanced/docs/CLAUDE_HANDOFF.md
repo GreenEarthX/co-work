@@ -2032,11 +2032,199 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     `ITEM_NOT_APPLICABLE`), are listed apart under `not_required` in `assigned-to-me`, and
     `--assign-open` skips them. The owner may **withdraw** one (button on the row). **The
     six rows are untouched** — withdrawing is the owner's call, not done on their behalf.
+37. **Rules 4.1.0 — BUILT 2026-09-29.** Evidence: `docs/master-reconciliation/00_market_evidence_gate_timing.md`
+    (dated deals 2022–2026, EU Hydrogen Bank IF25 terms). COMMERCIALLY_PLAUSIBLE now needs offtake
+    terms (O2+) for ≥ 60 % of planned output (new offtake-card field `planned_output_tonnes_per_year`;
+    EPC guaranteed capacity as fallback; unknown fails closed). Capital decisions carry labels
+    (`CAPITAL_TYPE_LABELS`, mirrored in the platform registry, agreement-tested);
+    `SENIOR_DEBT_COMMITMENT` reads "Senior Debt Credit Approval (conditional)", CREDIT_APPROVED
+    "Credit approved — conditional until financial close". The finance screen's senior-debt text
+    no longer claims G6/G7/G9 gate it or that insurance is bound at G7. Engine tests 96 (7
+    mutations caught); registry agreement +1 (2 mutations caught). Checked on the live screen
+    after the 30 Sep rebuild (item 38): the G8 chip reads "Senior Debt Credit Approval
+    (conditional)" and an offtake without a card reads "O0 · coverage not recorded".
+38. **The development PostgreSQL database was reset — 28 Sep 2026, 16:14 local.** `gex-demo-compose.yml`
+    was edited at 16:10 and the compose project `files` (postgres, redis, backend, pf_engine,
+    frontend) recreated at 16:14 with a new `files_postgres_data` volume; the container log shows a
+    fresh `initdb`. The database now has one public table, no migration history and no `gex_app`
+    role, so the backend refuses to start ("password authentication failed" — server detail: role
+    does not exist). Who ran it is not recorded. No full `pg_dump` exists (`files/db_backups` holds
+    an evidence-only dump and a SQLite copy, both 26 Sep).
+
+    **REBUILT 2026-09-30 on JML's instruction.** Backend starts; **844 pass, 18 skip, 0 fail**
+    (the pre-reset baseline was 844 pass / 17 skip). Schema is identical to the pre-reset
+    measurement — 120 tables, 113 FORCED RLS, head 058 — and RLS reproduces the documented
+    invariant exactly: `projects` returns 14 as `PLATFORM_ADMIN`, **4** as `etfuels_sa`, 0 with
+    no tenant context, against a BYPASSRLS ground truth of 14. **103 of 114** tables match
+    `backend/db_backups/pg_after_kyc.json` (23 Sep) row for row. The rebuild order and its four
+    traps are written up in `.claude/CLAUDE.md` — read that before rebuilding again.
+
+    **Recovery option (a) was never available, and the claim above was wrong.** `Docker.raw` is
+    **excluded from Time Machine** (Docker Desktop sets the exclusion; `tmutil isexcluded` confirms),
+    so no backup of the volume has ever existed. The `Sept-26-Time-machine` destination is also
+    unattached. Nobody should spend time on that route again — **`pg_dump` is the only backup that
+    works for this database.** There is still no scheduled one; that remains open.
+
+    **What the rebuild cost, measured not estimated.** Eight tables sit below the 23 Sep baseline:
+    `entitlement_audit` −145, `finance_entitlements` −38, `auth_user_project_roles` −6,
+    `project_context` −3, `project_context_events` −4, `project_currency` −1, `auth_users` −1,
+    and `bankability_evidence` 127→85. **The evidence number is not a loss** — it is the 26 Sep
+    conversion (§9), and 85 open requests is the correct current state. Three tables sit *above*
+    it, because SQLite had run ahead of PostgreSQL: `evidence_events` 17→176, `mass_balance_lots`
+    68→72, `bankability_snapshots` 9→10. That divergence is now in the system of record.
+
+    **The one account lost is `u_admin`** — the unattributed admin row this file and
+    `.claude/CLAUDE.md` both flagged as satisfying none of the four activation requirements and
+    being invisible to the `SEED_GRANDFATHERED` search. It was PostgreSQL-only and is gone.
+    **Three platform admins survive** (`admin_greenearthx_com`, `t-marwenc_greenearthx_com`,
+    `t-mohamedk_greenearthx_com`, all ACTIVE), so nothing is locked out. Recreating `u_admin`
+    would restore the separation-of-duties hole — **JML's call whether it comes back at all, and
+    if so through activation rather than an unmarked insert.**
+
+    **`bankability_evidence_archive` is empty and cannot be refilled** from either local source
+    (absent from SQLite, and `evidence_before_055_2026-09-26.sql` predates 055). That dump *does*
+    hold the pre-conversion 127 rows if the archive is ever wanted back — but §9 forbids restoring
+    them to the live table, and they were invented, so this is a lost audit trail of invented rows,
+    not lost client data. `test_evidence_history_pg.py:69` is the 18th skip because of it.
+
+    **Two routes 500 against the rebuilt database, both pre-existing, neither caused by the reset:**
+    `capital_bridge.py:1255` (`list_projects_for_user`) selects `p.id` and `p.stage` from
+    `projects`, which are the SQLite column names migration 033 retired — PostgreSQL has
+    `project_id` and `status`; and `/api/v1/ecosystem/projects`, which is `ecosystem_store`'s
+    unguarded SQLite path whose tables exist in neither store (already documented as dormant).
+    Do not naively "fix" either without reading §4 on the projects collision.
+
+    **The first is FIXED 2026-09-30, and it was worse than one route.** `p.stage` has never
+    been a column of `projects` in EITHER shape: the retired SQLite one had `phase`, measured
+    from `data/db_backups/gex_platform.pre-projects-collision.20260807.db`, and `p.id` was
+    `project_id` there too. So this was not code written against the old shape and left
+    behind — it was written against a shape that has never existed, and has returned 500
+    since the day it was added. That is why it has no frontend caller and had no test.
+
+    **Four sites in `capital_bridge.py`, eleven routes.** Besides the two listings
+    (`list_projects_for_user`, `list_projects_for_company`), `WHERE id=?` sat in
+    `get_full_project` and in `_project_exists` — the FK gate **eight write routes** call, so
+    all eight raised `column "id" does not exist` instead of validating a project id, and
+    could never reach their 404 branch. Measured after the fix on a real instance:
+    `users/{id}/projects` 200 with 4 and 5 rows for two seeded users, `projects/{id}/full`
+    200 on a real id and **404** on a bogus one, `capital-stack/bootstrap-defaults` **404**
+    on a bogus one.
+
+    **Keys are the canonical `project_id`/`status`, not aliases back to `id`/`stage`.** Swept
+    first: zero hits in `frontend/src`, zero in `backend/tests`, so there is no contract to
+    keep. `get_full_project` in the same module already returns the canonical names via
+    `SELECT *`, and `stage` is a word this platform's project vocabulary does not use —
+    `VisibleProject` carries `status` and `phase`. Aliasing would have kept a retired
+    vocabulary alive in a JSON contract nobody depends on.
+
+    **RLS contains the route, and that was measured, not assumed.** It takes `user_id` from
+    the path and authorizes nothing, so the database filter IS the access control — the same
+    shape as the project-activity hole fixed 2026-09-24. `auth_user_project_roles` carries no
+    RLS; the INNER JOIN to `projects` is what contains the read. As tenant `etfuels_sa`,
+    asking for an Allianz user's projects returns **0 rows**; with no tenant bound, **0 rows**
+    and a 200, not a 500.
+
+    **The real finding is the coverage, not the columns.** 844 tests passed while eleven
+    routes were dead. `tests/test_capital_bridge_projects_routes.py` (9 tests) now pins them,
+    negative-verified: restoring the original file fails **7 of 9**. Two of the nine
+    deliberately pass either way — they assert PostgreSQL still REJECTS `p.id` and `p.stage`,
+    so the file cannot go quietly green if `projects` ever grows those columns.
+
+    **The sweep found no second instance.** Every raw query against `projects` across
+    `backend/app/` was checked: `tenant_context.py`, `tenant_admin.py`, `projects_store.py`,
+    `adjacency.py` and `lineage.py` all use `project_id` correctly. `contracts_sqlite.py`'s
+    `p.id` joins `capacities`, which genuinely has an `id` column. `routes_projects.py:854`
+    is a Pydantic attribute, not SQL. `capital_bridge.py` was the only offender.
 36. **Two engine API tests have failed since 2026-09-09, unrelated to gates.**
     `test_gabillon.py::test_curve_api_contracts_include_provenance_and_memory` and
     `test_offtake.py::test_offtake_api_reuses_cached_calibration` get **401**: `main.py`
     put every endpoint behind the GEX JWT guard after these tests were last touched, and
-    they send no token. Engine suite otherwise 209 pass.
+    they send no token. Engine suite otherwise 209 pass. **FIXED 2026-09-28** by a separate
+    session: `tests/conftest.py` signs real service tokens (the guard is untouched) and
+    `pf_engine/auth/gex_jwt.py` now fails closed in production without a trusted key
+    (`tests/test_gex_jwt_fail_closed.py`). Engine suite 239 pass on 2026-09-29.
+39. **GREENEARTHX's implementation-status audit — re-verified 2026-09-30 and moved here.** The
+    section "The Future and where the current project development is now" and its "Bottom
+    Line" (GREENEARTHX v4.5, status as of v4.2, 14 May 2026) contradicted itself — rows marked
+    IMPLEMENTED with the note "Not built" — and the tree. Decision D9
+    (`docs/master-reconciliation/04_decisions_for_JML.md`) moves build status out of the spec;
+    the GREENEARTHX redline deletes the section as a tracked change and points here.
+    Re-verified by reading the tree, not by running anything:
+
+    | Claim in GREENEARTHX | Verified 2026-09-30 |
+    |---|---|
+    | "PostgreSQL migrations DEFERRED" | **False.** Alembic chain to head 059 (`backend/alembic/versions/059_append_only_privileges_restored.py`); 120 tables, 113 FORCED RLS (`.claude/CLAUDE.md`). |
+    | Engine path `../gex_pf_engine/backend/app/core/` | **Stale.** Package renamed `app` → `pf_engine` on 2026-09-09: `../gex_pf_engine/backend/pf_engine/core/`. GREENEARTHX's own "Namespace correction (v4.3)" describes `deal_engine`, a different service. |
+    | `adjacency.py` "Not built … none exist anywhere in gex_pf_engine" | **False.** `pf_engine/core/adjacency.py` defines `compute_proximity_matrix`, `density_score`, `cohort_benchmark`, `compute_weighted_proximity`. |
+    | Adjacency backend "complete (nightly computation + cache + benchmark endpoint)" | **Exists, broken on PostgreSQL.** `api/v1/adjacency.py` has `POST /compute-all` and `GET /{project_id}/benchmark`, but opens SQLite four times with no backend switch, reading PostgreSQL-owned `adjacency_cache`, `evidence_ledger`, `projects`. |
+    | `lineage.py` "does not exist", and elsewhere "complete (8-source DB fan-out)" | **Exists (443 lines), broken on PostgreSQL.** Queries `offers`, `capital_bridge`, `projects`, `development_packages`, `sovereign_instruments`, `tokens`, `evidence_ledger`, `carbon_attribution_events` through three unguarded `sqlite3.connect` calls. |
+    | WACC "in capital_bridge.py" | **True.** `blended_debt_wacc`, `project_wacc`, `all_commercial_wacc` are computed in `api/v1/capital_bridge.py`; `catalytic_ratio` is in the engine (`cfads.py`, `debt/tranche.py`). |
+    | DFI hierarchy as tranche subtypes (`CONCESSIONAL_EIB` …) | **Not built.** `TrancheType` is SENIOR, JUNIOR, MEZZANINE, GREEN_BOND, ESG_LINKED, CONCESSIONAL, CONCESSIONAL_FIRST_LOSS; DFIs via `DFIProvider`, which now includes BPI and DFC. |
+    | Decomposed certainty stack "RESOLVED in v4.2" | **True in the platform registry engine** (`app/core/bankability_engine.py`: `CertaintyDimension`, `certainty_stack` computed from gate results), rendered by `DecomposedCertaintyStack.tsx` on `BankabilityScorePage.tsx`. The runtime engine (:8001) has no sub-scores; its readout is gate determinations, O/E levels and coherence results. D4: scores are derived, never typed, and none appear in client material. |
+    | ABAC "15" vs "16" actor types | **15** members in `ActorType` (`app/core/abac.py`). |
+    | Verification taxonomy | `app/core/verification.py` implements UNVERIFIED / SUBMITTED / CONFIRMED / AUDITED. The master glossary maps it to gate status and maturity. |
+    | Development-package fields | `currency`, `fx_hedge_id`, `aace_class_history`, `personnel_breakdown`, `verification_state` now present in `development_packages.py`; `cost_p50` is still `cost_amount`. |
+    | Token schema | `tokens_sqlite.py` carries `provenance_hash`, `lifecycle_state`, `mass_balance_lot_id`. |
+    | The nine "missing entities" | All present as `api/v1/` modules (`drawdown_schedule`, `dfi_criteria`, `mass_balance`, `settlement_events`, `carbon_attribution`, `sovereign_instruments`, `evidence_ledger`, plus `spend_wave`, `capital_bridge`). Which of them read the switched backend is not re-checked here; `.claude/CLAUDE.md` lists the unguarded readers. |
+    | Seven design primitives; "remaining: DFI dashboard frontend" | All seven exist in `frontend/src/components/primitives/`; `features/finance/DFIDashboard.tsx` exists, so "remaining" is false. "Fully connected to live backend data" is false for Adjacency and Lineage (above). |
+    | `pre_cod_metrics.py` | `api/v1/pre_cod_metrics.py` (875 lines). Two metric sets exist (this and Bridge v6's) with conflicting thresholds; none is canonical (D11). |
+    | "~90% of the documented specification"; Decision Twin "8 schemes incl. SOVEREIGN_ESG with debt-for-nature"; "all 5 core modules have FX handling" | **Not re-verified.** No single measure exists for the first; the other two need a code read beyond this pass. Treat as unverified. |
+40. **Documents reconciliation — 2026-09-29/30.** Deliverables in `docs/master-reconciliation/`
+    (`00`–`05` notes, glossary, engine export, redlines). JML accepted decisions D1–D17 on 29 Sep.
+    The master redline (`GEX-Gates-Master_v2_redline.docx`) was built 30 Sep 11:37 and validated
+    (XSD, IDs, relationships, comment markers; 1,316 changes, all tracked, author Claude). **JML
+    then edited it in Word with Track Changes off** (saved 14:38; §1 only so far). That file is
+    now JML's working copy: never rebuild over it or regenerate it. Any further change goes on
+    top of JML's latest save as a tracked edit, after JML has finished a pass. The build scripts
+    are copied to `docs/master-reconciliation/tools/`.
+41. **Producers can verify their own evidence — Critical, found 2026-09-30 (adversarial Attack A).**
+    `POST /bankability/evidence` with `new_status=VERIFIED` is classified as WRITE, not VERIFY
+    (`abac_middleware.py:113–121` checks the URL for "/verify"), so R5's certifier-only verify
+    rule never runs and every gate owner can verify its own claims. The evidence-event actor is
+    the body's `submitted_by`, so it can be spoofed, and VERIFIED needs no document on the server.
+    Reproduced twice in a throwaway store: 22 self-verified writes moved a TEST project to
+    TECHNICALLY_PLAUSIBLE with Grants & TA and Seed / VC eligible, and 5 more lifted the EPC to E4.
+    Report and re-runnable harness: `docs/adversarial/`. The harness never touches PostgreSQL:
+    its `DATABASE_URL` cannot connect. First-use comprehension script for the gates:
+    `docs/usability/`.
+
+    **FIXED 2026-10-01, and the reviewer table SETTLED 2026-10-02.** JML: "each may verify the
+    relevant and linked gate: the certifier, the independent engineer, the lenders' adviser, the
+    insurer." `abac.REVIEWER_GATES` — certifier G2, G11; independent engineer G0, G1, G3, G5, G6,
+    G11; lenders' adviser G0, G4, G7, G8, G9, G10; insurer G7. **The GEX desk-review role built on
+    10-01 was removed on 10-02** (`GEX_REVIEWER` gone from the enum, `GATE_VISIBILITY` and
+    `ACTOR_CLASS_MAP`): all four reviewers are independent of GEX, which enforces the standard and
+    verifies nothing itself. 898 pass / 18 skip, unchanged by the swap; widening the insurer to G10
+    fails 2 tests. Consequences, both deliberate and recorded in `.claude/CLAUDE.md`: G0, G1 and G3
+    now need an appointed independent engineer, and insurance *bound* at G10 stays with the
+    lenders' adviser because gate-level scope cannot isolate that one item.
+
+    **The comprehension-test fixture is loaded — 2026-10-02, JML's route (a labelled TEST project,
+    not a restored copy).** `proj_TEST_gates_reference`, owner `hamburgone_com`, 32 synthetic
+    VERIFIED rows and three commitment cards, written by
+    `backend/scripts/load_comprehension_test_project.py` (`--verify` / `--execute` / `--remove`).
+    Live API and engine both return Appendix B exactly: Technically plausible, G0–G3 satisfied,
+    three capital decisions eligible, offtake O2 at 55% coverage, EPC E3, C6 failing, 33.7%
+    complete. Tenant isolation holds (Madrid2 gets 403). Participants sign in as a HamburgOne
+    account whatever their profession — a runtime project grants nothing to other companies at the
+    ABAC level, so the bank and insurer demo accounts cannot open it. Suite 899 pass / 18 skip.
+    Details and the parity exception: `.claude/CLAUDE.md`.
+42. **The gate screens tell the engine's story — DONE 30 Sep 2026 (item 28, on four screens).**
+    Inventory, decision and results: `docs/master-reconciliation/06_gate_screens_inventory.md`.
+    /projects, State & Blockers (`/bankability-scores`, was "Status & Blockers") and Capital
+    Eligibility (`/finance/bankability`, was "Project Readiness") read one cached engine readout,
+    `GET /bankability/projects/{id}/bankability/EXECUTIVE`, which runs the engine and **writes
+    nothing**. Gates & Evidence (`/stage-gates`, was "Verification Status") keeps `/evaluate`. Each
+    shows "Declared phase · Evidenced state · n of m verified". Removed from client view: the
+    BB/63.2 letter rating, every score, the random trajectory, the typed deal-killer plan, the
+    fixture capital figures, the pre-COD panel (D11) and the port/proxy messages. `fetchAPI` errors
+    now carry `status`; gate screens show 4xx reasons, never 5xx internals. 22 tests, ten
+    deliberate breaks all caught. **Still open:** `useVisibleProjects.ts:89` still merges the
+    fixture block for 15 other files and for `useGateAccess` screen locks; `deal_killers.py` and
+    `project_truth.py` still feed TaskRouter, Evidence Hierarchy and the IC-pack export check. Also
+    found: HamburgOne's two runtime projects lost their project context in the 28 Sep reset, so the
+    engine evaluates them with no premise. These screens show the engine faithfully, so item 41
+    matters here: a self-verified item moves the state they display.
 
 
 ---

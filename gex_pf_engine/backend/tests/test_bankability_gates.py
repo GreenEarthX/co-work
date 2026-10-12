@@ -1,5 +1,5 @@
 """
-Bankability gate invariants — evidence rules 4.0.0.
+Bankability gate invariants — evidence rules 4.1.0.
 
 3.0.0 ("the stronger bar", 25 Sept 2026) stopped the engine scoring intentions as
 achievements: a draft CP checklist satisfied Financial Close, a commissioning plan
@@ -10,6 +10,10 @@ fill any slot whose name said "executed".
 (docs/GEX-Twelve-Gates-Multi-Party-Review.docx): financing scope per item rather
 than per gate, commitment ladders for offtake (O0–O7) and EPC (E0–E6), ten
 coherence checks across contracts, post-FID triggers, lenses and an offtaker view.
+
+4.1.0 (29 Sept 2026) asks for offtake terms covering most of the output before a
+project is commercially plausible, and labels the senior-debt decision a
+conditional credit approval (docs/master-reconciliation/00_market_evidence_gate_timing.md).
 
 A failure here means the engine can again say something stronger than its
 evidence supports — or weaker than the commitments it holds justify.
@@ -41,6 +45,7 @@ COHERENT_TERMS = {
     "offtake": {
         "commitment_form": "TAKE_OR_PAY", "take_or_pay_pct": 80, "buyer_investment_grade": True,
         "tenor_years": 15, "cps_satisfied": True, "contracted_tonnes_per_year": 40000,
+        "planned_output_tonnes_per_year": 50000,
         "first_delivery_date": "2030-06-01", "delay_ld_cap_eur": 20e6,
         "product_spec_standard": "ASTM D7566 Annex A1", "certification_scheme": "ISCC EU",
         "compliance_regime": ["REFUELEU"], "fm_definition_ref": "FM-A", "change_in_law_allocated": True,
@@ -162,7 +167,7 @@ def test_no_gate_requires_evidence_before_the_state_at_which_it_can_exist():
 
 def test_every_snapshot_records_the_rules_version_that_judged_it():
     """T15 — a determination must be reproducible under a named rule set."""
-    assert _evaluate([])["rules_version"] == "4.0.0"
+    assert _evaluate([])["rules_version"] == "4.1.0"
 
 
 def test_every_live_item_has_a_label_an_owner_and_a_route():
@@ -330,10 +335,15 @@ def test_T12_balance_sheet_waives_only_gates_whose_every_item_protects_a_lender(
 
 
 def test_a_balance_sheet_producer_still_needs_a_customer():
-    """2.1.0 waived the whole offtake gate for balance-sheet funding."""
+    """2.1.0 waived the whole offtake gate for balance-sheet funding. Since 4.1.0
+    a project with no offtake terms at all is not even commercially plausible."""
     snap = _evaluate(_all_evidence(drop={"binding_offtake_contract_executed"}), financing_model="BALANCE_SHEET")
-    g4 = _gate(snap, "G4_OFFTAKE_BANKABLE")
-    assert g4["determination"] == "BLOCKED"
+    assert _gate(snap, "G4_OFFTAKE_BANKABLE")["determination"] == "BLOCKED"
+    assert snap["current_state"] == "TECHNICALLY_PLAUSIBLE"
+    # Heads of terms for most of the output: commercially plausible, and G4 still blocks.
+    snap = _evaluate(_all_evidence(maturity_override={"binding_offtake_contract_executed": "INDICATIVE"}),
+                     financing_model="BALANCE_SHEET")
+    assert _gate(snap, "G4_OFFTAKE_BANKABLE")["determination"] == "BLOCKED"
     assert snap["current_state"] == "COMMERCIALLY_PLAUSIBLE"
 
 
@@ -652,7 +662,7 @@ def test_persona_gates_are_derived_from_each_gates_own_personas():
 
 def test_every_state_names_the_commitment_it_enables():
     assert set(B.STATE_COMMITMENT_LABELS) == set(B.STATE_ORDER)
-    snap = _evaluate(_all_evidence(drop={"binding_offtake_contract_executed"}))
+    snap = _evaluate(_all_evidence(maturity_override={"binding_offtake_contract_executed": "INDICATIVE"}))
     assert snap["state_label"] == B.STATE_COMMITMENT_LABELS["COMMERCIALLY_PLAUSIBLE"]
     assert snap["next_state_label"] == B.STATE_COMMITMENT_LABELS["BUILDABLE"]
 
@@ -687,3 +697,93 @@ def test_T11_capital_output_is_decision_eligibility_not_a_capital_event():
         assert cu["decision_eligible"] == cu["is_unlocked"]
         assert not {"committed", "drawable", "drawn"} & {k.lower() for k in cu}
     assert "does not commit" in B.get_rules()["capital_semantics"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4.1.0 — offtake terms before commercial plausibility; capital labels
+# ═══════════════════════════════════════════════════════════════════════════
+
+HOT = {"binding_offtake_contract_executed": "INDICATIVE"}   # heads of terms: O2
+
+
+def _cp_snapshot(offtake_fields=None, epc_fields=None, maturity=None, **kw):
+    """Everything complete except that the offtake is at heads-of-terms stage."""
+    terms = _terms(offtake=offtake_fields or {}, epc=epc_fields or {})
+    return _evaluate(_all_evidence(maturity_override=maturity or HOT), terms=terms, **kw)
+
+
+def _coverage_shortfall(snap):
+    return [s for s in B._commitment_shortfalls(
+        "COMMERCIALLY_PLAUSIBLE", snap["financing_model"], snap["offtake"], snap["epc"])
+        if s["kind"] == "offtake_coverage"]
+
+
+def test_commercial_plausibility_needs_offtake_terms_for_most_of_the_output():
+    snap = _cp_snapshot()                      # 40,000 of 50,000 t/yr = 80 %
+    assert snap["offtake"]["level"] == "O2"
+    assert snap["offtake"]["coverage_pct"] == 80.0
+    assert snap["offtake"]["coverage_basis"] == "PLANNED_OUTPUT"
+    assert snap["current_state"] == "COMMERCIALLY_PLAUSIBLE"
+
+
+@pytest.mark.parametrize("contracted, reaches", [(30000, True), (29950, False), (25000, False)])
+def test_sixty_percent_of_planned_output_is_the_bar(contracted, reaches):
+    snap = _cp_snapshot({"contracted_tonnes_per_year": contracted})
+    assert (snap["current_state"] == "COMMERCIALLY_PLAUSIBLE") is reaches
+    if not reaches:
+        assert snap["current_state"] == "TECHNICALLY_PLAUSIBLE"
+        (short,) = _coverage_shortfall(snap)
+        assert short["actual"] == f"{round(100 * contracted / 50000, 1):g}%"
+        assert "is covered" in short["message"]
+        assert any(s["kind"] == "offtake_coverage" for s in snap["commitments_blocking_next_state"])
+
+
+def test_a_coverage_nobody_can_compute_is_not_a_coverage():
+    snap = _cp_snapshot({"contracted_tonnes_per_year": None})
+    assert snap["offtake"]["coverage_pct"] is None
+    assert snap["current_state"] == "TECHNICALLY_PLAUSIBLE"
+    (short,) = _coverage_shortfall(snap)
+    assert short["actual"] == "unknown" and "record the contracted volume" in short["message"]
+    snap = _cp_snapshot({"planned_output_tonnes_per_year": None}, {"guaranteed_capacity_tonnes_per_year": None})
+    assert snap["offtake"]["coverage_basis"] is None
+    assert snap["current_state"] == "TECHNICALLY_PLAUSIBLE"
+
+
+def test_coverage_falls_back_to_the_epc_guaranteed_capacity():
+    snap = _cp_snapshot({"planned_output_tonnes_per_year": None})
+    assert snap["offtake"]["coverage_basis"] == "GUARANTEED_CAPACITY"
+    assert snap["offtake"]["coverage_pct"] == 80.0
+    assert snap["current_state"] == "COMMERCIALLY_PLAUSIBLE"
+
+
+def test_a_letter_of_intent_is_not_enough_even_for_all_the_output():
+    snap = _cp_snapshot({"contracted_tonnes_per_year": 50000},
+                        maturity={"binding_offtake_contract_executed": "INTENT"})
+    assert snap["offtake"]["level"] == "O1"
+    assert snap["current_state"] == "TECHNICALLY_PLAUSIBLE"
+    assert any(s["kind"] == "offtake" and s["required"] == "O2"
+               for s in snap["commitments_blocking_next_state"])
+
+
+def test_the_bar_applies_whoever_funds_the_project():
+    for financing in ("PROJECT_FINANCE", "BALANCE_SHEET", None):
+        snap = _cp_snapshot({"contracted_tonnes_per_year": 20000}, financing_model=financing)
+        assert snap["current_state"] == "TECHNICALLY_PLAUSIBLE", financing
+
+
+def test_losing_offtake_coverage_is_a_named_regression():
+    snap = _cp_snapshot({"contracted_tonnes_per_year": 20000}, previous_state="COMMERCIALLY_PLAUSIBLE")
+    assert snap["regression"]["to_state"] == "TECHNICALLY_PLAUSIBLE"
+    assert "of output" in snap["regression"]["reason"]
+
+
+def test_capital_decisions_are_labelled_and_senior_debt_reads_as_a_conditional_approval():
+    assert set(B.CAPITAL_TYPE_LABELS) == set(B.CAPITAL_TYPES)
+    snap = _evaluate(_all_evidence())
+    for cu in snap["capital_unlocks"]:
+        assert cu["label"] == B.CAPITAL_TYPE_LABELS[cu["capital_type"]]
+    assert "conditional" in B.CAPITAL_TYPE_LABELS["SENIOR_DEBT_COMMITMENT"].lower()
+    assert "conditional" in B.STATE_COMMITMENT_LABELS["CREDIT_APPROVED"].lower()
+    rules = B.get_rules()
+    assert rules["capital_type_labels"] == B.CAPITAL_TYPE_LABELS
+    assert rules["offtake_coverage_min_pct"] == B.OFFTAKE_COVERAGE_MIN_PCT == 60.0

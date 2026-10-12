@@ -85,7 +85,7 @@ def test_assigning_an_item_with_no_row_creates_an_uncommitted_request(wired):
 
 
 def test_reassignment_is_audited_and_keeps_the_status(wired):
-    proxy._upsert_evidence(PROJECT, KEY, "IN_PROGRESS", submitted_by="u_eng")
+    proxy._upsert_evidence(PROJECT, KEY, "IN_PROGRESS", actor="u_eng")
     _assign("u_exec")
     last = _events()[-1]
     assert (last["old_assignee"], last["new_assignee"], last["new_status"]) == ("u_eng", "u_exec", "IN_PROGRESS")
@@ -199,7 +199,7 @@ def test_unassigning_is_allowed_and_audited(wired):
 def test_my_requests_put_uncommitted_first_and_hide_verified(wired):
     _assign("u_exec", key="offtake_credit_assessment")
     _assign("u_exec", key=KEY)
-    proxy._upsert_evidence(PROJECT, KEY, "VERIFIED", submitted_by="reviewer")
+    proxy._upsert_evidence(PROJECT, KEY, "VERIFIED", actor="reviewer")
     out = asyncio.run(proxy.list_my_evidence_requests(authorization="Bearer x"))
     keys = {r["evidence_key"] for r in out["requests"]}
     assert "offtake_credit_assessment" in keys and KEY not in keys

@@ -18,14 +18,12 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import sqlite3
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.auth import update_password  # noqa: E402
-from app.core.config import settings  # noqa: E402
+from app.core.auth import auth_db_connection, update_password  # noqa: E402
 from app.core.password_policy import (  # noqa: E402
     PasswordPolicyError,
     describe_policy,
@@ -38,8 +36,10 @@ def main() -> int:
     args = parser.parse_args()
     email = args.email.strip().lower()
 
-    conn = sqlite3.connect(settings.SQLITE_DB_PATH)
-    conn.row_factory = sqlite3.Row
+    # Same store update_password() writes and login reads (AUTH_DB_BACKEND).
+    # Reading the SQLite file here reported "No account" for every account
+    # that exists only in PostgreSQL.
+    conn = auth_db_connection()
     try:
         row = conn.execute(
             "SELECT user_name, is_platform_admin, account_state FROM auth_users "

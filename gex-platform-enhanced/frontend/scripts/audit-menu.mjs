@@ -459,7 +459,9 @@ const PF = [
   ['PLCR (project-life coverage)',            /plcr/i,                        /project.?life.?coverage|def\s+\w*plcr|plcr\s*=\s*npv/i, 'engine'],
   // SUC ratio ≠ S&U statement. The COVERAGE RATIO exists (pre-COD engine);
   // the ITEMIZED STATEMENT (EPC/IDC/contingency … equity/senior/DFI rows) does not.
-  ['Sources & Uses coverage (SUC ratio)',     /suc|sources.{0,4}uses.{0,16}coverage/i, /def _compute_suc|class SUCInput|sources.{0,4}uses.{0,16}coverage/i, 'have'],
+  // \bsuc\b, not /suc/: the bare letters matched "onSuccess" in finance screens
+  // and reported a Sources & Uses ratio that no screen shows.
+  ['Sources & Uses coverage (SUC ratio)',     /\bsuc\b|sources.{0,4}uses.{0,16}coverage/i, /def _compute_suc|class SUCInput|sources.{0,4}uses.{0,16}coverage/i, 'have'],
   ['Sources & Uses statement (itemized)',     /sources.{0,4}and.{0,4}uses.?statement|itemi[sz]ed.{0,10}sources/i, /total_uses|total_sources|sources_uses_line/i, 'build'],
   ['Covenant package',                        /covenant/i,                    /covenant/i,                                'have'],
   ['Hedging (rate / FX / power)',             /hedg/i,                        /hedg/i,                                    'later'],

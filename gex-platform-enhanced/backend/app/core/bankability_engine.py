@@ -73,6 +73,21 @@ class CapitalType(str, Enum):
     REFINANCE_BONDS_INFRA = "REFINANCE_BONDS_INFRA"
 
 
+# Display labels, held identical to the engine's CAPITAL_TYPE_LABELS by
+# tests/test_gate_registries_agree.py. Identifiers stay stable; since rules 4.1.0
+# SENIOR_DEBT_COMMITMENT reads as what it is — a conditional credit approval.
+CAPITAL_TYPE_LABELS: dict[str, str] = {
+    "GRANTS_TA": "Grants & TA",
+    "SEED_VC_ANGEL": "Seed / VC / Angel",
+    "STRATEGIC_EQUITY": "Strategic Equity",
+    "PROJECT_EQUITY": "Project Equity",
+    "DFI_MEZZ_GUARANTEES": "DFI / Mezz / Guarantees",
+    "SENIOR_DEBT_COMMITMENT": "Senior Debt Credit Approval (conditional)",
+    "DEBT_DRAWDOWN": "Debt Drawdown",
+    "REFINANCE_BONDS_INFRA": "Refinance / Bonds / Infra",
+}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # STAKEHOLDER PERSONA DEFINITIONS
 # Maps each platform workspace/view to the departments + gates it can see.
@@ -725,8 +740,11 @@ def inapplicability(key: str, power_model: str | None, financing_model: str | No
 # runtime's COMMITMENT_CARD_FIELDS by tests/test_gate_registries_agree.py.
 COMMITMENT_CARD_FIELDS: dict[str, dict[str, str]] = {
     "offtake": {
+        # contracted_tonnes_per_year: volume under offtake terms, all buyers;
+        # planned_output_tonnes_per_year: what it is measured against (4.1.0).
         "counterparty_name": "str",
         "counterparty_role": "enum:END_USER|OBLIGATED_SUPPLIER|TRADER|INTERMEDIARY|EQUITY_PARTNER",
+        "planned_output_tonnes_per_year": "number",
         "buyer_investment_grade": "bool",
         "credit_support": "bool",
         "commitment_form": "enum:TAKE_OR_PAY|TAKE_IF_TENDERED|TAKE_AND_PAY|TAKE_IF_DELIVERED|FRAMEWORK",

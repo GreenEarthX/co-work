@@ -20,7 +20,9 @@ Maps the 11 Excel sheets to 7 unified tables keyed on project_id:
   GEX_MAP        → (documentation — no table)
 
 Key design:
-  - Every row is scoped by project_id → FK to projects.id (gex_platform.db).
+  - Every row is scoped by project_id → FK to projects.project_id. The
+    canonical projects table is PostgreSQL's (migration 033); `projects.id`
+    is not and never was a column.
   - Every row carries created_by → FK to auth_users.user_id.
   - fuel_defaults table holds per-fuel typical plant + commercial parameters
     so the CONTROL sheet can be bootstrapped for any fuel choice.
@@ -561,8 +563,18 @@ def _now() -> str:
 
 
 def _project_exists(conn, project_id: str) -> bool:
-    """FK-like check against the unified projects table."""
-    row = conn.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone()
+    """
+    FK-like check against the canonical projects table.
+
+    The key is `project_id`. It was `id` until 2026-09-30, which is a column
+    name that has never existed in either shape of this table — the retired
+    SQLite one (migration 033) keyed on `project_id` too. Eight write routes
+    call this, so all eight raised `column "id" does not exist` rather than
+    validating anything.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM projects WHERE project_id=?", (project_id,)
+    ).fetchone()
     return row is not None
 
 
@@ -1202,7 +1214,9 @@ def get_full_project(project_id: str, db: sqlite3.Connection = Depends(get_db)):
     Executive workspace, and DFI sub-persona to render the full picture
     without N round trips.
     """
-    project = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+    project = db.execute(
+        "SELECT * FROM projects WHERE project_id=?", (project_id,)
+    ).fetchone()
     if not project:
         raise HTTPException(404, f"Project {project_id} not found")
 
@@ -1250,15 +1264,29 @@ def get_full_project(project_id: str, db: sqlite3.Connection = Depends(get_db)):
 def list_projects_for_user(user_id: str, db: sqlite3.Connection = Depends(get_db)):
     """
     Every project a user is linked to (via auth_user_project_roles)
-    plus their CapitalBridge state. Used by workspace home screens.
+    plus their CapitalBridge state.
+
+    Column names fixed 2026-09-30. This selected `p.id` and `p.stage`, and
+    NEITHER has ever existed — not in the canonical PostgreSQL shape
+    (`project_id`, `status`) and not in the SQLite shape migration 033 retired
+    (`project_id`, `phase`). Measured against
+    `data/db_backups/gex_platform.pre-projects-collision.20260807.db`. The route
+    therefore returned 500 for every caller since it was written, which is why
+    no frontend code and no test ever consumed it.
+
+    Keys are the canonical `project_id` and `status` rather than aliases back to
+    `id`/`stage`: there is no caller to keep compatible (swept 2026-09-30 —
+    zero hits in `frontend/src`, zero in `backend/tests`), `get_full_project`
+    in this same file already returns the canonical names via `SELECT *`, and
+    `stage` is not a word this platform's project vocabulary uses anywhere.
     """
     rows = db.execute("""
-        SELECT p.id, p.project_name, p.molecule, p.stage,
+        SELECT p.project_id, p.project_name, p.molecule, p.status,
                pc.fuel_type, pc.nameplate_mw, pc.cod_year, pc.total_capex_eur,
                r.actor_type
         FROM projects p
-        JOIN auth_user_project_roles r ON r.project_id = p.id
-        LEFT JOIN project_control pc ON pc.project_id = p.id
+        JOIN auth_user_project_roles r ON r.project_id = p.project_id
+        LEFT JOIN project_control pc ON pc.project_id = p.project_id
         WHERE r.user_id = ?
         ORDER BY p.project_name
     """, (user_id,)).fetchall()
@@ -1267,12 +1295,24 @@ def list_projects_for_user(user_id: str, db: sqlite3.Connection = Depends(get_db
 
 @router.get("/companies/{company_id}/projects")
 def list_projects_for_company(company_id: str, db: sqlite3.Connection = Depends(get_db)):
-    """Every project owned by a company — Executive workspace portfolio view."""
+    """
+    Every project owned by a company — Executive workspace portfolio view.
+
+    Same retired-column fix as `list_projects_for_user` (2026-09-30): `p.id`
+    was never a column of this table in either shape.
+
+    NOTE the join is not a bug but it is not ownership either: `LEFT JOIN`
+    plus `WHERE pc.company_id = ?` filters on the CapitalBridge control row,
+    so a project whose owner_tenant_id is this company but which has no
+    `project_control` row is absent, and the LEFT is degraded to an inner join
+    by the WHERE. Left as-is — narrowing it to `p.owner_tenant_id` would be a
+    behaviour change, not a column fix.
+    """
     rows = db.execute("""
-        SELECT p.id, p.project_name, p.molecule,
+        SELECT p.project_id, p.project_name, p.molecule,
                pc.fuel_type, pc.nameplate_mw, pc.cod_year, pc.total_capex_eur
         FROM projects p
-        LEFT JOIN project_control pc ON pc.project_id = p.id
+        LEFT JOIN project_control pc ON pc.project_id = p.project_id
         WHERE pc.company_id = ?
         ORDER BY p.project_name
     """, (company_id,)).fetchall()

@@ -113,7 +113,7 @@ def _events(project_id: str, key: str) -> list[dict]:
 
 def test_maturity_is_stored_and_returned_to_the_engine(isolated_store):
     proxy._upsert_evidence("p-mat-1", "binding_offtake_contract_executed", "SUBMITTED",
-                           submitted_by="producer@test", maturity="EXECUTED")
+                           actor="producer@test", maturity="EXECUTED")
     row = next(e for e in proxy._load_evidence("p-mat-1")
                if e["key"] == "binding_offtake_contract_executed")
     assert row["maturity"] == "EXECUTED"
@@ -121,17 +121,17 @@ def test_maturity_is_stored_and_returned_to_the_engine(isolated_store):
 
 def test_a_status_change_without_maturity_keeps_the_declared_maturity(isolated_store):
     proxy._upsert_evidence("p-mat-2", "eia_permit_granted", "SUBMITTED",
-                           submitted_by="producer@test", maturity="EXECUTED")
-    proxy._upsert_evidence("p-mat-2", "eia_permit_granted", "VERIFIED", submitted_by="checker@test")
+                           actor="producer@test", maturity="EXECUTED")
+    proxy._upsert_evidence("p-mat-2", "eia_permit_granted", "VERIFIED", actor="checker@test")
     row = next(e for e in proxy._load_evidence("p-mat-2") if e["key"] == "eia_permit_granted")
     assert (row["status"], row["maturity"]) == ("VERIFIED", "EXECUTED")
 
 
 def test_a_maturity_change_with_no_status_change_is_still_audited(isolated_store):
     proxy._upsert_evidence("p-mat-3", "credit_support_package", "SUBMITTED",
-                           submitted_by="producer@test", maturity="INDICATIVE")
+                           actor="producer@test", maturity="INDICATIVE")
     proxy._upsert_evidence("p-mat-3", "credit_support_package", "SUBMITTED",
-                           submitted_by="producer@test", maturity="EXECUTED")
+                           actor="producer@test", maturity="EXECUTED")
     events = _events("p-mat-3", "credit_support_package")
     assert events[-1] == {
         "old_status": "SUBMITTED", "new_status": "SUBMITTED",
@@ -141,7 +141,7 @@ def test_a_maturity_change_with_no_status_change_is_still_audited(isolated_store
 
 def test_an_unchanged_write_adds_no_audit_noise(isolated_store):
     proxy._upsert_evidence("p-mat-4", "dsra_funded", "SUBMITTED",
-                           submitted_by="producer@test", maturity="EXECUTED")
+                           actor="producer@test", maturity="EXECUTED")
     before = len(_events("p-mat-4", "dsra_funded"))
-    proxy._upsert_evidence("p-mat-4", "dsra_funded", "SUBMITTED", submitted_by="producer@test")
+    proxy._upsert_evidence("p-mat-4", "dsra_funded", "SUBMITTED", actor="producer@test")
     assert len(_events("p-mat-4", "dsra_funded")) == before

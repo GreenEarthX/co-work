@@ -85,8 +85,21 @@ from typing import Optional
 #                      accepted. (6) Every item carries lenses (PRODUCER,
 #                      OFFTAKER, CAPITAL, CERTIFIER); OFFTAKER becomes a persona.
 #                      (7) G1 renamed "Power, Utilities & Technology Basis".
+#   4.1.0 (2026-09-29) STRICTER — can lower a state. Evidence:
+#                      docs/master-reconciliation/00_market_evidence_gate_timing.md
+#                      in the platform repo. (1) COMMERCIALLY_PLAUSIBLE now also
+#                      needs offtake terms (O2 or better) covering at least
+#                      OFFTAKE_COVERAGE_MIN_PCT of planned output — the bar the EU
+#                      Hydrogen Bank sets at application. Coverage is computed from
+#                      the offtake card (new field planned_output_tonnes_per_year;
+#                      EPC guaranteed capacity as fallback); unknown fails closed.
+#                      (2) Capital types gain display labels (CAPITAL_TYPE_LABELS);
+#                      SENIOR_DEBT_COMMITMENT reads "Senior debt credit approval
+#                      (conditional)": every financing sampled separated credit
+#                      approval, financial close and drawdown, and conditional
+#                      commitments lapse. The identifier is unchanged.
 
-EVIDENCE_RULES_VERSION = "4.0.0"
+EVIDENCE_RULES_VERSION = "4.1.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1056,6 +1069,12 @@ _BINDING_FORMS = {"TAKE_OR_PAY", "TAKE_IF_TENDERED", "TAKE_AND_PAY", "TAKE_IF_DE
 # Parameter, not a finding: OIES (Aug 2025) reports clean-hydrogen take-or-pay
 # negotiated at 60–80% of annual contract quantity, against >90% in early LNG.
 TAKE_OR_PAY_FIRM_PCT: float = 60.0
+# Share of planned output that offtake terms (O2 or better) must cover before a
+# project is COMMERCIALLY_PLAUSIBLE. Parameter, not a finding: it is the bar the
+# EU Hydrogen Bank sets at application — Heads of Terms or signed pre-contractual
+# term sheets for at least 60 % of production volume (IF25 terms and conditions;
+# CINEA Q&A v0.2, 3 Feb 2026), with binding contracts "expected at financial close".
+OFFTAKE_COVERAGE_MIN_PCT: float = 60.0
 
 EPC_LEVELS: list[str] = ["E0", "E1", "E2", "E3", "E4", "E5", "E6"]
 EPC_LEVEL_DEFINITIONS: dict[str, str] = {
@@ -1075,6 +1094,12 @@ GATE_COMMITMENT_REQUIREMENTS: dict[str, tuple[str, str]] = {
     "G5_EPC_RISK_PRICED": ("epc", "E4"),
 }
 STATE_COMMITMENT_REQUIREMENTS: dict[str, dict[str, dict]] = {
+    # 4.1.0: offtake terms for most of the output before a project is called
+    # commercially plausible — whoever funds it. Binding comes at G4.
+    "COMMERCIALLY_PLAUSIBLE": {
+        "PROJECT_FINANCE": {"offtake": "O2", "offtake_coverage_pct": OFFTAKE_COVERAGE_MIN_PCT},
+        "BALANCE_SHEET": {"offtake": "O2", "offtake_coverage_pct": OFFTAKE_COVERAGE_MIN_PCT},
+    },
     "STRUCTURALLY_BANKABLE": {
         "PROJECT_FINANCE": {"offtake": "O6"},
     },
@@ -1088,10 +1113,12 @@ STATE_COMMITMENT_REQUIREMENTS: dict[str, dict[str, dict]] = {
 STATE_COMMITMENT_LABELS: dict[str, str] = {
     "SPECULATIVE": "Idea stage — nothing can be committed yet",
     "TECHNICALLY_PLAUSIBLE": "Site and technology basis confirmed",
-    "COMMERCIALLY_PLAUSIBLE": "Commercially defined — term sheets can be signed",
+    "COMMERCIALLY_PLAUSIBLE": "Commercially defined — offtake term sheets cover most of the output",
     "BUILDABLE": "Commitment-ready — producer and offtaker can sign binding-with-conditions",
     "STRUCTURALLY_BANKABLE": "Independently validated",
-    "CREDIT_APPROVED": "Capital approved",
+    # 4.1.0: a credit approval is a conditional commitment, not money — it lapses
+    # if financial close is not reached (Gevo 2026) and precedes close by months.
+    "CREDIT_APPROVED": "Credit approved — conditional until financial close",
     "FINANCEABLE": "Committed — investment decision taken",
     "OPERATIONAL": "Delivering — certified product accepted by the buyer",
     "REFINANCING_ELIGIBLE": "Proven — refinancing possible",
@@ -1101,7 +1128,11 @@ STATE_COMMITMENT_LABELS: dict[str, str] = {
 # writes against this; the engine reads what it needs and ignores the rest.
 COMMITMENT_CARD_FIELDS: dict[str, dict[str, str]] = {
     "offtake": {
+        # contracted_tonnes_per_year is the volume under offtake terms across all
+        # buyers; planned_output_tonnes_per_year is the output it is measured
+        # against (4.1.0 coverage). The counterparty fields describe the anchor buyer.
         "counterparty_name": "str", "counterparty_role": "enum:END_USER|OBLIGATED_SUPPLIER|TRADER|INTERMEDIARY|EQUITY_PARTNER",
+        "planned_output_tonnes_per_year": "number",
         "buyer_investment_grade": "bool", "credit_support": "bool",
         "commitment_form": "enum:" + "|".join(COMMITMENT_FORMS), "take_or_pay_pct": "number",
         "contracted_tonnes_per_year": "number", "tenor_years": "number",
@@ -1163,13 +1194,36 @@ def level_meets(level: Optional[str], required: str) -> bool:
     return ladder.index(level) >= ladder.index(required)
 
 
+def offtake_coverage(terms: Optional[dict]) -> tuple[Optional[float], Optional[str]]:
+    """Share of output under offtake terms, and what it was measured against.
+
+    Planned output from the offtake card; the EPC's guaranteed capacity when no
+    planned output is recorded. (None, None) when either side is unknown — a
+    coverage nobody can compute is not a coverage.
+    """
+    t = terms or {}
+    card, epc = t.get("offtake") or {}, t.get("epc") or {}
+    contracted = card.get("contracted_tonnes_per_year")
+    if card.get("planned_output_tonnes_per_year"):
+        basis, basis_name = card["planned_output_tonnes_per_year"], "PLANNED_OUTPUT"
+    elif epc.get("guaranteed_capacity_tonnes_per_year"):
+        basis, basis_name = epc["guaranteed_capacity_tonnes_per_year"], "GUARANTEED_CAPACITY"
+    else:
+        return None, None
+    if contracted is None or not basis:
+        return None, None
+    return round(100.0 * contracted / basis, 1), basis_name
+
+
 def derive_offtake_level(evidence_map: dict, terms: Optional[dict]) -> dict:
     """Grade the offtake on O0–O7 from the contract's verified maturity and the
     offtake card. Returns level, effectiveness and the reasons it is not higher."""
     card = (terms or {}).get("offtake") or {}
     model = (terms or {}).get("model") or {}
     m = _declared(evidence_map, "binding_offtake_contract_executed")
-    out = {"level": "O0", "effective": False, "reasons": [], "form": card.get("commitment_form")}
+    coverage_pct, coverage_basis = offtake_coverage(terms)
+    out = {"level": "O0", "effective": False, "reasons": [], "form": card.get("commitment_form"),
+           "coverage_pct": coverage_pct, "coverage_basis": coverage_basis}
     if m is None:
         out["reasons"].append("No verified offtake document with a declared maturity.")
         return out
@@ -1564,6 +1618,23 @@ CAPITAL_TYPES = [
     "REFINANCE_BONDS_INFRA",
 ]
 
+# What each capital decision is called on screen — the one source for labels.
+# Identifiers stay stable (stored snapshots and fixtures carry them); labels say
+# what the decision is. SENIOR_DEBT_COMMITMENT is a credit approval: lenders'
+# commitments at that stage are conditional on documentation and financial close
+# (Stegra 2022, Atome 2025, DOE conditional commitments), and money moves only
+# at DEBT_DRAWDOWN.
+CAPITAL_TYPE_LABELS: dict[str, str] = {
+    "GRANTS_TA": "Grants & TA",
+    "SEED_VC_ANGEL": "Seed / VC / Angel",
+    "STRATEGIC_EQUITY": "Strategic Equity",
+    "PROJECT_EQUITY": "Project Equity",
+    "DFI_MEZZ_GUARANTEES": "DFI / Mezz / Guarantees",
+    "SENIOR_DEBT_COMMITMENT": "Senior Debt Credit Approval (conditional)",
+    "DEBT_DRAWDOWN": "Debt Drawdown",
+    "REFINANCE_BONDS_INFRA": "Refinance / Bonds / Infra",
+}
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EVALUATION ENGINE
@@ -1745,6 +1816,18 @@ def _commitment_shortfalls(state: str, financing_model: Optional[str],
         out.append({"kind": "offtake", "gate": "G4_OFFTAKE_BANKABLE", "required": req["offtake"],
                     "actual": offtake["level"],
                     "message": f"{state} needs offtake {req['offtake']}; the project has {offtake['level']}."})
+    if "offtake_coverage_pct" in req:
+        need, cov = req["offtake_coverage_pct"], offtake.get("coverage_pct")
+        if cov is None:
+            out.append({"kind": "offtake_coverage", "gate": "G4_OFFTAKE_BANKABLE", "required": f"{need:.0f}%",
+                        "actual": "unknown",
+                        "message": f"{state} needs offtake terms for at least {need:.0f}% of output; record the "
+                                   "contracted volume and the planned output on the offtake card."})
+        elif cov < need:
+            out.append({"kind": "offtake_coverage", "gate": "G4_OFFTAKE_BANKABLE", "required": f"{need:.0f}%",
+                        "actual": f"{cov:g}%",
+                        "message": f"{state} needs offtake terms for at least {need:.0f}% of output; "
+                                   f"{cov:g}% is covered."})
     if req.get("offtake_effective") and not offtake["effective"]:
         out.append({"kind": "offtake_effective", "gate": "G4_OFFTAKE_BANKABLE", "required": "effective",
                     "actual": "conditional",
@@ -1818,6 +1901,7 @@ def _compute_capital_unlocks(gate_evals: list[dict], waived_gates: set[str] | No
         )
         unlocks.append({
             "capital_type": ct,
+            "label": CAPITAL_TYPE_LABELS[ct],
             "decision_eligible": is_unlocked,
             "is_unlocked": is_unlocked,  # deprecated alias — see docstring
             "financing_applicable": financing_applicable,
@@ -2081,6 +2165,8 @@ def get_rules() -> dict:
         "gate_commitment_requirements": {k: list(v) for k, v in GATE_COMMITMENT_REQUIREMENTS.items()},
         "persona_gates": PERSONA_GATES,
         "capital_types": CAPITAL_TYPES,
+        "capital_type_labels": CAPITAL_TYPE_LABELS,
+        "offtake_coverage_min_pct": OFFTAKE_COVERAGE_MIN_PCT,
         "capital_scope": CAPITAL_SCOPE,
         "capital_semantics": (
             "A satisfied gate makes a project eligible for the named capital "

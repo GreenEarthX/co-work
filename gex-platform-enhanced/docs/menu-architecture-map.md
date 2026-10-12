@@ -72,7 +72,7 @@ flowchart TD
 ### Finance sections (lender language)
 | Accordion group | Was (v6.0) | Items |
 |---|---|---|
-| Credit Assessment *(always open)* | *(ungrouped)* | Project Readiness, Capital Stack, Covenants |
+| Credit Assessment *(always open)* | *(ungrouped)* | Capital Eligibility, Capital Stack, Covenants |
 | Deal Structuring | STRUCTURING | Sensitivity, Price Decomposition (Gabillon), Cost Basis, Gap Analysis, Instrument Catalog, Instrument Compatibility, Package Builder, Risk Allocation, Structuring Timeline, Spend Wave, **Debt Cashflow & Waterfall**, Drawdown Timeline, DFI Dashboard, Evidence Lineage |
 | Conditions Precedent | GATING | Insurance Schedule, Coverage Lines, Asset & Exposure Register |
 | IC & Diligence | EXPORT | Banker's Snapshot, IC Pack Builder, Transfer Readiness, Data Room |
@@ -149,7 +149,7 @@ Per merged route — survivor visibility and whether the breadth is intentional:
 | `/capacity` (GreenMesh) | PROD(COM/OPS), OFT(OPS), TP(LOGISTICS) | none — exact union | ✅ offtaker-ops sees shipping capacity |
 | `/cert-readiness` (Certification Readiness) | PROD(LEGAL/ENG), TP(CERTIFIER), OFT(LEGAL/COM) | none — exact union | ✅ |
 | `/finance-timeline` (Project Timeline) | ALL | none — screen was already ALL via "Project Timeline" | ⚠ see risk R1 |
-| `/bankability-scores` (Status & Blockers) | ALL | none — both entries ALL | ✅ |
+| `/bankability-scores` (State & Blockers) | ALL | none — both entries ALL | ✅ |
 | `/ciso-dashboard` (Security Overview) | CISO surface | none | ✅ |
 
 **Verified:** each survivor's `visible_to` equals the exact union of the two
@@ -253,11 +253,9 @@ flowchart TD
   classDef gap stroke:#64748b,stroke-width:1.5px,stroke-dasharray:2 3,color:#64748b;
 ```
 
-### Door↔screen coherence — 5 mismatch(es), 17 route-name drift
+### Door↔screen coherence — 3 mismatch(es), 16 route-name drift
 
 - ⚠ Projects · "Task Flow"  →  /finance-dashboard  (FinanceDashboardPage)
-- ⚠ Projects · "Status & Blockers"  →  /bankability-scores  (BankabilityScorePage)
-- ⚠ Compliance · "Verification Status"  →  /stage-gates  (StageGatesPage)
 - ⚠ Compliance · "Regulatory Registry"  →  /regulator-dashboard  (RegulatorDashboardPage)
 - ⚠ Operations · "Construction Progress"  →  /producer-bankability  (ProducerBankabilityView)
 
@@ -265,7 +263,7 @@ flowchart TD
   with its label (the screen is *Delivery & Settlement*; no counterparty/credit
   module exists). Now corrected — the door is **Delivery & Settlement**, and
   counterparty/credit is tracked below as a CTRM gap rather than implied by a door.
-- **Route-name drift (17):** URL ≠ label on legacy paths. Deferred —
+- **Route-name drift (16):** URL ≠ label on legacy paths. Deferred —
   URL renames break deep links; do via a canonical-route alias registry (ticket).
 
 ### CTRM completeness — what GEX Commercial *is*
@@ -311,15 +309,16 @@ flowchart TD
   FINUI --> V3[Drawdown Timeline]:::ok
   ENG -.->|surface to UI| U0[[Cash sweep / lock-up]]:::eng
   ENG -.->|surface to UI| U1[[Debt sculpting / repayment profile]]:::eng
-  ENG -.->|surface to UI| U2[[Sources & Uses statement (itemized)]]:::eng
-  ENG -.->|surface to UI| U3[[Hedging (rate / FX / power)]]:::eng
+  ENG -.->|surface to UI| U2[[Sources & Uses coverage (SUC ratio)]]:::eng
+  ENG -.->|surface to UI| U3[[Sources & Uses statement (itemized)]]:::eng
+  ENG -.->|surface to UI| U4[[Hedging (rate / FX / power)]]:::eng
   AB[[LLCR · PLCR · Sources&Uses — not computed]]:::gap
   classDef ok stroke:#10b981,stroke-width:1.5px;
   classDef eng stroke:#f59e0b,stroke-width:2px;
   classDef gap stroke:#64748b,stroke-width:1.5px,stroke-dasharray:2 3,color:#64748b;
 ```
 
-**4 engine-only function(s)** = the highest-ROI fixes: the maths
+**5 engine-only function(s)** = the highest-ROI fixes: the maths
 already exists (`/cfads/calculate`, `/waterfall/execute` incl. DSRA + cash
 sweep, `debt/sculpting.py`), it is simply not wired into a Finance screen.
 **2 absent**: LLCR/PLCR are only consumed as lock-up *thresholds*,
@@ -345,7 +344,7 @@ stamping is the next tightening before the gate can fail the build.
 | DSCR (min / average) | ✅ UI | 🟢 governed | present + stamped |
 | LLCR (loan-life coverage) | ✅ UI | 🟢 governed | present + stamped |
 | PLCR (project-life coverage) | ⛔ absent | — | v1 — compute in engine (CFADS + debt service available), then surface |
-| Sources & Uses coverage (SUC ratio) | ✅ UI | 🟢 governed | present + stamped |
+| Sources & Uses coverage (SUC ratio) | 🟠 engine-only | — | present |
 | Sources & Uses statement (itemized) | 🟠 engine-only | — | v1 — build (no engine primitive yet) |
 | Covenant package | ✅ UI | 🟢 governed | present + stamped |
 | Hedging (rate / FX / power) | 🟠 engine-only | — | Optional (post-v1) |

@@ -1,0 +1,240 @@
+{
+  "db": "/private/var/folders/zm/p116hwkd4_s34cnylzcl71ww0000gn/T/gex_attackA_TEST_hrhzahic/attackA_TEST.db",
+  "switches": [
+    "AUTH_DB_BACKEND",
+    "CAPITAL_DB_BACKEND",
+    "DOMAIN_DB_BACKEND",
+    "ENTITLEMENT_DB_BACKEND",
+    "EVENTSTORE_DB_BACKEND",
+    "EVIDENCE_DB_BACKEND",
+    "FUELREF_DB_BACKEND",
+    "GOVERNANCE_DB_BACKEND",
+    "MARKET_DB_BACKEND",
+    "WORKSPACE_DB_BACKEND"
+  ],
+  "log": [
+    {
+      "step": "A0",
+      "attempt": "Baseline: fresh TEST project, no evidence",
+      "expected_control": "State SPECULATIVE",
+      "http": 200,
+      "response": "-",
+      "engine_after": {
+        "http": 200,
+        "state": "SPECULATIVE",
+        "state_label": "Idea stage \u2014 nothing can be committed yet",
+        "complete_gates": [],
+        "eligible_capital": [],
+        "offtake": "O0",
+        "epc": "E0"
+      }
+    },
+    {
+      "step": "A1",
+      "attempt": "Submit a land option declared EXECUTED (lease)",
+      "expected_control": "Accept as a claim; must not count until independently verified",
+      "http": 200,
+      "response": "accepted",
+      "engine_after": {
+        "http": 200,
+        "state": "SPECULATIVE",
+        "state_label": "Idea stage \u2014 nothing can be committed yet",
+        "complete_gates": [],
+        "eligible_capital": [],
+        "offtake": "O0",
+        "epc": "E0"
+      }
+    },
+    {
+      "step": "A2",
+      "attempt": "Producer marks its own land claim VERIFIED, naming a certifier as actor",
+      "expected_control": "DENY: the party asserting must not verify (separation of duties)",
+      "http": 403,
+      "response": "Access denied",
+      "engine_after": {
+        "http": 200,
+        "state": "SPECULATIVE",
+        "state_label": "Idea stage \u2014 nothing can be committed yet",
+        "complete_gates": [],
+        "eligible_capital": [],
+        "offtake": "O0",
+        "epc": "E0"
+      }
+    },
+    {
+      "step": "A2b",
+      "attempt": "Verify a memo while raising its declared maturity INDICATIVE -> EXECUTED",
+      "expected_control": "DENY 422 VERIFICATION_CANNOT_RAISE_MATURITY",
+      "http": 403,
+      "response": "Access denied",
+      "engine_after": null
+    },
+    {
+      "step": "A3",
+      "attempt": "Self-verify every G0 and G1 item (22 writes, no document reviewed)",
+      "expected_control": "DENY each VERIFIED write from the producer; state stays SPECULATIVE",
+      "http": "mixed",
+      "response": {
+        "refused": [
+          [
+            "zoning_compatibility_memo",
+            403,
+            "Access denied"
+          ],
+          [
+            "stakeholder_map_v1",
+            403,
+            "Access denied"
+          ],
+          [
+            "site_technical_suitability",
+            403,
+            "Access denied"
+          ],
+          [
+            "grid_interconnection_study",
+            403,
+            "Access denied"
+          ],
+          [
+            "queue_position_evidence",
+            403,
+            "Access denied"
+          ],
+          [
+            "grid_connection_cost_estimate",
+            403,
+            "Access denied"
+          ]
+        ],
+        "refused_count": 22
+      },
+      "engine_after": {
+        "http": 200,
+        "state": "SPECULATIVE",
+        "state_label": "Idea stage \u2014 nothing can be committed yet",
+        "complete_gates": [],
+        "eligible_capital": [],
+        "offtake": "O0",
+        "epc": "E0"
+      }
+    },
+    {
+      "step": "A4",
+      "attempt": "Permit application and a sponsor letter recorded as granted permits, then self-verified (G9)",
+      "expected_control": "Distinguish application from approval; DENY self-verification",
+      "http": "200,403,200,403",
+      "response": [
+        "accepted",
+        "Access denied",
+        "accepted",
+        "Access denied"
+      ],
+      "engine_after": {
+        "http": 200,
+        "state": "SPECULATIVE",
+        "state_label": "Idea stage \u2014 nothing can be committed yet",
+        "complete_gates": [],
+        "eligible_capital": [],
+        "offtake": "O0",
+        "epc": "E0"
+      }
+    },
+    {
+      "step": "A5",
+      "attempt": "EPC engagement letter recorded as agreed-form EPC, FEED, licence and security; self-verified; EPC card set to LSTK",
+      "expected_control": "EPC must not reach E4 without independently verified documents",
+      "http": [
+        403,
+        403,
+        403,
+        403,
+        403,
+        404
+      ],
+      "response": {
+        "detail": {
+          "code": "PROJECT_HAS_NO_OWNER",
+          "message": "'proj_TEST_attack_a' has no owning company, so there is no one to assign it to."
+        }
+      },
+      "engine_after": {
+        "http": 200,
+        "state": "SPECULATIVE",
+        "state_label": "Idea stage \u2014 nothing can be committed yet",
+        "complete_gates": [],
+        "eligible_capital": [],
+        "offtake": "O0",
+        "epc": "E0"
+      }
+    },
+    {
+      "step": "A6a",
+      "attempt": "A producer from an unrelated company writes this project's evidence",
+      "expected_control": "DENY (not a stakeholder)",
+      "http": 403,
+      "response": "Access denied",
+      "engine_after": null
+    },
+    {
+      "step": "A6b",
+      "attempt": "The producer writes a lender item (G10 conditions precedent)",
+      "expected_control": "DENY (not the gate owner)",
+      "http": 403,
+      "response": "Access denied",
+      "engine_after": null
+    },
+    {
+      "step": "A6c",
+      "attempt": "The producer writes the buyer-side offtake item (G4)",
+      "expected_control": "DENY (offtaker-owned gate)",
+      "http": 403,
+      "response": "Access denied",
+      "engine_after": null
+    },
+    {
+      "step": "A7",
+      "attempt": "Simulated: owner executive redeclares PROJECT_FINANCE -> BALANCE_SHEET (PATCH /projects/{id}/context, allowed and audited; not executed here: PostgreSQL-only store)",
+      "expected_control": "Allowed for the owner executive, audited; lender-only gates waived",
+      "http": "simulated",
+      "response": "-",
+      "engine_after": {
+        "http": 200,
+        "state": "SPECULATIVE",
+        "state_label": "Idea stage \u2014 nothing can be committed yet",
+        "complete_gates": [],
+        "eligible_capital": [],
+        "offtake": "O0",
+        "epc": "E0"
+      }
+    },
+    {
+      "step": "A8",
+      "attempt": "Audit trail for the land item",
+      "expected_control": "Before/after, authenticated user, reason",
+      "http": 200,
+      "response": {
+        "events": [
+          {
+            "id": 1,
+            "project_id": "proj_TEST_attack_a",
+            "evidence_key": "land_option_or_lease_executed",
+            "old_status": null,
+            "new_status": "SUBMITTED",
+            "actor": "u_TEST_producer",
+            "at": "2026-10-01 13:44:33",
+            "document_sha256": null,
+            "old_maturity": null,
+            "new_maturity": "EXECUTED",
+            "old_assignee": null,
+            "new_assignee": null,
+            "old_due_date": null,
+            "new_due_date": null
+          }
+        ],
+        "total_events": 30
+      },
+      "engine_after": null
+    }
+  ]
+}

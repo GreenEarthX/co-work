@@ -142,6 +142,34 @@ def test_a_broken_link_breaks_the_chain():
 
 # ── 2. Both backends agree ──────────────────────────────────────────────────
 
+# The one deliberate PostgreSQL-only divergence: the comprehension-test fixture
+# (scripts/load_comprehension_test_project.py, JML 2026-10-02). Its rows carry
+# this marker, live under a project named TEST, and are excluded from the parity
+# comparison below — migrated client data is what parity is about. The exclusion
+# is pinned by test_the_only_divergence_is_the_labelled_fixture: it cannot grow
+# to cover a real row without that test failing.
+FIXTURE_MARKER = "TEST_FIXTURE_COMPREHENSION"
+_REAL_ROWS = f"COALESCE(submitted_by,'') <> '{FIXTURE_MARKER}'"
+
+
+def _evidence_counts(monkeypatch, backend: str, where: str):
+    monkeypatch.setenv("EVIDENCE_DB_BACKEND", backend)
+    from app.api.v1.routes_bankability_proxy import _get_db
+
+    # Whole-store comparison: it must see every row, so it asks as admin
+    # explicitly. Since the shim's default became a deny sentinel, an
+    # unscoped read on PostgreSQL correctly returns nothing.
+    with as_platform_admin():
+        conn = _get_db()
+    try:
+        rows = conn.execute(
+            f"SELECT status, count(*) AS n FROM bankability_evidence "
+            f"WHERE {where} GROUP BY status ORDER BY status").fetchall()
+        return {r["status"]: r["n"] for r in rows}
+    finally:
+        conn.close()
+
+
 def test_both_backends_return_the_same_evidence_counts(monkeypatch):
     """
     Read parity is the precondition for flipping. If the two stores disagree the
@@ -149,28 +177,38 @@ def test_both_backends_return_the_same_evidence_counts(monkeypatch):
     """
     requires_pg()
 
-    def counts(backend: str):
-        monkeypatch.setenv("EVIDENCE_DB_BACKEND", backend)
-        from app.api.v1.routes_bankability_proxy import _get_db
-
-        # Whole-store comparison: it must see every row, so it asks as admin
-        # explicitly. Since the shim's default became a deny sentinel, an
-        # unscoped read on PostgreSQL correctly returns nothing.
-        with as_platform_admin():
-            conn = _get_db()
-        try:
-            rows = conn.execute(
-                "SELECT status, count(*) AS n FROM bankability_evidence "
-                "GROUP BY status ORDER BY status").fetchall()
-            return {r["status"]: r["n"] for r in rows}
-        finally:
-            conn.close()
-
     try:
-        lite, pg = counts("sqlite"), counts("postgres")
+        lite = _evidence_counts(monkeypatch, "sqlite", _REAL_ROWS)
+        pg = _evidence_counts(monkeypatch, "postgres", _REAL_ROWS)
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"backend unavailable: {exc}")
     assert lite == pg, f"backends disagree: sqlite={lite} postgres={pg}"
+
+
+def test_the_only_divergence_is_the_labelled_fixture(monkeypatch):
+    """The exclusion above must stay narrow: marked rows, PostgreSQL only, one
+    TEST project. Without this, widening the marker would hide a real divergence."""
+    requires_pg()
+
+    marked = f"COALESCE(submitted_by,'') = '{FIXTURE_MARKER}'"
+    try:
+        lite = _evidence_counts(monkeypatch, "sqlite", marked)
+        pg = _evidence_counts(monkeypatch, "postgres", marked)
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"backend unavailable: {exc}")
+
+    assert lite == {}, f"the fixture marker must not appear in SQLite: {lite}"
+    assert set(pg) <= {"VERIFIED"}, f"fixture rows are verified evidence only: {pg}"
+
+    conn, cur = _pg()
+    try:
+        cur.execute("SELECT DISTINCT project_id FROM bankability_evidence "
+                    "WHERE COALESCE(submitted_by,'') = %s", (FIXTURE_MARKER,))
+        projects = {r["project_id"] for r in cur.fetchall()}
+    finally:
+        conn.close()
+    assert all(p.startswith("proj_TEST_") for p in projects), (
+        f"the fixture marker is on a project that is not labelled TEST: {projects}")
 
 
 # ── 3. RLS on investor-facing data ──────────────────────────────────────────

@@ -40,15 +40,14 @@ from __future__ import annotations
 
 import argparse
 import secrets
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.auth import pwd_context  # noqa: E402
-from app.core.config import settings  # noqa: E402
+from app.core.auth import auth_db_connection, pwd_context  # noqa: E402
+from app.core.db_backend import auth_backend  # noqa: E402
 
 GRANT_MARKER = "MANUAL_ADMIN_GRANT"
 
@@ -67,15 +66,18 @@ def main() -> int:
     user_id = email.replace("@", "_").replace(".", "_")
     now = datetime.now(timezone.utc).isoformat()
 
-    conn = sqlite3.connect(settings.SQLITE_DB_PATH)
-    conn.row_factory = sqlite3.Row
+    # The store login reads (AUTH_DB_BACKEND). This used to open the SQLite
+    # file directly, so after the PostgreSQL cutover it created an admin that
+    # sign-in could never see.
+    conn = auth_db_connection()
     try:
         existing = conn.execute(
             "SELECT user_id, is_platform_admin, account_state FROM auth_users WHERE email=?",
             (email,)).fetchone()
         if existing:
             print(f"REFUSING — an account already exists for {email}: "
-                  f"{dict(existing)}")
+                  f"user_id={existing['user_id']}, admin={existing['is_platform_admin']}, "
+                  f"state={existing['account_state']}")
             print("Grant admin to an existing account deliberately, not by re-creating it.")
             return 2
 
@@ -85,6 +87,7 @@ def main() -> int:
         print(f"  name     {args.name}")
         print(f"  company  {args.company_name} ({args.company_id})")
         print(f"  grants   cross-tenant visibility, account activation, reference-data writes")
+        print(f"  store    {auth_backend()}")
         if args.dry_run:
             print("dry run — nothing written")
             return 0
@@ -112,8 +115,7 @@ def main() -> int:
     print(f"\ncreated {user_id} — ACTIVE, is_platform_admin=1, "
           f"activated_by={GRANT_MARKER}")
     print("The account CANNOT be logged into until its owner sets a password:")
-    print(f"  ./venv/bin/python -c \"from app.core.auth import update_password; "
-          f"update_password('{email}', input('new password: '))\"")
+    print(f"  ./venv/bin/python scripts/set_password.py {email}")
     return 0
 
 

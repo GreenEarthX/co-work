@@ -12,7 +12,8 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
 
   const response = await fetch(url, {
     headers: {
-      "Content-Type": "application/json",
+      // A FormData body sets its own multipart boundary; forcing JSON breaks it.
+      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...authHeader(),
       ...options.headers,
     },
@@ -26,11 +27,15 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
     // Structured refusals ({code, message}) must reach the user as their
     // message, not as "[object Object]".
     const detail = error.detail;
-    throw new Error(
+    const failure = new Error(
       (detail && typeof detail === "object" && detail.message) ||
         (typeof detail === "string" && detail) ||
         `HTTP ${response.status}`,
-    );
+    ) as Error & { status?: number };
+    // Screens show a refusal's reason (4xx) to the user, but not an outage's
+    // (5xx): those carry internals such as "engine unavailable (port 8001)".
+    failure.status = response.status;
+    throw failure;
   }
 
   return response.json();
@@ -292,18 +297,50 @@ export const bankabilityAPI = {
   // at or above its required maturity. The backend refuses a reviewer-side status
   // that raises it, and refuses retired or unknown evidence keys with a 422
   // naming what to submit instead.
+  // Who acted is the session's user — the backend ignores any name sent. A
+  // reviewer status (UNDER_REVIEW, VERIFIED, REJECTED, EXPIRED) is accepted
+  // only from an independent reviewer, and VERIFIED must name the sha256 of a
+  // document on file for the item (Attack A, 2026-09-30).
   updateEvidence: (data: {
     project_id?: string;
     evidence_key: string;
     new_status: string;
-    submitted_by?: string;
     notes?: string;
     maturity?: string;
+    document_sha256?: string;
   }) =>
     fetchAPI("/bankability/evidence", {
       method: "POST",
       body: JSON.stringify({ project_id: "default", ...data }),
     }),
+
+  // Stores the file with its sha256 and moves the item to SUBMITTED, with the
+  // uploader as its submitter. What a reviewer later opens and verifies.
+  uploadEvidenceDocument: (projectId: string, evidenceKey: string, file: File) => {
+    const form = new FormData();
+    form.append("project_id", projectId);
+    form.append("evidence_key", evidenceKey);
+    form.append("file", file);
+    return fetchAPI("/bankability/evidence/document", { method: "POST", body: form });
+  },
+
+  // Documents on file for one item, newest first.
+  listEvidenceDocuments: (projectId: string, evidenceKey: string) =>
+    fetchAPI(
+      `/bankability/evidence/documents?project_id=${encodeURIComponent(projectId)}&evidence_key=${encodeURIComponent(evidenceKey)}`,
+    ),
+
+  // The download needs the bearer, which a plain link does not send.
+  openEvidenceDocument: async (sha256: string) => {
+    const response = await fetch(
+      `${API_BASE_URL}/bankability/evidence/document/${encodeURIComponent(sha256)}/download`,
+      { headers: { ...authHeader() } },
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const url = URL.createObjectURL(await response.blob());
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  },
 
   // Name the person who must produce an evidence item (owner company or
   // platform admin only; assignee must be an active account of the owner).
@@ -350,6 +387,22 @@ export const bankabilityAPI = {
     fetchAPI(`/bankability/regression/check?project_id=${projectId}`),
 
   health: () => fetchAPI("/bankability/health"),
+
+  // The engine's readout for one project, all twelve gates. Runs the engine and
+  // writes nothing — unlike evaluate(), which rewrites the stored snapshot. The
+  // shared source for /projects, State & Blockers and Capital Eligibility.
+  readout: (projectId: string) =>
+    fetchAPI(
+      `/bankability/projects/${encodeURIComponent(projectId)}/bankability/EXECUTIVE`,
+    ),
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Vocabulary API — prefix: /api/v1/vocabulary
+// The platform's one home for user-facing labels (app/core/vocabulary.py).
+// ═══════════════════════════════════════════════════════════════
+export const vocabularyAPI = {
+  concept: (name: string) => fetchAPI(`/vocabulary/${encodeURIComponent(name)}`),
 };
 
 // ═══════════════════════════════════════════════════════════════

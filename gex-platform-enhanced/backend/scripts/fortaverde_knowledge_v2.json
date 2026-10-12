@@ -1,0 +1,963 @@
+{
+  "meta": {
+    "schema_version": "2.0.0",
+    "as_of": "2026-10-09",
+    "compiled_by": "Jean-Marie Lamay (GEX CPO) with Claude",
+    "engine_rules_version": "4.1.0",
+    "fixture_marker": "TEST_FIXTURE_FORTAVERDE",
+    "synthetic": true,
+    "status_note": "Internal knowledge record. Every claim is UNVERIFIED: nothing has been submitted by FortaVerde and no independent reviewer is appointed. Load as a TEST fixture only; never as client evidence.",
+    "loading_rules": [
+      "maturity_claimed is what a source SAYS; it is never written to bankability_evidence.maturity, which the submitter declares.",
+      "contacts are CRM data, not auth_users; accounts are created only by self-registration and vetting.",
+      "gex_working_assumptions are GEX/IFE estimates and are never loaded as project data.",
+      "commitment_cards.load_after lists the contradictions that must be resolved first."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "S1",
+      "type": "INTERNAL_DRAFT",
+      "title": "IFE draft email to Herr Möhring and Herr Block",
+      "date": "2026-10",
+      "author": "IFE / GEX",
+      "independent": false,
+      "note": "Restates the pitch deck (S2) and a call with Herr Block (S3). Second-hand."
+    },
+    {
+      "source_id": "S2",
+      "type": "SPONSOR_DOCUMENT",
+      "title": "FortaVerde pitch deck",
+      "date": null,
+      "author": "Möhring Energie",
+      "independent": false,
+      "note": "Not held by GEX in this record; known only through S1."
+    },
+    {
+      "source_id": "S3",
+      "type": "CALL",
+      "title": "Telephone call with Herr Block",
+      "date": null,
+      "author": "IFE",
+      "independent": false,
+      "note": "Known only through S1."
+    },
+    {
+      "source_id": "S4",
+      "type": "PRESS",
+      "title": "FortaVerde: conheça o projeto de H2V da Möhring Energie no Pecém",
+      "publisher": "O POVO+ (column, Armando de Oliveira Lima)",
+      "date": "2026-04-28",
+      "independent": true,
+      "url": "https://mais.opovo.com.br/colunistas/armando-de-oliveira-lima/2026/04/28/fortaverde-conheca-o-projeto-de-h2v-da-mohring-energie-no-pecem.html",
+      "note": "Partly paywalled. Only independent public source found."
+    },
+    {
+      "source_id": "S5",
+      "type": "STATEMENT",
+      "title": "Jean-Marie Lamay, chat statement",
+      "date": "2026-10-08",
+      "author": "GEX",
+      "independent": false,
+      "note": "FortaVerde is past FID."
+    },
+    {
+      "source_id": "S6",
+      "type": "OPERATOR_PUBLICATION",
+      "title": "CIPP list of active H2V pre-contracts (seven)",
+      "publisher": "Complexo do Pecém",
+      "date": "2026-04",
+      "independent": true,
+      "url": "https://www.complexodopecem.com.br/complexo-do-pecem-apresenta-hub-de-hidrogenio-verde-na-hannover-messe-2026-a-maior-feira-industrial-do-mundo/",
+      "note": "From GEX's Pecém project research, 2026-10-06. Möhring Energie / FortaVerde not listed."
+    }
+  ],
+  "company": {
+    "legal_name": null,
+    "trading_name": "Möhring Energie",
+    "country": "DE",
+    "role": "SPONSOR / PRODUCER",
+    "registry": null,
+    "project_spv": null,
+    "partners": [
+      {
+        "name": "Sunfarming Holding do Brasil",
+        "role": "Cooperation partner; possibly builder/owner of Phase 0 generation",
+        "source_ids": [
+          "S4",
+          "S1"
+        ]
+      }
+    ],
+    "fixture_tenant": {
+      "company_id": "test_fortaverde",
+      "company_name": "TEST FortaVerde",
+      "company_type": "PRODUCER",
+      "jurisdiction": "BR"
+    },
+    "unknown": [
+      "legal form and registry number",
+      "SPV and shareholders",
+      "authorised signatories"
+    ]
+  },
+  "contacts": [
+    {
+      "contact_id": "P1",
+      "name": "Herr Möhring",
+      "first_name": null,
+      "organisation": "Möhring Energie",
+      "role": null,
+      "email": null,
+      "telephone": null,
+      "source_ids": [
+        "S1"
+      ],
+      "is_platform_account": false
+    },
+    {
+      "contact_id": "P2",
+      "name": "Herr Block",
+      "first_name": null,
+      "organisation": "Möhring Energie",
+      "role": null,
+      "email": null,
+      "telephone": null,
+      "source_ids": [
+        "S1",
+        "S3"
+      ],
+      "is_platform_account": false,
+      "note": "On the call, said more offtakers are needed and existing talks may need re-underpinning."
+    }
+  ],
+  "gex_side": {
+    "IFE": {
+      "name": "Impact Funding Europe",
+      "mandates": [
+        {
+          "mandate": "Offtaker identification and introduction, Phase 0 and Phase 1",
+          "status": "MoU draft",
+          "paid_by": "producer"
+        },
+        {
+          "mandate": "Structure and raise ~EUR 32M debt",
+          "status": "Proposal sent; separate mandate alongside MoU",
+          "paid_by": "producer"
+        }
+      ],
+      "uses_gex_platform": "As internal tool to review the project and prepare documents"
+    },
+    "GEX": {
+      "entity": "GreenEarthX UG (haftungsbeschränkt)",
+      "role": "Software and verification layer",
+      "must_not_be": [
+        "finder",
+        "debt arranger",
+        "producer's advocate"
+      ],
+      "independence_risk": "GEX verification of documents IFE prepared on GEX software; separation must be stated to lenders."
+    }
+  },
+  "project": {
+    "project_id": "proj_TEST_fortaverde_pecem",
+    "name": "FortaVerde",
+    "fixture_name": "TEST — FortaVerde Pecém (synthetic, from IFE email)",
+    "molecule": "NH3",
+    "location": "Pecém, Ceará — Complexo do Pecém (CIPP)",
+    "country": "BR",
+    "phases": [
+      {
+        "phase": "Pilot (O POVO+ 'Phase 1'; possibly the email's 'Phase 0')",
+        "electrolysis_mw": 12,
+        "output_t_nh3_per_year": 7000,
+        "source_ids": [
+          "S4"
+        ]
+      },
+      {
+        "phase": "Later expansion",
+        "capacity_gw": 2.2,
+        "source_ids": [
+          "S4"
+        ]
+      }
+    ],
+    "capacity_mtpd_pilot": 19.1781,
+    "capex_eur": null,
+    "products_later": [
+      "methanol"
+    ],
+    "context": {
+      "power_model": {
+        "value": "HYBRID",
+        "basis": "Wind, PV and batteries plus supplementary grid power (S1)"
+      },
+      "phase": {
+        "value": "construction",
+        "basis": "FID stated by JML (S5); contradicted by S1 — see X1"
+      },
+      "financing_model": {
+        "value": "PROJECT_FINANCE",
+        "basis": "~EUR 32M debt sought after EUR 30M grant (S1)"
+      }
+    }
+  },
+  "claims": [
+    {
+      "claim_id": "C01",
+      "statement": "Sponsor is Möhring Energie (DE); partner Sunfarming Holding do Brasil",
+      "source_ids": [
+        "S1",
+        "S4"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G0",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Registry extract, SPV shareholder chart, authorised signatories",
+      "note": null
+    },
+    {
+      "claim_id": "C02",
+      "statement": "First stage is a pilot of 12 MW electrolysis producing ~7,000 t/yr NH3",
+      "source_ids": [
+        "S4"
+      ],
+      "field": "pilot_output",
+      "value": 7000,
+      "unit": "t NH3/yr",
+      "phase": "pilot",
+      "gate": "G1",
+      "evidence_key": "integrated_mass_energy_balance",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Design basis and mass/energy balance per phase; confirm phase naming (X2)",
+      "note": null
+    },
+    {
+      "claim_id": "C03",
+      "statement": "Expansion planned to 2.2 GW",
+      "source_ids": [
+        "S4"
+      ],
+      "field": "full_capacity",
+      "value": 2.2,
+      "unit": "GW",
+      "phase": null,
+      "gate": "G1",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Phasing plan",
+      "note": null
+    },
+    {
+      "claim_id": "C04",
+      "statement": "Site at Pecém, export via existing port infrastructure",
+      "source_ids": [
+        "S4"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G0",
+      "evidence_key": "land_option_or_lease_executed",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "CIPP pre-contract or lease; site plan",
+      "note": null
+    },
+    {
+      "claim_id": "C05",
+      "statement": "Phase 0 generation budget ~EUR 17.8M: wind, PV, batteries",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": "generation_capex",
+      "value": 17.8,
+      "unit": "EUR M",
+      "phase": "Phase 0",
+      "gate": "G1",
+      "evidence_key": "btm_generation_asset_evidence",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Asset spec and CAPEX; owner and financing; P50/P90 yield study",
+      "note": null
+    },
+    {
+      "claim_id": "C06",
+      "statement": "Generation may be built/owned by Sunfarming; project may buy under a supply contract",
+      "source_ids": [
+        "S1"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G1",
+      "evidence_key": "ppa_register",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "PPA register or confirmation of own generation",
+      "note": null
+    },
+    {
+      "claim_id": "C07",
+      "statement": "Supplementary grid power",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G1",
+      "evidence_key": "grid_interconnection_study",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Grid access offer; cost incl. grid fees",
+      "note": null
+    },
+    {
+      "claim_id": "C08",
+      "statement": "Offtake prospects Penpet, Ssol, Yara named in the deck",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G4",
+      "evidence_key": "binding_offtake_contract_executed",
+      "maturity_claimed": "INTENT",
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Per buyer and phase: LOI, term sheet or contract; volumes; conditions; exclusivities",
+      "note": null
+    },
+    {
+      "claim_id": "C09",
+      "statement": "More offtakers needed; existing talks may need re-underpinning",
+      "source_ids": [
+        "S1",
+        "S3"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G4",
+      "evidence_key": "binding_offtake_contract_executed",
+      "maturity_claimed": "INTENT",
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Status of each existing talk",
+      "note": null
+    },
+    {
+      "claim_id": "C10",
+      "statement": "Sales price EUR 1,000–1,050/t CIF Rotterdam",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": "price_cif_rotterdam",
+      "value": [
+        1000,
+        1050
+      ],
+      "unit": "EUR/t",
+      "phase": null,
+      "gate": "G8",
+      "evidence_key": "base_case_model",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Buyer confirmations; price-volume-tenor-certification matrix; FOB–CIF bridge",
+      "note": "A price assumption, not a pricing index: not mapped to hedgeable_pricing_index."
+    },
+    {
+      "claim_id": "C11",
+      "statement": "RED-compliant / RFNBO certification announced; scheme, auditor, status not named",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G2",
+      "evidence_key": "certification_scheme_selection",
+      "maturity_claimed": "INTENT",
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Scheme, certification body, pre-audit, GHG balance, chain of custody",
+      "note": null
+    },
+    {
+      "claim_id": "C12",
+      "statement": "Grid top-up to be included in RFNBO evidence",
+      "source_ids": [
+        "S1"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G2",
+      "evidence_key": "power_sourcing_alignment_note",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Additionality, temporal and geographic correlation for grid power",
+      "note": null
+    },
+    {
+      "claim_id": "C13",
+      "statement": "Scope: power, electrolysis, N2 supply, NH3 synthesis, storage, export",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G1",
+      "evidence_key": "technology_maturity_dossier",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Technology providers, reference plants, scale-up factor",
+      "note": "Scope, not a contract: not mapped to the EPC contract key."
+    },
+    {
+      "claim_id": "C14",
+      "statement": "EPC / overall integration responsibility not stated",
+      "source_ids": [
+        "S1"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G5",
+      "evidence_key": "epc_contract_fixed_price_or_capped_gmp",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Contracting strategy, EPC party, completion/output/energy/availability guarantees",
+      "note": null
+    },
+    {
+      "claim_id": "C15",
+      "statement": "Phase 0 OPEX EUR 2.2M/yr",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": "opex",
+      "value": 2.2,
+      "unit": "EUR M/yr",
+      "phase": "Phase 0",
+      "gate": "G8",
+      "evidence_key": "base_case_model",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "OPEX breakdown: power, staff, maintenance, water, certification, export logistics",
+      "note": null
+    },
+    {
+      "claim_id": "C16",
+      "statement": "Operating life 25 years",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "field": "operating_life",
+      "value": 25,
+      "unit": "years",
+      "phase": null,
+      "gate": "G8",
+      "evidence_key": "base_case_model",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Replacement CAPEX and reserves",
+      "note": null
+    },
+    {
+      "claim_id": "C17",
+      "statement": "Grant decision (Förderbescheid) of EUR 30M",
+      "source_ids": [
+        "S1"
+      ],
+      "field": "grant",
+      "value": 30,
+      "unit": "EUR M",
+      "phase": null,
+      "gate": "G10",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Grant letter: grantor, conditions, deadlines for proof of financing, start, drawdown, completion",
+      "note": "A grant is a funding source, not injected equity; see funding."
+    },
+    {
+      "claim_id": "C18",
+      "statement": "~EUR 32M of debt needed after the grant; not raised",
+      "source_ids": [
+        "S1"
+      ],
+      "field": "debt_need",
+      "value": 32,
+      "unit": "EUR M",
+      "phase": null,
+      "gate": "G10",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Sources and uses; equity commitment",
+      "note": null
+    },
+    {
+      "claim_id": "C19",
+      "statement": "A German fund expected as main financier; investment not disclosed",
+      "source_ids": [
+        "S4"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G10",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Identity of the fund; relation to the EUR 30M grant",
+      "note": null
+    },
+    {
+      "claim_id": "C20",
+      "statement": "FID taken",
+      "source_ids": [
+        "S5"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G10",
+      "evidence_key": "equity_injected",
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Board/shareholder FID resolution with date and conditions",
+      "note": "equity_injected = 'Funding Committed (equity injected, or board-approved funding)'."
+    },
+    {
+      "claim_id": "C21",
+      "statement": "FID still to be taken 'within the next months'",
+      "source_ids": [
+        "S1"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G10",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": null,
+      "note": null
+    },
+    {
+      "claim_id": "C22",
+      "statement": "Möhring executives met CIPP at Hannover Messe 2026 (one of 20 investor meetings)",
+      "source_ids": [
+        "S4"
+      ],
+      "field": null,
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G0",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": null,
+      "note": null
+    }
+  ],
+  "funding": [
+    {
+      "source": "Grant (Förderbescheid)",
+      "amount_eur_m": 30,
+      "grantor": null,
+      "status": "DECISION_CLAIMED",
+      "claim_ids": [
+        "C17"
+      ]
+    },
+    {
+      "source": "Senior debt",
+      "amount_eur_m": 32,
+      "lender": null,
+      "status": "SOUGHT",
+      "arranger": "IFE (proposed)",
+      "claim_ids": [
+        "C18"
+      ]
+    },
+    {
+      "source": "German fund (unnamed)",
+      "amount_eur_m": null,
+      "status": "EXPECTED_APR_2026",
+      "claim_ids": [
+        "C19"
+      ],
+      "note": "May be the grant source — X3"
+    },
+    {
+      "source": "Sponsor equity",
+      "amount_eur_m": null,
+      "status": "UNKNOWN",
+      "claim_ids": []
+    }
+  ],
+  "offtake_prospects": [
+    {
+      "counterparty": "Penpet",
+      "status": "NAMED_IN_DECK",
+      "max_maturity": "INTENT",
+      "volume_t": null,
+      "phase": null,
+      "claim_ids": [
+        "C08"
+      ]
+    },
+    {
+      "counterparty": "Ssol",
+      "status": "NAMED_IN_DECK",
+      "max_maturity": "INTENT",
+      "volume_t": null,
+      "phase": null,
+      "claim_ids": [
+        "C08"
+      ],
+      "note": "Identity not established."
+    },
+    {
+      "counterparty": "Yara",
+      "status": "NAMED_IN_DECK",
+      "max_maturity": "INTENT",
+      "volume_t": null,
+      "phase": null,
+      "claim_ids": [
+        "C08"
+      ]
+    }
+  ],
+  "commitment_cards": {
+    "load_after": [
+      "X2"
+    ],
+    "offtake": {
+      "planned_output_tonnes_per_year": 7000
+    },
+    "epc": {},
+    "schedule": {},
+    "supply": {},
+    "model": {}
+  },
+  "gex_working_assumptions": [
+    {
+      "id": "A1",
+      "statement": "FOB Pecém about EUR 750/t",
+      "value": 750,
+      "unit": "EUR/t",
+      "author": "IFE",
+      "basis": "Estimate marked '?' in S1"
+    },
+    {
+      "id": "A2",
+      "statement": "Power need ~70 GWh/yr for the pilot",
+      "value": 70,
+      "unit": "GWh/yr",
+      "author": "GEX",
+      "basis": "~10 MWh per tonne NH3 × 7,000 t/yr"
+    }
+  ],
+  "contradictions": [
+    {
+      "id": "X1",
+      "severity": "CRITICAL",
+      "claim_ids": [
+        "C20",
+        "C21",
+        "C18",
+        "C08",
+        "C14"
+      ],
+      "gates": [
+        "G10"
+      ],
+      "finding": "FID stated as taken, yet the email treats it as pending; ~EUR 32M debt unraised, offtake at most INTENT, EPC party unknown.",
+      "resolve_with": "FID resolution; sources and uses; grant letter"
+    },
+    {
+      "id": "X2",
+      "severity": "MAJOR",
+      "claim_ids": [
+        "C02",
+        "C05",
+        "C15"
+      ],
+      "gates": [
+        "G1",
+        "G8"
+      ],
+      "finding": "Email uses Phase 0/1; O POVO+ calls the 12 MW pilot 'Phase 1'. Unclear which phase the budget, OPEX and grant fund.",
+      "resolve_with": "Phasing plan with capacity, CAPEX and funding per phase"
+    },
+    {
+      "id": "X3",
+      "severity": "MAJOR",
+      "claim_ids": [
+        "C17",
+        "C18",
+        "C19"
+      ],
+      "gates": [
+        "G10"
+      ],
+      "finding": "April: an unnamed German fund as main financier. October: EUR 30M grant + EUR 32M debt.",
+      "resolve_with": "Sources and uses naming every funder"
+    },
+    {
+      "id": "X4",
+      "severity": "MAJOR",
+      "claim_ids": [
+        "C08",
+        "C09"
+      ],
+      "gates": [
+        "G4"
+      ],
+      "finding": "Three buyers named in the deck; the sponsor says more are needed; none named publicly.",
+      "resolve_with": "Offtake status per buyer"
+    },
+    {
+      "id": "X5",
+      "severity": "CRITICAL",
+      "claim_ids": [
+        "C04",
+        "C22",
+        "C20"
+      ],
+      "gates": [
+        "G0"
+      ],
+      "finding": "Still meeting CIPP in April 2026 and absent from CIPP's active pre-contracts; site control unproven while FID is claimed.",
+      "resolve_with": "CIPP pre-contract or lease"
+    },
+    {
+      "id": "X6",
+      "severity": "MAJOR",
+      "claim_ids": [
+        "C15",
+        "C05",
+        "C07"
+      ],
+      "gates": [
+        "G8",
+        "G2"
+      ],
+      "finding": "OPEX EUR 2.2M/yr holds only if power is from owned generation already in CAPEX (A2); grid top-up cost and RFNBO effect unexplained.",
+      "resolve_with": "Hourly energy balance; OPEX breakdown"
+    },
+    {
+      "id": "X7",
+      "severity": "MINOR",
+      "claim_ids": [
+        "C10"
+      ],
+      "gates": [
+        "G8"
+      ],
+      "finding": "CIF price is the deck's; the FOB figure is IFE's estimate (A1); the ~EUR 250–300/t bridge is unproven for small parcels.",
+      "resolve_with": "Logistics cost build-up: storage, loading, freight, insurance"
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "Q1",
+      "priority": 1,
+      "topic": "Offtake",
+      "claim_ids": [
+        "C08",
+        "C09"
+      ],
+      "evidence_keys": [
+        "binding_offtake_contract_executed",
+        "offtake_credit_assessment"
+      ]
+    },
+    {
+      "id": "Q2",
+      "priority": 2,
+      "topic": "Price",
+      "claim_ids": [
+        "C10"
+      ],
+      "evidence_keys": [
+        "base_case_model"
+      ]
+    },
+    {
+      "id": "Q3",
+      "priority": 3,
+      "topic": "Power",
+      "claim_ids": [
+        "C05",
+        "C06",
+        "C07"
+      ],
+      "evidence_keys": [
+        "btm_generation_asset_evidence",
+        "generation_yield_study",
+        "ppa_register",
+        "grid_interconnection_study"
+      ]
+    },
+    {
+      "id": "Q4",
+      "priority": 4,
+      "topic": "RFNBO certification",
+      "claim_ids": [
+        "C11",
+        "C12"
+      ],
+      "evidence_keys": [
+        "certification_scheme_selection",
+        "additionality_evidence",
+        "power_sourcing_alignment_note",
+        "ghg_methodology_memo"
+      ]
+    },
+    {
+      "id": "Q5",
+      "priority": 5,
+      "topic": "EPC and costs",
+      "claim_ids": [
+        "C13",
+        "C14",
+        "C15",
+        "C16"
+      ],
+      "evidence_keys": [
+        "epc_contract_fixed_price_or_capped_gmp",
+        "feed_complete_class3",
+        "independent_technical_review",
+        "base_case_model"
+      ]
+    },
+    {
+      "id": "Q6",
+      "priority": 6,
+      "topic": "Grant and FID conditions",
+      "claim_ids": [
+        "C17",
+        "C18",
+        "C20"
+      ],
+      "evidence_keys": [
+        "equity_injected"
+      ]
+    },
+    {
+      "id": "Q7",
+      "priority": 1,
+      "topic": "Site, water, port",
+      "claim_ids": [
+        "C04"
+      ],
+      "evidence_keys": [
+        "land_option_or_lease_executed",
+        "water_source_plan",
+        "transport_logistics_study",
+        "storage_plan"
+      ]
+    }
+  ],
+  "reviewers": {
+    "appointed": [],
+    "required_by_gate": {
+      "CERTIFIER": [
+        "G2",
+        "G11"
+      ],
+      "INDEPENDENT_ENGINEER": [
+        "G0",
+        "G1",
+        "G3",
+        "G5",
+        "G6",
+        "G11"
+      ],
+      "LENDERS_ADVISER": [
+        "G0",
+        "G4",
+        "G7",
+        "G8",
+        "G9",
+        "G10"
+      ],
+      "INSURER": [
+        "G7"
+      ]
+    },
+    "source": "abac.REVIEWER_GATES, decided 2026-10-02"
+  },
+  "protocol_result": {
+    "run_date": "2026-10-09",
+    "rules_version": "4.1.0",
+    "premise": {
+      "power_model": "HYBRID",
+      "phase": "construction",
+      "financing_model": "PROJECT_FINANCE"
+    },
+    "state": "SPECULATIVE",
+    "verified": 0,
+    "applicable": 93,
+    "ceiling_if_all_claims_verified": {
+      "state": "SPECULATIVE",
+      "verified": 4
+    },
+    "offtake_level": "O0",
+    "epc_level": "E0",
+    "gates_blocking_next": [
+      "G0_SITE_RIGHTS",
+      "G1_GRID_UTILITIES_REALITY"
+    ],
+    "committee": "NOT_READY",
+    "active_deal_killers": {
+      "FATAL": [
+        "DK_G4_NO_OFFTAKE",
+        "DK_G4_NO_THIRD_PARTY_OFFTAKE",
+        "DK_G5_NO_EPC",
+        "DK_G6_NO_IE",
+        "DK_G8_NO_AUDIT_MODEL",
+        "DK_G2_CERT_FAIL",
+        "DK_DSCR_BELOW_FLOOR"
+      ],
+      "CRITICAL": [
+        "DK_G7_NO_INSURANCE",
+        "DK_G1_NO_GRID"
+      ]
+    }
+  }
+}

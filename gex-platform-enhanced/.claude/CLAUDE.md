@@ -103,10 +103,64 @@ by `tests/test_gex_app_runtime_role.py`, which asserts against whatever
 
 ### Migration state
 
+**2026-09-30: the database was REBUILT after the 28 Sep reset.** It was empty from
+28 Sep 16:14 (compose project `files` recreated on a new `files_postgres_data` volume,
+fresh `initdb`) until 30 Sep. `docs/CLAUDE_HANDOFF.md` §8 item 38 records the rebuild and
+what it cost. Schema is back to the pre-reset measurement exactly; **103 of 114** tables
+match the 23 Sep baseline (`backend/db_backups/pg_after_kyc.json`) row for row.
+
+**A Time Machine restore of the volume was never possible.** Item 38 used to offer one.
+`Docker.raw` is **excluded** from Time Machine — Docker Desktop sets that exclusion itself —
+so no backup of the volume has ever existed on this machine. Verify with
+`tmutil isexcluded ~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw`
+before anyone proposes that route again. **`pg_dump` is the only backup that works here.**
+
 PostgreSQL holds **120** tables in schema `public` (incl. `alembic_version`) at head
-**058**, **113** under FORCED RLS — measured 2026-09-28 by `pg_class relkind='r'`. 058
+**059**, **113** under FORCED RLS — measured 2026-09-28 before the reset and again
+2026-09-30 after the rebuild, by `pg_class relkind='r'`; both runs agree. 058
 added the two commitment-card tables (rules 4.0.0; `docs/CLAUDE_HANDOFF.md` §8 item 34).
+059 adds no table — it only restores privileges, so the count is unchanged.
 (This file once said 119 at 053 by another method. Re-measure rather than reconcile.)
+
+**Rebuilding is a known drill — it has now been done twice** (2026-09-08 and 2026-09-30).
+The order matters and two steps are easy to get wrong:
+
+1. `scripts/setup_postgres_rls.sql` runs **FIRST, before Alembic, and ONCE** — 24
+   migrations reference `gex_app`. It creates the role with its own default password; if
+   `.env` carries a different one (it did), set the `.env` password or the runtime still
+   cannot log in and the failure reads as "password authentication failed".
+   **Do not re-run it after Alembic.** Its own comment used to invite that, and doing so
+   on 30 Sep silently re-granted UPDATE on three append-only audit tables, undoing
+   migrations 056 and 058 — see the Tests section. The script is now safe to re-run
+   (it grants only to tables holding no `gex_app` privilege at all), but the migrations,
+   not this script, are the authority on privileges. If you re-run it, re-check grants:
+
+       docker exec files-postgres-1 psql -U gex_user -d gex_platform -c "SELECT table_name, \
+         string_agg(privilege_type, ', ' ORDER BY privilege_type) FROM \
+         information_schema.role_table_grants WHERE grantee='gex_app' AND table_name IN \
+         ('evidence_events','bankability_evidence_archive','commitment_terms_events') \
+         GROUP BY 1;"
+
+   Correct answer: archive `SELECT`, the other two `INSERT, SELECT`. Any `UPDATE` there
+   means the append-only guarantee is off again.
+2. `alembic upgrade auth_slice@head`, **never `heads`**. There are two roots: `auth_slice`
+   (030→059) and a legacy `001→011` whose tables 042/044 already own. Upgrading `011`
+   fails on `relation "matrix_rooms" already exists` — that is correct, not a problem.
+   `alembic_version` holds **059 alone**. `cutover_postgres.py:116` corroborates the
+   branch point in a comment ("auth_slice@head, never 'heads'") — it names no revision
+   number, so it does not go stale as the head moves.
+3. `scripts/cutover_postgres.py --execute` runs 8 copiers. It does **not** run
+   `migrate_directory_slice.py` or `migrate_workspace_slice.py` — run those separately or
+   `directory_roles`, `canvas_blobs` and `user_plants` stay at 0.
+4. **Do not override `DATABASE_URL` for `migrate_workspace_slice.py`.** It copies with
+   `ALEMBIC_DATABASE_URL` but verifies with `DATABASE_URL`, which must be the `gex_app`
+   runtime role — 050's policies have no admin clause. Verified as `gex_user` it reports
+   4× the rows (500→2000: every owner seeing all 500, summed over 4 owners) and claims the
+   owner policy does nothing. Both are artifacts of the wrong verify role, not bad data.
+5. `scripts/restore_registry_projects.py --execute` returns 5 projects + 2 tenants from
+   `frontend/src/data/customerProjects.ts`, then
+   `scripts/restore_retired_collision_projects.py --execute` returns the last 2 from
+   SQLite's `projects_retired_pg_collision_20260807`. 7 (migration 020) + 5 + 2 = **14**.
 
 **Docker Desktop restarts leave PostgreSQL stopped.** `files-postgres-1` has restart
 policy `no`; after a Docker restart the forwarder on 55432 is up but refuses queries.
@@ -115,6 +169,21 @@ policy `no`; after a Docker restart the forwarder on 55432 is up but refuses que
 **New tables inherit full DML for `gex_app`.** Migration 031 set DEFAULT PRIVILEGES, so a
 `GRANT SELECT` on a new table restricts nothing — only `REVOKE` does. 056 found the
 "append-only" `evidence_events` updatable and deletable by the runtime since 034.
+
+**One project in the database is a TEST fixture, and 32 evidence rows with it.**
+`proj_TEST_gates_reference` ("TEST — Gates Comprehension Reference (synthetic)", owner
+`hamburgone_com`) was loaded 2026-10-02 on JML's instruction for the first-use comprehension test
+(`docs/usability/`). That is why `projects` holds **15** and `bankability_evidence` **117** — the
+85 real open requests are untouched. Every fixture row carries
+`submitted_by = 'TEST_FIXTURE_COMPREHENSION'`; that marker is how you find them, and
+`backend/scripts/load_comprehension_test_project.py --remove --execute` deletes the lot by project
+id. The item list is derived from the running engine, so the fixture cannot drift from the rules;
+`--verify` re-checks it against the published answer key, and caught a prefix bug the first time
+it ran (`"G10"[:2] == "G1"` had pulled G10 and G11 into the fixture). The rows exist in
+PostgreSQL only, which is the single tolerated break in SQLite↔PostgreSQL evidence parity:
+`test_evidence_slice.py` excludes the marker and a second test pins the exception to projects
+named `proj_TEST_`. Both were negative-verified. **Do not treat a fixture row as a client
+submission**, and do not copy them into SQLite to "restore parity".
 
 **All evidence rows before 2026-09-26 were invented** — the 125 `demo_seed` rows and the two
 under Anna Keller's and Thierry Groell's names alike. They are archived in
@@ -221,6 +290,107 @@ the host the bytes live in one blob,
 with `pg_dump`, never `cp`; `docker volume rm files_postgres_data` or a Docker
 Desktop factory reset destroys the database outright.
 
+### Backups — where they land and how to restore one
+
+`files/backup_postgres.sh` is the backup. It dumps with `pg_dump -Fc` out of the
+container, **verifies the dump, and only then** installs it. Run it by hand any
+time; it is also the thing the scheduler runs.
+
+    files/db_backups/daily/    gex_platform_<YYYY-mm-dd_HHMM>.dump   keep 7
+    files/db_backups/weekly/   gex_platform_<ISOweek>_<stamp>.dump   keep 4
+    files/db_backups/backup.log
+
+Weekly is a **hardlink** to the first good daily of each ISO week, so the four
+weekly copies cost no extra disk. A dump is ~1.0 MB, so the whole rotation is
+~8 MB. The pre-existing loose dumps at the top of `db_backups/` are untouched.
+
+**Verification is two steps, and the second is the one that counts.**
+`pg_restore -l` reads only the archive TOC. Measured 2026-09-30 against a
+known-good dump: a copy missing its **last 500 bytes**, and a copy with a
+**byte-flip at 60%**, BOTH passed `pg_restore -l` with exit 0. Only a full read
+(`pg_restore -f /dev/null`, which decompresses every data block) caught them. So
+the script does both. Do not "simplify" it back to `-l` alone.
+
+A dump is staged in `db_backups/.staging/` and moved into `daily/` **only after
+it verifies**, so a failed run leaves no file that could be mistaken for a
+backup. Verify any existing dump without changing anything:
+
+```bash
+files/backup_postgres.sh --verify files/db_backups/daily/<file>.dump
+```
+
+**It dumps as `gex_user`, and it must.** 113 of 120 public tables carry FORCED
+RLS, which applies even to the table owner; `gex_user` is SUPERUSER + BYPASSRLS
+so it reads every tenant's rows. Dumping as `gex_app` would silently produce a
+partial database. This does **not** change `DATABASE_URL`, which stays `gex_app`.
+
+**Failures are loud and distinguishable** — never a 0-byte file and exit 0:
+
+    10 docker CLI not found      20 pg_dump failed
+    11 Docker Desktop not up     21 empty / not a PGDMP archive
+    12 container missing         22 TOC unreadable
+    13 container STOPPED  <-     23 too few TABLE DATA entries
+    14 up but refuses queries    24 truncated or corrupt (full read failed)
+                                 30 could not install   40 another run in progress
+
+13 is the recurring one: `files-postgres-1` has restart policy `no`, so a Docker
+Desktop restart leaves it stopped while the forwarder on :55432 still accepts
+connections and refuses queries. Fix with `docker start files-postgres-1`.
+
+**To restore.** Restore into a THROWAWAY database first and compare — never
+straight over `gex_platform`:
+
+```bash
+docker exec files-postgres-1 psql -U gex_user -d postgres -c "CREATE DATABASE gex_restore_test;"
+docker exec -i files-postgres-1 pg_restore -U gex_user -d gex_restore_test --no-owner < files/db_backups/daily/<file>.dump
+```
+
+Verified end to end 2026-09-30: restored clean (exit 0, zero errors), **120 of
+120 tables, 19,984 rows**. The only two tables that differed from live —
+`auth_login_history` and `refresh_tokens`, +3 rows each — were writes that
+happened *after* the snapshot (live rows timestamped 08:17–08:18 UTC against an
+08:16 UTC dump). That is a correct point-in-time snapshot, not data loss; expect
+the same shape when you compare.
+
+To promote a restore over the live database, drop and recreate `gex_platform`
+itself — `pg_restore -c` into a live database leaves RLS policies and grants in
+a half-replaced state. Re-run `scripts/setup_postgres_rls.sql` **before** the
+restore if the roles are gone, and do not run migrations as part of a restore:
+the dump already carries schema at its own head.
+
+**Scheduling.** `files/com.gex.postgres-backup.plist` is a launchd agent, daily
+at 12:30 local. Note it is **not installed unless someone ran the two commands
+in it** — check with `launchctl list | grep gex`. Install / remove:
+
+```bash
+cp files/com.gex.postgres-backup.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.gex.postgres-backup.plist
+launchctl unload ~/Library/LaunchAgents/com.gex.postgres-backup.plist && rm ~/Library/LaunchAgents/com.gex.postgres-backup.plist
+```
+
+Three things about this job were learned the hard way on 2026-09-30, all
+verified by running it:
+
+- launchd gives jobs `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, which does **not**
+  contain `docker` — `/usr/local/bin/docker` is a symlink into Docker.app. The
+  script resolves docker by absolute path itself, which is why it works under
+  launchd. Keep that if you rewrite it.
+- **`ProcessType` must stay `Standard`.** It was first written as `Background`
+  (with `LowPriorityIO` and `Nice 5`), which makes the job eligible for
+  aggressive CPU and I/O throttling: one run was still unfinished after 2m09s
+  having consumed 0.31s of CPU, and a second took 27s, against ~4s by hand.
+  With `Standard` the scheduled run finishes in ~9s. Do not add those keys back.
+- **The lock is stale-aware, and must stay that way.** `db_backups/.lock` is
+  taken per run and carries the holder's pid. A run killed with SIGKILL, or a
+  reboot mid-dump, leaves the directory behind; the first version then exited 40
+  on every subsequent run, which would have quietly stopped backups on this
+  machine forever. `take_lock()` now clears a lock whose holder is not running
+  and logs that it did. A lock held by a *live* process is still respected.
+
+Check a scheduled run afterwards with `launchctl list | grep gex` — second
+column is the last exit status, and the codes above say what a non-zero one
+means. `db_backups/launchd.err` catches anything that fails before the script
+can log.
+
 ---
 
 ## Tenant isolation — how the caller reaches the database
@@ -286,6 +456,44 @@ Supabase `.from()`. Do not "fix" a frontend data path by wiring it to PostgREST.
 
 ---
 
+## Evidence review — who may verify (Attack A, decided 2026-10-01)
+
+A producer could walk its own claims to VERIFIED
+(`docs/adversarial/2026-09-30_attack_A_producer_advance.md`). Since 2026-10-01:
+
+- A reviewer status (UNDER_REVIEW, VERIFIED, REJECTED, EXPIRED) on
+  `POST /bankability/evidence` is a **VERIFY**, classified from the body
+  (`abac_middleware._is_evidence_review`). The URL test (`"/verify" in path`)
+  never matched it, so R5 was never reached.
+- **Who reviews which gate is JML's decision**, settled 2026-10-02:
+  `abac.REVIEWER_GATES` — **certifier** (G2, G11), **independent engineer**
+  (G0, G1, G3, G5, G6, G11), **lenders' adviser** (G0, G4, G7, G8, G9, G10),
+  **insurer** (G7). Four roles, every one independent of GEX: the platform
+  enforces the standard and verifies nothing itself. A GEX desk-review role was
+  built on 10-01 and removed on 10-02 — do not reintroduce it. Change the table
+  only on JML's word, together with `DECIDED` in
+  `tests/test_evidence_review_separation.py` (mirrored, and negative-verified:
+  widening the insurer to G10 fails 2 tests).
+  Two consequences, both deliberate: **G0, G1 and G3 need an appointed
+  independent engineer** (G0 also takes a lenders' adviser), so a concept-stage
+  project with neither verifies nothing and stays SPECULATIVE; and **insurance
+  bound at G10** (`insurance_certificates_delivered`) stays with the lenders'
+  adviser, because gate-level scope cannot hand the insurer that one item
+  without also handing it the legal opinions and the security package.
+- Never the submitter or its company (`_independence_refusal`, in the handler),
+  and never the project owner's company (R5). The actor is the token's user id;
+  the body's `submitted_by` is ignored. VERIFIED must name the sha256 of a
+  document on file (`POST /evidence/document`).
+- A reviewer reads `GET /evaluate` (resource type `GATE_EVALUATION`) and the
+  evidence and documents of its own gates, nothing else. Other gates' items are
+  withheld from its screen.
+- **Assigned** = the role on the project (`auth_user_project_roles`) AND the
+  project in `assigned_audits`. On PostgreSQL its company also needs a
+  `project_access` row, or RLS refuses the write. **No live account is assigned**
+  (measured 2026-09-30), so nobody can verify yet. That is fail-closed, not a bug.
+
+---
+
 ## Tests
 
 ```bash
@@ -299,6 +507,80 @@ skipped the entire PostgreSQL path while looking green.
 **844 pass, 17 skip** against PostgreSQL as `gex_app` with both exported, zero
 failures — measured 2026-09-28. (Counts move — this tree has more than one session
 writing to it; re-measure rather than trust a number you did not just run.)
+
+**2026-09-30: 853 pass, 18 skip, 0 fail** at head **059**. The arithmetic against
+the 28 Sep row closes exactly: 844 + **9** new
+(`tests/test_capital_bridge_projects_routes.py`) = 853. The 18th skip is the
+empty `bankability_evidence_archive` (`test_evidence_history_pg.py:69`, handoff
+item 38).
+
+**2026-10-01: 898 pass, 18 skip, 0 fail**, both exported. 853 + **45**
+(`tests/test_evidence_review_separation.py`, the Attack A fix) = 898; same 18 skips.
+
+**2026-10-02: 899 pass, 18 skip, 0 fail.** 898 + **1**
+(`test_evidence_slice.py::test_the_only_divergence_is_the_labelled_fixture`). The reviewer-table
+swap (insurer in, GEX desk review out) changed no count. The +1 pins the one deliberate
+PostgreSQL-only divergence — see the comprehension fixture below.
+
+**The three append-only failures are FIXED (migration 059).** Earlier the same
+day this file recorded 850 pass / 3 FAIL, the failures being the `UPDATE`
+variants of the parametrized append-only tests in `test_commitment_terms_pg.py`
+and `test_evidence_history_pg.py`. Head was 058 and both 056 and 058 had run, yet
+`gex_app` held `INSERT, SELECT, UPDATE` on `evidence_events`,
+`bankability_evidence_archive` and `commitment_terms_events`, with DELETE and
+TRUNCATE correctly gone.
+
+**The cause was NOT 031's DEFAULT PRIVILEGES, and NOT a missing REVOKE in 058.**
+Both guesses were written here and both were wrong; `058:79` does
+`REVOKE UPDATE, DELETE, TRUNCATE ON commitment_terms_events`, and 056 revokes the
+other two. A REVOKE is atomic, so nothing "half-applied" — DELETE surviving while
+UPDATE came back means something re-GRANTed UPDATE *after* Alembic, and granted
+UPDATE without granting DELETE. Exactly one thing in this tree does that:
+
+**`backend/scripts/setup_postgres_rls.sql` was re-run after Alembic during the
+30 Sep rebuild.** Its second block looped over every table in `public` running
+`GRANT SELECT, INSERT, UPDATE ON <tbl> TO gex_app`, exempting only a hardcoded
+list — `audit_log`, `commitment_records`, `verification_log` — and only from
+UPDATE. Its own comment invited the re-run ("Run this block again after every
+Alembic migration adds new tables"). The proof it ran against a populated schema:
+`gex_admin` holds ALL PRIVILEGES on **120** tables, which it can only have got
+from that same loop. The resulting grant shape was that script's output exactly —
+UPDATE back everywhere except `commitment_records`, the only name on its list
+that exists in this database, and DELETE nowhere, because the loop never granted
+DELETE. Confirm the diagnosis on any future recurrence with:
+
+    SELECT c.relname, c.relacl FROM pg_class c JOIN pg_namespace n
+      ON n.oid = c.relnamespace WHERE n.nspname='public' AND c.relkind='r'
+      AND c.relname IN ('evidence_events','bankability_evidence_archive',
+                        'commitment_terms_events','commitment_records');
+
+`arw` (INSERT, SELECT, UPDATE) with no `d` is the signature of that script; full
+`arwd` would instead mean the table really was dropped and recreated. **The tables
+were never dropped and recreated** — had they been, 031's DEFAULT PRIVILEGES would
+have handed back DELETE too, and it was absent.
+
+Both ends are now closed:
+
+- **Migration 059** restores the three revokes, and *asserts* afterwards that
+  `gex_app` holds no UPDATE/DELETE/TRUNCATE on any of them, so a silent re-grant
+  cannot pass unnoticed again. Its downgrade returns the database to the
+  `INSERT, SELECT, UPDATE` state 059 found, not to 031's full DML.
+- **`setup_postgres_rls.sql` can no longer undo a migration's revoke.** Its grant
+  loop now touches only tables on which `gex_app` holds *nothing*, and its
+  append-only set is REVOKEd unconditionally. A REVOKE can only be more
+  restrictive, so a stale list there under-protects but can never un-protect —
+  the asymmetry the old blanket GRANT lacked. Verified by re-running the script
+  against the live database after 059: the revokes survived.
+
+`commitment_terms` deliberately KEEPS UPDATE — cards are replaced in place (058
+grants it on purpose). Only its *history* is append-only.
+
+**Known conflict, not fixed here:** `app/core/css.py:272` issues
+`UPDATE commitment_records` on the countersign path, and `commitment_records` has
+had UPDATE revoked since well before 059 (by the old script's hardcoded list).
+That path cannot have worked as `gex_app` on PostgreSQL. 059 did not cause it and
+does not change it — it is a genuine design question (is countersigning a state
+transition or a rewrite of history?) and needs its own decision.
 
 `isolated_store` is **module-scoped**: every test in a file shares one throwaway store.
 A new test must not assume an empty table or a key no earlier test has touched —

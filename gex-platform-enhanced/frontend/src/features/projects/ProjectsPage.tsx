@@ -1,14 +1,26 @@
 // Screen: Projects screen (/projects)
-import { useMemo, useState } from "react";
+//
+// Phase and State come from one gate-engine readout per project (the same
+// cached readout State & Blockers and Capital Eligibility read): Phase is the
+// phase the project declared, State is what its evidence supports. Nothing here
+// reads the customerProjects.ts `bankability` block any more; the BNK/E·G·C·B
+// composite, the fixture capital columns and the typed "behind / on track"
+// classification were removed 2026-09-30 (docs/master-reconciliation/06).
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronRight, ChevronDown, AlertTriangle, LineChart, Pencil } from "lucide-react";
-import { type CustomerProject, type CommitmentStatus, type RiskCategory } from "@/data/customerProjects";
+import type { UseQueryResult } from "@tanstack/react-query";
+import { type CustomerProject, type RiskCategory } from "@/data/customerProjects";
 import { useSelectedProject } from "@/contexts/ProjectContext";
 import { type UserRole, useUserRole } from "@/contexts/UserRoleContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
 import { useRiskFlags } from "@/hooks/useRiskFlags";
+import { useEngineReadouts, useVocabularyLabel } from "@/hooks/useEngineReadout";
 import { resolveActionRoute, type RouteAction } from "@/lib/actionRouter";
 import { isFinanceLike } from "@/data/evidenceCatalog";
+import {
+  blockingGates, decisionsGatedBy, gateName, gateShortId, humanise, type EngineReadout,
+} from "@/lib/engineReadout";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -27,15 +39,15 @@ const MOL_TICK: Record<string, string> = {
   "e-Naphtha": "ENA",
 };
 
-// 3-letter phase codes — dense column.
-const STATUS_CODE: Record<string, string> = {
+// 3-letter codes for the declared phase (project context) — dense column.
+const PHASE_CODE: Record<string, string> = {
   development: "DEV",
   construction: "CON",
   commissioning: "CMS",
   operating: "OPS",
 };
 
-const STATUS_COLOR: Record<string, string> = {
+const PHASE_COLOR: Record<string, string> = {
   development: "text-amber-600 dark:text-amber-400",
   construction: "text-sky-600 dark:text-sky-400",
   commissioning: "text-violet-600 dark:text-violet-400",
@@ -57,111 +69,16 @@ const MOLECULE_PRICE: Record<string, number> = {
   "e-Naphtha": 900,
 };
 
-const COMMITMENT_ORDER: Record<CommitmentStatus, number> = {
-  NONE: 0,
-  INDICATIVE: 1,
-  TERM_SHEET: 2,
-  CREDIT_APPROVED: 3,
-  LEGAL_COMPLETE: 4,
-  DRAWN: 5,
-};
+// The screen that shows a project's state and what blocks the next one.
+const STATE_AND_BLOCKERS = "State & Blockers";
 
-const COMMITMENT_LABELS: Record<CommitmentStatus, string> = {
-  NONE: "no engagement",
-  INDICATIVE: "indicative",
-  TERM_SHEET: "term sheet",
-  CREDIT_APPROVED: "credit approved",
-  LEGAL_COMPLETE: "legal complete",
-  DRAWN: "drawn",
-};
+type Readout = UseQueryResult<EngineReadout>;
+type LabelFn = (canonical: string | null | undefined) => string | null;
 
-function commitmentColor(status: CommitmentStatus): string {
-  if (status === "DRAWN" || status === "LEGAL_COMPLETE")
-    return "text-emerald-600 dark:text-emerald-400";
-  if (status === "CREDIT_APPROVED" || status === "TERM_SHEET")
-    return "text-brand-600 dark:text-brand-400";
-  if (status === "INDICATIVE") return "text-amber-600 dark:text-amber-400";
-  return "text-[var(--text-muted)]";
-}
-
-// ─── Derivation helpers (kept intact for progressive disclosure) ─────────────
+// ─── Derivation helpers ──────────────────────────────────────────────────────
 
 const isCodStarted = (status: string) =>
   status === "operating" || status === "commissioning";
-
-function capexFinancingPct(project: CustomerProject): number {
-  // capex_eur 0 = CAPEX not publicly disclosed (public-source seeds) — avoid NaN%
-  if (!project.capex_eur) return 0;
-  let funded = 0;
-  for (const c of project.bankability.capital_status) {
-    const amt = parseFloat(c.amount.replace(/[^0-9.]/g, "")) * 1_000_000;
-    if ((COMMITMENT_ORDER[c.commitment_status] ?? 0) >= 2) funded += amt;
-  }
-  return Math.min(100, Math.round((funded / project.capex_eur) * 100));
-}
-
-function opexCoveragePct(project: CustomerProject): number {
-  if (!project.capex_eur) return 0;
-  const annualOpex = project.capex_eur * 0.04;
-  const monthlyOpex = annualOpex / 12;
-  const price = MOLECULE_PRICE[project.molecule] ?? 1000;
-  const utilizationFactor = 0.85;
-  const monthlyVolumeSold = project.capacity_mtpd * 30.4 * utilizationFactor;
-  const monthlyRevenue = monthlyVolumeSold * price;
-  return Math.round((monthlyRevenue / monthlyOpex) * 100);
-}
-
-interface BankabilityAxes {
-  evidence_pct: number;
-  gates_pct: number;
-  capital_pct: number;
-  blockers_pct: number;
-}
-
-function bankabilityAxes(project: CustomerProject): BankabilityAxes {
-  const gates = project.bankability.gates;
-  const capitals = project.bankability.capital_status;
-
-  const totalEvidence = gates.reduce((s, g) => s + g.total_evidence, 0);
-  const verifiedEvidence = gates.reduce((s, g) => s + g.verified_count, 0);
-  const evidence_pct =
-    totalEvidence > 0 ? Math.round((verifiedEvidence / totalEvidence) * 100) : 0;
-
-  const gates_pct =
-    gates.length > 0
-      ? Math.round((gates.filter((g) => g.is_complete).length / gates.length) * 100)
-      : 0;
-
-  let committedAmt = 0;
-  let totalAmt = 0;
-  for (const c of capitals) {
-    const amt = parseFloat(c.amount.replace(/[^0-9.]/g, "")) || 0;
-    totalAmt += amt;
-    if (COMMITMENT_ORDER[c.commitment_status] >= 2) committedAmt += amt;
-  }
-  const capital_pct =
-    totalAmt > 0 ? Math.round((committedAmt / totalAmt) * 100) : 0;
-
-  const openBlockers = gates.reduce((s, g) => s + g.blocking_items.length, 0);
-  const alerts = project.bankability.risk_alerts.length;
-  const blockers_pct = Math.max(0, 100 - openBlockers * 8 - alerts * 5);
-
-  return { evidence_pct, gates_pct, capital_pct, blockers_pct };
-}
-
-type ProjectState = "needs_action" | "on_track" | "behind";
-
-function classifyProjectState(project: CustomerProject): ProjectState {
-  const bPct = project.bankability.overall_completion;
-  const alerts = project.bankability.risk_alerts.length;
-  const openBlockers = project.bankability.gates.reduce(
-    (s, g) => s + g.blocking_items.length,
-    0,
-  );
-  if (project.status === "development" && bPct < 50) return "behind";
-  if (alerts > 0 || openBlockers > 0) return "needs_action";
-  return "on_track";
-}
 
 function volumeBreakdown(project: CustomerProject) {
   const price = MOLECULE_PRICE[project.molecule] ?? 1000;
@@ -185,13 +102,7 @@ function volumeBreakdown(project: CustomerProject) {
 }
 
 function resolveProjectDetailPath(
-  kind:
-    | "molecule"
-    | "phase"
-    | "capacity"
-    | "status"
-    | "targetCod"
-    | "capexFinancing",
+  kind: "molecule" | "phase" | "state" | "capacity" | "targetCod",
   role: UserRole,
 ): string {
   const { business_function, company_type, service_type } = role;
@@ -209,103 +120,37 @@ function resolveProjectDetailPath(
         return "/producer-bankability";
       if (business_function === "EXECUTIVE") return "/finance-timeline";
       return "/bankability-scores";
-    case "capacity":
-      return "/capacity";
-    case "status":
+    case "state":
       if (business_function === "COMPLIANCE_LEGAL" || service_type === "CERTIFIER")
         return "/stage-gates";
       if (business_function === "ENGINEERING" || business_function === "OPERATIONS")
         return "/producer-bankability";
       return "/bankability-scores";
+    case "capacity":
+      return "/capacity";
     case "targetCod":
       if (business_function === "ENGINEERING" || business_function === "OPERATIONS")
         return "/producer-bankability";
       return "/finance-timeline";
-    case "capexFinancing":
-      if (business_function === "COMMERCIAL" && company_type === "OFFTAKER")
-        return "/offtake-quality";
-      if (business_function === "COMPLIANCE_LEGAL") return "/stage-gates";
-      return "/capital-stack";
     default:
       return "/dashboard";
   }
 }
 
-// ─── Role-aware next-action derivation ───────────────────────────────────────
-// Returns a short, action-verb-led string scoped to what THIS user should do.
-// Falls back to project.bankability.next_milestone when no role-specific action applies.
+// ─── Next step, from the engine ──────────────────────────────────────────────
+// The same sentence for every role: the next state and what it waits on. The
+// role decides only where the "Your next action" button goes (roleNextAction).
 
-function roleNextActionText(project: CustomerProject, role: UserRole): string {
-  const { business_function, company_type, service_type } = role;
-  const openBlockers = project.bankability.gates.filter(
-    (g) => !g.is_complete && g.blocking_items.length > 0,
-  );
-  const alerts = project.bankability.risk_alerts;
-  const topBlocker = openBlockers[0];
-  const topAlert = alerts[0];
-
-  // Finance / Bank — capital commitment actions
-  if (
-    business_function === "FINANCE_TREASURY" ||
-    service_type === "BANK"
-  ) {
-    const uncommitted = project.bankability.capital_status.find(
-      (c) =>
-        COMMITMENT_ORDER[c.commitment_status] >= 1 &&
-        COMMITMENT_ORDER[c.commitment_status] < 3,
-    );
-    if (uncommitted)
-      return `Advance ${uncommitted.name} to credit approval`;
-    if (topAlert) return `Review risk alert: ${topAlert.replace(/_/g, " ")}`;
-    return project.bankability.next_milestone;
-  }
-
-  // Engineering / Operations — blocker resolution
-  if (
-    business_function === "ENGINEERING" ||
-    business_function === "OPERATIONS" ||
-    service_type === "ENGINEER"
-  ) {
-    if (topBlocker) {
-      const item = topBlocker.blocking_items[0].replace(/_/g, " ");
-      return `Resolve ${topBlocker.id.split("_")[0]}: ${item}`;
-    }
-    return project.bankability.next_milestone;
-  }
-
-  // Compliance / Legal / Certifier — gate completion
-  if (
-    business_function === "COMPLIANCE_LEGAL" ||
-    service_type === "CERTIFIER" ||
-    service_type === "LEGAL"
-  ) {
-    const incompleteGate = project.bankability.gates.find((g) => !g.is_complete);
-    if (incompleteGate)
-      return `Clear stage gate: ${incompleteGate.id.replace(/_/g, " ")}`;
-    return project.bankability.next_milestone;
-  }
-
-  // Commercial / Offtaker — offtake or term sheet actions
-  if (
-    business_function === "COMMERCIAL" ||
-    company_type === "OFFTAKER"
-  ) {
-    const tsReady = project.bankability.capital_status.find(
-      (c) => c.commitment_status === "INDICATIVE",
-    );
-    if (tsReady) return `Progress ${tsReady.name} to term sheet`;
-    return project.bankability.next_milestone;
-  }
-
-  // Executive — high-level milestone
-  if (business_function === "EXECUTIVE") {
-    if (project.bankability.overall_completion < 50 && project.status === "development")
-      return `Escalate: bankability ${project.bankability.overall_completion}% — below threshold`;
-    if (topAlert) return `Assess alert: ${topAlert.replace(/_/g, " ")}`;
-    return project.bankability.next_milestone;
-  }
-
-  return project.bankability.next_milestone;
+function engineNextStep(readout: Readout, stateLabel: LabelFn): string {
+  if (readout.isLoading) return "…";
+  const r = readout.data;
+  if (!r) return "Gate engine unavailable";
+  if (!r.next_state) return "No further state";
+  const gates = blockingGates(r).map((g) => gateName(r, g.gate_id));
+  const waits = gates.length > 0
+    ? gates
+    : (r.commitments_blocking_next_state ?? []).map((s) => s.message);
+  return `Reach ${stateLabel(r.next_state)}: ${waits.join(", ") || "the gates it needs are satisfied"}`;
 }
 
 // ─── Causal "ways" — no claim without a route to act on it ──────────────────
@@ -320,16 +165,16 @@ type LabelledAction = RouteAction & { label: string; fallback_label?: string };
 function roleNextAction(role: UserRole): LabelledAction {
   const { business_function, company_type, service_type } = role;
   if (business_function === "FINANCE_TREASURY" || service_type === "BANK")
-    return { kind: "next:finance", preferred_route: "/capital-stack", owner_function: "FINANCE_TREASURY", fallback_route: "/bankability-scores", fallback_label: "Bankability", label: "Capital Stack" };
+    return { kind: "next:finance", preferred_route: "/capital-stack", owner_function: "FINANCE_TREASURY", fallback_route: "/bankability-scores", fallback_label: STATE_AND_BLOCKERS, label: "Capital Stack" };
   if (business_function === "ENGINEERING" || business_function === "OPERATIONS" || service_type === "ENGINEER")
     return { kind: "next:engineering", preferred_route: "/producer-bankability", owner_function: "ENGINEERING", label: "Gate Evidence" };
   if (business_function === "COMPLIANCE_LEGAL" || service_type === "CERTIFIER" || service_type === "LEGAL")
-    return { kind: "next:compliance", preferred_route: "/stage-gates", owner_function: "COMPLIANCE_LEGAL", label: "Stage Gates" };
+    return { kind: "next:compliance", preferred_route: "/stage-gates", owner_function: "COMPLIANCE_LEGAL", label: "Gates & Evidence" };
   if (business_function === "COMMERCIAL" || company_type === "OFFTAKER")
-    return { kind: "next:commercial", preferred_route: "/offtake-quality", owner_function: "COMMERCIAL", fallback_route: "/bankability-scores", fallback_label: "Bankability", label: "Offtake Quality" };
+    return { kind: "next:commercial", preferred_route: "/offtake-quality", owner_function: "COMMERCIAL", fallback_route: "/bankability-scores", fallback_label: STATE_AND_BLOCKERS, label: "Offtake Quality" };
   if (business_function === "EXECUTIVE")
     return { kind: "next:executive", preferred_route: "/finance-timeline", owner_function: "EXECUTIVE", label: "Finance Timeline" };
-  return { kind: "next:default", preferred_route: "/bankability-scores", owner_function: "EXECUTIVE", label: "Bankability" };
+  return { kind: "next:default", preferred_route: "/bankability-scores", owner_function: "EXECUTIVE", label: STATE_AND_BLOCKERS };
 }
 
 /** A blocking gate → the gate-evidence deep-link. The route is open (the
@@ -342,34 +187,6 @@ function blockerAction(project: CustomerProject, gateId: string): LabelledAction
     preferred_route: `/producer-bankability?project=${encodeURIComponent(project.id)}&gate=${encodeURIComponent(gateId)}`,
     label: "Gate Evidence",
   };
-}
-
-/** Capital tranches a gate blocks — the causal consequence. */
-function gateUnlocks(project: CustomerProject, gateId: string): string | null {
-  const gated = project.bankability.capital_status.filter(
-    (c) => !c.is_unlocked && c.gating_gates.includes(gateId),
-  );
-  if (gated.length === 0) return null;
-  return gated.map((c) => `${c.amount} ${c.name}`).join(" · ");
-}
-
-/** LEGACY risk-alert string → an ACTION (keyword heuristic for projects not yet
- *  migrated to structured risk_flags). Owner-surface alerts (offtake/financing)
- *  carry a fallback so the resolver routes non-owners off the locked screen. */
-function riskAlertAction(project: CustomerProject, alert: string): LabelledAction {
-  const a = alert.toLowerCase();
-  const pid = encodeURIComponent(project.id);
-  if (/capacity|overstat|discrepan|public source/.test(a))
-    return { kind: "alert:capacity", preferred_route: `/adversarial-review?project=${pid}`, owner_function: "EXECUTIVE", label: "Challenge Review" };
-  if (/45v|rfnbo|red.?iii|temporal|certif|ghg|iso.?14064/.test(a))
-    return { kind: "alert:cert", preferred_route: "/cert-readiness", owner_function: "COMPLIANCE_LEGAL", label: "Cert Readiness" };
-  if (/offtake|related.?party|take.?or.?pay|tenor|term sheet|loi\b/.test(a))
-    return { kind: "alert:offtake", preferred_route: "/offtake-quality", owner_function: "COMMERCIAL", fallback_route: `/producer-bankability?project=${pid}&gate=G4`, fallback_label: "Gate Evidence", label: "Offtake Quality" };
-  if (/lender|debt|equity|capital|wacc|insur|drawdown/.test(a))
-    return { kind: "alert:financing", preferred_route: "/capital-stack", owner_function: "FINANCE_TREASURY", fallback_route: "/bankability-scores", fallback_label: "Bankability", label: "Capital Stack" };
-  if (/grid|permit|eia|environmental|water|land|interconnect|ppa/.test(a))
-    return { kind: "alert:site", preferred_route: "/producer-bankability", owner_function: "ENGINEERING", label: "Gate Evidence" };
-  return { kind: "alert:other", preferred_route: "/bankability-scores", owner_function: "EXECUTIVE", label: "Bankability" };
 }
 
 /** Structured flags carry a semantic category → an ACTION (preferred owner
@@ -398,7 +215,7 @@ function riskFlagAction(project: CustomerProject, category: RiskCategory): Label
       // Finance own the capital stack; others fall back to the open scoreboard.
       return {
         kind: "risk:financing", preferred_route: "/capital-stack", owner_function: "FINANCE_TREASURY",
-        fallback_route: "/bankability-scores", fallback_label: "Bankability",
+        fallback_route: "/bankability-scores", fallback_label: STATE_AND_BLOCKERS,
         label: "Capital Stack",
       };
     case "insurance":
@@ -406,7 +223,7 @@ function riskFlagAction(project: CustomerProject, category: RiskCategory): Label
     case "site_permits":
       return { kind: "risk:site_permits", preferred_route: "/producer-bankability", owner_function: "ENGINEERING", label: "Gate Evidence" };
     default:
-      return { kind: "risk:other", preferred_route: "/bankability-scores", owner_function: "EXECUTIVE", label: "Bankability" };
+      return { kind: "risk:other", preferred_route: "/bankability-scores", owner_function: "EXECUTIVE", label: STATE_AND_BLOCKERS };
   }
 }
 
@@ -419,106 +236,94 @@ function fmtShort(n: number): string {
   return String(n);
 }
 
-function fmtCod(date: string): string {
+/** Target COD as declared: MMM-YY for a date, "—" when none is recorded, and
+ *  anything else (e.g. "2027-Q3") exactly as entered. `new Date("")` used to
+ *  render "INVALID DATE-aN" for every project created without a date. */
+export function fmtCod(date: string | null | undefined): string {
+  if (!date) return "—";
   const d = new Date(date);
-  return `${d.toLocaleString("en-GB", { month: "short" }).toUpperCase()}-${String(
-    d.getFullYear(),
-  ).slice(-2)}`;
+  if (Number.isNaN(d.getTime())) return date;
+  const month = d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" }).toUpperCase();
+  return `${month}-${String(d.getUTCFullYear()).slice(-2)}`;
 }
 
-// Single-letter state marker. Bloomberg uses a narrow colored glyph in
-// the leftmost column rather than a badge.
-function stateMarker(state: ProjectState): { char: string; color: string; label: string } {
-  if (state === "behind")
-    return { char: "●", color: "text-rose-500", label: "Behind plan" };
-  if (state === "needs_action")
-    return { char: "●", color: "text-amber-500", label: "Needs action" };
-  return { char: "●", color: "text-emerald-500", label: "On track" };
-}
+// ─── Phase and State cells ────────────────────────────────────────────────────
 
-// ─── Four-segment inline microbar ────────────────────────────────────────────
-// Evidence · Gates · Capital · Blockers-clear — each rendered as a quarter
-// slice. Widths within a slice encode that axis's %. Hover reveals the number.
-// This is the progressive-disclosure primitive: the headline BNK% (left)
-// decomposes into four sub-capabilities inline, without expanding the row.
-
-function FourSegmentBar({ axes }: { axes: BankabilityAxes }) {
-  const segs: Array<{ key: string; label: string; pct: number }> = [
-    { key: "E", label: "Evidence", pct: axes.evidence_pct },
-    { key: "G", label: "Gates", pct: axes.gates_pct },
-    { key: "C", label: "Capital", pct: axes.capital_pct },
-    { key: "B", label: "Blockers clear", pct: axes.blockers_pct },
-  ];
+function PhaseCell({ readout, phaseLabel }: { readout: Readout; phaseLabel: LabelFn }) {
+  if (readout.isLoading) return <span className="text-center text-[var(--text-muted)]">…</span>;
+  const phase = readout.data?.project_phase;
+  if (!phase) {
+    return (
+      <span className="text-center font-mono text-[11px] text-[var(--text-muted)]" title="No phase recorded in the project context">
+        —
+      </span>
+    );
+  }
   return (
-    <div className="flex h-1.5 w-full gap-px">
-      {segs.map((s) => (
-        <div
-          key={s.key}
-          className="relative flex-1 bg-[var(--border)]/40 overflow-hidden"
-          title={`${s.label}: ${s.pct}%`}
-        >
-          <div
-            className={segColor(s.pct)}
-            style={{ width: `${s.pct}%`, height: "100%" }}
-          />
-        </div>
-      ))}
-    </div>
+    <span
+      className={`text-center font-mono text-[11px] font-bold ${PHASE_COLOR[phase] ?? "text-[var(--text-muted)]"}`}
+      title={`Declared phase: ${phaseLabel(phase)}`}
+    >
+      {PHASE_CODE[phase] ?? phase.slice(0, 3).toUpperCase()}
+    </span>
   );
 }
 
-function segColor(pct: number): string {
-  if (pct >= 85) return "h-full bg-emerald-500";
-  if (pct >= 55) return "h-full bg-amber-400";
-  if (pct >= 25) return "h-full bg-brand-500";
-  return "h-full bg-rose-500";
-}
-
-function bnkColor(pct: number): string {
-  if (pct >= 85) return "text-emerald-600 dark:text-emerald-400";
-  if (pct >= 55) return "text-amber-600 dark:text-amber-400";
-  if (pct >= 25) return "text-brand-600 dark:text-brand-400";
-  return "text-rose-600 dark:text-rose-400";
+function StateCell({ readout, stateLabel }: { readout: Readout; stateLabel: LabelFn }) {
+  if (readout.isLoading) return <span className="text-right text-[var(--text-muted)]">…</span>;
+  const r = readout.data;
+  if (!r) {
+    return (
+      <span className="text-right font-mono text-[11px] text-[var(--text-muted)]" title="Gate engine unavailable">
+        —
+      </span>
+    );
+  }
+  return (
+    <span className="flex min-w-0 flex-col items-end leading-tight" title={r.state_label ?? undefined}>
+      <span className="max-w-full truncate text-[11px] font-semibold text-[var(--text-primary)]">
+        {stateLabel(r.current_state)}
+      </span>
+      <span className="font-mono text-[10px] tabular-nums text-[var(--text-muted)]">
+        {r.total_verified}/{r.total_evidence} verified
+      </span>
+    </span>
+  );
 }
 
 // ─── Expand-in-place panel ────────────────────────────────────────────────────
-// Replaces the old modal. Opens inline below the clicked row. Contains:
-//   (1) Context — phase, next action, open blockers
+// Opens inline below the clicked row. Contains:
+//   (1) Next action, gates blocking the next state, risk flags
 //   (2) Capacity derivation (volumeBreakdown)
-//   (3) Capital stack (tranche → amount → commitment stage)
-//   (4) Persona deep-links (6 entry points that were the ProjectDetail modal)
-// Progressive disclosure: the row's numbers are re-stated AND their inputs
-// are shown — the user sees *how the number was derived*.
+//   (3) Persona deep-links
 
 function ExpandPanel({
   project,
   role,
+  readout,
   onNav,
 }: {
   project: CustomerProject;
   role: UserRole;
+  readout: Readout;
   onNav: (path: string) => void;
 }) {
+  const phaseLabel = useVocabularyLabel("project_phase");
+  const stateLabel = useVocabularyLabel("readiness");
   const vb = volumeBreakdown(project);
   const ops = isCodStarted(project.status);
-  const cpx = capexFinancingPct(project);
-  const opx = opexCoveragePct(project);
-  const openGates = project.bankability.gates.filter(
-    (g) => !g.is_complete && g.blocking_items.length > 0,
-  );
-  const myNextAction = roleNextActionText(project, role);
+  const r = readout.data;
+  const openGates = r ? blockingGates(r) : [];
+  const nextStep = engineNextStep(readout, stateLabel);
   // Server-filtered structured flags (ABAC: classification × stakeholding).
-  // Falls back to the static copy in dev; legacy string alerts render for
-  // projects not yet migrated to risk_flags.
   const { flags: riskFlags } = useRiskFlags(project.id);
 
   const links: Array<{ label: string; value: string; kind: Parameters<typeof resolveProjectDetailPath>[0] }> = [
     { label: "Molecule", value: project.molecule, kind: "molecule" },
-    { label: "Phase", value: project.phase, kind: "phase" },
+    { label: "Phase", value: phaseLabel(r?.project_phase) ?? "not recorded", kind: "phase" },
+    { label: "State", value: r ? stateLabel(r.current_state) ?? r.current_state : "—", kind: "state" },
     { label: "Capacity", value: `${project.capacity_mtpd} MTPD`, kind: "capacity" },
-    { label: "Status", value: STATUS_CODE[project.status] ?? "—", kind: "status" },
     { label: "Target COD", value: fmtCod(project.completion_date), kind: "targetCod" },
-    { label: ops ? "OPEX cov." : "CAPEX fin.", value: `${ops ? opx : cpx}%`, kind: "capexFinancing" },
   ];
 
   return (
@@ -528,7 +333,7 @@ function ExpandPanel({
             Sung structure per row: THOUGHT (the claim) → CONSEQUENCE (what it
             blocks) → WAY (the screen where it is worked). Nothing here
             is allowed to dead-end on prose. */}
-        <div className="col-span-12 lg:col-span-4 space-y-2">
+        <div className="col-span-12 lg:col-span-7 space-y-2">
           <SectionLabel>Your next action</SectionLabel>
           {(() => {
             const action = roleNextAction(role);
@@ -541,7 +346,7 @@ function ExpandPanel({
                 className="block w-full rounded border border-amber-400/40 bg-amber-50/10 px-2 py-1.5 text-left text-[11px] font-semibold leading-snug text-[var(--text-primary)] transition-colors hover:bg-amber-50/30 disabled:cursor-default"
                 title={resolved.route ? `Work this in ${label}` : undefined}
               >
-                {myNextAction}
+                {nextStep}
                 <span className="mt-0.5 block font-mono text-[10px] font-normal uppercase tracking-[0.06em] text-[var(--brand,#0ea5a0)]">
                   → {label}
                 </span>
@@ -555,38 +360,32 @@ function ExpandPanel({
               {project.lat.toFixed(2)}N,{Math.abs(project.lng).toFixed(2)}
               {project.lng >= 0 ? "E" : "W"}
             </span>
-            {" · "}
-            {project.phase}
           </div>
-          {openGates.length > 0 && (
+          {r && openGates.length > 0 && (
             <>
-              <div className="text-[var(--text-muted)] pt-1">Open blockers</div>
+              <div className="text-[var(--text-muted)] pt-1">Blocking the next state</div>
               <ul className="space-y-0.5">
                 {openGates.slice(0, 4).map((g) => {
-                  const unlocks = gateUnlocks(project, g.id);
+                  const neededFor = decisionsGatedBy(r, g.gate_id).map((c) => c.label ?? humanise(c.capital_type));
                   // The resolver owns the decision; the gate-evidence view is
                   // persona-scoped and self-explains a gate outside the viewer's
                   // persona (F2 banner), so this never dead-ends generically.
-                  const resolved = resolveActionRoute(role, blockerAction(project, g.id), project.id);
+                  const resolved = resolveActionRoute(role, blockerAction(project, g.gate_id), project.id);
                   return (
-                    <li key={g.id}>
+                    <li key={g.gate_id}>
                       <button
                         onClick={() => resolved.route && onNav(resolved.route)}
                         className="flex w-full items-start gap-1 text-left text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                        title={`Open ${g.id} evidence detail`}
+                        title={`Open ${gateShortId(g.gate_id)} evidence detail`}
                       >
                         <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
                         <span className="min-w-0">
                           <span className="block truncate">
-                            <span className="font-mono font-semibold">{g.id.split("_")[0]}</span>{" "}
-                            {g.blocking_items[0].replace(/_/g, " ")}
-                            {g.blocking_items.length > 1
-                              ? ` +${g.blocking_items.length - 1}`
-                              : ""}
+                            {gateName(r, g.gate_id)} · {g.verified_count}/{g.total_evidence} verified
                           </span>
-                          {unlocks && (
+                          {neededFor.length > 0 && (
                             <span className="block truncate font-mono text-[10px] text-[var(--text-muted)]">
-                              blocks {unlocks}
+                              needed for {neededFor.join(" · ")}
                             </span>
                           )}
                           <span className="block font-mono text-[10px] uppercase tracking-[0.06em] text-[var(--brand,#0ea5a0)]">
@@ -600,7 +399,7 @@ function ExpandPanel({
               </ul>
             </>
           )}
-          {riskFlags.length > 0 ? (
+          {riskFlags.length > 0 && (
             <>
               <div className="text-[var(--text-muted)] pt-1">Risk flags</div>
               <ul className="space-y-1">
@@ -639,46 +438,11 @@ function ExpandPanel({
                 })}
               </ul>
             </>
-          ) : project.bankability.risk_alerts.length > 0 && (
-            <>
-              <div className="text-[var(--text-muted)] pt-1">Risk alerts</div>
-              <ul className="space-y-0.5">
-                {project.bankability.risk_alerts.slice(0, 3).map((a) => {
-                  const action = riskAlertAction(project, a);
-                  const resolved = resolveActionRoute(role, action, project.id);
-                  const label = resolved.status === "fallback" ? (action.fallback_label ?? action.label) : action.label;
-                  return (
-                    <li key={a}>
-                      <button
-                        onClick={() => resolved.route && onNav(resolved.route)}
-                        disabled={!resolved.route}
-                        className="flex w-full items-start gap-1 text-left text-[10px] text-rose-500 hover:text-rose-400 disabled:cursor-default disabled:text-[var(--text-muted)]"
-                        title={resolved.route ? `Work this risk in ${label}` : undefined}
-                      >
-                        <span className="mt-0.5 shrink-0">▲</span>
-                        <span className="min-w-0">
-                          <span className="block">{a.replace(/_/g, " ")}</span>
-                          {resolved.route ? (
-                            <span className="block font-mono uppercase tracking-[0.06em] text-[var(--brand,#0ea5a0)]">
-                              → {label}
-                            </span>
-                          ) : (
-                            <span className="block font-mono uppercase tracking-[0.06em] text-[var(--text-muted)]">
-                              worked by {resolved.owner_function?.replace(/_/g, " ")}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
           )}
         </div>
 
         {/* Capacity derivation */}
-        <div className="col-span-12 lg:col-span-4 space-y-1">
+        <div className="col-span-12 lg:col-span-5 space-y-1">
           <SectionLabel>Capacity derivation</SectionLabel>
           <KV label="Nameplate" value={`${project.capacity_mtpd} MTPD`} />
           <KV label="Annual output" value={`${fmtShort(vb.annualOutput)} MT/y`} />
@@ -699,35 +463,6 @@ function ExpandPanel({
             label="CAPEX"
             value={`€${fmtShort(project.capex_eur)}`}
           />
-          <KV
-            label={ops ? "OPEX coverage" : "CAPEX financed"}
-            value={`${ops ? opx : cpx}%`}
-            emphasis
-          />
-        </div>
-
-        {/* Capital stack */}
-        <div className="col-span-12 lg:col-span-4 space-y-1">
-          <SectionLabel>Capital stack</SectionLabel>
-          {project.bankability.capital_status.map((c) => (
-            <div
-              key={c.type}
-              className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-1"
-            >
-              <span className="whitespace-nowrap text-[var(--text-secondary)]">{c.name}</span>
-              <span className="border-b border-dotted border-[var(--border)] min-w-[8px]" />
-              <span className="font-mono font-semibold text-[var(--text-primary)] whitespace-nowrap">
-                {c.amount}
-              </span>
-              <span
-                className={`font-mono text-[10px] uppercase tracking-wider whitespace-nowrap ${commitmentColor(
-                  c.commitment_status,
-                )}`}
-              >
-                {COMMITMENT_LABELS[c.commitment_status]}
-              </span>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -774,7 +509,7 @@ function ExpandPanel({
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div className="text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--text-muted)]">
       {children}
@@ -810,37 +545,38 @@ function KV({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+const ROW_GRID =
+  "grid-cols-[24px_minmax(180px,2fr)_40px_40px_130px_minmax(200px,2fr)_68px_28px]";
+
 export function ProjectsPage() {
   const navigate = useNavigate();
   const { setSelectedProjectId } = useSelectedProject();
   const { role } = useUserRole();
   const { projects: visibleProjects } = useVisibleProjects();
+  const stateLabel = useVocabularyLabel("readiness");
+  const phaseLabel = useVocabularyLabel("project_phase");
 
   const [filter, setFilter] = useState<string>("all");
-  const [stateFilter, setStateFilter] = useState<"all" | ProjectState>("all");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // One engine readout per visible project — the same cached reads the
+  // State & Blockers and Capital Eligibility screens use.
+  const readoutList = useEngineReadouts(visibleProjects.map((p) => p.id));
+  const readoutById = new Map(visibleProjects.map((p, i) => [p.id, readoutList[i]]));
 
   const filtered = useMemo(
     () =>
       visibleProjects.filter((p) => {
         const matchMol = filter === "all" || p.molecule === filter;
-        const matchState =
-          stateFilter === "all" || classifyProjectState(p) === stateFilter;
         const matchStr =
           search === "" ||
           p.name.toLowerCase().includes(search.toLowerCase()) ||
           p.location.toLowerCase().includes(search.toLowerCase());
-        return matchMol && matchState && matchStr;
+        return matchMol && matchStr;
       }),
-    [visibleProjects, filter, stateFilter, search],
+    [visibleProjects, filter, search],
   );
-
-  const stateCounts = useMemo(() => {
-    const c = { needs_action: 0, on_track: 0, behind: 0 };
-    for (const p of visibleProjects) c[classifyProjectState(p)]++;
-    return c;
-  }, [visibleProjects]);
 
   const jump = (project: CustomerProject, path: string) => {
     setSelectedProjectId(project.id);
@@ -855,7 +591,7 @@ export function ProjectsPage() {
 
   return (
     <div className="space-y-3 animate-fade-in">
-      {/* ── Header + counts strip ── */}
+      {/* ── Header ── */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold text-[var(--text-primary)]">
@@ -871,16 +607,6 @@ export function ProjectsPage() {
             </span>
             <span className="text-[var(--text-muted)]">
               {role.user_name} · {roleSuffix}
-            </span>
-            <span className="text-[var(--border)]">|</span>
-            <span className="text-rose-500">
-              ● {stateCounts.behind} behind
-            </span>
-            <span className="text-amber-500">
-              ● {stateCounts.needs_action} needs action
-            </span>
-            <span className="text-emerald-500">
-              ● {stateCounts.on_track} on track
             </span>
           </div>
         </div>
@@ -906,18 +632,6 @@ export function ProjectsPage() {
             <option value="SAF">SAF</option>
             <option value="e-NG">ENG</option>
           </select>
-          <select
-            value={stateFilter}
-            onChange={(e) =>
-              setStateFilter(e.target.value as typeof stateFilter)
-            }
-            className="gex-select text-xs font-mono"
-          >
-            <option value="all">ALL STATES</option>
-            <option value="needs_action">NEEDS ACTION</option>
-            <option value="on_track">ON TRACK</option>
-            <option value="behind">BEHIND</option>
-          </select>
           <input
             type="text"
             value={search}
@@ -931,15 +645,13 @@ export function ProjectsPage() {
       {/* ── Dense table ── */}
       <div className="overflow-hidden rounded border border-[var(--border)] bg-[var(--surface)]">
         {/* Header row */}
-        <div className="grid grid-cols-[24px_16px_minmax(180px,2fr)_40px_40px_110px_minmax(200px,2fr)_64px_68px_28px] items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-muted)] px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-          <span />
+        <div className={`grid ${ROW_GRID} items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-muted)] px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]`}>
           <span />
           <span>Project</span>
           <span className="text-center">Mol</span>
-          <span className="text-center">Stat</span>
-          <span className="text-right">Bnk · E·G·C·B</span>
-          <span title="Role-scoped action for your function">Your next action</span>
-          <span className="text-right" title="Operating: OPEX coverage %; Development/Construction: CAPEX financed %">Cpx/Opx%</span>
+          <span className="text-center" title="Phase declared in the project context">Phase</span>
+          <span className="text-right" title="State the evidence supports, from the gate engine">State</span>
+          <span title="What the next state needs, from the gate engine">Next step</span>
           <span className="text-center">COD</span>
           <span />
         </div>
@@ -951,17 +663,10 @@ export function ProjectsPage() {
           </div>
         )}
         {filtered.map((project) => {
-          const axes = bankabilityAxes(project);
-          const bPct = project.bankability.overall_completion;
-          const state = classifyProjectState(project);
-          const mark = stateMarker(state);
-          const ops = isCodStarted(project.status);
-          const cpx = ops ? opexCoveragePct(project) : capexFinancingPct(project);
+          const readout = readoutById.get(project.id)!;
           const isOpen = expanded === project.id;
           const tick = MOL_TICK[project.molecule] ?? project.molecule;
-          const statusCode = STATUS_CODE[project.status] ?? "—";
-          const statusColor = STATUS_COLOR[project.status] ?? "text-[var(--text-muted)]";
-          const nextAction = roleNextActionText(project, role);
+          const nextStep = engineNextStep(readout, stateLabel);
 
           return (
             <div
@@ -973,7 +678,7 @@ export function ProjectsPage() {
               <button
                 type="button"
                 onClick={() => setExpanded((cur) => (cur === project.id ? null : project.id))}
-                className="grid w-full grid-cols-[24px_16px_minmax(180px,2fr)_40px_40px_110px_minmax(200px,2fr)_64px_68px_28px] items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)] transition-colors"
+                className={`grid w-full ${ROW_GRID} items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)] transition-colors`}
               >
                 {/* Expand chevron */}
                 <span className="text-[var(--text-muted)]">
@@ -982,10 +687,6 @@ export function ProjectsPage() {
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5" />
                   )}
-                </span>
-                {/* State dot */}
-                <span className={mark.color} title={mark.label}>
-                  {mark.char}
                 </span>
                 {/* Name + location */}
                 <span className="min-w-0">
@@ -1000,40 +701,22 @@ export function ProjectsPage() {
                 <span className="text-center font-mono text-[11px] font-bold text-[var(--text-primary)]">
                   {tick}
                 </span>
-                {/* Status code */}
-                <span
-                  className={`text-center font-mono text-[11px] font-bold ${statusColor}`}
-                >
-                  {statusCode}
-                </span>
-                {/* BNK headline + inline 4-segment microbar */}
-                <span className="flex flex-col items-end gap-1">
-                  <span
-                    className={`font-mono text-[12px] font-bold tabular-nums ${bnkColor(bPct)}`}
-                  >
-                    {String(bPct).padStart(2, " ")}%
-                  </span>
-                  <span className="w-full">
-                    <FourSegmentBar axes={axes} />
-                  </span>
-                </span>
-                {/* Next action — role-scoped, single line */}
-                <span className="truncate text-[11px] text-[var(--text-secondary)]" title={nextAction}>
-                  {nextAction}
-                </span>
-                {/* Cpx / Opx % */}
-                <span className="text-right font-mono text-[12px] font-semibold tabular-nums text-[var(--text-primary)]">
-                  {cpx}%
+                {/* Declared phase | evidenced state — read against each other */}
+                <PhaseCell readout={readout} phaseLabel={phaseLabel} />
+                <StateCell readout={readout} stateLabel={stateLabel} />
+                {/* Next step — from the engine, single line */}
+                <span className="truncate text-[11px] text-[var(--text-secondary)]" title={nextStep}>
+                  {nextStep}
                 </span>
                 {/* COD */}
                 <span className="text-center font-mono text-[11px] text-[var(--text-secondary)]">
                   {fmtCod(project.completion_date)}
                 </span>
-                {/* Jump-to-bankability */}
+                {/* Jump to the gate evidence */}
                 <span
                   role="button"
                   tabIndex={0}
-                  aria-label={`Open bankability for ${project.name}`}
+                  aria-label={`Open gate evidence for ${project.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     jump(project, "/producer-bankability");
@@ -1056,6 +739,7 @@ export function ProjectsPage() {
                 <ExpandPanel
                   project={project}
                   role={role}
+                  readout={readout}
                   onNav={(path) => jump(project, path)}
                 />
               )}
@@ -1067,13 +751,12 @@ export function ProjectsPage() {
       {/* Footer legend */}
       <div className="flex flex-wrap items-center gap-4 font-mono text-[10px] text-[var(--text-muted)]">
         <span>
-          <span className="font-bold text-[var(--text-secondary)]">BNK</span>{" "}
-          decomposes into E·G·C·B:
+          <span className="font-bold text-[var(--text-secondary)]">Phase</span> = declared in the project context
         </span>
-        <span>E = evidence verified / total</span>
-        <span>G = gates cleared / total</span>
-        <span>C = capital committed (TS+) / total</span>
-        <span>B = 100 − blockers · alerts</span>
+        <span>
+          <span className="font-bold text-[var(--text-secondary)]">State</span> = what the evidence supports, from the gate engine
+        </span>
+        <span>n/m = applicable evidence items verified</span>
       </div>
     </div>
   );
