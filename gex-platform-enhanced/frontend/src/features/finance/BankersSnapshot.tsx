@@ -326,7 +326,7 @@ function TrustArc({ score }: { score: number }) {
         <text x="60" y="62" textAnchor="middle" fontSize="22" fontWeight="900" fill={color}>{score}</text>
         <text x="60" y="78" textAnchor="middle" fontSize="9" fill="#6b7280" fontWeight="600">/100</text>
       </svg>
-      <span className="text-xs text-gray-500 font-medium -mt-2">Trust Score</span>
+      <span className="text-xs text-gray-500 font-medium -mt-2">Trust score (indicative)</span>
     </div>
   )
 }
@@ -339,7 +339,24 @@ export function BankersSnapshot() {
   const { selectedProjectId } = useSelectedProject()
   const { projects: visibleProjects } = useVisibleProjects()
   const project = visibleProjects.find(p => p.id === selectedProjectId)
-  const data = SNAPSHOT_DATA[selectedProjectId] ?? SNAPSHOT_DATA['proj_lehavre_eng']
+  // Until 16 Oct 2026 any project without a hand-written entry fell back to the
+  // Le Havre sample, so a Speculative project was shown as "Bankable 94/100".
+  // No entry → say so. An entry → label it as the fixed sample it is.
+  const data = SNAPSHOT_DATA[selectedProjectId]
+  if (!data) {
+    return (
+      <div className="mx-auto mt-8 max-w-xl rounded-xl border border-slate-200 bg-white p-6">
+        <p className="text-[11px] font-mono font-bold uppercase tracking-[0.12em] text-slate-500">Banker's snapshot</p>
+        <h2 className="mt-1 text-lg font-semibold text-slate-900">{project?.name ?? 'This project'}</h2>
+        <p className="mt-3 text-sm leading-relaxed text-slate-700">
+          No decision-grade summary exists for this project yet. This page does not show figures that
+          were not produced from the project's own evidence. Its state, its blockers and the capital
+          decisions it is eligible for are on <a className="font-medium text-teal-700 underline" href="/bankability-scores">State &amp; Blockers</a>{' '}
+          and <a className="font-medium text-teal-700 underline" href="/stage-gates">Gates &amp; Evidence</a>.
+        </p>
+      </div>
+    )
+  }
 
   const stateStyle = BANKABILITY_STATE_STYLES[data.bankabilityState]
   const molStyle = MOLECULE_STYLES[project?.molecule ?? 'H2'] ?? MOLECULE_STYLES['H2']
@@ -360,6 +377,12 @@ export function BankersSnapshot() {
       `}</style>
 
       <div className="space-y-4 max-w-7xl mx-auto pb-8">
+
+        <div className="no-print rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Illustrative sample figures.</span>{' '}
+          This snapshot is a fixed demonstration set written for this project. It is not computed from the
+          project's verified evidence; the gate engine's result is on State &amp; Blockers.
+        </div>
 
         {/* ── HEADER BAR ─────────────────────────────────────────────── */}
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -577,7 +600,7 @@ export function BankersSnapshot() {
             <div className="grid grid-cols-2 gap-4">
               {/* Trust score arc */}
               <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex flex-col items-center justify-center">
-                <h3 className="text-xs font-black uppercase tracking-widest text-gray-600 mb-2">Trust Score</h3>
+                <h3 className="text-xs font-black uppercase tracking-widest text-gray-600 mb-2">Trust score (indicative)</h3>
                 <TrustArc score={data.trustScore} />
                 <div className="text-xs text-gray-400 text-center mt-1">
                   {data.trustScore >= 70 ? 'Strong confidence' : data.trustScore >= 45 ? 'Moderate confidence' : 'Low confidence — significant gaps'}

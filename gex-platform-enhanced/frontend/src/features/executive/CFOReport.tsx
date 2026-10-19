@@ -270,6 +270,17 @@ export function CFOReport() {
         </button>
       </div>
 
+      {/* ── Sample-data notice (16 Oct 2026) ─────────────────────
+          Every figure on this page is a fixed sample portfolio written into
+          the code, not this organisation's projects and not engine output.
+          Say so until the report is rebuilt from the gate engine. */}
+      <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden">
+        <span className="font-semibold">Illustrative sample report.</span>{' '}
+        The portfolio, scores and figures below are a fixed demonstration set. They are not your
+        projects and are not computed from evidence. For your projects' actual state, use Projects
+        and Gates &amp; Evidence.
+      </div>
+
       {/* ── Report header ───────────────────────────────────── */}
       <div className="mb-6 pb-4" style={{ borderBottom: '2px solid var(--border, #e2e8f0)' }}>
         <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--brand, #0ea5e9)' }}>
@@ -292,7 +303,7 @@ export function CFOReport() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ backgroundColor: 'var(--surface-raised, #f1f5f9)' }}>
-                {['Project', 'State', 'Trust Score', 'DSCR P50', 'Next Gate', 'Signal'].map(h => (
+                {['Project', 'State', 'Trust score (indicative)', 'DSCR P50', 'Next Gate', 'Signal'].map(h => (
                   <th key={h} className="px-4 py-3 text-left font-semibold text-xs uppercase tracking-wide"
                     style={{ color: 'var(--text-muted, #64748b)' }}>
                     {h}

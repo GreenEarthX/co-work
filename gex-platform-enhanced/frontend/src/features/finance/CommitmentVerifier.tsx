@@ -11,6 +11,8 @@
 import { useState, useEffect } from 'react'
 import { Shield, CheckCircle, XCircle, Search, Users } from 'lucide-react'
 import { commitmentsAPI } from '@/api'
+import { useSelectedProject } from '@/contexts/ProjectContext'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
 interface Commitment {
   commitment_id: string
@@ -33,7 +35,13 @@ const STATUS_COLORS: Record<string, string> = {
   DISPUTED: 'bg-red-100 text-red-700',
 }
 
-export function CommitmentVerifier({ projectId = 'proj_breizh_saf' }: { projectId?: string }) {
+export function CommitmentVerifier({ projectId: projectIdProp }: { projectId?: string }) {
+  // The project in scope, not a fixed demo id: until 16 Oct 2026 every user saw
+  // "proj_breizh_saf" here, whatever project they were working on.
+  const { selectedProjectId } = useSelectedProject()
+  const { projects: visibleProjects } = useVisibleProjects()
+  const projectId = projectIdProp ?? selectedProjectId ?? ''
+  const projectName = visibleProjects.find(p => p.id === projectId)?.name ?? projectId
   const [searchId, setSearchId] = useState('')
   const [commitments, setCommitments] = useState<any[]>([])
   const [selected, setSelected] = useState<Commitment | null>(null)
@@ -46,6 +54,7 @@ export function CommitmentVerifier({ projectId = 'proj_breizh_saf' }: { projectI
   const [csResult, setCsResult] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!projectId) { setCommitments([]); setLoading(false); return }
     commitmentsAPI.listForProject(projectId)
       .then((data) => {
         setCommitments(data.commitments || [])
@@ -226,7 +235,7 @@ export function CommitmentVerifier({ projectId = 'proj_breizh_saf' }: { projectI
       {/* Project commitment list */}
       <div>
         <h2 className="text-sm font-semibold text-gray-700 mb-3">
-          Project Commitments — {projectId}
+          Project Commitments — {projectName || 'no project selected'}
         </h2>
         {loading ? (
           <div className="text-sm text-gray-400">Loading…</div>

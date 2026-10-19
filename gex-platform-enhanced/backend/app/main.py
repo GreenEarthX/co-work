@@ -813,6 +813,14 @@ app.include_router(routes_open_interest.router, prefix="/api/v1")
 if HAS_ADVERSARIAL_REVIEWS:
     app.include_router(routes_adversarial_reviews.router, prefix="/api/v1", tags=["Adversarial Reviews"])
 
+# Per-company screen access rules (CISO tailoring of the menu's default access).
+# /api/v1/ciso is the governance domain: writes are EXECUTIVE-only. Schema: alembic 060.
+from app.api.v1 import routes_screen_access
+from app.core.screen_access import init_screen_access_db
+init_screen_access_db()
+app.include_router(routes_screen_access.router, prefix="/api/v1/ciso/screen-access",
+                   tags=["CISO — Screen Access"])
+
 # ── Development Packages + Pre-COD Metrics + Additionality (Bridge Doc v3.0) ──
 if HAS_DEV_PACKAGES:
     app.include_router(dev_packages_router, tags=["Development Packages"])

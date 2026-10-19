@@ -213,6 +213,21 @@ function mapEntryMoleculeToWizardValue(molecule: string): string {
   return molecule;
 }
 
+/**
+ * Parse a JSON response, but treat any non-2xx status as a failure.
+ * Before 16 Oct 2026 an error body (e.g. {"detail": "..."} from a 500) was
+ * stored as a result, and rendering `result.market_demand.level` crashed the
+ * whole page to white. Throwing sends the step to its existing error handler.
+ */
+async function readJsonOrThrow(response: Response): Promise<any> {
+  const body = await response.json().catch(() => null)
+  if (!response.ok) {
+    const detail = body && typeof body === 'object' && 'detail' in body ? String((body as any).detail) : `HTTP ${response.status}`
+    throw new Error(detail)
+  }
+  return body
+}
+
 const OnboardingWizard: React.FC = () => {
   const { setRole } = useUserRole();
   const [currentStep, setCurrentStep] = useState(1);
@@ -709,7 +724,7 @@ const OnboardingWizard: React.FC = () => {
         })
       });
       
-      const data = await response.json();
+      const data = await readJsonOrThrow(response);
       setDemandResult(data);
       setCurrentStep(2);
     } catch (error) {
@@ -743,7 +758,7 @@ const OnboardingWizard: React.FC = () => {
         })
       });
       
-      const data = await response.json();
+      const data = await readJsonOrThrow(response);
       setBankabilityResult(data);
       setCurrentStep(3);
     } catch (error) {
@@ -778,7 +793,7 @@ const OnboardingWizard: React.FC = () => {
         })
       });
       
-      const data = await response.json();
+      const data = await readJsonOrThrow(response);
       setCertificationResult(data);
       
       // Generate final report
@@ -816,7 +831,7 @@ const OnboardingWizard: React.FC = () => {
         })
       });
       
-      const data = await response.json();
+      const data = await readJsonOrThrow(response);
       setFinalReport(data.report);
       setCurrentStep(4);
     } catch (error) {
@@ -1060,7 +1075,7 @@ const OnboardingWizard: React.FC = () => {
                     <TrendingUp className="w-6 h-6 text-green-600 mt-1" />
                     <div className="flex-1">
                       <h3 className="text-lg font-bold text-green-900 mb-2">
-                        Market Demand: {demandResult.market_demand.level.replace('_', ' ').toUpperCase()}
+                        Market Demand: {String(demandResult?.market_demand?.level ?? 'unknown').replace('_', ' ').toUpperCase()}
                       </h3>
                       <div className="grid grid-cols-3 gap-4 mb-3">
                         <div>
@@ -1266,7 +1281,7 @@ const OnboardingWizard: React.FC = () => {
                     <DollarSign className="w-6 h-6 text-blue-600 mt-1" />
                     <div className="flex-1">
                       <h3 className="text-lg font-bold text-blue-900 mb-2">
-                        Bankability: {bankabilityResult.bankability.level.replace('_', ' ').toUpperCase()}
+                        Bankability: {String(bankabilityResult?.bankability?.level ?? 'unknown').replace('_', ' ').toUpperCase()}
                       </h3>
                       <div className="grid grid-cols-3 gap-4 mb-3">
                         <div>

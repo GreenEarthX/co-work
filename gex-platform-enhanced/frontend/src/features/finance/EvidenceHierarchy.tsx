@@ -1,4 +1,5 @@
 // Screen: Evidence hierarchy screen (/evidence-hierarchy, /finance/evidence-hierarchy)
+import { GATE_NAMES as SHARED_GATE_NAMES } from '@/lib/gateNames';
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Info } from "lucide-react";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
@@ -88,20 +89,7 @@ interface ManagementSummary {
   priorityOwners: ManagementOwnerLoad[];
 }
 
-const GATE_NAMES: Record<string, string> = {
-  G0: "Site & Rights",
-  G1: "Grid & Utilities",
-  G2: "Certification Path",
-  G3: "Key Inputs",
-  G4: "Offtake Bankable",
-  G5: "EPC Risk Priced",
-  G6: "IE Sign-off",
-  G7: "Insurance Bound",
-  G8: "Audit-Grade Model",
-  G9: "Permits Complete",
-  G10: "Financial Close",
-  G11: "COD / Stabilization",
-};
+const GATE_NAMES: Record<string, string> = SHARED_GATE_NAMES;
 
 const GATE_OWNER_MAP: Record<string, GateOwner[]> = {
   G0: [
@@ -563,7 +551,7 @@ export default function EvidenceHierarchy() {
     : role.company_type === "OFFTAKER" &&
         role.business_function === "COMMERCIAL"
       ? "Offtake readiness and supply risk across your rights-scoped projects."
-      : "Gate drilldown for ABAC-scoped projects and actor-visible gates.";
+      : "For each gate you can see: what evidence is on file, how far it has been verified, and what is still blocking. Only the projects and gates your role is entitled to are shown.";
 
   const scopeLabel =
     scopedProjects.length === 0
@@ -728,10 +716,10 @@ export default function EvidenceHierarchy() {
 
       <div className="grid gap-3 md:grid-cols-5">
         {[
-          { label: "Audited", count: totals.AUDITED, note: "x1.00" },
-          { label: "Confirmed", count: totals.CONFIRMED, note: "x0.85" },
-          { label: "Submitted", count: totals.SUBMITTED, note: "x0.50" },
-          { label: "Unverified", count: totals.UNVERIFIED, note: "x0.25" },
+          { label: "Audited", count: totals.AUDITED, note: "display weight ×1.00" },
+          { label: "Confirmed", count: totals.CONFIRMED, note: "display weight ×0.85" },
+          { label: "Submitted", count: totals.SUBMITTED, note: "display weight ×0.50" },
+          { label: "Unverified", count: totals.UNVERIFIED, note: "display weight ×0.25" },
           {
             label: "Open issues",
             count: totals.unresolved,
@@ -754,6 +742,9 @@ export default function EvidenceHierarchy() {
           </div>
         ))}
       </div>
+      <p className="-mt-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
+        The weights feed the Effective column only, as a reading aid. Gates are decided by the status of each evidence item, never by a weighted score. The split between audited and confirmed items is estimated from the verified count on the project file.
+      </p>
 
       <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]">
         <table className="w-full text-xs">

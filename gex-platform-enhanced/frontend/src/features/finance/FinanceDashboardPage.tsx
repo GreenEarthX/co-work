@@ -296,19 +296,19 @@ export function FinanceDashboardPage() {
           value="pending"
           target="covenant ≥ 1.25×"
           note="post-COD only"
-          chip={{ text: 'AWAITING ENGINE', tone: 'none', title: 'Forward projection from gex_pf_engine at T-2 quarters from COD' }}
+          chip={{ text: 'AWAITING ENGINE', tone: 'none', title: 'Forward projection from the financial model, two quarters before commercial operation' }}
         />
         <Row
           label="LLCR  projected"
           value="pending"
           target="covenant ≥ 1.40×"
-          chip={{ text: 'AWAITING ENGINE', tone: 'none', title: 'POST /api/v1/finance-model/lifetime' }}
+          chip={{ text: 'AWAITING ENGINE', tone: 'none', title: 'Computed from the lifetime financial model once it is on file' }}
         />
         <Row
           label="DSRA  balance"
           value="pending"
           target="target ≥ 6 months DS"
-          chip={{ text: 'AWAITING ENGINE', tone: 'none', title: 'gex_pf_engine waterfall — not yet wired' }}
+          chip={{ text: 'AWAITING ENGINE', tone: 'none', title: 'Computed from the debt service waterfall once the model is on file' }}
         />
         <Row
           label="Offtake coverage"

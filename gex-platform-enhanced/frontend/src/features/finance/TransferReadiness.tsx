@@ -461,13 +461,13 @@ export function TransferReadiness() {
 
       {/* ── TRI Score card ── */}
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-6 shadow-card flex flex-col items-center gap-2">
-        <div className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Transfer Readiness Index</div>
+        <div className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Transfer Readiness Index (indicative)</div>
         <ArcGauge value={data.overall} />
         <div className={`text-sm font-bold ${arcTextColor(data.overall)}`}>
           {data.overall >= 70 ? 'Transfer Ready' : data.overall >= 40 ? 'Partially Ready — Remediation Required' : 'Not Transfer Ready'}
         </div>
         <p className="text-xs text-[var(--text-muted)] text-center max-w-xs">
-          Composite score across assignable contracts, post-transfer DSCR, warranty tail, and GoO portability.
+          Indicative composite across assignable contracts, post-transfer debt cover, warranty tail and portability of guarantees of origin. A screening aid for a sale of the project, not a gate decision: the gates and their evidence decide readiness.
         </p>
       </div>
 

@@ -18,6 +18,7 @@ import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP } from '@/config/helpText';
 import { useSelectedProject } from '@/contexts/ProjectContext';
 import { useVisibleProjects } from '@/hooks/useVisibleProjects';
+import { getAuthHeader } from '@/lib/authToken';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -170,12 +171,18 @@ export function PlantBuilder() {
   const [wacc, setWacc] = useState(9.0);
   const [projectLife, setProjectLife] = useState(20);
   const [marketPrice, setMarketPrice] = useState(5000);
+  // Run time (capacity factor, % of the year). Required by the backend whenever an
+  // electrolyser is configured; it follows from the power contract, so it starts
+  // empty rather than assumed.
+  const [runTimePct, setRunTimePct] = useState<number>(NaN);
 
   // Computation state
   const [result, setResult] = useState<BuildResult | null>(null);
   const [computing, setComputing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Failure of compute or save, stated on screen instead of a blank page (16 Oct 2026)
+  const [actionError, setActionError] = useState<string | null>(null);
   // Three tabs: capex | opex | cost-basis (merged LCOF + cert)
   const [activeTab, setActiveTab] = useState<'capex' | 'opex' | 'cost-basis'>('capex');
 
@@ -239,6 +246,7 @@ export function PlantBuilder() {
     if (configLines.length === 0) return;
     setComputing(true);
     setSaved(false);
+    setActionError(null);
     try {
       const body = {
         project_id: projectId,   // real project_id from context
@@ -257,13 +265,25 @@ export function PlantBuilder() {
         target_market_price_eur_t: marketPrice,
         wacc_pct: wacc / 100,
         project_life_years: projectLife,
+        capacity_factor: Number.isFinite(runTimePct) && runTimePct > 0 ? Math.min(runTimePct, 100) / 100 : undefined,
       };
       const r = await fetch('/api/v1/plant-builder/configure', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify(body),
       });
-      const data = await r.json();
+      const data = await r.json().catch(() => null);
+      // A refused or failed request returns an error body, not a result.
+      // Storing it as a result crashed the page (result.output undefined).
+      if (!r.ok || !data?.output) {
+        setResult(null);
+        setActionError(
+          r.status === 403 ? 'Your role is not permitted to compute a cost basis for this project.'
+          : r.status === 422 && /capacity_factor/.test(JSON.stringify(data?.detail ?? ''))
+            ? 'Enter the run time: the share of the year the plant runs. With electrolysers it decides power use and output, and it follows from the power contract, so it is not assumed.'
+          : (data?.detail ? String(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : `The cost calculation failed (HTTP ${r.status}).`));
+        return;
+      }
       setResult(data);
       setActiveTab('cost-basis');  // land on the causal output tab
     } catch (e) {
@@ -274,13 +294,16 @@ export function PlantBuilder() {
   };
 
   // ── Save result to project (feeds Package Builder / Capital Stack) ────────
+  // The backend has no save route for a cost basis yet (POST /plant-builder/save
+  // returns 404), so the button stays disabled and says so instead of failing.
+  const SAVE_AVAILABLE = false;
   const saveResult = async () => {
     if (!result) return;
     setSaving(true);
     try {
-      await fetch(`/api/v1/plant-builder/save`, {
+      const r = await fetch(`/api/v1/plant-builder/save`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({
           project_id: projectId,
           lcof_eur_t: result.output.levelised_cost_eur_t,
@@ -297,11 +320,17 @@ export function PlantBuilder() {
           jurisdiction,
         }),
       });
-      setSaved(true);
+      // Report "saved" only when the server confirms it — no optimistic success.
+      if (!r.ok) {
+        setActionError(r.status === 403
+          ? 'Your role is not permitted to save a cost basis to this project.'
+          : `The cost basis was not saved (HTTP ${r.status}).`);
+      } else {
+        setSaved(true);
+      }
     } catch (e) {
-      // Save endpoint may not exist yet — fail silently, show warning
-      console.warn('Plant builder save endpoint not available:', e);
-      setSaved(true);  // optimistic: the compute already used the real project_id
+      console.warn('Plant builder save failed:', e);
+      setActionError('The cost basis was not saved: the server could not be reached.');
     } finally {
       setSaving(false);
     }
@@ -361,21 +390,25 @@ export function PlantBuilder() {
     setProjectLife(25);
     setMarketPrice(470);      // ~$510/t at 1.09 USD/EUR (Gabillon forward, 2027 delivery)
     try {
-      const r = await fetch('/api/v1/plant-builder/catalog?molecule=E_METHANOL');
+      // Unfiltered catalogue: the e-methanol filter leaves out electrolysers, yet
+      // e-methanol is made from electrolytic hydrogen — the stacks must be costed.
+      const r = await fetch('/api/v1/plant-builder/catalog');
       const data = await r.json();
       const items: EquipmentItem[] = data.items || [];
       const lines: ConfigLine[] = [];
 
-      // 6 × 25 MW PEM electrolysis stacks (ITM / Cummins / NEL)
+      // 150 MW of PEM electrolysis. The catalogue has no 25 MW stack, so the
+      // 6 × 25 MW design is costed as 3 × 50 MW (same installed capacity).
       const pemItem =
-        items.find(i => i.category === 'ELECTROLYSER' && i.name.toLowerCase().includes('pem')) ??
-        items.find(i => i.category === 'ELECTROLYSER');
+        items.find(i => i.category === 'ELECTROLYSER' && /pem/i.test(i.name) && /\b50 ?mw\b/i.test(i.name)) ??
+        items.find(i => i.category === 'ELECTROLYSER' && /pem/i.test(i.name));
+      const pemQty = pemItem && /\b50 ?mw\b/i.test(pemItem.name) ? 3 : 6;
       if (pemItem) {
         lines.push({
           equipment_id: pemItem.id,
           name: pemItem.name,
           category: pemItem.category,
-          quantity: 6,
+          quantity: pemQty,
           unit_price_eur: pemItem.unit_price_eur,
           installed_cost_eur: pemItem.installed_cost_eur,
         });
@@ -455,7 +488,7 @@ export function PlantBuilder() {
               onClick={loadPecosI}
               className="px-3 py-1.5 text-xs rounded border font-mono"
               style={{ borderColor: '#0ea5a0', color: '#0ea5a0' }}
-              title="Load ETFuels Rattlesnake Gap: 6×25MW PEM + methanol synthesis, ERCOT West parameters"
+              title="Load ETFuels Rattlesnake Gap: 150 MW PEM electrolysis (3 × 50 MW) + methanol synthesis, West Texas power parameters"
             >
               Load Rattlesnake Gap
             </button>
@@ -468,19 +501,24 @@ export function PlantBuilder() {
           >
             Load Breizh Reference
           </button>
+          {result && actionError && (
+            <span className="text-xs text-red-700">{actionError}</span>
+          )}
           {result && (
             <button
               onClick={saveResult}
-              disabled={saving || saved}
+              disabled={!SAVE_AVAILABLE || saving || saved}
               className="px-3 py-1.5 text-xs rounded border flex items-center gap-1.5 disabled:opacity-50"
               style={{ borderColor: saved ? 'var(--teal)' : 'var(--border)', color: saved ? '#0ea5a0' : 'var(--text-muted)' }}
-              title={`Save LCOF and CAPEX to ${projectName} — feeds Package Builder and Capital Stack`}
+              title={SAVE_AVAILABLE
+                ? `Save LCOF and CAPEX to ${projectName} — feeds Package Builder and Capital Stack`
+                : 'Not available yet: this result is shown for review and is not stored on the project.'}
             >
               {saved
                 ? <><CheckCircle className="w-3.5 h-3.5" /> Saved to project</>
                 : saving
                   ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving…</>
-                  : <><Save className="w-3.5 h-3.5" /> Save to project</>}
+                  : <><Save className="w-3.5 h-3.5" /> {SAVE_AVAILABLE ? 'Save to project' : 'Save to project (not yet available)'}</>}
             </button>
           )}
           <button
@@ -677,6 +715,7 @@ export function PlantBuilder() {
                 { label: 'Life yrs', type: 'number', value: projectLife, setter: setProjectLife, step: 1 },
                 { label: 'Contingency %', type: 'number', value: contingency, setter: setContingency, step: 1 },
                 { label: 'Labour FTE', type: 'number', value: labourCount, setter: setLabourCount, step: 5 },
+                { label: 'Run time % of year', type: 'number', value: runTimePct, setter: setRunTimePct, step: 1 },
               ].map(({ label, type, value, setter, options, step }) => (
                 <div key={label}>
                   <label className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{label}</label>
@@ -692,7 +731,8 @@ export function PlantBuilder() {
                   ) : (
                     <input
                       type="number"
-                      value={value as number}
+                      value={Number.isFinite(value as number) ? (value as number) : ''}
+                      placeholder={label.startsWith('Run time') ? 'from the power contract' : undefined}
                       step={step}
                       onChange={e => (setter as (v: any) => void)(parseFloat(e.target.value))}
                       className="w-full text-xs font-mono bg-transparent border rounded px-1.5 py-0.5 outline-none"
@@ -711,6 +751,9 @@ export function PlantBuilder() {
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center p-6">
                 <BarChart3 className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
+                {actionError && (
+                  <p className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</p>
+                )}
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                   Configure equipment and click Compute to see CAPEX breakdown, OPEX waterfall, and levelised cost vs market with certification premium stack.
                 </p>

@@ -33,17 +33,17 @@ PLATFORM_DB_PATH = settings.SQLITE_DB_PATH
 
 GATE_DEFS: dict[str, dict[str, Any]] = {
     "G0": {"name": "Site Rights & Social License", "owners": ["Producer", "Executive"]},
-    "G1": {"name": "Grid Connection & Water/Utilities", "owners": ["Producer"]},
+    "G1": {"name": "Power, Utilities & Technology Basis", "owners": ["Producer"]},
     "G2": {"name": "Green Certification Pathway", "owners": ["Regulator"]},
-    "G3": {"name": "Feedstock & Logistics", "owners": ["Producer"]},
+    "G3": {"name": "Feedstock & Logistics Terms", "owners": ["Producer"]},
     "G4": {"name": "Binding Offtake", "owners": ["Finance"]},
-    "G5": {"name": "EPC & Construction", "owners": ["Producer", "Executive"]},
-    "G6": {"name": "Independent Engineer Signoff", "owners": ["Finance", "Regulator"]},
-    "G7": {"name": "Insurance Package", "owners": ["Finance"]},
+    "G5": {"name": "EPC Risk Priced", "owners": ["Producer", "Executive"]},
+    "G6": {"name": "Independent Engineer Sign-off", "owners": ["Finance", "Regulator"]},
+    "G7": {"name": "Insurability Confirmed", "owners": ["Finance"]},
     "G8": {"name": "Audit-Grade Financial Model", "owners": ["Finance"]},
-    "G9": {"name": "Permits & Approvals", "owners": ["Producer", "Regulator"]},
+    "G9": {"name": "Permits Granted & Appeal Risk Managed", "owners": ["Producer", "Regulator"]},
     "G10": {"name": "Financial Close", "owners": ["Finance"]},
-    "G11": {"name": "Commercial Operations Date", "owners": ["Producer", "Executive"]},
+    "G11": {"name": "COD & Stabilization", "owners": ["Producer", "Executive"]},
 }
 
 ROLE_GATE_SCOPE: dict[str, list[str]] = {

@@ -26,10 +26,10 @@ export function RiskAllocationMatrix() {
   }, [projectId]);
  
   const RISK_COLORS: Record<string, string> = {
-    HIGH: 'text-red-400', MEDIUM: 'text-amber-400', LOW: 'text-green-400', NEGLIGIBLE: 'text-gray-500',
+    HIGH: 'text-red-600 dark:text-red-400', MEDIUM: 'text-amber-600 dark:text-amber-400', LOW: 'text-emerald-600 dark:text-emerald-400', NEGLIGIBLE: 'text-[var(--text-muted)]',
   };
  
-  if (loading) return <div className="p-6 text-center text-gray-500">Computing risk allocation...</div>;
+  if (loading) return <div className="p-6 text-center text-[var(--text-muted)]">Computing risk allocation...</div>;
  
   const entries = data?.entries || [];
  
@@ -45,29 +45,29 @@ export function RiskAllocationMatrix() {
           </p>
         </div>
         <div className="flex gap-3">
-          <span className="px-3 py-1.5 rounded-full bg-teal-900/30 text-teal-400 text-sm font-bold">
+          <span className="px-3 py-1.5 rounded-full bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 text-sm font-bold">
             {data?.total_mitigated || 0} Mitigated
           </span>
-          <span className="px-3 py-1.5 rounded-full bg-gray-800 text-gray-300 text-sm font-bold">
+          <span className="px-3 py-1.5 rounded-full bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] text-sm font-bold">
             +{data?.total_residual_bps || 0}bps residual
           </span>
         </div>
       </div>
  
-      <div className="border-l-4 border-teal-500 bg-teal-900/10 px-4 py-2 rounded-r-lg">
-        <span className="text-xs font-bold uppercase tracking-wider text-teal-400">
+      <div className="border-l-4 border-teal-500 bg-teal-50 dark:bg-teal-900/10 px-4 py-2 rounded-r-lg">
+        <span className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400">
           Structure Zone
         </span>
       </div>
  
       {/* Unmitigated blocking risks */}
       {(data?.unmitigated_blocking || []).length > 0 && (
-        <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-4">
-          <h3 className="text-xs font-bold uppercase text-red-400 mb-2">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 rounded-xl p-4">
+          <h3 className="text-xs font-bold uppercase text-red-700 dark:text-red-400 mb-2">
             Unmitigated Blocking Risks
           </h3>
           {data.unmitigated_blocking.map((r: string, i: number) => (
-            <p key={i} className="text-sm text-red-300 flex items-center gap-2">
+            <p key={i} className="text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4" /> {r}
             </p>
           ))}
@@ -78,7 +78,7 @@ export function RiskAllocationMatrix() {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-700">
+            <tr className="border-b border-[var(--border)]">
               {[
                 { label: 'Risk', tip: null },
                 { label: 'Category', tip: null },
@@ -89,7 +89,7 @@ export function RiskAllocationMatrix() {
                 { label: 'Residual', tip: HELP.RESIDUAL_RISK },
                 { label: 'Cost (bps)', tip: HELP.INSTRUMENT_COST_BPS },
               ].map(({ label, tip }) => (
-                <th key={label} className="text-left py-3 px-3 text-xs font-bold uppercase tracking-wider text-gray-500">
+                <th key={label} className="text-left py-3 px-3 text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   <span className="flex items-center gap-1">{label}{tip && <InfoTooltip text={tip} />}</span>
                 </th>
               ))}
@@ -97,12 +97,12 @@ export function RiskAllocationMatrix() {
           </thead>
           <tbody>
             {entries.map((entry: any, i: number) => (
-              <tr key={i} className={`border-b border-gray-800 ${i % 2 === 0 ? '' : 'bg-gray-900/30'}`}>
+              <tr key={i} className={`border-b border-[var(--border)] ${i % 2 === 0 ? '' : 'bg-gray-50 dark:bg-gray-900/30'}`}>
                 <td className="py-3 px-3 font-medium" style={{ color: 'var(--text-primary)' }}>
                   {entry.risk_name}
                 </td>
                 <td className="py-3 px-3">
-                  <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">
+                  <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400">
                     {entry.risk_category}
                   </span>
                 </td>
@@ -112,18 +112,18 @@ export function RiskAllocationMatrix() {
                 <td className={`py-3 px-3 font-bold ${RISK_COLORS[entry.impact] || ''}`}>
                   {entry.impact}
                 </td>
-                <td className="py-3 px-3 text-gray-300">{entry.bearer}</td>
+                <td className="py-3 px-3" style={{ color: 'var(--text-secondary)' }}>{entry.bearer}</td>
                 <td className="py-3 px-3">
                   {entry.instrument_mitigating === 'NONE' ? (
-                    <span className="text-red-400 text-xs">No instrument</span>
+                    <span className="text-red-600 dark:text-red-400 text-xs font-semibold">No instrument</span>
                   ) : (
-                    <span className="text-teal-400 text-xs">{entry.instrument_name}</span>
+                    <span className="text-teal-700 dark:text-teal-400 text-xs">{entry.instrument_name}</span>
                   )}
                 </td>
                 <td className={`py-3 px-3 font-bold ${RISK_COLORS[entry.residual_risk] || ''}`}>
                   {entry.residual_risk}
                 </td>
-                <td className="py-3 px-3 font-mono">{entry.residual_cost_bps}</td>
+                <td className="py-3 px-3 font-mono" style={{ color: 'var(--text-primary)' }}>{entry.residual_cost_bps}</td>
               </tr>
             ))}
           </tbody>

@@ -14,6 +14,11 @@ from datetime import datetime, timezone
 logger = logging.getLogger("gex.demand_aggregation")
 
 
+
+# Coverage bar from the gate rules (4.1.0: offtake_coverage_min_pct = 60,
+# required at COMMERCIALLY_PLAUSIBLE). Was 0.70 here, which disagreed with the rules.
+OFFTAKE_COVERAGE_MIN = 0.60
+
 @dataclass
 class DemandSignal:
     signal_id: str
@@ -129,7 +134,7 @@ class DemandAggregationService:
         weighted_tenor = sum(s.volume_tonnes_year * s.min_tenor_years for s in signals) / total_vol if total_vol > 0 else 0
 
         firm_pct = firm / total_production_tonnes
-        bankable = firm_pct >= 0.70
+        bankable = firm_pct >= OFFTAKE_COVERAGE_MIN
 
         return CoverageMetrics(
             project_id=project_id,
@@ -139,7 +144,7 @@ class DemandAggregationService:
             loi_pct=loi / total_production_tonnes,
             eoi_pct=eoi / total_production_tonnes,
             firm_coverage_pct=firm_pct,
-            gap_tonnes=max(0, int(total_production_tonnes * 0.70) - firm),
+            gap_tonnes=max(0, int(total_production_tonnes * OFFTAKE_COVERAGE_MIN) - firm),
             weighted_credit_quality=best_credit,
             weighted_tenor_years=round(weighted_tenor, 1),
             signal_count=len(signals),
@@ -152,7 +157,7 @@ class DemandAggregationService:
         self,
         project_id: str,
         total_production_tonnes: int,
-        target_coverage_pct: float = 0.70,
+        target_coverage_pct: float = OFFTAKE_COVERAGE_MIN,
     ) -> AggregationPlan:
         signals = self._signals.get(project_id, [])
         coverage = self.compute_coverage(project_id, total_production_tonnes)

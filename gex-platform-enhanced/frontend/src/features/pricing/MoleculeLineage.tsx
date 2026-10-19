@@ -121,6 +121,15 @@ const DEMO_CONTEXT: Record<string, { subsidies: Record<string, number>; producti
 // Sign-only tone — the single semantic colour a waterfall carries.
 // Adds-to-cost (debit) vs reduces-cost (credit). Category is encoded by the
 // row label + section grouping, NOT by background (Hidalgo: colour = sign).
+// The United States clean hydrogen production credit (45V) is paid only on
+// hydrogen produced in the United States. Projects anywhere else must not
+// carry it in their price breakdown, so it is stripped by jurisdiction.
+function subsidiesFor(molecule: string, country: string | undefined): Record<string, number> {
+  const base = (DEMO_CONTEXT[molecule] ?? DEMO_CONTEXT.H2).subsidies
+  if ((country ?? '').toUpperCase() === 'US') return base
+  return Object.fromEntries(Object.entries(base).filter(([k]) => k !== '45V'))
+}
+
 function signTone(value: number): { band: string; bar: string } {
   if (value < 0) return { band: 'border-l-emerald-500', bar: 'bg-emerald-400/60' } // credit — reduces cost
   if (value > 0) return { band: 'border-l-red-400',     bar: 'bg-red-400/50'     } // debit — adds cost
@@ -374,8 +383,8 @@ function WhatIfPanel({ data, unit }: { data: Decomposition; unit: string }) {
       {/* Honesty boundary note */}
       <div className="border-t border-slate-200 dark:border-slate-800 px-2 py-1">
         <p className="font-mono text-[9px] text-slate-500 dark:text-slate-400 leading-snug">
-          Flexes linear pass-through terms only. Gabillon market dynamics and WACC-driven financing
-          run through the pricing engine (Sprint 3) and are held fixed — not approximated.
+          Only the terms that pass straight through to the buyer move here. Market dynamics and the
+          cost of financing come from the full pricing model and stay fixed — they are not approximated.
         </p>
       </div>
     </div>
@@ -441,11 +450,11 @@ export default function MoleculeLineage({ molecule: moleculeProp, compact }: Pro
             equity_amount: 58_000_000,
             grants_amount: 22_000_000,
             // Molecule-scaled subsidy + production context (see DEMO_CONTEXT)
-            subsidies: (DEMO_CONTEXT[molecule] ?? DEMO_CONTEXT.H2).subsidies,
+            subsidies: subsidiesFor(molecule, project?.country),
             insurance_annual_eur: 1_000_000,
             insurance_provider: 'Allianz GCS',
             annual_production_tonnes: (DEMO_CONTEXT[molecule] ?? DEMO_CONTEXT.H2).production_tpa,
-            certifications: ['RED_III', 'RFNBO', '45V'],
+            certifications: (project?.country ?? '').toUpperCase() === 'US' ? ['RED_III', 'RFNBO', '45V'] : ['RED_III', 'RFNBO'],
           }),
         })
         if (res.ok) {
@@ -472,7 +481,7 @@ export default function MoleculeLineage({ molecule: moleculeProp, compact }: Pro
 
     load().finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [molecule, token, project?.id])
+  }, [molecule, token, project?.id, project?.country])
 
   const meta = MOLECULE_META[molecule] || MOLECULE_META.H2
 
@@ -487,7 +496,7 @@ export default function MoleculeLineage({ molecule: moleculeProp, compact }: Pro
             <div className="text-xs max-w-md mx-auto">
               {!token
                 ? 'Price decomposition is finance-restricted — sign in with a finance role to view it.'
-                : 'The pricing engine (gex_pf_engine, port 8001) is unavailable or returned an invalid decomposition. Check that the engine is running.'}
+                : 'The price breakdown could not be produced right now. The pricing service did not answer or returned an incomplete result; try again shortly.'}
             </div>
           </>
         )}

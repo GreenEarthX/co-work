@@ -59,13 +59,14 @@ DEAL_KILLERS: list[DealKiller] = [
     DealKiller(
         id="DK_G4_NO_OFFTAKE",
         gate="G4",
-        condition="offtake_binding_pct < 50",
+        condition="offtake_binding_pct < 60",
         plain_language=(
-            "No binding offtake contract covering at least 50% of production — "
-            "without this, no lender will commit funds."
+            "No offtake under contract for at least 60% of planned output — "
+            "the coverage bar the gate rules set for Commercially plausible; "
+            "without it, no lender will commit funds."
         ),
         severity=KillerSeverity.FATAL,
-        resolution_action="Execute a binding offtake agreement with an investment-grade counterparty covering ≥50% of nameplate capacity.",
+        resolution_action="Execute a binding offtake agreement with an investment-grade counterparty covering ≥60% of planned output (gate rules 4.1.0 coverage bar).",
         resolution_page="/finance/offtake-quality",
         affects_states=["STRUCTURALLY_BANKABLE", "CREDIT_APPROVED", "FINANCEABLE"],
         waiver_requires="Senior lender written confirmation of alternative credit support accepted.",
@@ -188,9 +189,9 @@ DEAL_KILLERS: list[DealKiller] = [
         gate="G4",
         condition="third_party_binding_offtake_pct < 30",
         plain_language=(
-            "No binding third-party offtake agreement covers at least 30% of production — "
-            "related-party (self-purchase) offtake is discounted or excluded by lenders. "
-            "A bankable project requires independent counterparty commitment."
+            "Less than 30% of production is sold to buyers outside the sponsor's own group — "
+            "a lender test that sits on top of the 60% coverage bar: related-party (self-purchase) "
+            "offtake counts toward coverage but lenders discount it, so part of it must be independent."
         ),
         severity=KillerSeverity.FATAL,
         resolution_action="Execute a binding offtake with a non-affiliated, creditworthy counterparty covering ≥30% of nameplate. Related-party offtakes do not count.",
@@ -258,7 +259,7 @@ class DealKillerEngine:
         )
 
         checks: list[tuple[str, bool]] = [
-            ("DK_G4_NO_OFFTAKE",               project_data.get("offtake_binding_pct", 0) < 50),
+            ("DK_G4_NO_OFFTAKE",               project_data.get("offtake_binding_pct", 0) < 60),
             ("DK_G5_NO_EPC",                   not project_data.get("epc_contract_executed", False)),
             ("DK_G6_NO_IE",                    not project_data.get("ie_appointed", False)),
             ("DK_G8_NO_AUDIT_MODEL",           project_data.get("financial_model_status", "") != "AUDIT_GRADE"),

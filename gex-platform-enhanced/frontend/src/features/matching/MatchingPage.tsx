@@ -239,8 +239,8 @@ function getDimMeta(mode: MatchMode): Record<RadarDimension, DimMeta> {
       higher_is_better: true,
     },
     gex_score: {
-      label: 'GEX Score',
-      description: 'GreenEarthX internal composite counterparty rating.',
+      label: 'Indicative rating',
+      description: 'Indicative counterparty rating used only to rank matches. It is not a gate decision and does not move any gate.',
       unit: '/100',
       higher_is_better: true,
     },

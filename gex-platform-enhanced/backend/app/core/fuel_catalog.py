@@ -286,7 +286,7 @@ def _replace_conversion_rules(
         conn.execute(
             """
             INSERT INTO fuel_unit_conversions (
-                fuel_id, from_unit, to_unit, multiplier, offset,
+                fuel_id, from_unit, to_unit, multiplier, "offset",
                 dimension, rule_type, note, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -348,6 +348,14 @@ def _bootstrap_from_seed(conn: sqlite3.Connection) -> None:
 
 
 def init_fuel_catalog_db() -> None:
+    # On PostgreSQL the fuel catalogue (schema AND rows) is owned by alembic
+    # migration 041, exactly as _ensure_tables says. Re-seeding here ran
+    # SQLite-only "INSERT OR IGNORE" against Postgres and made every caller
+    # fail with a 500 (the public viability check among them, 16 Oct 2026).
+    from app.core.db_backend import fuelref_is_postgres
+
+    if fuelref_is_postgres():
+        return
     conn = _get_conn()
     try:
         _ensure_tables(conn)
@@ -356,10 +364,12 @@ def init_fuel_catalog_db() -> None:
         conn.close()
 
 
+# "offset" is quoted everywhere: it is a reserved word in PostgreSQL (SQLite accepts
+# it bare). Double quotes are a valid identifier quote in both.
 def _conversion_rows(conn: sqlite3.Connection, fuel_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT from_unit, to_unit, multiplier, offset, dimension, rule_type, note
+        SELECT from_unit, to_unit, multiplier, "offset", dimension, rule_type, note
         FROM fuel_unit_conversions
         WHERE fuel_id = ?
         ORDER BY dimension, from_unit, to_unit
@@ -483,7 +493,7 @@ def convert_fuel_value(fuel_id: str, value: float, from_unit: str, to_unit: str)
     try:
         row = conn.execute(
             """
-            SELECT multiplier, offset, rule_type, note
+            SELECT multiplier, "offset", rule_type, note
             FROM fuel_unit_conversions
             WHERE fuel_id = ? AND lower(from_unit) = lower(?) AND lower(to_unit) = lower(?)
             """,

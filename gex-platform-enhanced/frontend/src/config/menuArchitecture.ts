@@ -10,6 +10,8 @@
  * The TopBar reads this config and filters per UserRole context.
  */
 
+import { screenRuleFor } from '@/lib/screenAccess';
+
 // ── Role Types ──
 
 export type CompanyType = 'PRODUCER' | 'OFFTAKER' | 'THIRD_PARTY';
@@ -107,13 +109,22 @@ function effectiveCompanyTypes(role: UserRole): CompanyType[] {
   return Array.from(types);
 }
 
+// ── Executive default (decision 19 Oct 2026, Jean-Marie Lamay) ──
+// By default an EXECUTIVE sees every screen that any function of its own company
+// type may see (same company type, same service type for third parties). The
+// CISO of each client is meant to tailor this per company; until that control
+// exists, this is the platform default. Capability gates still apply, and the
+// CISO administration stays behind its own password.
+export const EXECUTIVE_SEES_ALL_COMPANY_SCREENS = true;
+
 // ── Visibility helper ──
 
 function matchesRule(rules: VisibilityRule[], role: UserRole): boolean {
   const companyTypes = effectiveCompanyTypes(role);
+  const executiveDefault = EXECUTIVE_SEES_ALL_COMPANY_SCREENS && role.business_function === 'EXECUTIVE';
   return rules.some(rule => {
     const ctMatch = rule.company_type === 'ALL' || companyTypes.includes(rule.company_type);
-    const fnMatch = !rule.function || rule.function === 'ALL' || rule.function === role.business_function;
+    const fnMatch = !rule.function || rule.function === 'ALL' || rule.function === role.business_function || executiveDefault;
     const stMatch = !rule.service_type || rule.service_type === 'ALL' ||
       (role.company_type === 'THIRD_PARTY' && rule.service_type === role.service_type);
     // Capability/permission gate (e.g. FINANCE_REVIEW) — when set, the user must hold it.
@@ -122,9 +133,35 @@ function matchesRule(rules: VisibilityRule[], role: UserRole): boolean {
   });
 }
 
-/** Full ACCESS check — may the role reach this screen at all? */
-export function isVisible(item: MenuItem, role: UserRole): boolean {
+export const ALL_FUNCTIONS: BusinessFunction[] = [
+  'ENGINEERING', 'FINANCE_TREASURY', 'COMMERCIAL', 'COMPLIANCE_LEGAL', 'OPERATIONS', 'EXECUTIVE',
+];
+
+/** Platform default, before any company tailoring: visible_to + the executive default. */
+export function defaultVisible(item: MenuItem, role: UserRole): boolean {
   return matchesRule(item.visible_to, role);
+}
+
+/**
+ * Is this screen within the company's scope — open by default to at least one
+ * function of the same company type (and service type)? A CISO may only open
+ * screens within that scope: a producer cannot open itself a bank-only screen.
+ */
+export function inCompanyScope(item: MenuItem, role: UserRole): boolean {
+  return ALL_FUNCTIONS.some(fn => matchesRule(item.visible_to, { ...role, business_function: fn }));
+}
+
+/**
+ * Full ACCESS check — may the role reach this screen at all?
+ * Platform default, then the company's CISO rule for this screen and function
+ * (lib/screenAccess.ts): DENY closes it; ALLOW opens it within the company scope.
+ */
+export function isVisible(item: MenuItem, role: UserRole): boolean {
+  const base = defaultVisible(item, role);
+  const rule = screenRuleFor(role.company_name, item.id, role.business_function);
+  if (rule === 'DENY') return false;
+  if (rule === 'ALLOW') return base || inCompanyScope(item, role);
+  return base;
 }
 
 /** Is this screen consult-only (read, not operate) for this role? */
@@ -401,8 +438,11 @@ export const MENU_TABS: MenuTab[] = [
       // (same /finance-timeline screen); ALL roles retained.
       { id: 'project-timeline', path: '/finance-timeline', label: 'Project Timeline & Milestones', section: '',
         visible_to: [ALL] },
+      // Producer finance and executives are included: the screen carries a capital
+      // stack panel built for exactly those two functions (ProducerBankabilityView
+      // canViewCapitalStack), which was unreachable while they were left off this list.
       { id: 'construction-progress', path: '/producer-bankability', label: 'Construction Progress', section: '',
-        visible_to: [PROD('ENGINEERING'), PROD('OPERATIONS'), TP('ENGINEER')] },
+        visible_to: [PROD('ENGINEERING'), PROD('OPERATIONS'), PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('ENGINEER')] },
       { id: 'cfo-report', path: '/cfo-report', label: 'CEO Report', section: 'PORTFOLIO',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), PROD('OPERATIONS')] },
 
@@ -432,6 +472,7 @@ export const CISO_ITEMS: MenuItem[] = [
   { id: 'ciso-gantt',     path: '/ciso-gantt-config',    label: 'Gantt Visibility',       section: 'SECURITY',  visible_to: [ALL] },
   { id: 'ciso-policy',    path: '/ciso-policy',          label: 'Policy Matrix',          section: 'SECURITY',  visible_to: [ALL] },
   { id: 'ciso-compliance',path: '/ciso-compliance',      label: 'Compliance (ISO 27001)', section: 'SECURITY',  visible_to: [ALL] },
+  { id: 'ciso-screen-access', path: '/ciso-screen-access', label: 'Screen Access by Role', section: 'SECURITY', visible_to: [ALL] },
   // Event Bus Monitor merged into Security Overview (same /ciso-dashboard screen).
   // ── Webmaster / Orchestrator ──
   { id: 'pricing-admin',  path: '/ciso-pricing',         label: 'Pricing Curves (Gabillon)', section: 'WEBMASTER', visible_to: [ALL] },

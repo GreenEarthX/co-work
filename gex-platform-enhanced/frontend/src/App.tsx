@@ -62,6 +62,7 @@ import { TransferReadiness } from '@/features/finance/TransferReadiness'
 import { InsuranceSchedule } from '@/features/finance/InsuranceSchedule'
 import { TraderDashboardPage } from '@/features/trader/TraderDashboardPage'
 import { GanttVisibilityConfig } from '@/features/ciso/GanttVisibilityConfig'
+import { ScreenAccessPage } from '@/features/ciso/ScreenAccessPage'
 import { GapAnalysis } from '@/features/finance/GapAnalysis'
 import { GabillonAdminPage } from '@/features/pricing/GabillonAdminPage'
 import { MoleculePriceCurve } from '@/features/pricing/MoleculePriceCurve'
@@ -258,6 +259,7 @@ function App() {
 
               {/* ── Gantt Visibility Config (CISO) ── */}
               <Route path="ciso-gantt-config"    element={<GanttVisibilityConfig />} />
+              <Route path="ciso-screen-access"   element={<ScreenAccessPage />} />
 
               {/* ── Gabillon / Pricing (CISO Webmaster + project view) ── */}
               <Route path="ciso-pricing"         element={<GabillonAdminPage />} />

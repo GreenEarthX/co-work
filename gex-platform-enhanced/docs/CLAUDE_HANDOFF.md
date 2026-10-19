@@ -2226,6 +2226,41 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     engine evaluates them with no premise. These screens show the engine faithfully, so item 41
     matters here: a self-verified item moves the state they display.
 
+43. **The development PostgreSQL database was lost a second time. It was RESTORED FROM DUMP on
+    13 Oct 2026, on JML's instruction.** The backend failed at startup in `init_auth_db()` with
+    `server closed the connection unexpectedly` on :55432. This was not the familiar "container
+    stopped" case. `files-postgres-1` was **absent** from `docker ps -a`, and the
+    `files_postgres_data` volume was gone. The only volumes left were two anonymous 4 KB ones
+    holding no data. Only `gex-pg-forward` survived. Docker had started at 09:45 UTC that day,
+    and the 12:30 scheduled backup failed with code 12 ("container does not exist"). **What
+    removed them is not recorded.** The candidates are a Docker Desktop reset,
+    `compose down -v`, or a prune with `--volumes`. That is the open question this item leaves.
+
+    **Restored from `files/db_backups/daily/gex_platform_2026-10-12_1236.dump`.** That was the
+    newest of 7 daily and 3 weekly dumps, verified by a full read. **Writes made after
+    12 Oct 12:36 local are lost.** Unlike item 38, nothing was rebuilt. No Alembic, no copiers
+    and no registry scripts ran, because the dump carries schema and rows together. The
+    restore took about 5 minutes against two days for the 30 Sep rebuild. The scheduled
+    `pg_dump` is what made the difference. The exact sequence is in `.claude/CLAUDE.md` under
+    *Backups*, including one trap: a `-Fc` dump does not carry `GRANT CONNECT ON DATABASE` or
+    `ALTER DATABASE ... SET app.current_company_id`, so both must be re-applied after the
+    promotion.
+
+    Measured after the restore: **120** tables, **113** FORCED RLS, head **059**, **20,080**
+    rows. Append-only grants are correct: archive `SELECT`, `evidence_events` and
+    `commitment_terms_events` `INSERT, SELECT`. `gex_app` is not a superuser, and `projects`
+    returns 0 with no tenant context. `/health` returns 200. A fresh dump,
+    `gex_platform_2026-10-13_1240.dump`, verified clean. Test suite with both URLs exported:
+    **899 pass, 18 skip, 0 fail**. That is identical to the 2 Oct run. All 18 skip reasons were
+    read with `-rs`, and none is "database unreachable" or "variable unexported".
+
+    Counts moved since `.claude/CLAUDE.md` last measured them. These are not restore damage:
+    they are what the 12 Oct dump holds. `projects` **16**: the FortaVerde fixture
+    `proj_TEST_fortaverde_pecem` was loaded 12 Oct. `auth_users` **23**: 17 grandfathered,
+    4 `MANUAL_ADMIN_GRANT`, and 2 FortaVerde stand-ins (one ACTIVE by `--activate`, one
+    PENDING). `bankability_evidence` is **117**, unchanged. **`u_admin` is absent from the
+    dump.** Nothing records when it went. Both files are updated to match.
+
 
 ---
 

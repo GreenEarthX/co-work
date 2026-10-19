@@ -3,7 +3,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Shield, AlertTriangle, CheckCircle2, XCircle, ArrowRight } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
-import { bankabilityAPI, financeModelAPI } from '@/lib/api'
+import { bankabilityAPI } from '@/lib/api'
+import { useSelectedProject } from '@/contexts/ProjectContext'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -51,12 +52,14 @@ function deriveCovenants(snapshot: any, _rules: any, cfadsResult?: any): Covenan
 
   // DSCR covenant — tied to G8 (Audit-Grade Model)
   const g8 = gateMap.get('G8_AUDIT_GRADE_MODEL')
+  // No cashflow basis → no ratio and no compliance claim. An audited model
+  // (G8 complete) is not the same as a computed, compliant DSCR.
   const dscrValue = cfadsResult?.cfads?.dscr
     ? `${cfadsResult.cfads.dscr.toFixed(2)}x`
-    : g8?.is_complete ? 'Computed (engine)' : 'Pending model audit'
+    : g8?.is_complete ? 'Not computed — no cashflow basis on file' : 'Pending model audit'
   const dscrStatus = cfadsResult?.cfads?.dscr
     ? (cfadsResult.cfads.dscr >= 1.3 ? 'compliant' : cfadsResult.cfads.dscr >= 1.1 ? 'warning' : 'breach')
-    : g8?.is_complete ? 'compliant' : 'not_applicable'
+    : 'not_applicable'
   covenants.push({
     id: 'cov_dscr',
     name: 'Debt Service Coverage Ratio',
@@ -73,12 +76,15 @@ function deriveCovenants(snapshot: any, _rules: any, cfadsResult?: any): Covenan
   const g4 = gateMap.get('G4_OFFTAKE_BANKABLE')
   covenants.push({
     id: 'cov_offtake',
-    name: 'Offtake Volume Coverage',
+    // Loan covenant, tested after financial close. Distinct from the 60% coverage
+    // bar the gate rules apply at Commercially plausible; the facility agreement
+    // sets its own level. Gate progress is not a coverage ratio, so it is not shown as one.
+    name: 'Offtake Volume Coverage (loan covenant)',
     type: 'financial',
     metric: 'Contracted / Capacity',
-    threshold: '≥ 70%',
-    current_value: g4 ? `${Math.round(g4.completion_pct)}% gate progress` : 'No data',
-    status: g4?.is_complete ? 'compliant' : (g4?.completion_pct ?? 0) > 50 ? 'warning' : 'not_applicable',
+    threshold: 'Set in the facility agreement',
+    current_value: g4?.is_complete ? 'Binding offtake gate satisfied' : 'Not tested before financial close',
+    status: g4?.is_complete ? 'compliant' : 'not_applicable',
     linked_gate: 'G4_OFFTAKE_BANKABLE',
     frequency: 'Semi-annual',
   })
@@ -260,7 +266,11 @@ function RegressionRuleCard({ rule }: { rule: RegressionRule }) {
 export function CovenantsPage() {
   const [snapshot, setSnapshot] = useState<any>(null)
   const [rules, setRules] = useState<any>(null)
-  const [cfadsResult, setCfadsResult] = useState<any>(null)
+  // Covenant DSCR is shown only from this project's own cashflow basis. Until
+  // 16 Oct 2026 it was computed from fixed "representative" inputs (50 t/day of
+  // US hydrogen with a 45V credit) and presented as this project's covenant.
+  const cfadsResult: any = null
+  const { selectedProjectId } = useSelectedProject()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -268,30 +278,22 @@ export function CovenantsPage() {
     setLoading(true)
     setError(null)
     try {
+      if (!selectedProjectId) {
+        throw new Error('Select a project first. Covenants are evaluated per project.')
+      }
       const [snap, rls] = await Promise.allSettled([
-        bankabilityAPI.evaluate(),
+        bankabilityAPI.evaluate(selectedProjectId),
         bankabilityAPI.getRules(),
       ])
       if (snap.status === 'fulfilled') setSnapshot(snap.value)
       if (rls.status === 'fulfilled') setRules(rls.value)
       if (snap.status === 'rejected') throw new Error(snap.reason?.message || 'Failed to load')
-
-      // Fetch real CFADS/DSCR from gex_pf_engine using representative project parameters
-      // These defaults represent a 50 MTPD green H2 project; real params would come from project DB
-      const cfads = await financeModelAPI.calculateCfads({
-        production_mtpd: 50,
-        offtake_price_eur_kg: 6.0,
-        opex_eur_kg: 2.0,
-        subsidies: { '45V': 3.0 },
-        period_days: 365,
-      }).catch(() => null)
-      if (cfads) setCfadsResult(cfads)
     } catch (err: any) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedProjectId])
 
   useEffect(() => { loadData() }, [loadData])
 

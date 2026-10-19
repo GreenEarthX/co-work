@@ -4,7 +4,7 @@
  *
  * Simple, action-oriented screen showing:
  *   - Which projects have demand signals / LOIs / contracts from third-party offtakers
- *   - Coverage % vs bankable threshold (70%)
+ *   - Coverage % vs the 60% coverage bar of the gate rules (4.1.0)
  *   - Clear next actions per project
  *
  * Data sourced from CUSTOMER_PROJECTS canonical registry.
@@ -123,7 +123,7 @@ function buildDemandForProject(p: CustomerProject): ProjectDemand {
     totalDemand_mt: totalDemand,
     annualCapacity_mt: annualCapacity,
     coveragePct,
-    meetsThreshold: coveragePct >= 70,
+    meetsThreshold: coveragePct >= 60,
   }
 }
 
@@ -170,6 +170,9 @@ export function DemandPipeline() {
           <p className="text-sm text-gray-500 mt-1">
             Downstream sales pipeline by project, with buyer signals and bid readiness
           </p>
+          <p className="mt-2 max-w-3xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Illustrative pipeline. Buyer signals and volumes on this screen are derived from each project's offtake gate progress, not from recorded buyer interest. Recorded offers and contracts are on the matching and contracts screens.
+          </p>
         </div>
         <button
           onClick={() => navigate('/matching?mode=sell')}
@@ -187,11 +190,11 @@ export function DemandPipeline() {
           <div className="text-xs text-gray-500 mt-1">across {projectDemands.length} projects</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Above 70% Threshold</div>
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">At or above 60% coverage</div>
           <div className={`text-2xl font-black ${projectsMeetingThreshold > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
             {projectsMeetingThreshold} / {projectDemands.length}
           </div>
-          <div className="text-xs text-gray-500 mt-1">bankable coverage</div>
+          <div className="text-xs text-gray-500 mt-1">coverage bar of the gate rules</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Action Required</div>
@@ -213,8 +216,8 @@ export function DemandPipeline() {
         <select value={filterThreshold} onChange={e => setFilterThreshold(e.target.value)}
           className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white">
           <option value="all">All Projects</option>
-          <option value="met">Above 70% Threshold</option>
-          <option value="below">Below 70% Threshold</option>
+          <option value="met">At or above 60% coverage</option>
+          <option value="below">Below 60% coverage</option>
         </select>
       </div>
 
@@ -248,7 +251,7 @@ export function DemandPipeline() {
                       className={`h-full rounded-full transition-all ${pd.meetsThreshold ? 'bg-emerald-500' : pd.coveragePct >= 40 ? 'bg-amber-400' : 'bg-gray-300'}`}
                       style={{ width: `${Math.min(pd.coveragePct, 100)}%` }}
                     />
-                    <div className="absolute top-0 bottom-0 w-0.5 bg-red-400" style={{ left: '70%' }} title="70% bankable threshold" />
+                    <div className="absolute top-0 bottom-0 w-0.5 bg-red-400" style={{ left: '60%' }} title="60% coverage bar (gate rules)" />
                   </div>
                 </div>
                 {pd.meetsThreshold ? (

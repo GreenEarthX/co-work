@@ -401,7 +401,7 @@ export function DashboardPage() {
                 link: "/bankability-scores",
               },
               {
-                label: "Avg Bankability",
+                label: "Avg evidence verified",
                 value: `${avgBankability}%`,
                 link: "/bankability-scores",
               },
@@ -468,7 +468,7 @@ export function DashboardPage() {
                 link: "/capacity",
               },
               {
-                label: "Avg Bankability",
+                label: "Avg evidence verified",
                 value: `${avgBankability}%`,
                 link: "/bankability-scores",
               },
@@ -998,13 +998,13 @@ export function DashboardPage() {
               const dealKillers = countBlockingItems(scopedVisibleProjects);
               return [
                 {
-                  label: "Avg Bankability",
+                  label: "Avg evidence verified",
                   value: `${avgBank}%`,
                   pct: avgBank,
                   color: "bg-slate-700",
                 },
                 {
-                  label: "Finance Ready",
+                  label: "70%+ evidence verified",
                   value: `${ready}/${scopedVisibleProjects.length}`,
                   pct:
                     scopedVisibleProjects.length > 0

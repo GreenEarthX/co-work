@@ -663,7 +663,7 @@ export function AdversarialReviewPage() {
           </div>
           <h1 className="mt-1 text-2xl font-black text-gray-900">Pressure-test what the orchestrator is assuming</h1>
           <p className="mt-1 max-w-3xl text-sm text-gray-600">
-            Capture skeptical role-based reviews, preserve handoff memory, and escalate blocking findings without touching the existing finance-engine microservice boundary.
+            Each role challenges the project from its own side: what it doubts, what it needs to see, and what would stop it. Findings are kept with the project so the next person picks up where the last one left off, and anything blocking is raised before it reaches a credit committee.
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm">
@@ -992,10 +992,10 @@ export function AdversarialReviewPage() {
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            Why it is safe
+            What it does not do
           </div>
           <p className="mt-2 text-sm leading-6 text-gray-600">
-            Everything stays in the platform backend and SQLite store. No `gex_pf_engine` contract or port wiring was changed.
+            A challenge never rewrites the evidence or marks a gate as met or failed. It records a doubt and who must answer it. While a blocking finding stays open, the project cannot be moved to its next stage; the gates themselves still move only on evidence.
           </p>
         </div>
       </div>

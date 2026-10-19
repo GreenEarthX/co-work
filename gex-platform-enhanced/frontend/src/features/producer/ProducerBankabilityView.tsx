@@ -1,5 +1,7 @@
 // Screen: Producer bankability view screen (/producer-bankability)
 import React, { useState, useEffect, useRef } from 'react';
+import { gateLabel } from '@/lib/gateNames';
+import { humanise } from '@/lib/engineReadout';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   CheckCircle, AlertCircle, Clock, Upload, Eye, FileText,
@@ -111,6 +113,10 @@ interface ProducerBankabilityData {
   overall_completion: number;
   unlocked_capital: string[];
   next_milestone: string;
+  /** Engine readiness state label (live data only). */
+  state_label?: string;
+  /** Gates the engine says block the next state (live data only). */
+  blocking_gate_ids?: string[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -222,6 +228,10 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
   // True when gates come from the static registry, not the engine. The user
   // must always be able to tell which truth they are looking at.
   const [isStaticFallback, setIsStaticFallback] = useState(false);
+  // Engine view of each capital tranche (keyed by capital type). When present it
+  // overrides the project file's own unlock flags, so a tranche can never read as
+  // unlocked or drawn while the gate engine says its gating evidence is missing.
+  const [liveCapital, setLiveCapital] = useState<Record<string, { is_unlocked: boolean; gating_gates: string[]; best_progress_pct: number }> | null>(null);
 
   // Evidence document upload — the Upload icon next to a row IS the way to
   // work a document-type evidence item. POST → stored content-addressed,
@@ -357,9 +367,20 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
             .filter((c: any) => c.is_unlocked)
             .map((c: any) => c.capital_type),
           next_milestone: raw.gates_blocking_next_state?.length
-            ? `Complete ${raw.gates_blocking_next_state.join(', ')} → ${raw.next_state || 'next state'}`
-            : `Progressing to ${raw.next_state || 'next state'}`,
+            ? `Satisfy ${raw.gates_blocking_next_state.map((g: string) => gateLabel(g)).join(' and ')} to reach ${raw.next_state_label || (raw.next_state ? humanise(raw.next_state) : 'the next state')}.`
+            : `Progressing to ${raw.next_state_label || (raw.next_state ? humanise(raw.next_state) : 'the next state')}.`,
+          blocking_gate_ids: raw.gates_blocking_next_state || [],
+          state_label: raw.state_label || (raw.current_state ? humanise(raw.current_state) : undefined),
         });
+        setLiveCapital(
+          Array.isArray(raw.capital_unlocks) && raw.capital_unlocks.length > 0
+            ? Object.fromEntries(raw.capital_unlocks.map((c: any) => [String(c.capital_type), {
+                is_unlocked: !!c.is_unlocked,
+                gating_gates: c.gating_gates || [],
+                best_progress_pct: Math.round(c.best_progress_pct || 0),
+              }]))
+            : null,
+        );
         setIsStaticFallback(false);
       } else {
         // Fall back to canonical project data
@@ -383,6 +404,7 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
           unlocked_capital: bk?.unlocked_capital ?? [],
           next_milestone: bk?.next_milestone ?? '',
         });
+        setLiveCapital(null);
         setIsStaticFallback(true);
       }
     } catch (e) {
@@ -407,6 +429,7 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
         unlocked_capital: bk?.unlocked_capital ?? [],
         next_milestone: bk?.next_milestone ?? '',
       });
+      setLiveCapital(null);
       setIsStaticFallback(true);
     }
     setLoading(false);
@@ -494,10 +517,17 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
         const completedGates  = data.visible_gates.filter(g => g.is_complete).length;
         const totalGates      = data.visible_gates.length;
         const firstIncomplete = data.visible_gates.find(g => !g.is_complete);
-        const capitalItems    = canonicalProject?.bankability.capital_status ?? [];
+        const capitalItems    = (canonicalProject?.bankability.capital_status ?? []).map(cap => {
+          const live = liveCapital?.[cap.type];
+          return live
+            ? { ...cap, is_unlocked: live.is_unlocked, gating_gates: live.gating_gates, progress_pct: live.best_progress_pct }
+            : cap;
+        });
         const unlockedEur     = capitalItems.filter(c => c.is_unlocked).reduce((s, c) => s + parseEurM(c.amount), 0);
         const totalEur        = capitalItems.reduce((s, c) => s + parseEurM(c.amount), 0);
         const phaseLabel      = canonicalProject?.phase ?? '';
+        // Amounts carry their own currency in the project file ("$18M", "€8M"); show the stack in it.
+        const stackCurrency   = capitalItems[0]?.amount.trim().charAt(0).match(/[$€£]/) ? capitalItems[0].amount.trim().charAt(0) : '€';
 
         return (
           <>
@@ -514,8 +544,11 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
                     style={{ width: `${data.overall_completion}%` }}
                   />
                 </div>
+                {data.state_label && (
+                  <p className="mt-1.5 text-[10px] font-semibold text-[var(--text-secondary)] truncate">Readiness: {data.state_label}</p>
+                )}
                 {phaseLabel && (
-                  <p className="mt-1.5 text-[10px] text-[var(--text-muted)] truncate">{phaseLabel}</p>
+                  <p className="mt-0.5 text-[10px] text-[var(--text-muted)] truncate" title="The phase recorded on the project file. Readiness above is what the evidence supports.">Phase on file: {phaseLabel}</p>
                 )}
                 {data.overall_completion === 0 && (
                   <p className="mt-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
@@ -526,7 +559,7 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
 
               {/* Gates */}
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4 shadow-card">
-                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Gates</div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Gates in your view</div>
                 <div className="mt-1 font-display text-2xl font-extrabold leading-none text-[var(--text-primary)]">
                   {completedGates}
                   <span className="text-base font-medium text-[var(--text-muted)]"> / {totalGates}</span>
@@ -547,10 +580,10 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
                 {totalEur > 0 ? (
                   <>
                     <div className="mt-1 font-display text-2xl font-extrabold leading-none text-emerald-600 dark:text-emerald-400">
-                      €{unlockedEur.toFixed(0)}M
+                      {stackCurrency}{unlockedEur.toFixed(0)}M
                     </div>
                     <p className="mt-1 text-[10px] text-[var(--text-muted)]">
-                      of €{totalEur.toFixed(0)}M total stack
+                      of {stackCurrency}{totalEur.toFixed(0)}M total stack
                     </p>
                     {unlockedEur === 0 && (
                       <p className="mt-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
@@ -573,7 +606,10 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--brand)] mb-0.5">Next milestone</p>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{data.next_milestone}</p>
-                  {firstIncomplete && firstIncomplete.blocking_items.length > 0 && (
+                  {/* Item chips only when they belong to a gate that actually blocks the next state;
+                      otherwise they would point at a later gate than the milestone names. */}
+                  {firstIncomplete && firstIncomplete.blocking_items.length > 0 &&
+                    (!data.blocking_gate_ids || data.blocking_gate_ids.includes(firstIncomplete.id)) && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {firstIncomplete.blocking_items.slice(0, 3).map(item => (
                         <span key={item} className="gex-badge gex-badge-amber">{item.replace(/_/g, ' ')}</span>
@@ -595,9 +631,18 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
                   <h3 className="flex-1 text-sm font-bold text-[var(--text-primary)]">Capital Stack</h3>
                   <span className="text-[10px] text-[var(--text-muted)]">Finance & Executive view</span>
                 </div>
+                <p className="border-b border-[var(--border)] px-5 py-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
+                  Amounts and commitment stages are taken from the project file. Whether a tranche is unlocked is decided by the gate evidence{liveCapital ? '' : ' (engine unavailable — showing the project file only)'}.
+                </p>
                 <div className="divide-y divide-[var(--border)]">
                   {capitalItems.map(cap => {
-                    const { text: commitText, cls: commitCls } = commitmentLabel(cap.commitment_status);
+                    // A late commitment stage on a tranche the engine still holds locked is
+                    // a claim, not a fact: show it as recorded but not yet evidenced.
+                    const claimAheadOfEvidence = !cap.is_unlocked &&
+                      ['DRAWN', 'LEGAL_COMPLETE', 'CREDIT_APPROVED'].includes(cap.commitment_status);
+                    const { text: commitText, cls: commitCls } = claimAheadOfEvidence
+                      ? { text: 'Recorded · not evidenced', cls: 'gex-badge gex-badge-amber' }
+                      : commitmentLabel(cap.commitment_status);
                     return (
                       <div key={cap.type} className="flex items-center gap-3 px-5 py-3">
                         <div className="flex-1 min-w-0">
@@ -609,7 +654,7 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
                           </div>
                           {!cap.is_unlocked && cap.gating_gates.length > 0 && (
                             <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">
-                              Requires: {cap.gating_gates.join(', ')}
+                              Requires: {cap.gating_gates.map(g => gateLabel(g)).join(' or ')}
                             </p>
                           )}
                           <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--border)]">
@@ -663,7 +708,7 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
                   <div className="mt-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className={`text-sm font-semibold text-[var(--text-primary)] ${gate.financing_applicable === false ? 'line-through' : ''}`}>{gate.name}</p>
-                      <span className="text-[10px] font-mono text-[var(--text-muted)]">{gate.id}</span>
+                      <span className="text-[10px] font-mono text-[var(--text-muted)]" title={gate.id}>{gate.id.split('_')[0]}</span>
                       {gate.financing_applicable === false && (
                         <span className="gex-badge gex-badge-default" title="Lender-protection gate — waived under balance-sheet financing. Does not block state transitions or dilute completion.">
                           N/A · BALANCE SHEET

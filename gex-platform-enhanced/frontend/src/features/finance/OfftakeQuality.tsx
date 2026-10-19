@@ -189,7 +189,7 @@ const OFFTAKE_DATA: Record<string, ProjectOfftake> = {
     ],
     redFlags: [
       "Offtake tenor 3 years short of debt — balloon risk",
-      "60% contracted below 70% minimum",
+      "60% contracted — exactly at the 60% coverage bar, no headroom for a buyer default",
       "No curtailment compensation — gas methanol synthesis cannot ramp quickly",
       "Carbon premium schedule undefined — revenue uncertainty in model",
     ],

@@ -2,17 +2,18 @@
 import { useState, useEffect } from 'react';
 import { Shield, CheckCircle, AlertCircle, FileCheck, Eye, Search, Filter } from 'lucide-react';
 import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
 interface Project {
   id: string;
   name: string;
   molecule: string;
   producer: string;
-  compliance_status: 'compliant' | 'pending' | 'non_compliant';
+  compliance_status: 'compliant' | 'pending' | 'non_compliant' | 'not_audited';
   certifications: string[];
   last_audit: string;
   next_review: string;
-  risk_level: 'low' | 'medium' | 'high';
+  risk_level: 'low' | 'medium' | 'high' | 'not_assessed';
 }
 
 export function RegulatorDashboardPage() {
@@ -20,54 +21,27 @@ export function RegulatorDashboardPage() {
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadProjects();
-  }, []);
+  // The user's own visible projects, not a simulated list. Until 16 Oct 2026
+  // this page showed three invented plants (one of them named after a real
+  // company and marked NON COMPLIANT) to every role. No audit record exists in
+  // the platform yet, so each project is shown as not audited and not assessed.
+  const { projects: visibleProjects } = useVisibleProjects();
 
-  const loadProjects = async () => {
+  useEffect(() => {
     setLoading(true);
-    try {
-      // Simulate API call
-      setProjects([
-        {
-          id: '1',
-          name: 'Hamburg H2 Plant',
-          molecule: 'H2',
-          producer: 'Hamburg H2 GmbH',
-          compliance_status: 'compliant',
-          certifications: ['RED III', '45V'],
-          last_audit: '2026-01-15',
-          next_review: '2026-07-15',
-          risk_level: 'low'
-        },
-        {
-          id: '2',
-          name: 'Rotterdam NH3 Terminal',
-          molecule: 'NH3',
-          producer: 'Port of Rotterdam',
-          compliance_status: 'pending',
-          certifications: ['RED III'],
-          last_audit: '2025-11-20',
-          next_review: '2026-05-20',
-          risk_level: 'medium'
-        },
-        {
-          id: '3',
-          name: 'Marseille SAF Plant',
-          molecule: 'SAF',
-          producer: 'Total Energies',
-          compliance_status: 'non_compliant',
-          certifications: [],
-          last_audit: '2025-09-10',
-          next_review: '2026-03-10',
-          risk_level: 'high'
-        }
-      ]);
-    } catch (error) {
-      console.error('Failed to load projects:', error);
-    }
+    setProjects(visibleProjects.map((vp) => ({
+      id: vp.id,
+      name: vp.name,
+      molecule: vp.molecule,
+      producer: (vp as any).owner_company ?? '—',
+      compliance_status: 'not_audited' as const,
+      certifications: [],
+      last_audit: '—',
+      next_review: '—',
+      risk_level: 'not_assessed' as const,
+    })));
     setLoading(false);
-  };
+  }, [visibleProjects]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -278,7 +252,7 @@ export function RegulatorDashboardPage() {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRiskColor(project.risk_level)}`}>
-                      {project.risk_level.toUpperCase()}
+                      {project.risk_level.replace('_', ' ').toUpperCase()}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">

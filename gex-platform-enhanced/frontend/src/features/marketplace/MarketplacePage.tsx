@@ -26,6 +26,7 @@
  *   - Purchased e-methanol for resale → Trading / Portfolio
  */
 
+import { useUserRole } from '@/contexts/UserRoleContext'
 import { useState, useMemo, type ReactNode } from 'react'
 import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -323,6 +324,8 @@ interface TradingProcurement {
   contractStatus: ContractStatus
   verification: VerificationState
   notes: string
+  /** Company that holds the position (matched against the signed-in company name). */
+  ownerCompany: string
 }
 
 const TRADING_PROCUREMENT: TradingProcurement[] = [
@@ -338,6 +341,7 @@ const TRADING_PROCUREMENT: TradingProcurement[] = [
     contractStatus: 'INDICATIVE',
     verification: 'UNVERIFIED',
     notes: 'Spot bridge — covers Q1 2030 delivery gap before Rattlesnake Gap COD',
+    ownerCompany: 'ETFuels',
   },
   {
     id: 'TP_02',
@@ -351,6 +355,7 @@ const TRADING_PROCUREMENT: TradingProcurement[] = [
     contractStatus: 'TERM_SHEET',
     verification: 'SUBMITTED',
     notes: 'HVO-based SAF for Lufthansa pool obligation — not ETFuels production',
+    ownerCompany: 'ETFuels',
   },
   {
     id: 'TP_03',
@@ -364,6 +369,7 @@ const TRADING_PROCUREMENT: TradingProcurement[] = [
     contractStatus: 'SPOT',
     verification: 'UNVERIFIED',
     notes: 'Hedge position — ammonia market exposure balancing',
+    ownerCompany: 'ETFuels',
   },
 ]
 
@@ -892,7 +898,12 @@ export function FeedstockPurchasesPanel(props: {
 // ── Trading Procurement panel ───────────────────────────────────────────────
 
 function TradingProcurementPanel() {
-  if (TRADING_PROCUREMENT.length === 0) {
+  // A company sees only its own trading positions. Until 16 Oct 2026 the
+  // ETFuels positions were shown to every signed-in company.
+  const { role } = useUserRole()
+  const company = (role.company_name || '').toLowerCase()
+  const positions = TRADING_PROCUREMENT.filter(p => company.includes(p.ownerCompany.toLowerCase()))
+  if (positions.length === 0) {
     return <div className="px-5 py-8 text-center text-sm text-gray-400">No trading procurement items</div>
   }
 
@@ -910,7 +921,7 @@ function TradingProcurementPanel() {
         <div className="w-[12%]">Project Link</div>
         <div className="w-[20%]">Notes</div>
       </div>
-      {TRADING_PROCUREMENT.map(item => (
+      {positions.map(item => (
         <div key={item.id} className="px-5 py-2 flex items-center text-xs border-t border-gray-50">
           <div className="w-[7%] pl-4"><PurposeBadge purpose="TRADING_PROCUREMENT" /></div>
           <div className="w-[10%]">

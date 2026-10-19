@@ -103,6 +103,18 @@ by `tests/test_gex_app_runtime_role.py`, which asserts against whatever
 
 ### Migration state
 
+**2026-10-13: the database was RESTORED FROM DUMP after a second loss.** By 09:45 UTC on
+13 Oct, both `files-postgres-1` and the `files_postgres_data` volume no longer existed —
+only `gex-pg-forward` survived, so :55432 accepted connections and then dropped them
+("server closed the connection unexpectedly"). What removed them is not recorded. It was
+restored from `db_backups/daily/gex_platform_2026-10-12_1236.dump`; **writes after 12 Oct
+12:36 local are lost.** This time no migrations and no copiers ran — the dump carries schema
+at 059 and every row. See `docs/CLAUDE_HANDOFF.md` §8 item 43 and the restore steps under
+*Backups* below.
+**When the container is MISSING, `docker start` cannot fix it.** Check `docker ps -a` and
+`docker volume ls` first. If the volume is gone, restore from the newest dump. Do not run the
+Alembic rebuild drill.
+
 **2026-09-30: the database was REBUILT after the 28 Sep reset.** It was empty from
 28 Sep 16:14 (compose project `files` recreated on a new `files_postgres_data` volume,
 fresh `initdb`) until 30 Sep. `docs/CLAUDE_HANDOFF.md` §8 item 38 records the rebuild and
@@ -184,6 +196,15 @@ PostgreSQL only, which is the single tolerated break in SQLite↔PostgreSQL evid
 `test_evidence_slice.py` excludes the marker and a second test pins the exception to projects
 named `proj_TEST_`. Both were negative-verified. **Do not treat a fixture row as a client
 submission**, and do not copy them into SQLite to "restore parity".
+
+**A second TEST fixture: FortaVerde (Pecém), loaded 2026-10-12** by
+`backend/scripts/load_fortaverde_test_project.py` from `fortaverde_knowledge_v2.json` (route
+chosen by JML 2026-10-09). It adds project `proj_TEST_fortaverde_pecem` (tenant
+`test_fortaverde`) and two stand-in accounts, `usr_test_fv_p1` and `usr_test_fv_p2`, and
+**no** evidence rows. That brings `projects` to **16**; `bankability_evidence` stays at
+**117**. `usr_test_fv_p1` is ACTIVE on purpose (`--activate`, JML 2026-10-12). It bypasses
+vetting and its row records that with `activated_by = 'TEST_FIXTURE_FORTAVERDE'`.
+`--remove --execute` deletes the fixture. Measured in the 13 Oct restore.
 
 **All evidence rows before 2026-09-26 were invented** — the 125 `demo_seed` rows and the two
 under Anna Keller's and Thierry Groell's names alike. They are archived in
@@ -358,6 +379,30 @@ a half-replaced state. Re-run `scripts/setup_postgres_rls.sql` **before** the
 restore if the roles are gone, and do not run migrations as part of a restore:
 the dump already carries schema at its own head.
 
+**Done for real 2026-10-13, after the container and volume were deleted** (handoff §8
+item 43). The steps were:
+
+1. `docker compose -p files -f files/gex-demo-compose.yml up -d postgres`. Use project
+   `files` because the forwarder dials `files-postgres-1` on `files_gex_net`.
+2. `setup_postgres_rls.sql` into the empty `gex_platform`. It creates only the roles. Then
+   `ALTER ROLE gex_app PASSWORD` to match `.env`.
+3. Restore into `gex_restore_test` and check it: table count, FORCED RLS count,
+   `alembic_version`, and the append-only grants query above.
+4. Promote it: `DROP DATABASE gex_platform; ALTER DATABASE gex_restore_test RENAME TO
+   gex_platform;`. This skips a second restore.
+5. **Re-apply the database-level settings. A `-Fc` dump does not carry them.**
+   `GRANT CONNECT ON DATABASE gex_platform TO gex_app, gex_admin;` and
+   `ALTER DATABASE gex_platform SET app.current_company_id = 'GUEST';`. Without the first,
+   the runtime cannot connect. Without the second, the RLS default changes.
+6. Take a fresh backup straight away.
+
+Result: 120 tables, 113 FORCED, head 059, 20,080 rows. `gex_app` connects through :55432
+as a non-superuser, and `projects` returns 0 with no tenant context.
+
+Note: `backup_postgres.sh --verify` itself needs the container running. It runs
+`pg_restore` inside `files-postgres-1`, so with the container gone it exits 13. You cannot
+pre-check a dump before step 1.
+
 **Scheduling.** `files/com.gex.postgres-backup.plist` is a launchd agent, daily
 at 12:30 local. Note it is **not installed unless someone ran the two commands
 in it** — check with `launchctl list | grep gex`. Install / remove:
@@ -433,23 +478,25 @@ failing closed must not blackhole it.
 telephone verification, a signed usage agreement, and separation of duties
 (activator ≠ claimant). See `app/core/account_lifecycle.py`.
 
-`auth_users` now holds **20** rows, all `ACTIVE`, and the marker no longer
-accounts for all of them (measured 2026-09-24):
+`auth_users` now holds **23** rows (measured 2026-10-13, in the restore of the 12 Oct
+dump):
 
-    17  activated_by = 'SEED_GRANDFATHERED'   predate vetting
-     2  activated_by = 'MANUAL_ADMIN_GRANT'
-     1  activated_by = (none)                 <- u_admin
+    17  ACTIVE   activated_by = 'SEED_GRANDFATHERED'        predate vetting
+     4  ACTIVE   activated_by = 'MANUAL_ADMIN_GRANT'        t-marwenc, t-mohamedk (09-20),
+                                                           you_, jean-marie_ (10-11)
+     1  ACTIVE   activated_by = 'TEST_FIXTURE_FORTAVERDE'   usr_test_fv_p1, vetting bypassed
+     1  PENDING  (none)                                    usr_test_fv_p2, fixture stand-in
 
 Do not backfill the grandfathered rows' NULL phone/agreement columns; that marker
-is how you find them.
+is how you find them. None of the four `MANUAL_ADMIN_GRANT` rows has a phone or
+agreement date either.
 
-**`u_admin` carries no marker at all** — `activated_by`, `activated_at`,
-`phone_verified_at` and `agreement_signed_at` are all empty, so it satisfies none
-of the four activation requirements above and is invisible to the
-`SEED_GRANDFATHERED` search that is documented as the way to find unvetted rows.
-It is the admin account. Decide whether to grandfather it explicitly or take it
-through activation; leaving it unattributed means the separation-of-duties record
-has a hole exactly where it matters most.
+**`u_admin` no longer exists.** On 2026-09-24 it was the one account with no
+marker at all. In the 12 Oct dump it is absent. The platform admins are
+`admin_greenearthx_com` (`SEED_GRANDFATHERED`) and the four `MANUAL_ADMIN_GRANT`
+accounts. Nothing records when `u_admin` went or whether it was re-keyed, so
+the separation-of-duties question it raised is closed only if someone confirms
+that.
 
 Deal and product data belongs **behind the backend**, not the frontend's
 Supabase `.from()`. Do not "fix" a frontend data path by wiring it to PostgREST.
@@ -521,6 +568,10 @@ item 38).
 (`test_evidence_slice.py::test_the_only_divergence_is_the_labelled_fixture`). The reviewer-table
 swap (insurer in, GEX desk review out) changed no count. The +1 pins the one deliberate
 PostgreSQL-only divergence — see the comprehension fixture below.
+
+**2026-10-13: 899 pass, 18 skip, 0 fail**, run against the database restored from the
+12 Oct dump with both URLs exported. The counts are unchanged from 10-02, and the same 18
+skips were read with `-rs`.
 
 **The three append-only failures are FIXED (migration 059).** Earlier the same
 day this file recorded 850 pass / 3 FAIL, the failures being the `UPDATE`

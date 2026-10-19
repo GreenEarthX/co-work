@@ -104,7 +104,7 @@ export function AdversarialReviewEntryCard({
             Challenge the current setup before it hardens into process
           </h3>
           <p className="mt-0.5 text-xs leading-snug text-[var(--text-secondary)]">
-            Record false premises, missing evidence, trust breaks, and clean handoff notes without touching the finance-engine boundary.
+            Record doubtful assumptions, missing evidence and broken handoffs, so the next person starts from what is already known.
           </p>
         </div>
         {linkToWorkspace && (

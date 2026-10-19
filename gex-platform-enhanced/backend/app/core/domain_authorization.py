@@ -127,6 +127,13 @@ DOMAIN_PREFIXES: dict[str, str] = {
     # Per-node equation configurations. Owner-scoped in the router.
     "/api/v1/equipment-equations": "projects",
     "/api/v1/plant-builder": "projects",
+    # Pure calculations: these POSTs build a cost basis from the request body and
+    # return it; nothing is stored. They sit with the derived-data domain so the
+    # roles the Cost Basis screen is built for (producer finance, banks) can run
+    # them. Anything that persists a plant configuration stays under "projects".
+    "/api/v1/plant-builder/configure": "intelligence",
+    "/api/v1/plant-builder/levelised-cost": "intelligence",
+    "/api/v1/plant-builder/cert-distance": "intelligence",
     "/api/v1/plant-data": "projects",
     "/api/v1/capacities": "projects",
     "/api/v1/project-truth": "projects",
