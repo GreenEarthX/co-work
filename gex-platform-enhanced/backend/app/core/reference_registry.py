@@ -280,7 +280,7 @@ def _pending(conn, ref_id: str) -> dict:
     return row
 
 
-def approve(conn, ref_id: str, actor: str) -> dict:
+def approve(conn, ref_id: str, actor: str, reason: Optional[str] = None) -> dict:
     """Approve a proposal: supersede the current row, publish a new version.
 
     The approver may not be the proposer — the same separation of duties as
@@ -320,7 +320,7 @@ def approve(conn, ref_id: str, actor: str) -> dict:
         "(version_id, version_number, created_at, created_by, reason, ref_ids_json) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         (version_id, (previous["version_number"] if previous else 0) + 1, now, actor,
-         f"approved {row['parameter_key']} {row['pathway']}/{row['region']}",
+         reason or f"approved {row['parameter_key']} {row['pathway']}/{row['region']}",
          json.dumps(sorted(ids))))
     return {"parameter": get_row(conn, ref_id), "version": get_version(conn, version_id)}
 

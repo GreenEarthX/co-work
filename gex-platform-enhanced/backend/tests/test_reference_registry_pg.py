@@ -104,12 +104,16 @@ def test_rls_is_forced_and_grants_are_exact(admin):
 
 def test_the_seed_is_as_reviewed(admin):
     rows = admin.execute(
-        "SELECT parameter_key, pathway, region, state FROM reference_parameter "
+        "SELECT parameter_key, pathway, region FROM reference_parameter "
         "WHERE proposed_by = 'MIGRATION_061'").fetchall()
-    states = {(r["parameter_key"], r["pathway"], r["region"]): r["state"] for r in rows}
-    assert len(states) == 13
-    # Not confirmed against their sources on 2026-10-19: proposed, not approved.
-    assert {k for k, s in states.items() if s == "proposed"} == {
+    assert len(rows) == 13
+    # Not confirmed against their sources on 2026-10-19, so seeded proposed: the
+    # migration approved none of them. A later approval names a person, never
+    # MIGRATION_061 (debt_gearing: JML, 2026-10-19).
+    seeded_approved = {(r["parameter_key"], r["pathway"], r["region"]) for r in admin.execute(
+        "SELECT parameter_key, pathway, region FROM reference_parameter "
+        "WHERE proposed_by = 'MIGRATION_061' AND approved_by = 'MIGRATION_061'").fetchall()}
+    assert {(r["parameter_key"], r["pathway"], r["region"]) for r in rows} - seeded_approved == {
         ("electrolyser_installed_capex", "ANY", "ROW"),
         ("electrolyser_installed_capex", "ANY", "CN"),
         ("subsidy_45v_max", "H2", "US"),
@@ -121,7 +125,7 @@ def test_the_seed_is_as_reviewed(admin):
     assert v1 is not None
     approved = {r["ref_id"] for r in admin.execute(
         "SELECT ref_id FROM reference_parameter WHERE proposed_by = 'MIGRATION_061' "
-        "AND state IN ('approved', 'superseded')").fetchall()}
+        "AND approved_by = 'MIGRATION_061'").fetchall()}
     assert set(reg._version(v1)["ref_ids"]) == approved
 
 

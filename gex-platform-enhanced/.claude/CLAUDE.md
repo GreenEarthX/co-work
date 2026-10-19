@@ -132,8 +132,13 @@ before anyone proposes that route again. **`pg_dump` is the only backup that wor
 reference data registry (`app/core/reference_registry.py`, `/api/v1/reference`). Measured
 after 061 by `pg_class relkind='r'`: **123** tables, **116** FORCED. 061's value columns are
 immutable for every role (trigger); `gex_app` holds SELECT, INSERT and column-level UPDATE
-on the lifecycle columns only. Seed rows carry `proposed_by = 'MIGRATION_061'`; four are
-`proposed`, not approved, because their source could not be confirmed on 10-19.
+on the lifecycle columns only. Seed rows carry `proposed_by = 'MIGRATION_061'`; four were
+seeded `proposed`, not approved, because their source could not be confirmed on 10-19.
+JML's decisions the same day were applied through the lifecycle by
+`backend/scripts/apply_reference_decisions_20261019.py` (idempotent; **re-run it after an
+Alembic rebuild**, a dump restore already carries it): `ehb_premium` base 0.40 -> **0.20**
+(new row, valid from 10-20), and `debt_gearing` 0.65 approved with OIES kept. Versions 1-3;
+three rows remain `proposed` (IEA capex ROW and CN, 45V).
 
 PostgreSQL holds **120** tables in schema `public` (incl. `alembic_version`) at head
 **059**, **113** under FORCED RLS — measured 2026-09-28 before the reset and again
