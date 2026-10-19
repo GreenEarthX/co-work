@@ -1,0 +1,23 @@
+{
+  "all_commercial_wacc": 0.088,
+  "annual_debt_service_eur": 6604026.36,
+  "annual_revenue_eur": 44807400.0,
+  "blended_debt_wacc": 0.0439,
+  "catalytic_ratio": 0.38,
+  "dscr_applicable": false,
+  "dscr_base_case": 6.709,
+  "dscr_note": "DSCR not applicable pre-COD (COD year 2032). Use /api/v1/pre-cod-metrics for the correct pre-G10 framework.",
+  "ebitda_eur_per_yr": 44307400.0,
+  "first_year_production_t": 6110.1,
+  "first_year_revenue_eur": 33605550.0,
+  "fuel_type": "H2",
+  "h2_annual_production_t": 8146.8,
+  "product_annual_production_t": 8146.8,
+  "project_id": "baseline_h2",
+  "project_wacc": 0.0547,
+  "total_capital_eur": 100000000.0,
+  "total_dfi_concessional_eur": 48000000.0,
+  "total_opex_eur_per_yr": 500000.0,
+  "total_senior_debt_eur": 18000000.0,
+  "wacc_reduction_pp": 0.0333
+}

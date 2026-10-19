@@ -1,0 +1,17 @@
+SKIPPED [2] tests/test_auth_store_isolation.py:69: AUTH_DB_BACKEND=postgres: the auth slice has no SQLite path to isolate
+SKIPPED [1] tests/test_auth_store_isolation.py:104: AUTH_DB_BACKEND=postgres: the auth slice has no SQLite path to isolate
+SKIPPED [2] tests/test_auth_store_isolation.py:121: AUTH_DB_BACKEND=postgres: the auth slice has no SQLite path to isolate
+SKIPPED [1] tests/test_auth_store_isolation.py:264: AUTH_DB_BACKEND=postgres: the auth slice has no SQLite path to isolate
+SKIPPED [1] tests/test_auth_store_isolation.py:286: AUTH_DB_BACKEND=postgres: the auth slice has no SQLite path to isolate
+SKIPPED [1] tests/test_event_store_slice.py:100: ledger empty — nothing to root
+SKIPPED [1] tests/test_event_store_slice.py:155: ledger empty
+SKIPPED [1] tests/test_evidence_history_pg.py:69: archive is empty on this database
+SKIPPED [1] tests/test_plant_builder_energy.py:96: PEM_ELEC_20MW description states no SEC
+SKIPPED [1] tests/test_plant_builder_energy.py:96: PEM_ELEC_50MW description states no SEC
+SKIPPED [1] tests/test_plant_builder_energy.py:96: PEM_ELEC_120MW description states no SEC
+SKIPPED [1] tests/test_plant_builder_energy.py:96: ALK_ELEC_10MW description states no SEC
+SKIPPED [1] tests/test_plant_builder_energy.py:96: ALK_ELEC_20MW description states no SEC
+SKIPPED [1] tests/test_plant_builder_energy.py:96: ALK_ELEC_50MW description states no SEC
+SKIPPED [1] tests/test_plant_builder_energy.py:96: ALK_ELEC_100MW description states no SEC
+SKIPPED [1] tests/test_tenant_context_default.py:143: platform_events is empty — nothing to withhold
+899 passed, 18 skipped, 198 warnings in 83.20s (0:01:23)

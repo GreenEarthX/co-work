@@ -1,0 +1,57 @@
+{
+  "E_METHANOL": {
+    "base_price_eur_per_t": 1200.0,
+    "contingency_pct": 0.18,
+    "dsra_months": 6,
+    "fuel_label": "e-Methanol",
+    "green_premium_eur_per_t": 600.0,
+    "product_yield_t_per_t_h2": 5.3,
+    "specific_energy_kwh_per_kg_h2": 50.0,
+    "typical_availability": 0.92,
+    "typical_offtake_counterparty": "Maersk / shipping pool / chemical major"
+  },
+  "E_NG": {
+    "base_price_eur_per_t": 1400.0,
+    "contingency_pct": 0.17,
+    "dsra_months": 6,
+    "fuel_label": "e-Methane (synthetic natural gas)",
+    "green_premium_eur_per_t": 800.0,
+    "product_yield_t_per_t_h2": 2.0,
+    "specific_energy_kwh_per_kg_h2": 50.0,
+    "typical_availability": 0.92,
+    "typical_offtake_counterparty": "Gas utility / industrial heat offtaker"
+  },
+  "H2": {
+    "base_price_eur_per_t": 5500.0,
+    "contingency_pct": 0.15,
+    "dsra_months": 6,
+    "fuel_label": "Green Hydrogen",
+    "green_premium_eur_per_t": 2000.0,
+    "product_yield_t_per_t_h2": 1.0,
+    "specific_energy_kwh_per_kg_h2": 50.0,
+    "typical_availability": 0.93,
+    "typical_offtake_counterparty": "Industrial offtaker (steel / refining / ammonia)"
+  },
+  "NH3": {
+    "base_price_eur_per_t": 900.0,
+    "contingency_pct": 0.15,
+    "dsra_months": 6,
+    "fuel_label": "Green Ammonia",
+    "green_premium_eur_per_t": 350.0,
+    "product_yield_t_per_t_h2": 5.56,
+    "specific_energy_kwh_per_kg_h2": 50.0,
+    "typical_availability": 0.92,
+    "typical_offtake_counterparty": "Shipping fuel buyer / fertiliser major"
+  },
+  "SAF": {
+    "base_price_eur_per_t": 2700.0,
+    "contingency_pct": 0.15,
+    "dsra_months": 6,
+    "fuel_label": "Sustainable Aviation Fuel (FT-SAF)",
+    "green_premium_eur_per_t": 800.0,
+    "product_yield_t_per_t_h2": 1.3,
+    "specific_energy_kwh_per_kg_h2": 50.0,
+    "typical_availability": 0.92,
+    "typical_offtake_counterparty": "Major airline (investment grade)"
+  }
+}

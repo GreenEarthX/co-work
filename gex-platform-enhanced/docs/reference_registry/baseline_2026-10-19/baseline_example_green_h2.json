@@ -1,0 +1,68 @@
+{
+  "capex": "\u20ac200M",
+  "cfads_annual": {
+    "base_revenue": 109500000.0,
+    "cfads": 107341250.0,
+    "cfads_margin": 61.9127613554434,
+    "ebitda": 136875000.0,
+    "ebitda_margin": 78.94736842105263,
+    "effective_tax_rate": 21.0,
+    "maintenance_capex": 1000000,
+    "opex": 36500000.0,
+    "opex_per_kg": 2.0,
+    "period_days": 365,
+    "production_kg": 18250000.0,
+    "production_mtpd": 50.0,
+    "subsidy_breakdown": {
+      "45V": 54750000.0,
+      "RED_III": 9125000.0
+    },
+    "subsidy_revenue": 63875000.0,
+    "taxable_income": 135875000.0,
+    "taxes": 28533750.0,
+    "total_revenue": 173375000.0,
+    "working_capital_change": 0
+  },
+  "financing": "60% senior debt, 20% junior, 20% equity",
+  "lifetime_projection": {
+    "avg_dscr": 4.455646580089216,
+    "bankable": true,
+    "min_dscr": 4.455646580089216,
+    "project_irr": "TBD",
+    "total_cfads": 865050000.0,
+    "total_debt_service": 194146906.50412378,
+    "total_equity_distributions": 670903093.4958762
+  },
+  "project_type": "Green H2 - 50 MTPD",
+  "waterfall": {
+    "all_debt_serviced": true,
+    "all_reserves_funded": true,
+    "available_cash": 107341250.0,
+    "covenant_compliant": true,
+    "distributions": [
+      {
+        "allocated": 6471563.550137459,
+        "category": "reserve",
+        "fully_funded": true,
+        "funding_percentage": 100.0,
+        "name": "DSRA",
+        "priority": 1,
+        "required": 6471563.550137459,
+        "shortfall": 0.0
+      },
+      {
+        "allocated": 12943127.100274919,
+        "category": "debt",
+        "fully_funded": true,
+        "funding_percentage": 100.0,
+        "name": "Senior Debt",
+        "priority": 2,
+        "required": 12943127.100274919,
+        "shortfall": 0.0
+      }
+    ],
+    "remaining_for_equity": 87926559.34958762,
+    "total_distributed": 19414690.65041238,
+    "total_shortfall": 0.0
+  }
+}
