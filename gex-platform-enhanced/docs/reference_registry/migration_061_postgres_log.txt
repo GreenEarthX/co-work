@@ -1,0 +1,26 @@
+== before
+060
+== upgrade 061
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Running upgrade 060 -> 061, Reference data registry — versioned, dated, sourced, approved reference values.
+061
+approved|9
+proposed|4
+1|9
+reference_parameter|t|t
+reference_version|t|t
+reference_parameter|INSERT, SELECT
+reference_version|INSERT, SELECT
+approved_at,approved_by,rejected_at,rejected_by,state,supersedes_ref_id
+== downgrade 060
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Running downgrade 061 -> 060, Reference data registry — versioned, dated, sourced, approved reference values.
+060
+0
+0
+== re-upgrade
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Running upgrade 060 -> 061, Reference data registry — versioned, dated, sourced, approved reference values.
+061
+123
+116

@@ -75,20 +75,30 @@ BEGIN
   -- Append-only tables (audit trails) — never UPDATE/DELETE for the app role.
   -- Keep in step with the migrations that own them: 005 commitment_records,
   -- 056 evidence_events + bankability_evidence_archive, 058
-  -- commitment_terms_events. The archive is read-only, so it loses INSERT too.
+  -- commitment_terms_events, 061 reference_version. The archive is read-only,
+  -- so it loses INSERT too.
   FOR tbl IN
     SELECT unnest(ARRAY[
       'audit_log',
       'commitment_records',
       'verification_log',
       'evidence_events',
-      'commitment_terms_events'
+      'commitment_terms_events',
+      'reference_version'
     ])
     INTERSECT
     SELECT tablename FROM pg_tables WHERE schemaname = 'public'
   LOOP
     EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %I FROM gex_app', tbl);
   END LOOP;
+
+  -- 061 reference_parameter: UPDATE is granted by COLUMN (lifecycle only), so
+  -- only DELETE/TRUNCATE are revoked here. A table-level REVOKE UPDATE would also
+  -- strip those column grants and break approval.
+  IF EXISTS (SELECT 1 FROM pg_tables
+             WHERE schemaname = 'public' AND tablename = 'reference_parameter') THEN
+    EXECUTE 'REVOKE DELETE, TRUNCATE ON reference_parameter FROM gex_app';
+  END IF;
 
   IF EXISTS (SELECT 1 FROM pg_tables
              WHERE schemaname = 'public' AND tablename = 'bankability_evidence_archive') THEN

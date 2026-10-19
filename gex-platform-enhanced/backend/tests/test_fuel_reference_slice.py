@@ -230,3 +230,52 @@ def test_ensure_tables_does_not_run_sqlite_ddl_on_postgres():
     fn = src[src.index("def _ensure_tables("):]
     fn = fn[:fn.index("\ndef ") if "\ndef " in fn else len(fn)]
     assert "fuelref_is_postgres" in fn and "return" in fn
+
+
+# ── The same distinction in the reference registry (migration 061) ──────────
+
+def test_the_registry_keeps_sec_and_lhv_apart_by_family():
+    """
+    In the registry the two quantities are told apart by unit FAMILY, because the
+    unit string cannot do it: both are "kWh/kg". Electrolyser consumption is
+    SPECIFIC_POWER (energy per kg PRODUCED); a fuel's energy content would be
+    ENERGY_PER_MASS. The catalog is closed, so a key cannot choose its family.
+    """
+    from app.core.reference_catalog import PARAMETERS
+
+    assert PARAMETERS["electrolyser_system_sec"].family == "SPECIFIC_POWER"
+    for key, pdef in PARAMETERS.items():
+        assert "specific_energy" not in key, (
+            f"{key}: 'specific energy' names two different quantities — say which")
+        if "sec" in key.split("_") or "consumption" in key:
+            assert pdef.family == "SPECIFIC_POWER", key
+        if "lhv" in key or "energy_density" in key:
+            assert pdef.family == "ENERGY_PER_MASS", key
+
+
+def test_registry_electrolyser_consumption_is_above_hydrogen_lhv():
+    """
+    Physics, not convention: producing a kg of H2 takes more electricity than the
+    kg contains (LHV 33.3 kWh/kg). A registry SEC at or below the fuel_catalog
+    H2 density is an LHV that has been entered as a consumption.
+    """
+    requires_pg()
+    conn, cur = _pg()
+    try:
+        cur.execute("SELECT to_regclass('public.reference_parameter') AS t")
+        if cur.fetchone()["t"] is None:
+            pytest.skip("migration 061 not applied")
+        cur.execute("SELECT specific_energy_value FROM fuel_catalog WHERE fuel_id = 'H2'")
+        h2 = cur.fetchone()
+        cur.execute("SELECT parameter_key, value_low, value_base FROM reference_parameter "
+                    "WHERE parameter_key = 'electrolyser_system_sec'")
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    assert rows, "the registry carries no electrolyser_system_sec"
+    assert h2 and h2["specific_energy_value"], "fuel_catalog has no H2 energy density"
+    for r in rows:
+        floor = min(v for v in (r["value_low"], r["value_base"]) if v is not None)
+        assert floor > h2["specific_energy_value"], (
+            f"electrolyser SEC {floor} kWh/kg is not above H2 LHV "
+            f"{h2['specific_energy_value']} — an LHV has been stored as a consumption")

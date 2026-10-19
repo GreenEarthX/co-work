@@ -525,7 +525,11 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pcs_project ON post_cod_schedule(project_id)")
 
-    # ── Seed fuel_defaults on every init (idempotent UPSERT) ────────────────
+    # ── Seed fuel_defaults only where missing ───────────────────────────────
+    # Insert-if-missing, never UPSERT: startup must not overwrite the database.
+    # The table is RETIRED as a source (2026-10-19): the fuel-defaults routes
+    # resolve through the reference registry (alembic 061) and fall back to
+    # FUEL_DEFAULTS as model_default. It is kept only until nothing reads it.
     now = datetime.now(timezone.utc).isoformat()
     for fuel, d in FUEL_DEFAULTS.items():
         conn.execute("""
@@ -535,17 +539,7 @@ def init_db():
              green_premium_eur_per_t, typical_availability,
              dsra_months, contingency_pct, typical_offtake_counterparty, updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(fuel_type) DO UPDATE SET
-                fuel_label=excluded.fuel_label,
-                specific_energy_kwh_per_kg_h2=excluded.specific_energy_kwh_per_kg_h2,
-                product_yield_t_per_t_h2=excluded.product_yield_t_per_t_h2,
-                base_price_eur_per_t=excluded.base_price_eur_per_t,
-                green_premium_eur_per_t=excluded.green_premium_eur_per_t,
-                typical_availability=excluded.typical_availability,
-                dsra_months=excluded.dsra_months,
-                contingency_pct=excluded.contingency_pct,
-                typical_offtake_counterparty=excluded.typical_offtake_counterparty,
-                updated_at=excluded.updated_at
+            ON CONFLICT(fuel_type) DO NOTHING
         """, (
             fuel.value, d["fuel_label"], d["specific_energy_kwh_per_kg_h2"],
             d["product_yield_t_per_t_h2"], d["base_price_eur_per_t"],
@@ -582,23 +576,75 @@ def _project_exists(conn, project_id: str) -> bool:
 # FUEL DEFAULTS ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
 
-@router.get("/fuels/defaults")
-def list_fuel_defaults(db: sqlite3.Connection = Depends(get_db)):
+# FUEL_DEFAULTS field -> (reference registry key, {registry unit: factor to the
+# field's unit}). Fields not listed (label, stoichiometric yield, counterparty
+# text) are not market or technology reference values; they are served from
+# code and marked model_default. A registry value in a unit not listed is
+# ignored, never guessed at.
+_FUEL_DEFAULT_REFERENCE_KEYS = {
+    "specific_energy_kwh_per_kg_h2": ("electrolyser_system_sec", {"kWh/kg": 1.0}),
+    "base_price_eur_per_t":          ("offtake_price_base", {"EUR/t": 1.0, "EUR/kg": 1000.0}),
+    "green_premium_eur_per_t":       ("green_premium", {"EUR/t": 1.0, "EUR/kg": 1000.0}),
+    "typical_availability":          ("plant_availability", {"fraction": 1.0}),
+    "dsra_months":                   ("dsra_months", {"month": 1.0}),
+    "contingency_pct":               ("capex_contingency", {"fraction": 1.0}),
+}
+
+
+def _resolved_fuel_defaults(fuel_type: FuelType, conn=None) -> dict:
+    """FUEL_DEFAULTS for one fuel, with each mapped field taken from the registry
+    when an approved value exists. `provenance` says, per field, which it was.
+
+    Pathway is the fuel; region ANY, since these defaults precede any site.
     """
-    Return per-fuel parameter defaults for all 5 supported fuels.
+    from app.core.reference_registry import resolve_or_default
+
+    out = dict(FUEL_DEFAULTS[fuel_type])
+    provenance = {f: {"source_class": "model_default", "ref_id": None} for f in out}
+    for field, (key, factors) in _FUEL_DEFAULT_REFERENCE_KEYS.items():
+        r = resolve_or_default(key, out[field], pathway=fuel_type.value, region="ANY",
+                               conn=conn)
+        if r.source_class != "reference" or r.unit not in factors:
+            continue
+        out[field] = r.value * factors[r.unit]
+        provenance[field] = {"source_class": "reference", "ref_id": r.ref_id}
+    out["fuel_type"] = fuel_type.value
+    out["provenance"] = provenance
+    return out
+
+
+def _registry_conn():
+    from app.core import reference_registry as reg
+    return reg._connection() if reg.registry_available() else None
+
+
+@router.get("/fuels/defaults")
+def list_fuel_defaults():
+    """
+    Per-fuel parameter defaults for all 5 supported fuels.
     Frontend uses this to pre-populate the CONTROL form when a user
     picks a fuel for a new project.
+
+    Resolved from the reference registry, falling back to FUEL_DEFAULTS
+    (marked model_default). The fuel_defaults table is no longer read.
     """
-    rows = db.execute("SELECT * FROM fuel_defaults ORDER BY fuel_type").fetchall()
-    return [dict(r) for r in rows]
+    conn = _registry_conn()
+    try:
+        return [_resolved_fuel_defaults(f, conn)
+                for f in sorted(FuelType, key=lambda f: f.value)]
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 @router.get("/fuels/{fuel_type}/defaults")
-def get_fuel_defaults(fuel_type: FuelType, db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT * FROM fuel_defaults WHERE fuel_type=?", (fuel_type.value,)).fetchone()
-    if not row:
-        raise HTTPException(404, f"No defaults for fuel {fuel_type.value}")
-    return dict(row)
+def get_fuel_defaults(fuel_type: FuelType):
+    conn = _registry_conn()
+    try:
+        return _resolved_fuel_defaults(fuel_type, conn)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

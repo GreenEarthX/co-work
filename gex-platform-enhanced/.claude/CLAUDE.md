@@ -127,6 +127,14 @@ so no backup of the volume has ever existed on this machine. Verify with
 `tmutil isexcluded ~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw`
 before anyone proposes that route again. **`pg_dump` is the only backup that works here.**
 
+**2026-10-19: head is 061** (branch `reference-data-registry`). 060 added
+`screen_access_rules`; 061 adds `reference_parameter` and `reference_version`, the
+reference data registry (`app/core/reference_registry.py`, `/api/v1/reference`). Measured
+after 061 by `pg_class relkind='r'`: **123** tables, **116** FORCED. 061's value columns are
+immutable for every role (trigger); `gex_app` holds SELECT, INSERT and column-level UPDATE
+on the lifecycle columns only. Seed rows carry `proposed_by = 'MIGRATION_061'`; four are
+`proposed`, not approved, because their source could not be confirmed on 10-19.
+
 PostgreSQL holds **120** tables in schema `public` (incl. `alembic_version`) at head
 **059**, **113** under FORCED RLS — measured 2026-09-28 before the reset and again
 2026-09-30 after the rebuild, by `pg_class relkind='r'`; both runs agree. 058
@@ -568,6 +576,10 @@ item 38).
 (`test_evidence_slice.py::test_the_only_divergence_is_the_labelled_fixture`). The reviewer-table
 swap (insurer in, GEX desk review out) changed no count. The +1 pins the one deliberate
 PostgreSQL-only divergence — see the comprehension fixture below.
+
+**2026-10-19: 956 pass, 18 skip, 0 fail** at head 061, both exported. 899 + **57**
+(`test_reference_registry_pg.py`, `test_reference_catalog.py`, `test_reference_routes.py`,
+two guardrails in `test_fuel_reference_slice.py`). The same 18 skips, read with `-rs`.
 
 **2026-10-13: 899 pass, 18 skip, 0 fail**, run against the database restored from the
 12 Oct dump with both URLs exported. The counts are unchanged from 10-02, and the same 18

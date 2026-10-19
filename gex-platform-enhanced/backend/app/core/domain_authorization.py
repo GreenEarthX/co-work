@@ -169,6 +169,9 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/entitlements": "governance",
     "/api/v1/adversarial-reviews": "governance",
     "/api/v1/reports": "governance",
+    # Reference data registry (alembic 061): curated values every tenant reads.
+    # The router narrows writes further, to GEX staff only.
+    "/api/v1/reference": "governance",
     # Staff directory — teams, roles, permission gates. Read-only today, and
     # the reads are gated inside the router (personal data is staff-only), but
     # the domain decides who could ever WRITE here: EXECUTIVE alone.

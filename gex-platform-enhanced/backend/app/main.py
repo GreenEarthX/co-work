@@ -821,6 +821,12 @@ init_screen_access_db()
 app.include_router(routes_screen_access.router, prefix="/api/v1/ciso/screen-access",
                    tags=["CISO — Screen Access"])
 
+# Reference data registry: versioned, sourced, approved reference values.
+# Reads open to any authenticated caller; writes GEX staff only. Schema: alembic 061.
+from app.api.v1 import routes_reference
+app.include_router(routes_reference.router, prefix="/api/v1/reference",
+                   tags=["Reference Data Registry"])
+
 # ── Development Packages + Pre-COD Metrics + Additionality (Bridge Doc v3.0) ──
 if HAS_DEV_PACKAGES:
     app.include_router(dev_packages_router, tags=["Development Packages"])

@@ -71,6 +71,10 @@ export const UNIT_FAMILIES: readonly UnitFamily[] = [
   { unitFamily: 'DIMENSIONLESS', canonicalUnit: '-', allowedUnits: ['-'], requiresContext: [], notes: 'Dimensionless quantity' },
   { unitFamily: 'DIMENSIONLESS_INDEX', canonicalUnit: '(none)', allowedUnits: ['(none)'], requiresContext: [], notes: 'Dimensionless index' },
   { unitFamily: 'ACID_NUMBER', canonicalUnit: 'mg KOH/g', allowedUnits: ['mg KOH/g','mg KOH/kg'], requiresContext: [], notes: 'Acid number' },
+  // Added 2026-10-19 for the reference data registry (backend/app/core/reference_catalog.py mirrors these).
+  { unitFamily: 'COST_PER_POWER', canonicalUnit: 'EUR/kW', allowedUnits: ['EUR/kW','USD/kW'], requiresContext: ['fx_rate','price_year'], notes: 'Specific capex per unit of power (e.g. installed electrolyser)' },
+  { unitFamily: 'FRACTION_OF_TOTAL', canonicalUnit: '1', allowedUnits: ['fraction','%'], requiresContext: [], notes: 'Share of a total (capex share, gearing, contingency)' },
+  { unitFamily: 'RATE_PER_YEAR', canonicalUnit: '1/year', allowedUnits: ['fraction/yr','%/yr'], requiresContext: [], notes: 'Relative change per year (e.g. output degradation)' },
 ] as const;
 
 export function getUnitFamily(familyName: string): UnitFamily | undefined {
