@@ -1,0 +1,98 @@
+{
+  "inputs_base": {
+    "production_kg_per_yr": 1700000,
+    "price_usd_per_kg": 3.0,
+    "capex_usd": 15000000,
+    "fees_usd": 155000,
+    "debt_usd": 7500000,
+    "life_years": 30,
+    "om_usd": 225000,
+    "water_usd": 35700,
+    "electricity_usd": 3000000,
+    "insurance_usd": 75000,
+    "tax_rate": 0.21,
+    "depreciation_years_straight_line": 10,
+    "debt_rate": 0.04,
+    "debt_tenor_years": 10,
+    "repayment": "equal principal",
+    "equity_discount": 0.05,
+    "project_discount": 0.05,
+    "timing": "capex, fees, debt and equity at year 0; operations years 1-30, period-end"
+  },
+  "stress_conventions": {
+    "hybrid_capacity_factor": 0.74,
+    "electrolyser_mw": 14.424,
+    "capex_usd": 28847340.0,
+    "stack_replacement_usd": 3173207.0,
+    "stack_every_years": 6,
+    "stack_rule": "paid from CFADS in the replacement year, not in the final year, no reserve account",
+    "degradation_rule": "output falls 1%/yr compounded from year 1, power cost unchanged",
+    "debt_rule": "debt = 50% of capex; equity = capex + fees - debt"
+  },
+  "expected": {
+    "base": {
+      "eq_irr": 0.123692,
+      "eq_npv": 9331360.559721,
+      "pr_irr": 0.100637,
+      "pr_npv": 8858422.626609,
+      "min_dscr": 1.680286,
+      "llcr0": 1.88756
+    },
+    "capex_2000_per_kw": {
+      "eq_irr": 0.039305,
+      "eq_npv": -2566149.787494,
+      "pr_irr": 0.038899,
+      "pr_npv": -3349166.126742,
+      "min_dscr": 0.873713,
+      "llcr0": 0.992123
+    },
+    "stack_replacement_unfunded": {
+      "eq_irr": 0.075191,
+      "eq_npv": 2894060.611266,
+      "pr_irr": 0.065579,
+      "pr_npv": 2421122.678154,
+      "min_dscr": -1.592123,
+      "llcr0": 1.553182
+    },
+    "output_degradation_1pct": {
+      "eq_irr": 0.08299,
+      "eq_npv": 3017378.952331,
+      "pr_irr": 0.069777,
+      "pr_npv": 2574884.561177,
+      "min_dscr": 1.679606,
+      "llcr0": 1.683431
+    },
+    "debt_rate_6pct": {
+      "eq_irr": 0.116977,
+      "eq_npv": 8768603.460177,
+      "pr_irr": 0.100637,
+      "pr_npv": 8858422.626609,
+      "min_dscr": 1.47025,
+      "llcr0": 1.72876
+    },
+    "combined": {
+      "eq_irr": -0.052178,
+      "eq_npv": -16922492.951245,
+      "pr_irr": -0.035131,
+      "pr_npv": -16327346.783542,
+      "min_dscr": -0.884688,
+      "llcr0": 0.643116
+    },
+    "break_even": {
+      "price_for_10pct_equity_irr_combined": 4.353,
+      "price_for_1p30_min_dscr_combined": 5.911
+    },
+    "base_tax_totals": {
+      "geared_tax_usd": 7618590,
+      "ungeared_tax_usd": 7965090,
+      "total_interest_usd": 1650000,
+      "lifetime_cfads_usd": 45310410
+    }
+  },
+  "tolerances": {
+    "irr_abs": 0.0005,
+    "dscr_abs": 0.01,
+    "currency_abs": 1.0,
+    "price_abs": 0.01
+  }
+}
