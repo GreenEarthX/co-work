@@ -29,6 +29,22 @@
         "--host", "0.0.0.0", "--port", "8002"
       ],
       "port": 8002
+    },
+    {
+      "name": "backend-verify",
+      "_comment": "A second backend on 8010 for verifying changes while someone else's backend holds 8000. Same database and credentials as 'backend'.",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["CANONICAL_DATABASE_URL=postgresql://gex_app:gex_app_password_dev@localhost:55432/gex_platform", "venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8010"],
+      "port": 8010,
+      "cwd": "backend"
+    },
+    {
+      "name": "frontend-verify",
+      "_comment": "A second frontend on 3010 whose /api proxy targets backend-verify.",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["VITE_API_URL=http://localhost:8010", "/usr/local/bin/node", "node_modules/.bin/vite", "--port", "3010", "--strictPort"],
+      "port": 3010,
+      "cwd": "frontend"
     }
   ]
 }

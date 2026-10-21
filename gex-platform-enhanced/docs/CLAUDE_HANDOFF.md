@@ -2199,6 +2199,25 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     now need an appointed independent engineer, and insurance *bound* at G10 stays with the
     lenders' adviser because gate-level scope cannot isolate that one item.
 
+    **2026-10-21, option (b) (JML):** at the early gates the capital provider's own reviewer
+    verifies the gate that makes its decision eligible — `GRANT_ASSESSOR` G0,
+    `SEED_INVESTOR_ADVISER` G1, `STRATEGIC_INVESTOR_ADVISER` G3. 962 pass / 18 skip.
+    **Appointment flow BUILT the same day (JML: GEX staff appoint, on instruction).** Routes
+    `/api/v1/projects/{id}/reviewers` (POST / DELETE / GET), policy in
+    `app/core/reviewer_appointments.py`, "Who verifies" panel on Gates & Evidence; details in
+    `.claude/CLAUDE.md`. 987 pass / 18 skip. Verified live on a second backend (:8010, launch.json
+    `backend-verify` / `frontend-verify`) with reads and refusals only — no live appointment was
+    made, so none exists yet. Found on the way, both flagged as their own tasks:
+    (1) `POST /auth/refresh` reads accounts from the stale SQLite file (19 rows vs 23 in
+    PostgreSQL) and checks `is_active`, not `account_state`; (2) the RLS policy on
+    `project_access` has no separate write check, so a tenant can insert a row granting itself
+    access to any project — reproduced as Madrid2 on HamburgOne (47 evidence rows readable),
+    rolled back. Not reachable through an app route; needs migration 062.
+    **Both FIXED the same evening.** (1) refresh loads the account through
+    `auth.load_user_for_refresh` under the sign-in vetting rule and revokes all refresh tokens
+    on refusal. (2) Migration 062: only PLATFORM_ADMIN writes `project_access`; reads unchanged.
+    Head 062; 999 pass / 18 skip; backup taken after the migration.
+
     **The comprehension-test fixture is loaded — 2026-10-02, JML's route (a labelled TEST project,
     not a restored copy).** `proj_TEST_gates_reference`, owner `hamburgone_com`, 32 synthetic
     VERIFIED rows and three commitment cards, written by

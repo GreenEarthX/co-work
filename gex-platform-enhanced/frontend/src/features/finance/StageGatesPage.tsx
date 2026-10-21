@@ -24,6 +24,7 @@ import { useSelectedProject } from "@/contexts/ProjectContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
 import { DeclaredVsEvidenced } from "@/components/DeclaredVsEvidenced";
 import { refusalReason } from "@/lib/engineReadout";
+import { ReviewersPanel } from "./ReviewersPanel";
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES (match engine output models)
@@ -2480,7 +2481,10 @@ export function StageGatesPage() {
         />
         <div className="bg-red-50 border border-red-200 rounded-xl p-6">
           <h3 className="text-lg font-bold text-red-800 mb-2">
-            The gate engine did not answer, so no determination is shown.
+            {/* A refusal carries its reason; an outage arrives as "". They are different failures. */}
+            {error
+              ? "Your access does not include this project's gate evaluation."
+              : "The gate engine did not answer, so no determination is shown."}
           </h3>
           {error && <p className="text-sm text-red-700 mb-4">{error}</p>}
           <div className="flex gap-3">
@@ -2492,6 +2496,9 @@ export function StageGatesPage() {
             </button>
           </div>
         </div>
+        {/* Has its own data and authorisation: GEX staff appoint reviewers here
+            although they hold no role that reads the project's evidence. */}
+        <ReviewersPanel projectId={selectedProjectId} />
       </div>
     );
   }
@@ -2645,6 +2652,8 @@ export function StageGatesPage() {
         projectId={selectedProjectId}
         onSaved={loadData}
       />
+
+      <ReviewersPanel projectId={selectedProjectId} />
 
       {/* Next goal post */}
       {snapshot.next_state ? (

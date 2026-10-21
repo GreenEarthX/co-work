@@ -140,6 +140,32 @@ Alembic rebuild**, a dump restore already carries it): `ehb_premium` base 0.40 -
 (new row, valid from 10-20), and `debt_gearing` 0.65 approved with OIES kept. Versions 1-3;
 three rows remain `proposed` (IEA capex ROW and CN, 45V).
 
+**2026-10-21: head is 062.** 062 replaces `project_access`'s single FOR ALL policy (no
+WITH CHECK, so the read rule was the write rule) with a SELECT policy keeping the old read
+rule and INSERT / UPDATE / DELETE policies that require `PLATFORM_ADMIN`. Before it, a
+tenant could insert a row granting ITSELF access to any project — reproduced as madrid2_com
+on proj_hamburgone_emethanol, 47 evidence rows then readable (rolled back) — and every
+policy that calls `app_company_has_project_access` fell with it. Granting access is GEX
+administration (only `tenant_admin` and `reviewer_appointments` write it, both as
+PLATFORM_ADMIN; fixture scripts run as gex_user and are unaffected); an owner cannot grant
+either, deliberately. The migration asserts the four policies and FORCED RLS; round-tripped
+down to 061 and back. Measured after: 123 tables, 116 FORCED.
+`tests/test_project_access_writes_pg.py` (6) failed 4 before 062 and passes after. The other
+access tables were scanned the same day: GEX-only, or a company's own settings, or grants on
+projects it owns — none has this flaw. Note `auth_user_project_roles` and `auth_users` carry no
+RLS by design, so role rows are protected by the application alone.
+
+**2026-10-21: 061 was MISSING and has been re-applied.** The 20 Oct recovery (a
+`down -v` wiped the volume) restored `gex_platform_2026-10-19_1721.dump`, but 061 was
+applied *after* 17:21 that day — its file is stamped 17:19 — so the restore came back at
+**060** and no dump since carried the registry. Symptom: 5 FAILs in
+`test_reference_routes.py` (`relation "reference_parameter" does not exist`) and 23 extra
+skips, i.e. 934 pass / 41 skip / 5 fail. Fixed by `alembic upgrade auth_slice@head` and
+`apply_reference_decisions_20261019.py --execute` (backup taken first): head 061, 123 tables,
+116 FORCED, registry 10 approved / 3 proposed / 1 superseded, versions 1-3. **Lesson: after
+any restore, compare `alembic_version` with `alembic heads` — a dump can predate the last
+migration even when it postdates the migration's file.**
+
 PostgreSQL holds **120** tables in schema `public` (incl. `alembic_version`) at head
 **059**, **113** under FORCED RLS — measured 2026-09-28 before the reset and again
 2026-09-30 after the rebuild, by `pg_class relkind='r'`; both runs agree. 058
@@ -534,9 +560,14 @@ A producer could walk its own claims to VERIFIED
   only on JML's word, together with `DECIDED` in
   `tests/test_evidence_review_separation.py` (mirrored, and negative-verified:
   widening the insurer to G10 fails 2 tests).
-  Two consequences, both deliberate: **G0, G1 and G3 need an appointed
-  independent engineer** (G0 also takes a lenders' adviser), so a concept-stage
-  project with neither verifies nothing and stays SPECULATIVE; and **insurance
+  **2026-10-21, option (b):** the capital provider's own reviewer verifies the
+  gate that makes ITS decision eligible — `GRANT_ASSESSOR` G0 (Grants & TA),
+  `SEED_INVESTOR_ADVISER` G1 (Seed / VC), `STRATEGIC_INVESTOR_ADVISER` G3
+  (Strategic Equity). Before that, G0, G1 and G3 needed an independent engineer,
+  whom nobody appoints at concept stage, so an early project could verify
+  nothing. Literal on purpose — one gate each: a seed adviser cannot verify G0.
+  Negative-verified both ways (widening the seed adviser to G0 fails 1 test;
+  removing the grant assessor fails 2). And **insurance
   bound at G10** (`insurance_certificates_delivered`) stays with the lenders'
   adviser, because gate-level scope cannot hand the insurer that one item
   without also handing it the legal opinions and the security package.
@@ -550,7 +581,30 @@ A producer could walk its own claims to VERIFIED
 - **Assigned** = the role on the project (`auth_user_project_roles`) AND the
   project in `assigned_audits`. On PostgreSQL its company also needs a
   `project_access` row, or RLS refuses the write. **No live account is assigned**
-  (measured 2026-09-30), so nobody can verify yet. That is fail-closed, not a bug.
+  (measured 2026-10-21), so nobody can verify yet. That is fail-closed, not a bug.
+- **Appointing a reviewer (JML, 2026-10-21): GEX staff appoint, on the instruction
+  of a named party.** `POST /api/v1/projects/{id}/reviewers` (GEX platform admin
+  only), `DELETE …/reviewers/{user_id}?role=` with a reason, `GET …/reviewers` for
+  staff, stakeholders and the project's reviewers. Policy in
+  `app/core/reviewer_appointments.py`; it writes all three records in ONE
+  transaction (`project_access` with `access_role='REVIEWER'`, PostgreSQL only)
+  and never commits — the route does, then writes `REVIEWER_APPOINTED` /
+  `REVIEWER_REVOKED` to the event ledger, and UNDOES an appointment whose event
+  cannot be written. Refused: a non-reviewer role, no instructing party, no
+  instruction sha256, the owner's company as appointee, the owner as instructor,
+  any GEX account, self-appointment, a non-ACTIVE account, an unregistered tenant
+  (refused, never created). Takes effect at the reviewer's next sign-in (the token
+  carries roles and audits). Screen: "Who verifies" on Gates & Evidence
+  (`ReviewersPanel.tsx`); the form appears only when the server returns
+  `can_appoint`. That menu entry now opens to ENGINEER, INSURER, LEGAL, DFI and
+  PLATFORM (GEX staff) as well — navigation only. Tests:
+  `test_reviewer_appointments.py` (23, incl. end to end: cannot verify → appointed
+  → verifies its own gate only → revoked → cannot), `_pg.py` (2, rolled back),
+  `ReviewersPanel.test.tsx` (4); five backend breaks and one frontend break all
+  caught. **Open:** grant assessors and investors' advisers have no service type
+  in the menu, so they reach Gates & Evidence only as an EXECUTIVE of a matching
+  company type. (RLS on `project_access` letting a tenant grant itself access
+  was closed by migration 062 the same day.)
 
 ---
 
@@ -585,6 +639,21 @@ PostgreSQL-only divergence — see the comprehension fixture below.
 **2026-10-19: 956 pass, 18 skip, 0 fail** at head 061, both exported. 899 + **57**
 (`test_reference_registry_pg.py`, `test_reference_catalog.py`, `test_reference_routes.py`,
 two guardrails in `test_fuel_reference_slice.py`). The same 18 skips, read with `-rs`.
+
+**2026-10-21 (last): 999 pass, 18 skip, 0 fail** at head 062. 987 + **6**
+(`test_refresh_reads_the_auth_store.py`) + **6** (`test_project_access_writes_pg.py`). Same
+18 skips. `POST /auth/refresh` now loads the account through `auth.load_user_for_refresh`
+(the auth slice's own store, the sign-in vetting rule) instead of opening the SQLite file and
+checking `is_active`; a refused account loses every refresh token. Before the fix a
+SUSPENDED or PENDING account renewed its session — the restored old body fails 3 of the 6.
+
+**2026-10-21 (later): 987 pass, 18 skip, 0 fail.** 962 + **25** (reviewer appointments:
+23 route tests, 2 PostgreSQL tests in rolled-back transactions). Same 18 skips, read with
+`-rs`. Dev database row counts identical before and after.
+
+**2026-10-21: 962 pass, 18 skip, 0 fail** at head 061, both exported. 956 + **6**
+(option (b): three rows in `DECIDED`, three verifications). The same 18 skips, read with
+`-rs`. Measured after 061 was re-applied — see Migration state.
 
 **2026-10-13: 899 pass, 18 skip, 0 fail**, run against the database restored from the
 12 Oct dump with both URLs exported. The counts are unchanged from 10-02, and the same 18

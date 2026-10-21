@@ -767,6 +767,10 @@ if HAS_ECOSYSTEM:
 from app.api.v1.routes_projects import router as projects_router
 app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
 
+# Reviewer appointments — GEX staff appoint evidence reviewers on instruction (JML, 2026-10-21)
+from app.api.v1.routes_reviewer_appointments import router as reviewer_appointments_router
+app.include_router(reviewer_appointments_router, prefix="/api/v1/projects", tags=["Reviewer appointments"])
+
 # ── Bankability Cockpit v2.0 ──
 if HAS_WORKFLOW:
     app.include_router(routes_workflow.router, prefix="/api/v1/workflow", tags=["Bankability — Workflow State Management"])

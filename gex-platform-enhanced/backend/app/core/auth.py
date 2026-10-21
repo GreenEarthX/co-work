@@ -671,6 +671,35 @@ def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
     return _user_record_to_payload(user)
 
 
+def load_user_for_refresh(user_id: str) -> dict[str, Any] | None:
+    """
+    The payload for a refreshed session, read from the auth slice's own store
+    under the SAME vetting rule as sign-in.
+
+    POST /auth/refresh used to open the SQLite file directly and check only the
+    legacy `is_active` flag. With AUTH_DB_BACKEND=postgres that copy had frozen
+    (19 accounts against 23, all marked active): the four newer accounts could
+    not refresh, and an account suspended in PostgreSQL kept refreshing from its
+    stale row (found 2026-10-21). Returns None for an unknown account; raises
+    AccountNotActive for one that may not sign in.
+    """
+    from app.core.account_lifecycle import can_login
+
+    conn = _get_conn()
+    try:
+        user = conn.execute("SELECT * FROM auth_users WHERE user_id = ?", (user_id,)).fetchone()
+    finally:
+        conn.close()
+    if not user:
+        return None
+    state = user["account_state"] if "account_state" in user.keys() else None
+    legacy_active = bool(user["is_active"]) if "is_active" in user.keys() else True
+    if not can_login(state) or not legacy_active:
+        logger.warning("refresh refused for %s — account_state=%s", user_id, state)
+        raise AccountNotActive(str(state))
+    return _user_record_to_payload(user)
+
+
 def get_user_payload_by_email(email: str) -> dict[str, Any] | None:
     """Resolve a seeded/auth user into the same payload shape used by JWT claims."""
     user = _load_user_by_email(email)

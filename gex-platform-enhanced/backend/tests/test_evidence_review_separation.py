@@ -46,6 +46,9 @@ ADVISERS = "TEST Review Advisers"
 ENGINEERS = "TEST Review Engineers"
 CERTIFIER = "TEST Review Certifier"
 INSURER_CO = "TEST Review Insurer"
+GRANT_BODY = "TEST Review Grant Body"
+SEED_FUND = "TEST Review Seed Fund"
+STRATEGIC = "TEST Review Strategic Investor"
 EVIDENCE = "/api/v1/bankability/evidence"
 
 PROFILE = reg.ProjectAccessProfile(project_id=PID, project_name="TEST review separation",
@@ -65,6 +68,9 @@ USERS = {
     "u_ie": (ENGINEERS, ["INDEPENDENT_ENGINEER"], [PID]),
     "u_cert": (CERTIFIER, ["CERTIFIER"], [PID]),
     "u_ins": (INSURER_CO, ["INSURER"], [PID]),
+    "u_grant": (GRANT_BODY, ["GRANT_ASSESSOR"], [PID]),
+    "u_seed": (SEED_FUND, ["SEED_INVESTOR_ADVISER"], [PID]),
+    "u_strat": (STRATEGIC, ["STRATEGIC_INVESTOR_ADVISER"], [PID]),
     "u_la_unassigned": (ADVISERS, ["LENDERS_ADVISER"], []),         # the role, not the assignment
 }
 
@@ -220,11 +226,15 @@ def test_everything_else_keeps_its_classification(method, path, body):
 
 # ── 2. The owner's table: who reviews which gate ────────────────────────────
 
-DECIDED = {   # owner decision 2026-10-02 — change it here and in abac.REVIEWER_GATES, deliberately
+DECIDED = {   # owner decisions 2026-10-02 and 2026-10-21 — change here and in abac.REVIEWER_GATES, deliberately
     "CERTIFIER": {"G2", "G11"},
     "INDEPENDENT_ENGINEER": {"G0", "G1", "G3", "G5", "G6", "G11"},
     "LENDERS_ADVISER": {"G0", "G4", "G7", "G8", "G9", "G10"},
     "INSURER": {"G7"},
+    # (b): the capital provider's own reviewer, the gate of its own decision only
+    "GRANT_ASSESSOR": {"G0"},
+    "SEED_INVESTOR_ADVISER": {"G1"},
+    "STRATEGIC_INVESTOR_ADVISER": {"G3"},
 }
 
 
@@ -332,6 +342,11 @@ def test_a_reviewer_must_be_assigned_to_the_project(client):
     ("u_ie", "u_prod", "interface_matrix"),            # G5
     ("u_cert", "u_prod", "mrv_plan_v1"),               # G2
     ("u_ins", "u_prod", "insurance_market_report"),    # G7
+    # Early gates, the capital provider's own reviewer (2026-10-21). The G0 key is
+    # the one test_nothing_submitted_cannot_be_reviewed needs empty; it runs first.
+    ("u_grant", "u_prod", "site_technical_suitability"),   # G0
+    ("u_seed", "u_prod", "technology_maturity_dossier"),   # G1
+    ("u_strat", "u_prod", "transport_logistics_study"),    # G3
 ])
 def test_each_reviewer_verifies_its_own_gates(client, reviewer, submitter, key):
     sha = _upload(client, submitter, key, f"TEST {key}".encode())

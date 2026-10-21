@@ -13,4 +13,6 @@ export {
   financeModelAPI,
   pricingAPI,
   projectTruthAPI,
+  reviewersAPI,
 } from "../api";
+export type { ProjectReviewers, ReviewerAppointment } from "../api";

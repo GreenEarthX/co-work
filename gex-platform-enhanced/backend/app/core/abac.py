@@ -46,6 +46,11 @@ class ActorType(str, Enum):
     # and submit nothing.
     INDEPENDENT_ENGINEER = "INDEPENDENT_ENGINEER"
     LENDERS_ADVISER = "LENDERS_ADVISER"     # legal, insurance, model audit
+    # The capital provider's own reviewer at the early gates (owner decision
+    # 2026-10-21): each verifies the gate that makes its own decision eligible.
+    GRANT_ASSESSOR = "GRANT_ASSESSOR"                          # Grants & TA, G0
+    SEED_INVESTOR_ADVISER = "SEED_INVESTOR_ADVISER"            # Seed / VC / Angel, G1
+    STRATEGIC_INVESTOR_ADVISER = "STRATEGIC_INVESTOR_ADVISER"  # Strategic Equity, G3
 
 
 class Sensitivity(str, Enum):
@@ -286,6 +291,9 @@ GATE_VISIBILITY: dict[ActorType, list[str]] = {
     # Reviewers write no gate: they review the ones in REVIEWER_GATES.
     ActorType.INDEPENDENT_ENGINEER: [],
     ActorType.LENDERS_ADVISER: [],
+    ActorType.GRANT_ASSESSOR: [],
+    ActorType.SEED_INVESTOR_ADVISER: [],
+    ActorType.STRATEGIC_INVESTOR_ADVISER: [],
 }
 
 # Which reviewer may verify which gate — OWNER DECISION, 2026-10-02 (JML; Attack
@@ -307,11 +315,21 @@ GATE_VISIBILITY: dict[ActorType, list[str]] = {
 #   insurer                G7 insurability — the quotes, exclusions and backstop
 #                          it issues itself
 #
-# Two consequences, both deliberate:
-#   * G0, G1 and G3 need an appointed independent engineer (G0 also takes a
-#     lenders' adviser). A concept-stage project with neither cannot verify
-#     anything, and stays at SPECULATIVE. Evidence is verified by an independent
-#     party or it is not verified.
+# Early gates — OWNER DECISION 2026-10-21 (JML, option (b)): the capital
+# provider's own reviewer verifies the gate that makes ITS decision eligible.
+#   grant assessor               G0 → Grants & TA
+#   seed investor's adviser      G1 → Seed / VC / Angel
+#   strategic investor's adviser G3 → Strategic Equity
+# Why: nobody appoints an independent engineer or a lenders' adviser at concept
+# stage, so with the four roles alone an early project could verify nothing and
+# stayed at SPECULATIVE. Grant bodies and investors run their own diligence at
+# these gates; this lets that diligence count. Independence is unchanged: never
+# the submitter, its company or the project's owner. Literal by design — one
+# gate each. A seed adviser cannot verify G0, so Technically plausible still
+# needs G0 from a grant assessor, an independent engineer or a lenders' adviser.
+# From G4 on the independent engineer and lenders' adviser cover every gate.
+#
+# Consequence, deliberate:
 #   * Insurance BOUND at G10 (insurance_certificates_delivered) sits with the
 #     lenders' adviser, whose remit includes insurance; the insurer's own gate
 #     is G7. Giving the insurer G10 would hand it the legal opinions and the
@@ -321,6 +339,9 @@ REVIEWER_GATES: dict[ActorType, frozenset[str]] = {
     ActorType.INDEPENDENT_ENGINEER: frozenset({"G0", "G1", "G3", "G5", "G6", "G11"}),
     ActorType.LENDERS_ADVISER: frozenset({"G0", "G4", "G7", "G8", "G9", "G10"}),
     ActorType.INSURER: frozenset({"G7"}),
+    ActorType.GRANT_ASSESSOR: frozenset({"G0"}),
+    ActorType.SEED_INVESTOR_ADVISER: frozenset({"G1"}),
+    ActorType.STRATEGIC_INVESTOR_ADVISER: frozenset({"G3"}),
 }
 
 
@@ -472,7 +493,7 @@ def _rule_1_stakeholder_gate(
         return None  # Government agency in same jurisdiction — pass through
 
     if reviewer_gates(user, resource.project_id):
-        return None  # Assigned reviewer (certifier, IE, lenders' adviser, insurer) — pass through
+        return None  # Assigned reviewer (REVIEWER_GATES) — pass through
 
     return AccessDecision(
         decision=Decision.DENY,
@@ -1051,6 +1072,9 @@ ACTOR_CLASS_MAP: dict[ActorType, frozenset[ActorClass]] = {
     ActorType.GUEST:               frozenset(),
     ActorType.INDEPENDENT_ENGINEER: frozenset({ActorClass.EVIDENCE_VALIDATOR}),
     ActorType.LENDERS_ADVISER:     frozenset({ActorClass.EVIDENCE_VALIDATOR}),
+    ActorType.GRANT_ASSESSOR:      frozenset({ActorClass.EVIDENCE_VALIDATOR}),
+    ActorType.SEED_INVESTOR_ADVISER: frozenset({ActorClass.EVIDENCE_VALIDATOR}),
+    ActorType.STRATEGIC_INVESTOR_ADVISER: frozenset({ActorClass.EVIDENCE_VALIDATOR}),
 }
 
 

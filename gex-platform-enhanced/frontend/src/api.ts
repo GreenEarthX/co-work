@@ -773,6 +773,43 @@ export const projectActivityAPI = {
 // Project Truth API — prefix: /api/v1/project-truth
 // One dashboard-ready truth object per project
 // ═══════════════════════════════════════════════════════════════
+// Reviewer appointments — GEX staff appoint evidence reviewers on instruction (JML, 2026-10-21).
+export interface ReviewerAppointment {
+  user_id: string;
+  user_name: string;
+  company_id: string;
+  company_name: string;
+  role: string;
+  gates: string[];
+}
+
+export interface ProjectReviewers {
+  project_id: string;
+  reviewers: ReviewerAppointment[];
+  can_appoint: boolean;
+  roles: Record<string, string[]>;
+}
+
+export const reviewersAPI = {
+  list: (projectId: string): Promise<ProjectReviewers> =>
+    fetchAPI(`/projects/${encodeURIComponent(projectId)}/reviewers`),
+
+  appoint: (
+    projectId: string,
+    body: { user_id: string; role: string; instructed_by: string; instruction_sha256: string },
+  ) =>
+    fetchAPI(`/projects/${encodeURIComponent(projectId)}/reviewers`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  revoke: (projectId: string, userId: string, role: string, reason: string) =>
+    fetchAPI(
+      `/projects/${encodeURIComponent(projectId)}/reviewers/${encodeURIComponent(userId)}?role=${encodeURIComponent(role)}`,
+      { method: "DELETE", body: JSON.stringify({ reason }) },
+    ),
+};
+
 export const projectTruthAPI = {
   get: (
     projectId: string,

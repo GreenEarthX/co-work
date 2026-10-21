@@ -146,8 +146,8 @@ async def jwks():
 @router.post("/refresh")
 async def refresh_token(body: RefreshRequest):
     """Rotate a refresh token and issue a new access token + refresh token pair."""
-    from app.core.refresh_tokens import rotate_refresh_token
-    from app.core.auth import get_user_payload_by_email, create_access_token
+    from app.core.refresh_tokens import revoke_all_for_user, rotate_refresh_token
+    from app.core.auth import AccountNotActive, create_access_token, load_user_for_refresh
     from app.core.config import settings
 
     result = rotate_refresh_token(body.refresh_token, expire_days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -156,19 +156,22 @@ async def refresh_token(body: RefreshRequest):
 
     new_refresh_token, _, user_id = result
 
-    # Reload full user payload by user_id (look up by user_id slug)
-    from app.core.auth import _load_user_by_email, _user_record_to_payload
-    conn = __import__("sqlite3").connect(
-        settings.SQLITE_DB_PATH
-    )
-    conn.row_factory = __import__("sqlite3").Row
-    user_row = conn.execute("SELECT * FROM auth_users WHERE user_id = ? AND is_active = 1", (user_id,)).fetchone()
-    conn.close()
-
-    if not user_row:
+    # The account, from the auth slice's own store, under the sign-in vetting rule
+    # (auth.load_user_for_refresh). A refusal also revokes every refresh token the
+    # account holds: the one just rotated must not outlive the refusal.
+    try:
+        user_payload = load_user_for_refresh(user_id)
+    except AccountNotActive as exc:
+        revoke_all_for_user(user_id)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={
+            "error": "account_not_active", "account_state": exc.state,
+            "reason": "This account is not active, so its session cannot be renewed."}) from exc
+    if not user_payload:
+        revoke_all_for_user(user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    user_payload = _user_record_to_payload(user_row)
+    # Roles and assigned audits are read now, so a refreshed session carries any
+    # reviewer appointment or revocation made since sign-in.
     access_token, expires_at = create_access_token(user_payload)
 
     return {

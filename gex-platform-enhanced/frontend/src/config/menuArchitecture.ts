@@ -20,6 +20,7 @@ export type ServiceType =
   | 'BANK' | 'INSURER' | 'CERTIFIER' | 'LOGISTICS'
   | 'ENGINEER' | 'EQUIPMENT' | 'LEGAL'
   | 'DFI'           // development finance institution / public investor (lender-class)
+  | 'PLATFORM'      // GEX staff (5 live accounts carry it; it was missing here)
   | null;
 
 export type BusinessFunction =
@@ -416,8 +417,13 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [PROD('COMPLIANCE_LEGAL'), PROD('ENGINEERING'), TP('CERTIFIER'), OFT('COMPLIANCE_LEGAL'), OFT('COMMERCIAL')] },
       { id: 'evidence-hierarchy', path: '/evidence-hierarchy', label: 'Evidence Hierarchy', section: '',
         visible_to: [ALL] },
+      // Reviewers verify here, so every reviewer profession reaches it (JML, 2026-10-21:
+      // engineer, insurer, legal/lenders' adviser, DFI), and GEX staff, who appoint them
+      // from the "Who verifies" panel. Navigation only: a user not appointed to the
+      // project still gets nothing from the API.
       { id: 'verification-status', path: '/stage-gates', label: 'Gates & Evidence', section: '',
-        visible_to: [TP('CERTIFIER'), TP('BANK'), PROD('COMPLIANCE_LEGAL')] },
+        visible_to: [TP('CERTIFIER'), TP('BANK'), TP('ENGINEER'), TP('INSURER'), TP('LEGAL'), TP('DFI'),
+                     TP('PLATFORM'), PROD('COMPLIANCE_LEGAL')] },
       { id: 'regulatory-registry', path: '/regulator-dashboard', label: 'Regulatory Registry', section: 'REGULATORY',
         visible_to: [PROD('COMPLIANCE_LEGAL'), { company_type: 'THIRD_PARTY', service_type: 'LEGAL' }] },
       // Reports & Evidence — single hub replacing the five /reports false doors
