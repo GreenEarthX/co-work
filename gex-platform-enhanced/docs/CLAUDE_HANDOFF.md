@@ -1,6 +1,6 @@
 # GEX Platform — Engineering Handoff
 
-**Generated:** 2026-08-09 · **Last updated:** 2026-09-14 · **Derived from:** repository
+**Generated:** 2026-08-09 · **Last updated:** 2026-10-23 · **Derived from:** repository
 inspection, not conversation history.
 **Scope:** state of the tree at `files/gex-platform-enhanced` and its siblings.
 
@@ -2176,7 +2176,9 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     then edited it in Word with Track Changes off** (saved 14:38; §1 only so far). That file is
     now JML's working copy: never rebuild over it or regenerate it. Any further change goes on
     top of JML's latest save as a tracked edit, after JML has finished a pass. The build scripts
-    are copied to `docs/master-reconciliation/tools/`.
+    are copied to `docs/master-reconciliation/tools/`. **Superseded 21–22 Oct (item 44):** the
+    accepted result is `docs/GEX-12Gates-Multi-Party-Review_Good.docx`; the master redline now
+    exists only in `co-work`'s git history.
 41. **Producers can verify their own evidence — Critical, found 2026-09-30 (adversarial Attack A).**
     `POST /bankability/evidence` with `new_status=VERIFIED` is classified as WRITE, not VERIFY
     (`abac_middleware.py:113–121` checks the URL for "/verify"), so R5's certifier-only verify
@@ -2280,6 +2282,190 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     PENDING). `bankability_evidence` is **117**, unchanged. **`u_admin` is absent from the
     dump.** Nothing records when it went. Both files are updated to match.
 
+44. **The gate documents brought to rules 4.1.0 — 21–22 Oct 2026, on JML's instructions.** Three
+    documents remain, all clean (no tracked changes), identical in the working folder and in
+    `co-work` (last commit `ab9d651`):
+
+    | Document (`docs/`) | Role | State |
+    |---|---|---|
+    | `GEX-12Gates-Multi-Party-Review_Good.docx` | **The reference.** Front section + Annex C state the rules; §§1–9 keep the 27 Sep challenge as the reasoning | Rules re-verified against the engine 21 Oct. Added: "Who verifies" (all seven reviewer roles), "Open challenges" (§9). Removed: JML's second §11 (it contradicted §10). Fixed: stale §1.2/§2 facts, fused text from rejected tracked changes, the 8–10% guarantee figure, four body paragraphs styled as headings. TOC rebuilt (48 entries); §2's G1 heading renamed |
+    | `WHY  12GATES-easily explained.docx` | Client onboarding guide, the plain-language version | Was rules 3.0.0. Evidence tables generated from the engine's `EVIDENCE_META` (93 items: 20 added, 14 marked project finance only, two G10 rows replaced); "Confirmed by" = `abac.REVIEWER_GATES` (G5 is the independent engineer, not the owner's engineer); new §5 on the O/E ladders, coherence checks and triggers; TOC added on page 2 |
+    | `GEX-Why-Twelve-Gates-Prospect-Brief.docx` | One-page sales brief | Technology basis, independent verification, the two waivable gates (G6, G8), version 4.1.0 |
+
+    **Archived** (outside git, `files/docs/archive/*_SUPERSEDED.docx`, recorded in
+    `files/docs/README.md`): the three rules-3.0.0 documents `GEX-Bankability-12Gates`,
+    `GEX-Twelve-Bankability-Gates` and `GEX-Why-Twelve-Gates` (the guide's 3.0.0 original).
+    `co-work` commit `f86827b` removed ten Word files that were pending deletion;
+    `GEX-Gates-Master_v2_redline.docx` (item 40), `…_JML modified.docx` and `WHY TWELVE GATES.docx`
+    now exist only in git history. That commit's message calls them all superseded — wrong for the
+    prospect brief, which `e5e653f` brought back.
+
+    **How it was done, for the next rules version.** Every text change went in as a tracked change
+    (author Claude) via `master-reconciliation/tools/redline_lib.py`, was validated with the docx
+    skill's `validate.py`, and was accepted only on JML's word. Neither Word nor LibreOffice is
+    on this machine, so acceptance used `tools/accept_all.py`, checked by comparing the text with
+    `accepted_view.py`. Tables of contents were rebuilt in the XML with the field marked dirty:
+    **page numbers appear only when Word updates the field** (accept its prompt, or right-click
+    → Update Field). Before installing any edit, the target's hash was checked against the
+    version the edit was built from, and the original was backed up.
+
+    **Watch for Word.** Word held the review open from 21 Oct 15:44 with the pre-edit version.
+    Saving from such a window silently overwrites every later edit. Ask JML to close it without
+    saving before trusting the file on disk.
+
+
+45. **The market chain runs end to end — 23 Oct 2026 (gap register P0, G-01 to G-05).** JML's
+    decisions the same day: listings are **anonymised** for every vetted company (names and
+    terms revealed to the two parties once matched), and a match needs **both** parties to
+    accept. Migrations **063** (`rfqs`, `contracts`, match snapshot and two-sided acceptance,
+    `tokens.holder_company_id`, buyer-readable settlements) and **064** (trading-book tenancy)
+    are applied; head **064**, 125 tables, 118 FORCED. Backup taken first
+    (`gex_platform_2026-10-23_1336.dump`).
+
+    `app/core/market_engine.py` performs every cross-company step on a PLATFORM_ADMIN market
+    connection, **after** authorising the Party from the token — a new, justified PLATFORM_ADMIN
+    site. GEX (`is_platform_admin`) trades nothing (`GEX_DOES_NOT_TRADE`). Routes:
+    `/api/v1/market/*`; the older `/marketplace`, `/matching`, `/contracts`, `/trader/rfqs` and
+    `/settlements` routes delegate to it. Token: listing MINTED→RESERVED, both accept →MATCHED,
+    payee confirms →SETTLED with title to the buyer.
+
+    The trading book was bound to the **SQLite file** while its tables lived under 036's
+    admin-only lock in PostgreSQL; both stores held 0 rows. It now runs on PostgreSQL as
+    `gex_app` when `MARKET_DB_BACKEND=postgres`, with the tenant set on **every** transaction
+    (`main.py`, SQLAlchemy `after_begin`), because a handler's commit ends SET LOCAL. 064's first
+    draft recursed (contract ↔ link policies); the lookups are SECURITY DEFINER functions with a
+    pinned search_path, 036's pattern.
+
+    Frontend: Market Discovery and RFQs replace placeholders; five screens lost their sample
+    arrays. GreenMesh feedstock pooling has no backend — its tab now says so.
+
+    Tests: backend **1031 pass, 18 skip, 0 fail** (999 + 8 + 4 + 6 + 2 − 1 + 7 + 6); frontend
+    224 pass, 1 FAIL — `EconomicsSnapshotPage.test.tsx` "surfaces a transport failure", which
+    fails identically with the pushed `api.ts` and is not caused by this work. Every new guard was
+    negative-verified. The live database was left with 0 rows in every market table.
+
+    **Later the same day, JML: RFQs (and the chain) stay in PostgreSQL only.** The engine's
+    SQLite fallback and `core/market_schema.py` are gone; with `MARKET_DB_BACKEND` not
+    `postgres` the engine refuses (`MARKET_REQUIRES_POSTGRES`). `test_market_chain.py` now runs
+    in a throwaway database `gex_test_market`, migrated from scratch and dropped afterwards
+    (`pg_support.throwaway_pg_database`). Building it exposed a rebuild defect: 036 creates
+    `tb_*` from the CURRENT models, so 064's ADD COLUMN failed on a fresh database — 064 now adds
+    only what is missing. A fresh build matches live except PostGIS's `spatial_ref_sys`.
+    Backend **1033 pass, 18 skip, 0 fail** at that point.
+
+    **Then, JML: PostgreSQL only everywhere in the market and trading area.** Capacities,
+    tokens, offers, RFQs, matching and buyer mandates, contracts, settlements, carbon
+    attribution, chain of custody and the trading book: every SQLite branch, runtime CREATE
+    TABLE and PRAGMA is gone. Each module calls `db_backend.require_postgres()`;
+    `PostgresRequired` becomes **503 POSTGRES_REQUIRED** (handler in `main.py`). `init_db()` of
+    settlement, carbon attribution and chain of custody is a no-op, so startup never fails on a
+    switch. The trading book's tenant-scoped session moved into
+    `trading_book.api.tenant_session_dependency`, used by `main.py` and its test alike. Deleted:
+    the legacy `RFQ` ORM model (and `Match.rfq_id`) in `app/db/models.py`, and the unused
+    `app/services/matching_engine.py` that imported it.
+    Tests: `conftest.pg_store`, the PostgreSQL counterpart of `isolated_store`, builds ONE
+    throwaway database per session (`gex_test_suite`, migrated from scratch, dropped at the end)
+    and pins every switch to postgres. `test_market_chain`, `test_trading_book_api` and
+    `test_chain_of_custody` use it; the last two now pass through RLS as the owning tenant
+    (TEST tenants and projects exist only in the throwaway database). Guards: no `sqlite3` in 12
+    modules, each refuses without PostgreSQL — both negative-verified.
+    **Backend 1051 pass, 18 skip, 0 fail** (same 18 skips). Dev database unchanged.
+
+    **Not yet PostgreSQL-only:** the other slices (auth, evidence, domain tail beyond these
+    three modules, workspace, …). Their switches read `postgres`, but their SQLite branches
+    remain. Retiring them is §11 action 5.
+
+46. **Trading-book revision: JML's decisions and step M1 — 23 Oct 2026.** Spec:
+    `Downloads/GEX_Trading_Book_Revision_Claude_Code_Spec.md` (from Claude chat; §0 report given
+    first). **Decisions:**
+    1. **One contract model** — the spec's terms → legs → flows. The market engine moves onto
+       it (M3/M4); offers, rfqs, matches and the market `contracts` are replaced, not kept beside
+       it. Their `double precision` prices go with them (D8: Numeric).
+    2. **No automated matching** until counsel confirms GEX would not be a trading venue.
+       `MARKET_AUTO_MATCHING` (config, default off): `/matching/run` → 409
+       `AUTO_MATCHING_SUSPENDED`. Matching is bilateral — a company proposes one of its own RFQs
+       or listings to a specific counterpart (`POST /api/v1/market/matches`; GEX's score is
+       recorded, no longer a gate); it binds only when both accept. Market Discovery shows
+       "Propose a match" per listing; the Matching page only shows the company's matches.
+    3. **Contract token** separate from the capacity token, referring to the capacity tokens it
+       delivers (`tb_contract_version_token`), minted at **confirmed**. **One token per contract
+       for its whole life (JML, later the same day): a change is a new contract version AND a
+       modification of that same token, never a new token.** `tb_contract.token_ref` is unique
+       and fixed once set; each version's `token_event_ref` records the token operation that
+       carried its terms hash (v1 the mint, later versions a modification) and is fixed once
+       written; a later version cannot record a modification before the contract has a token
+       (triggers `tb_refuse_token_rewrite`, `tb_require_contract_token`). 065 was rolled back,
+       amended and re-applied for this (tables empty; backup `…_2254.dump`). Technology and
+       issuer are still open, so both references stay NULL; the terms hash is computed regardless.
+    4. Default `quantity_basis` = **delivered**; capacity counts as **long** product for the
+       producer, demand as **short** for the offtaker (in `v_position` at M5); order visibility
+       = **platform**, anonymised (decided earlier the same day).
+
+    **M1 done — migration 065** (additive; backup `gex_platform_2026-10-23_1721.dump` first;
+    round-tripped; head **065**, **137** tables, **130** FORCED). New: `tb_commodity` (5 seeded,
+    mapped to the market's molecule codes: EMEOH↔e-Methanol, ENG↔e-NG, H2, NH3, SAF),
+    `tb_counterparty_restriction`, `tb_terms`, `tb_leg`, `tb_flow` (CHECKs per flow type),
+    `tb_rfq`, `tb_order`, `tb_order_invitee`, `tb_order_event` (append-only), `tb_fill`,
+    `tb_contract_version`, `tb_contract_version_token`; views `v_party_leg`, `v_party_flow`,
+    `v_position` (security_invoker, so RLS applies; "planned" joins at M5). Touched:
+    `tb_counterparty.company_id` (resolves payer/receiver to a tenant), `tb_index_definition.commodity_id`,
+    and `tb_contract` — legacy columns nullable, new columns `contract_ref`, `trade_status` (the
+    spec's `status`; the legacy enum keeps that name until M6), `verification_state`, `fill_id`,
+    and a CHECK that a row is wholly legacy or wholly `contract_type = 'terms'`. Frozen terms are
+    immutable for every role (trigger; its first version errored on legs and flows instead of
+    refusing — caught by T12). Code: `trading_book/{conventions,terms,validation,canonical,pricing}.py`.
+    Also fixed: 036 built `tb_*` from the CURRENT models, so any new model would be created early
+    on a rebuild and collide with its migration; 036 now builds only its original eight tables.
+
+    Tests: `test_trading_terms.py` (25: T01 every rule V01–V13 failing and passing, T02, T03,
+    T04, T05, T06, T07, T08, V13 for T09), `test_trading_terms_pg.py` (8: T12, order privacy,
+    contract visible to both parties only, the signed derived book, append-only trail, one-model
+    CHECK, an amendment modifies the same token, the token is never replaced or shared). T12 and
+    the token rule negative-verified. **Backend 1084 pass, 18 skip, 0 fail.**
+
+    **Next: M2** (JTI → terms converter, idempotent with `--dry-run`; nothing to convert today),
+    **M3** (order/RFQ API and acceptance in one transaction — `SELECT … FOR UPDATE`, T09, T11,
+    T14; move the market engine and its token steps onto it), **M4** (cashflow engine dispatch
+    on `flow_type`, `as_party`, the Rotterdam TEST fixture, T10), **M5** (capacities columns;
+    `asset_id` cannot be backfilled — `tb_asset` is empty), **M6** (drop JTI). Four-eye
+    `TRADE_CONFIRM` does not exist yet in `core/wae.py`; it is M3's.
+
+47. **Pre-push audit: no placeholders, data in PostgreSQL — 23 Oct 2026 (JML).** Before syncing
+    to `co-work`, every file in the push was swept for placeholders and for data held in code.
+    JML's decisions on what was found:
+    - **Marketplace constants → PostgreSQL, UNVERIFIED.** Migration **066** (`project_sales_detail`,
+      `project_input_line`, `input_classification`, `tb_commodity.registry_pathway`); loaded by
+      `backend/scripts/load_marketplace_unverified_20261023.py` from
+      `scripts/data/marketplace_unverified_20261023.json`, the four constants extracted verbatim
+      (8 sales details, 33 input lines over 11 projects, 10 classifications; **re-run it after an
+      Alembic rebuild**, a dump restore carries the rows). Spot prices are reference-registry
+      rows, keys `market_spot_price` / `market_spot_price_energy`, state **proposed** (5) — not in
+      force until someone confirms the source and approves. `GET /api/v1/market/project-economics`
+      reads them AS THE CALLER (RLS: the project's companies only). The page shows UNVERIFIED on
+      every unconfirmed figure, a banner, and "—" where nothing is recorded. Also removed from
+      that page: the synthetic chart (sine "seasonality", noise, ramps, a formula labelled
+      "Gabillon Forward", the input-consumption chart), the 1,000 fallback price, the 330-day year
+      (now nameplate × 365), a "contracted ⇒ CONFIRMED" badge, and a zero cost where no input is
+      recorded.
+    - Also fixed in the push: molecule lists from `tb_commodity` (`GET /api/v1/market/commodities`);
+      the trading book's placeholder `get_db` (fake DSN) removed; the trader dashboard's invented
+      figures ("10,000 MT/month", "4 producer offers", "Q1 2027", "RotterdamOfftake4"); Capacity's
+      invented "available" (330 days × 80 %); Matching rebuilt on what a match records (the
+      credit, logistics, certificate, carbon and tenor screens had no data).
+    - **Counterparties built** on `tb_counterparty` (`/counterparties`, in the menu with Market
+      Discovery and RFQs). **15 placeholder routes removed** (Finance Reports; Trader Analytics;
+      six Regulator, seven Executive screens) — none was in the menu; their addresses now render
+      nothing. `PlaceholderPage` deleted.
+    - **Kept in code by decision:** the match threshold (60) and score weights — the method, not
+      data (documented at both sites).
+    - **Next task, not in this push:** project data still partly in code — the frontend merges
+      the server's projects with `frontend/src/data/customerProjects.ts` (bankability, gates, …)
+      and the backend's `project_registry.PROJECT_ACCESS_PROFILES` is a Python dictionary.
+      Also vocabulary lists in `trading_book/schemas.py` (KNOWN_*).
+    Tests: `test_marketplace_records_pg.py` (4, incl. a source guard negative-verified),
+    `CounterpartiesPage.test.tsx` (2), Market Screens updated. Head **066**, **140** tables,
+    **133** FORCED. **Backend 1088 pass, 18 skip, 0 fail**; frontend 226 pass, 1 FAIL (the
+    pre-existing `EconomicsSnapshotPage` refusal test). Backups `…_2254.dump`, `…_2319.dump`.
 
 ---
 
@@ -2395,6 +2581,17 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
+**2026-10-23 (late):** pre-push audit done (§8 item 47): Marketplace data moved to PostgreSQL
+UNVERIFIED (066), placeholders removed, Counterparties built. **Next: project data out of code**
+(`customerProjects.ts`, `PROJECT_ACCESS_PROFILES`), then trading-book M2.
+
+**2026-10-23:** the market chain runs end to end in PostgreSQL only (§8 item 45). The
+trading-book revision is under way: JML decided the four open questions, automated matching is
+switched off, and step M1 (migration 065) is done — §8 item 46. **Next is M2, then M3** (the
+order/RFQ API and acceptance, which moves the market engine onto the new model). Still open
+for JML: the contract token's technology and issuer; counsel's answer on automated matching.
+Nothing is synced to `co-work` yet.
+
 **2026-09-28:** evidence rules 4.0.0 shipped end to end (§8 items 34–36). Nothing in
 flight; the next move is the clients' — commitment cards, and HamburgOne's call on the
 four not-applicable requests. Docker Desktop's restart again left `files-postgres-1`
@@ -2440,7 +2637,8 @@ and §8.14 stays off the path), and the name stays **TEA** — "EAT" is not adop
 
 ## 11. Recommended next five actions
 
-1. **Fix `contracts` (unblocked, ~1 hour).** A live 500. Create the table in PostgreSQL
+1. ~~Fix `contracts`.~~ **DONE 2026-10-23** (migration 063, PostgreSQL only; §8 item 45).
+   *Was:* **Fix `contracts` (unblocked, ~1 hour).** A live 500. Create the table in PostgreSQL
    via a new migration and in SQLite, derived from the columns
    `contracts_sqlite.py` actually selects. Do not drop the route.
 
@@ -2462,7 +2660,8 @@ and §8.14 stays off the path), and the name stays **TEA** — "EAT" is not adop
    comparisons that read through the shim with no caller bound. They now declare
    `as_platform_admin()` explicitly, the same way the seven production bootstrap sites do.
 
-5. **Fix the `_log_event` hash and retire SQLite.** Hash exactly what is stored in
+5. **Fix the `_log_event` hash and retire SQLite.** *(2026-10-23: retired for the whole market
+   and trading area — §8 item 45; the rest below still stands.)* Hash exactly what is stored in
    `development_packages.py` and `spend_wave.py`; record in the migration that the 7
    historical events remain unverifiable. Then ratchet the SQLite baseline to 0, remove
    `SQLITE_DB_PATH`, drop the quarantined tables, and delete

@@ -5,9 +5,8 @@ EVENT-DRIVEN: Inherits correlation_id for chain of custody
 """
 from typing import List, Optional
 from enum import Enum
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-import sqlite3
 import json
 import os
 import uuid
@@ -24,17 +23,13 @@ DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     """
-    Slice-6 connection — SQLite or PostgreSQL by configuration
-    (MARKET_DB_BACKEND). The SQL is unchanged; the shim translates
-    placeholders and sets the RLS tenant context.
+    PostgreSQL only (JML, 2026-10-23): no SQLite fallback. The shim sets the RLS
+    tenant context from the bound caller.
     """
-    from app.core.db_backend import market_connection, market_is_postgres
+    from app.core.db_backend import market_connection, market_is_postgres, require_postgres
 
-    if market_is_postgres():
-        return market_connection()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    require_postgres(market_is_postgres(), "The marketplace", "MARKET_DB_BACKEND")
+    return market_connection()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -139,8 +134,24 @@ class ListingTransition(BaseModel):
     justification: str = ""
 
 
+def _market_party(request: Request):
+    from app.core import market_engine as me
+    try:
+        return me.Party.from_payload(getattr(request.state, "user_payload", None) or {})
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
+
+
+def _market_call(fn, *args, **kwargs):
+    from app.core import market_engine as me
+    try:
+        return fn(*args, **kwargs)
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
+
+
 @router.post("/offers", response_model=OfferResponse, status_code=201)
-async def create_offer(offer: OfferCreate, user_id: str = "system"):
+async def create_offer(offer: OfferCreate, request: Request):
     """
     Create marketplace offer from token
     EVENT-DRIVEN: Inherits correlation_id from token for chain of custody
@@ -161,6 +172,16 @@ async def create_offer(offer: OfferCreate, user_id: str = "system"):
         if not token:
             conn.close()
             raise HTTPException(status_code=404, detail="Token not found")
+
+        # Only the project's owner offers its token; GEX trades nothing (2026-10-23).
+        from app.core import market_engine as me
+        party = _market_party(request)
+        user_id = party.user_id
+        if party.is_admin or me.seller_company(token['capacity_id']) != party.company_id:
+            conn.close()
+            raise HTTPException(status_code=403, detail={"code": "NOT_YOUR_TOKEN",
+                                "message": "Only the company that owns the project can offer its token."})
+        wants_open = (offer.listing_state or "DRAFT") == "OPEN"
         
         # INHERIT correlation_id from token (CHAIN OF CUSTODY!)
         correlation_id = token['correlation_id'] if 'correlation_id' in token.keys() else f"TOK-{offer.token_id[:8]}"
@@ -233,7 +254,7 @@ async def create_offer(offer: OfferCreate, user_id: str = "system"):
             cert_req_json,
             offer.min_order_kg,
             offer.esg_tier,
-            offer.listing_state or "DRAFT",
+            "DRAFT",          # live only through the engine, which reserves the token
         ))
 
         conn.commit()
@@ -245,6 +266,9 @@ async def create_offer(offer: OfferCreate, user_id: str = "system"):
 
         if not row:
             raise HTTPException(status_code=500, detail="Failed to retrieve created offer")
+
+        if wants_open:
+            row = _market_call(me.open_offer, party, offer_id)
 
         cert_req = None
         if 'certification_pathway_required' in row.keys() and row['certification_pathway_required']:
@@ -401,154 +425,63 @@ async def get_offer(offer_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to get offer: {str(e)}")
 
 
-@router.patch("/offers/{offer_id}/status", status_code=200)
+@router.patch("/offers/{offer_id}/status", status_code=409)
 async def update_offer_status(offer_id: str, status: str):
-    """
-    Update offer status (active, matched, expired)
-    """
-    try:
-        if status not in ['active', 'matched', 'expired']:
-            raise HTTPException(status_code=400, detail="Invalid status")
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("UPDATE offers SET status = ? WHERE id = ?", (status, offer_id))
-        
-        if cursor.rowcount == 0:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Offer not found")
-        
-        conn.commit()
-        conn.close()
-        
-        return {"message": "Status updated", "offer_id": offer_id, "status": status}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error updating offer status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
+    """Retired 2026-10-23: it set 'matched' or 'active' with no token moving and no
+    record. Listing state changes go through POST /offers/{id}/transition."""
+    raise HTTPException(status_code=409, detail={"code": "USE_TRANSITION",
+                        "message": "Change a listing through POST /offers/{id}/transition."})
 
 
 @router.post("/offers/{offer_id}/transition", status_code=200)
-async def transition_listing(offer_id: str, transition: ListingTransition, user_id: str = "system"):
+async def transition_listing(offer_id: str, transition: ListingTransition, request: Request):
     """
-    Advance listing state machine.
-    Valid transitions:
-      DRAFT -> OPEN, WITHDRAWN
-      OPEN -> RESERVED, MATCHED, EXPIRED, WITHDRAWN
-      RESERVED -> MATCHED, OPEN, WITHDRAWN
-      MATCHED -> SETTLED, WITHDRAWN
-      SETTLED -> (terminal)
-      EXPIRED -> (terminal)
-      WITHDRAWN -> (terminal)
+    The seller opens or withdraws its listing; the market engine does the rest.
+      DRAFT -> OPEN               reserves the token (MINTED -> RESERVED)
+      DRAFT|OPEN -> WITHDRAWN     releases it, cancels pending matches
+      DRAFT|OPEN -> EXPIRED       the same, recorded as expiry
+    RESERVED, MATCHED and SETTLED are set by the market (both parties accepting a
+    match, a confirmed settlement), never by hand — that was how a listing could
+    say MATCHED while its token stayed MINTED (gap register G-02).
     """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT * FROM offers WHERE id = ?", (offer_id,))
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Offer not found")
-
-        current_str = row['listing_state'] if 'listing_state' in row.keys() else "DRAFT"
-        try:
-            current_state = ListingState(current_str)
-        except ValueError:
-            current_state = ListingState.DRAFT
-
-        try:
-            new_state = ListingState(transition.new_state)
-        except ValueError:
-            conn.close()
-            raise HTTPException(status_code=400, detail=f"Invalid state: {transition.new_state}")
-
-        valid_next = LISTING_TRANSITIONS.get(current_state, [])
-        if new_state not in valid_next:
-            conn.close()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid transition: {current_state.value} -> {new_state.value}. "
-                       f"Valid: {[s.value for s in valid_next]}"
-            )
-
-        now = datetime.now(timezone.utc).isoformat()
-        cursor.execute(
-            "UPDATE offers SET listing_state = ? WHERE id = ?",
-            (new_state.value, offer_id)
-        )
-
-        # Sync legacy status field
-        status_map = {
-            ListingState.OPEN: "active",
-            ListingState.MATCHED: "matched",
-            ListingState.EXPIRED: "expired",
-            ListingState.WITHDRAWN: "expired",
-            ListingState.SETTLED: "matched",
-        }
-        if new_state in status_map:
-            cursor.execute(
-                "UPDATE offers SET status = ? WHERE id = ?",
-                (status_map[new_state], offer_id)
-            )
-
-        correlation_id = row['correlation_id'] if 'correlation_id' in row.keys() else f"OFF-{offer_id[:8]}"
-        append_event(
-            event_type=f"offer.{new_state.value.lower()}",
-            aggregate_type="offer",
-            aggregate_id=offer_id,
-            data={
-                "from_state": current_state.value,
-                "to_state": new_state.value,
-                "changed_by": transition.changed_by,
-                "justification": transition.justification,
-            },
-            user_id=transition.changed_by,
-            correlation_id=correlation_id,
-        )
-
-        conn.commit()
-        conn.close()
-
-        return {
-            "offer_id": offer_id,
-            "previous_state": current_state.value,
-            "new_state": new_state.value,
-            "transitioned_at": now,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error transitioning offer: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to transition offer: {str(e)}")
+    from app.core import market_engine as me
+    party = _market_party(request)
+    target = (transition.new_state or "").upper()
+    if target == "OPEN":
+        row = _market_call(me.open_offer, party, offer_id)
+    elif target in ("WITHDRAWN", "EXPIRED"):
+        row = _market_call(me.withdraw_offer, party, offer_id)
+        if target == "EXPIRED":
+            conn = me._conn()
+            try:
+                conn.execute("UPDATE offers SET listing_state = 'EXPIRED' WHERE id = ?", (offer_id,))
+                conn.commit()
+                row = me._row(conn, "SELECT * FROM offers WHERE id = ?", (offer_id,))
+            finally:
+                conn.close()
+    else:
+        raise HTTPException(status_code=409, detail={"code": "SET_BY_THE_MARKET",
+                            "message": f"{target or 'That state'} is set by the market, not by hand."})
+    return {"offer_id": offer_id, "new_state": row["listing_state"],
+            "transitioned_at": datetime.now(timezone.utc).isoformat()}
 
 
 @router.delete("/offers/{offer_id}", status_code=204)
-async def delete_offer(offer_id: str):
-    """
-    Delete an offer
-    """
+async def delete_offer(offer_id: str, request: Request):
+    """Only the owner's own DRAFT. A listing that was ever live is a record: withdraw it."""
+    from app.core import market_engine as me
+    party = _market_party(request)
+    conn = me._conn()
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("DELETE FROM offers WHERE id = ?", (offer_id,))
-
-        if cursor.rowcount == 0:
-            conn.close()
+        o = me._row(conn, "SELECT o.listing_state, t.capacity_id FROM offers o JOIN tokens t "
+                          "ON t.id = o.token_id WHERE o.id = ?", (offer_id,))
+        if o is None or party.is_admin or me.seller_company(o["capacity_id"]) != party.company_id:
             raise HTTPException(status_code=404, detail="Offer not found")
-
+        if (o["listing_state"] or "DRAFT") != "DRAFT":
+            raise HTTPException(status_code=409, detail={"code": "LISTING_IS_A_RECORD",
+                                "message": "Only a draft can be deleted; withdraw a live listing."})
+        conn.execute("DELETE FROM offers WHERE id = ?", (offer_id,))
         conn.commit()
+    finally:
         conn.close()
-
-        return None
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error deleting offer: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete offer: {str(e)}")
+    return None

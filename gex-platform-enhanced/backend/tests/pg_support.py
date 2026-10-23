@@ -48,6 +48,8 @@ __all__ = [
     "requires_pg",
     "as_platform_admin",
     "pg_bypassrls_connect",
+    "throwaway_pg_database",
+    "connect_dsn",
 ]
 
 _CONNECT_TIMEOUT = 3
@@ -197,3 +199,62 @@ def pg_bypassrls_connect():
         return psycopg2.connect(dsn, connect_timeout=_CONNECT_TIMEOUT)
     except Exception:
         return None
+
+
+# ── A throwaway PostgreSQL database, built by the migrations ────────────────
+
+def connect_dsn(dsn: str):
+    """A psycopg2 connection to an explicit DSN (a throwaway database's)."""
+    import psycopg2
+    import psycopg2.extras
+
+    return psycopg2.connect(dsn, connect_timeout=_CONNECT_TIMEOUT,
+                            cursor_factory=psycopg2.extras.RealDictCursor)
+
+
+@contextlib.contextmanager
+def throwaway_pg_database(name: str):
+    """Create `name` in the dev cluster, migrate it to auth_slice@head, yield the
+    RUNTIME dsn (gex_app), and drop it afterwards.
+
+    For tests whose code under test commits (the market engine, the event
+    ledger): a rolled-back transaction cannot hold them, and writing the dev
+    database is forbidden. Same roles, same migrations, same RLS as live — but
+    nothing it holds survives the test. Skips when PostgreSQL or either
+    exported URL is missing, like everything else in this module.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    runtime, admin = os.getenv("DATABASE_URL") or "", os.getenv("ALEMBIC_DATABASE_URL") or ""
+    if not (runtime.startswith("postgres") and admin.startswith("postgres")):
+        pytest.skip("DATABASE_URL and ALEMBIC_DATABASE_URL must both be exported")
+    assert name.startswith("gex_test_"), "throwaway databases are named gex_test_*"
+    swap = lambda dsn: dsn.rsplit("/", 1)[0] + "/" + name  # noqa: E731
+    pg_connect().close()                                   # reachable, or skip
+
+    import psycopg2
+
+    def admin_sql(*statements):
+        conn = psycopg2.connect(swap(admin).rsplit("/", 1)[0] + "/postgres", connect_timeout=_CONNECT_TIMEOUT)
+        conn.autocommit = True
+        try:
+            for sql in statements:
+                conn.cursor().execute(sql)
+        finally:
+            conn.close()
+
+    admin_sql(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)", f"CREATE DATABASE {name}",
+              f"ALTER DATABASE {name} SET app.current_company_id = 'GUEST'",
+              f"GRANT CONNECT ON DATABASE {name} TO gex_app")
+    try:
+        backend = Path(__file__).resolve().parent.parent
+        run = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "auth_slice@head"], cwd=backend,
+                             env={**os.environ, "ALEMBIC_DATABASE_URL": swap(admin)},
+                             capture_output=True, text=True)
+        assert run.returncode == 0, f"migrating {name} failed:\n{run.stderr[-2000:]}"
+        yield swap(runtime)
+    finally:
+        admin_sql(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+

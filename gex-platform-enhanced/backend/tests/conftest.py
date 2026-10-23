@@ -85,3 +85,38 @@ def isolated_store(tmp_path_factory):
             else:
                 os.environ[name] = value
             setattr(settings, name, saved_settings[name])
+
+
+# ── The PostgreSQL counterpart: one throwaway database per session ──────────
+
+@pytest.fixture(scope="session")
+def _throwaway_pg_url():
+    from pg_support import throwaway_pg_database
+
+    with throwaway_pg_database("gex_test_suite") as url:
+        yield url
+
+
+@pytest.fixture(scope="module")
+def pg_store(_throwaway_pg_url):
+    """Point every store at a throwaway PostgreSQL database for this module.
+
+    For modules that are PostgreSQL only (the market and trading area, JML
+    2026-10-23) and whose code commits, so a rolled-back transaction cannot hold
+    the test. The database is built by the migrations — same roles, RLS and
+    policies as live — once per session, and dropped at the end; the
+    development database is never touched. Every *_DB_BACKEND switch is pinned
+    to postgres, in os.environ and in settings, as isolated_store pins sqlite.
+    Modules share the database, so a test must use its own TEST ids.
+    Yields the runtime (gex_app) DSN.
+    """
+    from app.core.config import settings
+
+    switch_names = sorted(
+        name for name in type(settings).model_fields if name.endswith("_DB_BACKEND"))
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(settings, "DATABASE_URL", _throwaway_pg_url)
+        for name in switch_names:
+            mp.setenv(name, "postgres")
+            mp.setattr(settings, name, "postgres")
+        yield _throwaway_pg_url

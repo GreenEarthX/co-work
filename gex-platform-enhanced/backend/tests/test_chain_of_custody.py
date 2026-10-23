@@ -31,8 +31,9 @@ from fastapi.testclient import TestClient
 BACKEND = Path(__file__).resolve().parents[1]
 MODULE = BACKEND / "app" / "api" / "v1" / "mass_balance.py"
 
+OWNER = "test_custody_owner"
 LOT = {
-    "project_id": "proj_etf_pecos1",
+    "project_id": "proj_TEST_custody",
     "molecule": "E_METHANOL",
     "production_date": "2026-07-14",
     "total_volume_kg": 12_000_000,
@@ -43,16 +44,43 @@ LOT = {
 
 
 @pytest.fixture()
-def client(isolated_store):
-    """`isolated_store` is not optional. Without it this fixture drove the
-    DEVELOPMENT store: three `created_by='test'` lots from earlier runs are
-    still in `backend/gex_platform.db`, and once DOMAIN_DB_BACKEND became
-    `postgres` the same tests would have written the real PostgreSQL."""
+def client(pg_store):
+    """Chain of custody is PostgreSQL only (JML, 2026-10-23), so this runs in the
+    throwaway database of conftest.pg_store — never the development store. (Under
+    the old isolated_store it once left three `created_by='test'` lots in
+    backend/gex_platform.db.)"""
+    from pg_support import connect_dsn
+
     from app.api.v1.mass_balance import init_db, router
+    from app.core.request_tenant import reset_current_company, set_current_company
+
+    conn = connect_dsn(pg_store)
+    try:
+        cur = conn.cursor()
+        cur.execute("SET app.current_company_id = 'PLATFORM_ADMIN'")
+        cur.execute("INSERT INTO tenants (company_id, company_name, company_type) VALUES (%s, %s, 'PRODUCER') "
+                    "ON CONFLICT DO NOTHING", (OWNER, "TEST Custody Owner"))
+        cur.execute("INSERT INTO projects (project_id, project_name, owner_tenant_id, molecule) "
+                    "VALUES (%s, 'TEST custody plant', %s, 'e-Methanol') ON CONFLICT DO NOTHING",
+                    (LOT["project_id"], OWNER))
+        conn.commit()
+    finally:
+        conn.close()
 
     init_db()
     app = FastAPI()
     app.include_router(router)
+
+    @app.middleware("http")
+    async def _as_the_owner(request, call_next):
+        # On PostgreSQL the policies decide, so the request carries the project
+        # owner as its tenant — ABAC's job in the real app.
+        token = set_current_company(OWNER)
+        try:
+            return await call_next(request)
+        finally:
+            reset_current_company(token)
+
     return TestClient(app)
 
 
@@ -139,7 +167,7 @@ def test_a_real_project_is_accepted_and_recorded(client, monkeypatch):
 
     monkeypatch.setattr(
         ps, "fetch_project",
-        lambda pid: {"project_id": pid, "project_name": "ETFuels Pecos I"},
+        lambda pid: {"project_id": pid, "project_name": "TEST custody plant"},
     )
     r = client.post("/api/v1/chain-of-custody/lots", json=LOT)
     assert r.status_code == 201, r.text

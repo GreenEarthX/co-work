@@ -13,7 +13,14 @@ import {
   Layers3,
   FileCheck2,
 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  marketAPI,
+  type MarketContract,
+  type MarketMatch,
+  type MarketRFQ,
+} from "@/api";
 import { ProductionRoadmapGantt } from "@/components/gantt/ProductionRoadmapGantt";
 import { useSelectedProject } from "@/contexts/ProjectContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
@@ -32,68 +39,93 @@ export function TraderDashboardPage() {
     (g) => g.id === "G4_OFFTAKE_BANKABLE" && !g.is_complete,
   );
 
+  // The real path through the market (2026-10-23): no figures here — volumes,
+  // prices and dates come from the company's own RFQs, listings and matches.
   const closePath = [
     {
-      title: "Define mandate",
-      detail:
-        "Target molecule, 10,000 MT/month, certifications, first delivery window",
-      cta: "Set demand",
-      route: "/onboarding",
+      title: "Raise a request",
+      detail: "Your molecule, volume, delivery window and maximum price, as an RFQ",
+      cta: "Open RFQs",
+      route: "/rfqs",
       Icon: FileText,
     },
     {
-      title: "Pool supply",
-      detail:
-        "Aggregate at least 4 producer offers through GreenMesh / FlowFusion",
-      cta: "Open marketplace",
-      route: "/marketplace",
+      title: "Find a counterpart",
+      detail: "Browse anonymised listings and propose one of yours to a specific one",
+      cta: "Market discovery",
+      route: "/market-discovery",
       Icon: Layers3,
     },
     {
       title: "Justify price",
-      detail: "Use clean token lead spot reference plus Gabillon forward curve",
+      detail: "Check the price against the spot reference and the Gabillon forward curve",
       cta: "Open pricing",
       route: "/pricing-curves",
       Icon: LineChart,
     },
     {
       title: "Close contract",
-      detail: "Issue RFQ and move to term sheet with LC-ready price rationale",
-      cta: "Run matching",
+      detail: "Both parties accept the match; either writes the contract from its terms",
+      cta: "Your matches",
       route: "/matching",
       Icon: FileCheck2,
     },
   ];
 
-  // Honest KPIs only — things GEX actually tracks (deals, RFQs, matched volume,
-  // contracts). Removed "Active Positions" (no position book) and "P&L MTD"
-  // (no mark-to-market / P&L engine) — they fabricated a CTRM risk book. See
-  // audit-menu.mjs §9 CTRM-completeness manifest.
+  // Live, from the market engine (/api/v1/market) — the company's own RFQs,
+  // matches and contracts. Before 2026-10-23 these tiles were constants
+  // ("3 active deals", "7 open RFQs"); gap register G-04.
+  const [rfqs, setRfqs] = useState<MarketRFQ[]>([]);
+  const [matches, setMatches] = useState<MarketMatch[]>([]);
+  const [contracts, setContracts] = useState<MarketContract[]>([]);
+  const [marketError, setMarketError] = useState<string | null>(null);
+
+  const loadMarket = useCallback(async () => {
+    try {
+      const [r, m, c] = await Promise.all([
+        marketAPI.myRFQs(),
+        marketAPI.myMatches(),
+        marketAPI.myContracts(),
+      ]);
+      setRfqs(r.rfqs);
+      setMatches(m.matches);
+      setContracts(c.contracts);
+      setMarketError(null);
+    } catch (e) {
+      setMarketError((e as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMarket();
+  }, [loadMarket]);
+
+  const act = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      await loadMarket();
+    } catch (e) {
+      setMarketError((e as Error).message);
+    }
+  };
+
+  const contracted = new Set(contracts.map((c) => c.match_id));
+  const myAcceptance = (m: MarketMatch) =>
+    m.side === "seller" ? m.seller_accepted_by : m.buyer_accepted_by;
+  const toAccept = matches.filter((m) => m.status === "pending" && !myAcceptance(m));
+  const awaitingThem = matches.filter((m) => m.status === "pending" && myAcceptance(m));
+  const toContract = matches.filter((m) => m.status === "accepted" && !contracted.has(m.id));
+  const openRfqs = rfqs.filter((r) => r.status === "open");
+
   const kpis = [
-    {
-      label: "Active Deals",
-      value: "3",
-      sub: "2 H2 · 1 NH3",
-      icon: Package,
-    },
-    {
-      label: "Open RFQs",
-      value: "7",
-      sub: "3 closing this week",
-      icon: FileText,
-    },
-    {
-      label: "Matched Volume",
-      value: "12,400 t",
-      sub: "MTD vs 15,000 t target",
-      icon: Zap,
-    },
-    {
-      label: "Expiring Contracts",
-      value: "2",
-      sub: "Within 90 days",
-      icon: AlertTriangle,
-    },
+    { label: "Matches to accept", value: String(toAccept.length),
+      sub: `${awaitingThem.length} awaiting the counterparty`, icon: Zap },
+    { label: "Open RFQs", value: String(openRfqs.length),
+      sub: `${rfqs.filter((r) => r.status === "draft").length} in draft`, icon: FileText },
+    { label: "Agreed, no contract", value: String(toContract.length),
+      sub: "both parties accepted", icon: AlertTriangle },
+    { label: "Contracts", value: String(contracts.length),
+      sub: `${contracts.filter((c) => c.status === "active").length} active`, icon: Package },
   ];
 
   return (
@@ -116,12 +148,11 @@ export function TraderDashboardPage() {
               Objective
             </div>
             <h2 className="mt-1 text-lg font-bold text-[var(--text-primary)]">
-              Close a defensible Q1 2027 contract path
+              From request to signed contract
             </h2>
             <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              Turn pooled producer volume into a buyer-ready contract with
-              reference pricing that treasury, banks, and ratings teams can
-              defend.
+              Every step below acts on your company's own RFQs, listings and
+              matches; the figures on this page are read from them.
             </p>
           </div>
           <button
@@ -166,8 +197,8 @@ export function TraderDashboardPage() {
               <p className="mt-1 text-sm text-amber-800">
                 Counterparties do not yet have a defensible price backbone. GEX
                 must show a clean spot reference and Gabillon-based forward
-                curve before RotterdamOfftake4 can justify LOIs, LC-backed
-                pricing, or credit committee discussion.
+                curve before an offtaker can justify LOIs, LC-backed pricing,
+                or credit committee discussion.
               </p>
               <div className="mt-3">
                 <button
@@ -208,133 +239,104 @@ export function TraderDashboardPage() {
         title="Offtaker challenge review"
       />
 
+      {marketError && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {marketError}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="gex-card rounded-xl p-6">
-          <h2 className="mb-4 text-base font-bold text-[var(--text-primary)]">
-            Active Offtake Positions
+          <h2 className="mb-1 text-base font-bold text-[var(--text-primary)]">
+            Matches — your move
           </h2>
-          <div className="space-y-3">
-            {[
-              {
-                project: "Le Havre e-NG",
-                product: "e-NG",
-                buyer: "GRTgaz",
-                volume: "92%",
-                tenor: "20y",
-                status: "SIGNED",
-              },
-              {
-                project: "Bremen H2",
-                product: "H2",
-                buyer: "Vattenfall",
-                volume: "78%",
-                tenor: "15y",
-                status: "PARTIAL",
-              },
-              {
-                project: "Helios MeOH",
-                product: "MeOH",
-                buyer: "Maersk",
-                volume: "60%",
-                tenor: "12y",
-                status: "PARTIAL",
-              },
-            ].map((row) => (
-              <div
-                key={row.project}
-                className="flex items-center justify-between rounded-lg bg-[var(--surface-muted)] p-3"
-              >
-                <div>
-                  <div className="text-sm font-semibold text-[var(--text-primary)]">
-                    {row.project}
+          <p className="mb-4 text-xs text-[var(--text-secondary)]">
+            A match binds only when both parties accept. Names are shown to the two parties only.
+          </p>
+          {toAccept.length + toContract.length === 0 ? (
+            <p className="text-sm text-[var(--text-secondary)]">
+              Nothing waiting on you.{" "}
+              <button className="font-semibold underline" onClick={() => navigate("/market-discovery")}>
+                Find matches
+              </button>
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {[...toAccept, ...toContract].map((m) => (
+                <div key={m.id}
+                     className="flex items-center justify-between gap-3 rounded-lg bg-[var(--surface-muted)] p-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">
+                      {m.molecule} · {m.volume_mtpd} MTPD · €{m.price_eur_kg}/kg
+                    </div>
+                    <div className="text-xs text-[var(--text-secondary)]">
+                      You {m.side === "seller" ? "sell to" : "buy from"}{" "}
+                      {(m.side === "seller" ? m.buyer_name : m.seller_company_name) ?? "—"} ·
+                      score {Math.round(m.match_score)} · {m.delivery_start} → {m.delivery_end}
+                    </div>
                   </div>
-                  <div className="text-xs text-[var(--text-secondary)]">
-                    {row.product} · {row.buyer} · {row.tenor}
+                  <div className="flex shrink-0 gap-2">
+                    {m.status === "pending" ? (
+                      <>
+                        <button onClick={() => act(() => marketAPI.acceptMatch(m.id))}
+                                className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">
+                          Accept
+                        </button>
+                        <button onClick={() => act(() => marketAPI.declineMatch(m.id))}
+                                className="rounded-lg border px-3 py-1.5 text-xs font-semibold">
+                          Decline
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          const delivery = window.prompt("Delivery terms (e.g. FOB Rotterdam, monthly)");
+                          if (!delivery) return;
+                          const payment = window.prompt("Payment terms (e.g. 30 days from invoice)");
+                          if (!payment) return;
+                          act(() => marketAPI.createContract(m.id, delivery, payment));
+                        }}
+                        className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">
+                        Write contract
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-bold text-[var(--text-primary)]">
-                    {row.volume}
-                  </span>
-                  <span
-                    className={
-                      row.status === "SIGNED"
-                        ? "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold text-emerald-600"
-                        : "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700"
-                    }
-                  >
-                    {row.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="gex-card rounded-xl p-6">
-          <h2 className="mb-4 text-base font-bold text-[var(--text-primary)]">
-            Open RFQs
-          </h2>
-          <div className="space-y-3">
-            {[
-              {
-                id: "RFQ-2026-014",
-                product: "NH3 500t/mo",
-                deadline: "25 Mar",
-                status: "BIDS_IN",
-                bids: 4,
-              },
-              {
-                id: "RFQ-2026-015",
-                product: "H2 120t/mo",
-                deadline: "28 Mar",
-                status: "OPEN",
-                bids: 1,
-              },
-              {
-                id: "RFQ-2026-016",
-                product: "SAF 200t/mo",
-                deadline: "02 Apr",
-                status: "OPEN",
-                bids: 0,
-              },
-              {
-                id: "RFQ-2026-017",
-                product: "H2 80t/mo",
-                deadline: "05 Apr",
-                status: "DRAFTING",
-                bids: 0,
-              },
-            ].map((rfq) => (
-              <div
-                key={rfq.id}
-                className="flex items-center justify-between rounded-lg bg-[var(--surface-muted)] p-3"
-              >
-                <div>
-                  <div className="text-sm font-semibold text-[var(--text-primary)]">
-                    {rfq.id}
-                  </div>
-                  <div className="text-xs text-[var(--text-secondary)]">
-                    {rfq.product} · closes {rfq.deadline}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-[var(--text-secondary)]">
-                    {rfq.bids} bid{rfq.bids !== 1 ? "s" : ""}
-                  </span>
-                  <span
-                    className={
-                      rfq.status === "BIDS_IN"
-                        ? "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold bg-gray-100 text-gray-900"
-                        : "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-gray-100 text-gray-600"
-                    }
-                  >
-                    {rfq.status.replace("_", " ")}
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-base font-bold text-[var(--text-primary)]">Your open RFQs</h2>
+            <button onClick={() => navigate("/rfqs")} className="text-xs font-semibold underline">
+              Manage RFQs
+            </button>
           </div>
+          {openRfqs.length === 0 ? (
+            <p className="text-sm text-[var(--text-secondary)]">No open RFQ.</p>
+          ) : (
+            <div className="space-y-3">
+              {openRfqs.map((rfq) => (
+                <div key={rfq.id}
+                     className="flex items-center justify-between rounded-lg bg-[var(--surface-muted)] p-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">
+                      {rfq.molecule} · {rfq.volume_mtpd} MTPD
+                    </div>
+                    <div className="text-xs text-[var(--text-secondary)]">
+                      {rfq.delivery_start} → {rfq.delivery_end}
+                      {rfq.max_price_eur_kg != null && ` · max €${rfq.max_price_eur_kg}/kg`}
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-700">
+                    {matches.filter((m) => m.status === "pending").length ? "MATCHING" : "OPEN"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

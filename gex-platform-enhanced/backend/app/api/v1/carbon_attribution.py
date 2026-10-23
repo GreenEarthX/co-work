@@ -39,7 +39,7 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.db_backend import domain_connection, domain_is_postgres
+from app.core.db_backend import domain_connection, domain_is_postgres, require_postgres
 
 router = APIRouter(prefix="/api/v1/carbon-attribution", tags=["carbon-attribution"])
 
@@ -126,12 +126,10 @@ class NationSummary(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # PostgreSQL only (JML, 2026-10-23); resolved per request, never at import,
     # so 044's project-scoped policies see THIS caller's tenant.
+    require_postgres(domain_is_postgres(), "Carbon attribution", "DOMAIN_DB_BACKEND")
     conn = domain_connection()
-    if not domain_is_postgres():
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -139,62 +137,9 @@ def get_db():
 
 
 def init_db():
-    """
-    Create CARBON_ATTRIBUTION_EVENTS table.
-    Call from app/main.py startup alongside other init_db() calls.
-    """
-    if domain_is_postgres():
-        # Migrations 043/044 own these tables and their RLS policies. gex_app
-        # has no CREATE on schema public, so this DDL cannot run there — and
-        # must not: a runtime-created table would carry no policy.
-        return
-    conn = domain_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS carbon_attribution_events (
-            attribution_id         TEXT PRIMARY KEY,
-            settlement_id          TEXT NOT NULL,
-            token_id               TEXT NOT NULL,
-            project_id             TEXT NOT NULL,
-            host_nation            TEXT NOT NULL,
-            host_nation_share_pct  REAL NOT NULL,
-            buyer_share_pct        REAL NOT NULL,
-            carbon_volume_tonnes   REAL NOT NULL,
-            sovereign_certifier    TEXT NOT NULL,
-            debt_swap_id           TEXT,
-            attribution_methodology TEXT,
-            attribution_status     TEXT NOT NULL DEFAULT 'DRAFT',
-            registry_ref           TEXT,
-            audit_hash             TEXT NOT NULL,
-            version                INTEGER NOT NULL DEFAULT 1,
-            created_at             TEXT NOT NULL,
-            updated_at             TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ca_settlement ON carbon_attribution_events(settlement_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ca_project ON carbon_attribution_events(project_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ca_nation ON carbon_attribution_events(host_nation)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ca_status ON carbon_attribution_events(attribution_status)")
-
-    # Audit table — append-only
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS carbon_attribution_event_log (
-            event_id       TEXT PRIMARY KEY,
-            attribution_id TEXT NOT NULL,
-            project_id     TEXT NOT NULL,
-            event_type     TEXT NOT NULL,
-            field_changed  TEXT,
-            old_value      TEXT,
-            new_value      TEXT,
-            changed_by     TEXT NOT NULL,
-            justification  TEXT,
-            event_hash     TEXT NOT NULL,
-            prev_hash      TEXT,
-            created_at     TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_cal_attribution ON carbon_attribution_event_log(attribution_id)")
-    conn.commit()
-    conn.close()
+    """Nothing to create: migrations 043/044 own these tables and their RLS
+    policies on PostgreSQL, the only store (JML, 2026-10-23). Requests refuse in
+    get_db() when the switch is not postgres; startup does not."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -281,6 +226,17 @@ def create_attribution(a: AttributionCreate, db: Any = Depends(get_db)):
     attribution_id = str(uuid.uuid4())
     now = _now()
 
+    # The chain id comes from the settlement (G-03): one id from capacity to
+    # retirement. An attribution must also be for the settlement's own token.
+    settlement = db.execute(
+        "SELECT token_id, correlation_id FROM settlement_events WHERE settlement_id=?",
+        (a.settlement_id,)).fetchone()
+    if settlement is None:
+        raise HTTPException(404, f"Settlement {a.settlement_id} not found")
+    if settlement["token_id"] != a.token_id:
+        raise HTTPException(422, "The token is not the one this settlement settled")
+    correlation_id = settlement["correlation_id"]
+
     content = {
         "attribution_id": attribution_id,
         "settlement_id": a.settlement_id,
@@ -298,18 +254,23 @@ def create_attribution(a: AttributionCreate, db: Any = Depends(get_db)):
          host_nation, host_nation_share_pct, buyer_share_pct,
          carbon_volume_tonnes, sovereign_certifier, debt_swap_id,
          attribution_methodology, attribution_status, registry_ref,
-         audit_hash, version, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         audit_hash, version, created_at, updated_at, correlation_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         attribution_id, a.settlement_id, a.token_id, a.project_id,
         a.host_nation, a.host_nation_share_pct, a.buyer_share_pct,
         a.carbon_volume_tonnes, a.sovereign_certifier, a.debt_swap_id,
         a.attribution_methodology, AttributionStatus.DRAFT.value, None,
-        audit_hash, 1, now, now
+        audit_hash, 1, now, now, correlation_id
     ))
     _log_event(db, attribution_id, a.project_id, "attribution.created",
                a.changed_by, new_val=a.settlement_id)
     db.commit()
+    from app.core.event_store import append_event
+    append_event(event_type="attribution.created", aggregate_type="carbon_attribution",
+                 aggregate_id=attribution_id, user_id=a.changed_by, correlation_id=correlation_id,
+                 project_id=a.project_id, data={"settlement_id": a.settlement_id, "token_id": a.token_id,
+                                                "carbon_volume_tonnes": a.carbon_volume_tonnes})
 
     row = db.execute("SELECT * FROM carbon_attribution_events WHERE attribution_id=?", (attribution_id,)).fetchone()
     return _row_to_response(row)

@@ -61,6 +61,9 @@ import { TermSheetTracker } from '@/features/finance/TermSheetTracker'
 import { TransferReadiness } from '@/features/finance/TransferReadiness'
 import { InsuranceSchedule } from '@/features/finance/InsuranceSchedule'
 import { TraderDashboardPage } from '@/features/trader/TraderDashboardPage'
+import { MarketDiscoveryPage } from '@/features/trader/MarketDiscoveryPage'
+import RFQManagementPage from '@/features/trader/RFQManagementPage'
+import { CounterpartiesPage } from '@/features/trader/CounterpartiesPage'
 import { GanttVisibilityConfig } from '@/features/ciso/GanttVisibilityConfig'
 import { ScreenAccessPage } from '@/features/ciso/ScreenAccessPage'
 import { GapAnalysis } from '@/features/finance/GapAnalysis'
@@ -93,15 +96,7 @@ import SiteInfrastructure from '@/features/canvas/SiteInfrastructure'
 // This fixes the QueryClient error
 const queryClient = new QueryClient()
 
-const PlaceholderPage = ({ title, workspace }: { title: string; workspace?: string }) => (
-  <div className="max-w-4xl mx-auto">
-    <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-      <h2 className="text-2xl font-bold text-gray-900 mb-2">{title}</h2>
-      {workspace && <p className="text-sm text-gray-500 mb-4">{workspace} Workspace</p>}
-      <p className="text-gray-600">This section is under development.</p>
-    </div>
-  </div>
-)
+// Unbuilt screens are not routed (JML, 2026-10-23): no page shows a placeholder.
 
 function App() {
   return (
@@ -143,7 +138,6 @@ function App() {
               <Route path="revenue" element={<RevenueOfftakePage />} />
               <Route path="covenants" element={<CovenantsPage />} />
               <Route path="insurance" element={<InsurancePage />} />
-              <Route path="finance-reports" element={<PlaceholderPage title="Reports & Audit" workspace="Finance" />} />
               <Route path="finance-gaps" element={<GatedRoute path="/finance-gaps"><GapAnalysis /></GatedRoute>} />
               <Route path="finance-instruments" element={<InstrumentCatalog />} />
               <Route path="instrument-compatibility" element={<InstrumentCompatibility />} />
@@ -193,30 +187,16 @@ function App() {
               </Route>
 
               <Route path="trader-dashboard" element={<TraderDashboardPage />} />
-              <Route path="market-discovery" element={<PlaceholderPage title="Market Discovery" workspace="Trader" />} />
-              <Route path="rfqs" element={<PlaceholderPage title="RFQs & Negotiation" workspace="Trader" />} />
-              <Route path="counterparties" element={<PlaceholderPage title="Counterparties" workspace="Trader" />} />
-              <Route path="trader-analytics" element={<PlaceholderPage title="Analytics" workspace="Trader" />} />
+              <Route path="market-discovery" element={<MarketDiscoveryPage />} />
+              <Route path="rfqs" element={<RFQManagementPage />} />
+              <Route path="counterparties" element={<CounterpartiesPage />} />
 
               <Route path="producer-bankability" element={<ProducerBankabilityView />} />
               <Route path="finance-bankability" element={<FinanceBankabilityView />} />
 
               <Route path="regulator-dashboard" element={<RegulatorDashboardPage />} />
-              <Route path="project-registry" element={<PlaceholderPage title="Project Registry" workspace="Regulator" />} />
-              <Route path="compliance" element={<PlaceholderPage title="Compliance Verification" workspace="Regulator" />} />
-              <Route path="documentation" element={<PlaceholderPage title="Documentation Review" workspace="Regulator" />} />
-              <Route path="inspections" element={<PlaceholderPage title="Inspections & Audits" workspace="Regulator" />} />
-              <Route path="market-oversight" element={<PlaceholderPage title="Market Oversight" workspace="Regulator" />} />
-              <Route path="regulator-reports" element={<PlaceholderPage title="Reports" workspace="Regulator" />} />
 
               <Route path="executive-dashboard" element={<ExecutiveBankabilityDashboard />} />
-              <Route path="strategic" element={<PlaceholderPage title="Strategic Overview" workspace="Executive" />} />
-              <Route path="financial" element={<PlaceholderPage title="Financial Performance" workspace="Executive" />} />
-              <Route path="operations" element={<PlaceholderPage title="Operations & Production" workspace="Executive" />} />
-              <Route path="commercial" element={<PlaceholderPage title="Market & Commercial" workspace="Executive" />} />
-              <Route path="risk" element={<PlaceholderPage title="Risk & Compliance" workspace="Executive" />} />
-              <Route path="stakeholders" element={<PlaceholderPage title="Stakeholder View" workspace="Executive" />} />
-              <Route path="executive-analytics" element={<PlaceholderPage title="Advanced Analytics" workspace="Executive" />} />
 
               {/* ── WAE / Approval Queue (Finance + Executive) — gate-locked ── */}
               <Route path="approval-queue"      element={<GatedRoute path="/approval-queue"><ApprovalQueuePage /></GatedRoute>} />

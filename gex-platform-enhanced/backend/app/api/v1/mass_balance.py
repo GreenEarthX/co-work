@@ -94,7 +94,7 @@ DESIGN
   - Append-only, hash-chained allocation log (prev_hash → allocation_hash)
   - project_id is validated against the canonical projects store
 
-Store: DOMAIN_DB_BACKEND (SQLite or PostgreSQL, via domain_connection).
+Store: PostgreSQL only (DOMAIN_DB_BACKEND=postgres), via domain_connection.
 """
 
 import uuid
@@ -107,7 +107,7 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.core.db_backend import domain_connection, domain_is_postgres
+from app.core.db_backend import domain_connection, domain_is_postgres, require_postgres
 
 router = APIRouter(prefix="/api/v1/chain-of-custody", tags=["chain-of-custody"])
 
@@ -173,64 +173,19 @@ class LotSummary(BaseModel):
 
 
 def get_db():
-    """Follows DOMAIN_DB_BACKEND. No module-owned path, and nothing captured at
-    import: the store is resolved per request, so the tenant context of THIS
-    caller is what 044's project-scoped policies see."""
+    # PostgreSQL only (JML, 2026-10-23); resolved per request.
+    require_postgres(domain_is_postgres(), "Chain of custody", "DOMAIN_DB_BACKEND")
     conn = domain_connection()
     try:
-        if not domain_is_postgres():
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
         yield conn
     finally:
         conn.close()
 
 
 def init_db():
-    if domain_is_postgres():
-        # Migrations 043/044 own these tables and their RLS policies. gex_app
-        # has no CREATE on schema public, so this DDL cannot run there — and
-        # must not: a runtime-created table would carry no policy.
-        return
-    conn = domain_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS mass_balance_lots (
-            lot_id                    TEXT PRIMARY KEY,
-            project_id                TEXT NOT NULL,
-            molecule                  TEXT NOT NULL,
-            production_date           TEXT NOT NULL,
-            total_volume_kg           REAL NOT NULL,
-            allocated_volume_kg       REAL NOT NULL DEFAULT 0,
-            remaining_volume_kg       REAL NOT NULL,
-            status                    TEXT NOT NULL DEFAULT 'OPEN',
-            certification_pathway     TEXT,
-            carbon_intensity_gco2e_mj REAL,
-            audit_hash                TEXT NOT NULL,
-            created_by                TEXT NOT NULL,
-            created_at                TEXT NOT NULL,
-            updated_at                TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mbl_project ON mass_balance_lots(project_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mbl_status ON mass_balance_lots(status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mbl_molecule ON mass_balance_lots(molecule)")
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS mass_balance_allocations (
-            allocation_id  TEXT PRIMARY KEY,
-            lot_id         TEXT NOT NULL,
-            token_id       TEXT NOT NULL,
-            volume_kg      REAL NOT NULL,
-            allocated_by   TEXT NOT NULL,
-            allocation_hash TEXT NOT NULL,
-            prev_hash      TEXT,
-            created_at     TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mba_lot ON mass_balance_allocations(lot_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mba_token ON mass_balance_allocations(token_id)")
-    conn.commit()
-    conn.close()
+    """Nothing to create: migrations 043/044 own these tables and their RLS
+    policies on PostgreSQL, the only store (JML, 2026-10-23). Requests refuse in
+    get_db() when the switch is not postgres; startup does not."""
 
 
 def _assert_project_exists(project_id: str) -> None:

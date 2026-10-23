@@ -227,21 +227,24 @@ Further reduction below ~28–30 requires the **portfolio-vs-project** split
 > which CTRM functions exist? Advisory (does not gate access), but it answers
 > the buy-side / CTRM diligence question the access audit cannot.
 
-### Commercial workspace (10 doors)
+### Commercial workspace (13 doors)
 
 ```mermaid
 flowchart TD
-  COM[Commercial · 10 doors]
+  COM[Commercial · 13 doors]
   COM --> D0["Commercial Overview → /marketplace"]:::ok
   COM --> D1["Purchase → /offtaker-supply"]:::ok
   COM --> D2["Sales → /finance-demand"]:::ok
   COM --> D3["Offtake Quality → /offtake-quality"]:::ok
-  COM --> D4["Matching Engine → /matching"]:::ok
-  COM --> D5["RFQ Management → /trader-dashboard"]:::ok
-  COM --> D6["Contracts → /contracts"]:::ok
-  COM --> D7["Term Sheet Tracker → /term-sheet"]:::ok
-  COM --> D8["Delivery & Settlement → /settlement"]:::ok
-  COM --> D9["GreenMesh (Capacity & Logistics) → /capacity"]:::ok
+  COM --> D4["Market Discovery → /market-discovery"]:::ok
+  COM --> D5["RFQs → /rfqs"]:::ok
+  COM --> D6["Counterparties → /counterparties"]:::ok
+  COM --> D7["Your Matches → /matching"]:::ok
+  COM --> D8["RFQ Management → /trader-dashboard"]:::ok
+  COM --> D9["Contracts → /contracts"]:::ok
+  COM --> D10["Term Sheet Tracker → /term-sheet"]:::ok
+  COM --> D11["Delivery & Settlement → /settlement"]:::ok
+  COM --> D12["GreenMesh (Capacity & Logistics) → /capacity"]:::ok
   COM -.->|Optional (post-v1)| GP0[[Deal capture / blotter — ABSENT]]:::gap
   COM -.->|Not intended — integrate external CTRM| GP1[[Position book / net exposure — ABSENT]]:::gap
   COM -.->|Not intended — integrate external CTRM| GP2[[Mark-to-market / P&L — ABSENT]]:::gap
@@ -253,7 +256,7 @@ flowchart TD
   classDef gap stroke:#64748b,stroke-width:1.5px,stroke-dasharray:2 3,color:#64748b;
 ```
 
-### Door↔screen coherence — 3 mismatch(es), 16 route-name drift
+### Door↔screen coherence — 3 mismatch(es), 17 route-name drift
 
 - ⚠ Projects · "Task Flow"  →  /finance-dashboard  (FinanceDashboardPage)
 - ⚠ Compliance · "Regulatory Registry"  →  /regulator-dashboard  (RegulatorDashboardPage)
@@ -263,7 +266,7 @@ flowchart TD
   with its label (the screen is *Delivery & Settlement*; no counterparty/credit
   module exists). Now corrected — the door is **Delivery & Settlement**, and
   counterparty/credit is tracked below as a CTRM gap rather than implied by a door.
-- **Route-name drift (16):** URL ≠ label on legacy paths. Deferred —
+- **Route-name drift (17):** URL ≠ label on legacy paths. Deferred —
   URL renames break deep links; do via a canonical-route alias registry (ticket).
 
 ### CTRM completeness — what GEX Commercial *is*

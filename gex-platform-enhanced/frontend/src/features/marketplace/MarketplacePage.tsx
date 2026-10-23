@@ -26,21 +26,24 @@
  *   - Purchased e-methanol for resale → Trading / Portfolio
  */
 
-import { useUserRole } from '@/contexts/UserRoleContext'
-import { useState, useMemo, type ReactNode } from 'react'
+import { useEffect, useState, useMemo, type ReactNode } from 'react'
 import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Line, ComposedChart, ReferenceLine,
+  ResponsiveContainer, Line, ComposedChart,
 } from 'recharts'
 import { Package, DollarSign, AlertTriangle } from 'lucide-react'
 import { type CustomerProject } from '@/data/customerProjects'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
+import { useQuery } from '@tanstack/react-query'
+import {
+  marketAPI, type InputLineRecord, type MarketContract, type MarketMatch, type ProjectEconomics,
+  type SalesDetailRecord,
+} from '@/api'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Granularity = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 type TableView = 'project_economics' | 'trading'
-type ChartView = 'sales' | 'purchases' | 'combined'
 
 type ItemPurpose = 'PRODUCTION_INPUT' | 'TRADING_PROCUREMENT' | 'OFFTAKE_SALE' | 'CERTIFICATION_EVIDENCE'
 type VerificationState = 'UNVERIFIED' | 'SUBMITTED' | 'CONFIRMED' | 'AUDITED'
@@ -57,6 +60,7 @@ interface SalesDetail {
   available: { start: string; end: string; volume_mtpd: number; basePrice: number; pct: number; status: string }
   tokenised: { start: string; end: string; volume_mtpd: number; price: number; pct: number; status: string }
   inMarket: { start: string; end: string; volume_mtpd: number; targetPrice: number; pct: number; status: 'open' | 'pending' | 'sold'; counterparty: string | null }[]
+  verification: VerificationState
 }
 
 /** Production input line — physical or contractual input to a production process */
@@ -79,6 +83,7 @@ interface FeedstockLine {
   capacityFactor: number
   status: 'contracted' | 'planned' | 'spot'
   isUtility: boolean
+  verification: VerificationState
 }
 
 export interface ProjectFeedstockSummary {
@@ -87,14 +92,17 @@ export interface ProjectFeedstockSummary {
   molecule: string
   location: string
   capacity_mtpd: number
+  /** Nameplate: capacity × 365. No operating-days assumption. */
   annualOutput_mt: number
-  outputPrice: number
+  /** The registry's spot price for the molecule; null when none is recorded. */
+  outputPrice: number | null
+  outputPriceState: string | null
   /** Variable cost sum — LCOE-based */
   totalFeedstockCostPerMt: number
   /** Variable cost sum — effective (CF-adjusted + firming) */
   totalEffectiveCostPerMt: number
-  /** outputPrice − totalEffectiveCostPerMt */
-  grossMarginPerMt: number
+  /** outputPrice − totalEffectiveCostPerMt; null without a recorded price */
+  grossMarginPerMt: number | null
   lines: FeedstockLine[]
   status: string
 }
@@ -106,104 +114,41 @@ interface EnhancedChartPoint {
   pending: number
   open: number
   tokenised: number
-  forwardCurve: number
-  purchases: number
 }
 
-// ── Molecule pricing ─────────────────────────────────────────────────────────
+// ── The records, from PostgreSQL (alembic 066) ──────────────────────────────
+// Until 2026-10-23 spot prices, sales details, production inputs and their
+// classification were constants in this file. They were moved, verbatim and
+// marked UNVERIFIED (JML), by scripts/load_marketplace_unverified_20261023.py.
 
-const MOLECULE_SPOT: Record<string, { spot: number; unit: string }> = {
-  H2:           { spot: 5500, unit: 'EUR/t' },
-  NH3:          { spot: 700,  unit: 'EUR/t' },
-  'e-Methanol': { spot: 1200, unit: 'EUR/t' },
-  SAF:          { spot: 1500, unit: 'EUR/t' },
-  'e-NG':       { spot: 120,  unit: 'EUR/MWh' },
+export const EMPTY_ECONOMICS: ProjectEconomics = {
+  spot_prices: {}, sales_detail: {}, input_lines: {}, input_classification: {},
 }
 
-// ── Per-project sales enrichment ─────────────────────────────────────────────
+export function useProjectEconomics(): { econ: ProjectEconomics; error: Error | null } {
+  const q = useQuery({ queryKey: ['market', 'project-economics'], queryFn: marketAPI.projectEconomics })
+  return { econ: q.data ?? EMPTY_ECONOMICS, error: (q.error as Error | null) ?? null }
+}
 
-const PROJECT_SALES_DETAIL: Record<string, SalesDetail> = {
-  proj_bremen_h2: {
-    region: 'N. Europe', eSource: 'Offshore Wind', greenEnergyPct: 99, certifier: 'TÜV SÜD', bePrice: 4200,
-    available: { start: '10/2026', end: '09/2031', volume_mtpd: 78, basePrice: 5800, pct: 92, status: 'Deposited' },
-    tokenised: { start: '10/2026', end: '09/2031', volume_mtpd: 70, price: 5600, pct: 90, status: 'Deposited' },
-    inMarket: [
-      { start: '10/2026', end: '09/2031', volume_mtpd: 12, targetPrice: 5500, pct: 14, status: 'sold', counterparty: 'ThyssenKrupp' },
-      { start: '10/2026', end: '09/2031', volume_mtpd: 50, targetPrice: 5650, pct: 59, status: 'pending', counterparty: 'Linde' },
-      { start: '10/2026', end: '09/2031', volume_mtpd: 16, targetPrice: 5750, pct: 19, status: 'open', counterparty: null },
-    ],
-  },
-  proj_rotterdam_nh3: {
-    region: 'W. Europe', eSource: 'Grid PPA', greenEnergyPct: 95, certifier: "Lloyd's Register", bePrice: 480,
-    available: { start: '07/2028', end: '06/2033', volume_mtpd: 140, basePrice: 750, pct: 88, status: 'Partially Deposited' },
-    tokenised: { start: '07/2028', end: '06/2033', volume_mtpd: 110, price: 720, pct: 79, status: 'Deposited' },
-    inMarket: [
-      { start: '07/2028', end: '06/2033', volume_mtpd: 80, targetPrice: 780, pct: 50, status: 'pending', counterparty: 'Yara International' },
-      { start: '07/2028', end: '06/2033', volume_mtpd: 30, targetPrice: 810, pct: 19, status: 'open', counterparty: null },
-    ],
-  },
-  proj_sansebastian_emethanol: {
-    region: 'S. Europe', eSource: 'Solar PPA', greenEnergyPct: 97, certifier: 'Bureau Veritas', bePrice: 850,
-    available: { start: '01/2028', end: '12/2032', volume_mtpd: 37, basePrice: 1100, pct: 88, status: 'Partially Deposited' },
-    tokenised: { start: '01/2028', end: '12/2032', volume_mtpd: 30, price: 1050, pct: 81, status: 'Deposited' },
-    inMarket: [
-      { start: '01/2028', end: '12/2032', volume_mtpd: 20, targetPrice: 1150, pct: 48, status: 'pending', counterparty: 'Maersk' },
-      { start: '01/2028', end: '12/2032', volume_mtpd: 10, targetPrice: 1200, pct: 24, status: 'open', counterparty: null },
-    ],
-  },
-  proj_wales_saf: {
-    region: 'W. Europe', eSource: 'Wind PPA', greenEnergyPct: 96, certifier: 'DNV', bePrice: 1100,
-    available: { start: '06/2028', end: '05/2033', volume_mtpd: 48, basePrice: 1600, pct: 87, status: 'Partially Deposited' },
-    tokenised: { start: '06/2028', end: '05/2033', volume_mtpd: 40, price: 1550, pct: 83, status: 'Deposited' },
-    inMarket: [
-      { start: '06/2028', end: '05/2033', volume_mtpd: 28, targetPrice: 1650, pct: 51, status: 'pending', counterparty: 'Lufthansa Group' },
-      { start: '06/2028', end: '05/2033', volume_mtpd: 12, targetPrice: 1700, pct: 22, status: 'open', counterparty: null },
-    ],
-  },
-  proj_lehavre_eng: {
-    region: 'W. Europe', eSource: 'Offshore Wind', greenEnergyPct: 98, certifier: 'Bureau Veritas', bePrice: 85,
-    available: { start: '01/2025', end: '12/2029', volume_mtpd: 37, basePrice: 135, pct: 93, status: 'Deposited' },
-    tokenised: { start: '01/2025', end: '12/2029', volume_mtpd: 35, price: 130, pct: 95, status: 'Deposited' },
-    inMarket: [
-      { start: '01/2025', end: '12/2029', volume_mtpd: 25, targetPrice: 128, pct: 63, status: 'sold', counterparty: 'Engie' },
-      { start: '01/2025', end: '12/2029', volume_mtpd: 8, targetPrice: 140, pct: 20, status: 'pending', counterparty: 'TotalEnergies' },
-      { start: '01/2025', end: '12/2029', volume_mtpd: 4, targetPrice: 145, pct: 10, status: 'open', counterparty: null },
-    ],
-  },
-  proj_hamburgone_emethanol: {
-    region: 'N. Europe', eSource: 'Solar + Wind', greenEnergyPct: 97, certifier: 'DNV', bePrice: 600,
-    available: { start: '06/2027', end: '06/2032', volume_mtpd: 26, basePrice: 850, pct: 85, status: 'Partially Deposited' },
-    tokenised: { start: '06/2027', end: '06/2032', volume_mtpd: 23, price: 820, pct: 75, status: 'Deposited' },
-    inMarket: [
-      { start: '06/2027', end: '06/2032', volume_mtpd: 18, targetPrice: 960, pct: 60, status: 'pending', counterparty: 'Vitol' },
-      { start: '06/2027', end: '06/2032', volume_mtpd: 5, targetPrice: 975, pct: 15, status: 'open', counterparty: null },
-    ],
-  },
-  proj_madrid2_sansebastian: {
-    region: 'S. Europe', eSource: 'Offshore Wind', greenEnergyPct: 94, certifier: 'Bureau Veritas', bePrice: 750,
-    available: { start: '07/2029', end: '06/2034', volume_mtpd: 36, basePrice: 1000, pct: 86, status: 'Pending Deposit' },
-    tokenised: { start: '07/2029', end: '06/2034', volume_mtpd: 24, price: 950, pct: 67, status: 'Pending' },
-    inMarket: [
-      { start: '07/2029', end: '06/2034', volume_mtpd: 15, targetPrice: 1050, pct: 36, status: 'pending', counterparty: 'RotterdamOfftake4' },
-      { start: '07/2029', end: '06/2034', volume_mtpd: 9, targetPrice: 1100, pct: 21, status: 'open', counterparty: null },
-    ],
-  },
-  // ETFuels Pecos I / Rattlesnake Gap
-  proj_etf_pecos1: {
-    region: 'N. America', eSource: 'Behind-the-meter Wind', greenEnergyPct: 100, certifier: 'DNV', bePrice: 620,
-    available: { start: '01/2030', end: '12/2039', volume_mtpd: 280, basePrice: 800, pct: 85, status: 'Pending Deposit' },
-    tokenised: { start: '01/2030', end: '12/2039', volume_mtpd: 0, price: 0, pct: 0, status: 'Pre-production' },
-    inMarket: [
-      { start: '01/2030', end: '12/2039', volume_mtpd: 200, targetPrice: 800, pct: 61, status: 'sold', counterparty: 'RFOcean' },
-      { start: '01/2030', end: '12/2039', volume_mtpd: 80, targetPrice: 850, pct: 24, status: 'open', counterparty: null },
-    ],
-  },
+function asVerification(v: string | null | undefined): VerificationState {
+  return (['UNVERIFIED', 'SUBMITTED', 'CONFIRMED', 'AUDITED'].includes(v ?? '') ? v : 'UNVERIFIED') as VerificationState
+}
+
+function toSalesDetail(r: SalesDetailRecord | undefined): SalesDetail | undefined {
+  if (!r || !r.available || !r.tokenised) return undefined
+  return {
+    region: r.region ?? '—', eSource: r.e_source ?? '—', greenEnergyPct: r.green_energy_pct ?? 0,
+    certifier: r.certifier ?? '—', bePrice: r.breakeven_price ?? 0,
+    available: r.available, tokenised: r.tokenised, inMarket: r.in_market ?? [],
+    verification: asVerification(r.verification_state),
+  }
 }
 
 // ── Per-project production input specs ──────────────────────────────────────
 // Renamed from PROJECT_FEEDSTOCK — these are production inputs, not "purchases"
 
 interface FeedstockSpec {
+  verification: VerificationState
   feedstock: string
   supplier: string
   ratio: number
@@ -219,7 +164,7 @@ interface FeedstockSpec {
 }
 
 /**
- * PROJECT_FEEDSTOCK — unbundled production inputs.
+ * Production inputs (project_input_line in PostgreSQL) — unbundled.
  *
  * Design rules:
  *   1. On-site H₂ is an INTERMEDIATE, not a purchased input.
@@ -230,181 +175,42 @@ interface FeedstockSpec {
  *   4. Electrolyser is CAPEX — not in this table.
  *   5. If H₂ is purchased from a THIRD PARTY (not on-site), it IS a production input.
  */
-const PROJECT_FEEDSTOCK: Record<string, FeedstockSpec[]> = {
-  // ── ETFuels Rattlesnake Gap (Pecos I) ──
-  // Behind-the-meter wind → PEM electrolysis → methanol synthesis. All unbundled.
-  proj_etf_pecos1: [
-    { feedstock: 'Renewable Electricity (BtM)', supplier: 'Behind-the-meter 340 MW Wind Farm', ratio: 11.5, ratioUnit: 'MWh/MT', unitPrice: 28, priceUnit: 'EUR/MWh', status: 'planned', isUtility: false, capacityFactor: 0.42, firmingCost: 8 },
-    { feedstock: 'Biogenic CO₂',                supplier: 'West Texas Ethanol Co-op',           ratio: 1.46, ratioUnit: 'MT/MT',  unitPrice: 45, priceUnit: 'EUR/MT',  status: 'contracted', isUtility: false },
-    { feedstock: 'Demin Water',                  supplier: 'Pecos County Water District',        ratio: 9.5,  ratioUnit: 'kL/MT',  unitPrice: 1.2, priceUnit: 'EUR/kL', status: 'contracted', isUtility: true },
-  ],
-  // ── ETFuels Rattlesnake Gap (public-source record) ──
-  etfuels_us_tx_rattlesnake_gap: [
-    { feedstock: 'Renewable Electricity (BtM)', supplier: 'Behind-the-meter 500 MW Wind+Solar', ratio: 11.5, ratioUnit: 'MWh/MT', unitPrice: 30, priceUnit: 'EUR/MWh', status: 'planned', isUtility: false, capacityFactor: 0.40, firmingCost: 10 },
-    { feedstock: 'Biogenic CO₂',                supplier: 'Source TBC (West Texas industrial)', ratio: 1.46, ratioUnit: 'MT/MT',  unitPrice: 50, priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'Demin Water',                  supplier: 'Local water utility',                ratio: 9.5,  ratioUnit: 'kL/MT',  unitPrice: 1.5, priceUnit: 'EUR/kL', status: 'planned', isUtility: true },
-  ],
-  // ── ETFuels Näätäaapa, Finland ──
-  etfuels_fi_ranua_naataaapa: [
-    { feedstock: 'Renewable Electricity',        supplier: '300 MW Wind PPA (Lapland)',           ratio: 11.5, ratioUnit: 'MWh/MT', unitPrice: 35, priceUnit: 'EUR/MWh', status: 'planned', isUtility: false, capacityFactor: 0.38, firmingCost: 12 },
-    { feedstock: 'Biogenic CO₂',                supplier: 'Finnish forestry/industrial chain',   ratio: 1.46, ratioUnit: 'MT/MT',  unitPrice: 65, priceUnit: 'EUR/MT',  status: 'spot', isUtility: false },
-    { feedstock: 'Demin Water',                  supplier: 'Ranua municipal water',               ratio: 9.5,  ratioUnit: 'kL/MT',  unitPrice: 1.8, priceUnit: 'EUR/kL', status: 'planned', isUtility: true },
-  ],
-  // ── ETFuels SkyFuel Teesside ──
-  // SAF via Methanol-to-Jet. e-Methanol IS the feedstock (from ETFuels pipeline).
-  // H₂ from Protium is a THIRD-PARTY purchase — correctly listed as input.
-  etfuels_uk_skyfuel_teesside: [
-    { feedstock: 'Green H₂ (3rd party)',  supplier: 'Protium Green H₂ Partnership',    ratio: 0.21, ratioUnit: 'MT/MT',  unitPrice: 5200, priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'Biogenic CO₂',          supplier: 'Teesside industrial capture',      ratio: 1.46, ratioUnit: 'MT/MT',  unitPrice: 85,   priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'e-Methanol (feed)',      supplier: 'ETFuels pipeline (TX/FI)',         ratio: 1.0,  ratioUnit: 'MT/MT',  unitPrice: 800,  priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'Renewable Electricity',  supplier: 'UK Grid PPA (REGO-backed)',        ratio: 14,   ratioUnit: 'MWh/MT', unitPrice: 72,   priceUnit: 'EUR/MWh', status: 'planned', isUtility: true, capacityFactor: 0.95, firmingCost: 0 },
-  ],
-  // ── Bremen H₂ ──
-  // Pure electrolysis plant. Inputs: electricity + water. H₂ is the OUTPUT, not input.
-  proj_bremen_h2: [
-    { feedstock: 'Green Electricity',  supplier: 'North Sea Offshore Wind PPA',   ratio: 55,  ratioUnit: 'MWh/MT', unitPrice: 62,  priceUnit: 'EUR/MWh', status: 'contracted', isUtility: false, capacityFactor: 0.45, firmingCost: 5 },
-    { feedstock: 'Demin Water',        supplier: 'Weserstrom Utilities GmbH',     ratio: 9,   ratioUnit: 'kL/MT',  unitPrice: 1.8, priceUnit: 'EUR/kL',  status: 'contracted', isUtility: true },
-  ],
-  // ── Rotterdam NH3 ──
-  // Haber-Bosch: N₂ + H₂ → NH₃. H₂ from on-site PEM → unbundled to electricity + water.
-  proj_rotterdam_nh3: [
-    { feedstock: 'Renewable Electricity', supplier: 'Maasvlakte Grid PPA',        ratio: 12,   ratioUnit: 'MWh/MT', unitPrice: 68,   priceUnit: 'EUR/MWh', status: 'planned', isUtility: false, capacityFactor: 0.92, firmingCost: 3 },
-    { feedstock: 'Nitrogen (N₂)',         supplier: 'Air Liquide Rozenburg (ASU)', ratio: 0.82, ratioUnit: 'MT/MT',  unitPrice: 180,  priceUnit: 'EUR/MT',  status: 'contracted', isUtility: false },
-    { feedstock: 'Process Water',         supplier: 'Evides Waterbedrijf',         ratio: 2.5,  ratioUnit: 'kL/MT',  unitPrice: 2.1,  priceUnit: 'EUR/kL',  status: 'contracted', isUtility: true },
-  ],
-  // ── San Sebastián e-Methanol ──
-  // On-site PEM → unbundled. Inputs: electricity + CO₂ + water.
-  proj_sansebastian_emethanol: [
-    { feedstock: 'Green Electricity',  supplier: 'Iberdrola Solar PPA',              ratio: 11.5, ratioUnit: 'MWh/MT', unitPrice: 58,  priceUnit: 'EUR/MWh', status: 'contracted', isUtility: false, capacityFactor: 0.25, firmingCost: 15 },
-    { feedstock: 'Biogenic CO₂',      supplier: 'Papelera Guipuzcoana (pulp mill)', ratio: 1.46, ratioUnit: 'MT/MT',  unitPrice: 95,  priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'Demin Water',        supplier: 'CAF Water Services',               ratio: 9.5,  ratioUnit: 'kL/MT',  unitPrice: 2.0, priceUnit: 'EUR/kL',  status: 'contracted', isUtility: true },
-  ],
-  // ── Wales SAF ──
-  // Fischer-Tropsch: H₂ + CO₂ → syngas → SAF. On-site electrolysis → unbundled.
-  proj_wales_saf: [
-    { feedstock: 'Green Electricity',  supplier: 'National Grid Cymru PPA',    ratio: 14,   ratioUnit: 'MWh/MT', unitPrice: 72,  priceUnit: 'EUR/MWh', status: 'planned', isUtility: false, capacityFactor: 0.35, firmingCost: 10 },
-    { feedstock: 'Biogenic CO₂',      supplier: 'Tata Steel Port Talbot DAC', ratio: 3.40, ratioUnit: 'MT/MT',  unitPrice: 110, priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'Process Water',      supplier: 'Welsh Water / Dŵr Cymru',   ratio: 12,   ratioUnit: 'kL/MT',  unitPrice: 1.9, priceUnit: 'EUR/kL',  status: 'planned', isUtility: true },
-  ],
-  // ── Le Havre e-NG ──
-  // Sabatier methanation: CO₂ + 4H₂ → CH₄ + 2H₂O. On-site PEM → unbundled.
-  proj_lehavre_eng: [
-    { feedstock: 'Green Electricity',  supplier: 'Normandie Offshore Wind PPA',  ratio: 13,   ratioUnit: 'MWh/MT', unitPrice: 55,  priceUnit: 'EUR/MWh', status: 'contracted', isUtility: false, capacityFactor: 0.48, firmingCost: 4 },
-    { feedstock: 'Biogenic CO₂',      supplier: 'Carbon Capture Normandie SA',  ratio: 2.90, ratioUnit: 'MT/MT',  unitPrice: 88,  priceUnit: 'EUR/MT',  status: 'contracted', isUtility: false },
-    { feedstock: 'Demin Water',        supplier: 'Veolia Le Havre',              ratio: 10,   ratioUnit: 'kL/MT',  unitPrice: 1.7, priceUnit: 'EUR/kL',  status: 'contracted', isUtility: true },
-  ],
-  // ── HamburgOne e-Methanol ──
-  // On-site PEM → unbundled. Inputs: electricity + CO₂ + water.
-  proj_hamburgone_emethanol: [
-    { feedstock: 'Green Electricity',  supplier: 'Vattenfall Elbe Wind PPA',      ratio: 11.5, ratioUnit: 'MWh/MT', unitPrice: 62,  priceUnit: 'EUR/MWh', status: 'planned', isUtility: false, capacityFactor: 0.40, firmingCost: 8 },
-    { feedstock: 'Biogenic CO₂',      supplier: 'Hamburg Waste-to-Energy Plant', ratio: 1.46, ratioUnit: 'MT/MT',  unitPrice: 105, priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'Demin Water',        supplier: 'Hamburg Wasser',                ratio: 9.5,  ratioUnit: 'kL/MT',  unitPrice: 2.2, priceUnit: 'EUR/kL',  status: 'planned', isUtility: true },
-  ],
-  // ── Madrid2 San-Sebastián e-Methanol ──
-  // On-site PEM → unbundled. Inputs: electricity + CO₂ + water.
-  proj_madrid2_sansebastian: [
-    { feedstock: 'Green Electricity',  supplier: 'Iberdrola Off-grid PPA',           ratio: 11.5, ratioUnit: 'MWh/MT', unitPrice: 55,  priceUnit: 'EUR/MWh', status: 'planned', isUtility: false, capacityFactor: 0.30, firmingCost: 12 },
-    { feedstock: 'Biogenic CO₂',      supplier: 'ArcelorMittal Gijón (Green Carbon)', ratio: 1.46, ratioUnit: 'MT/MT',  unitPrice: 92,  priceUnit: 'EUR/MT',  status: 'planned', isUtility: false },
-    { feedstock: 'Process Water',      supplier: 'Aguas del Añarbe',                  ratio: 9.5,  ratioUnit: 'kL/MT',  unitPrice: 1.9, priceUnit: 'EUR/kL',  status: 'planned', isUtility: true },
-  ],
-}
-
-// ── Trading / Portfolio Procurement demo data ───────────────────────────────
-// These are molecules bought for resale — NOT production inputs
-
-interface TradingProcurement {
-  id: string
-  projectId: string | null
-  project: string
-  purpose: 'TRADING_PROCUREMENT'
-  molecule: string
-  counterparty: string
-  annualVolume_mt: number
-  unitPrice: number
-  contractStatus: ContractStatus
-  verification: VerificationState
-  notes: string
-  /** Company that holds the position (matched against the signed-in company name). */
-  ownerCompany: string
-}
-
-const TRADING_PROCUREMENT: TradingProcurement[] = [
-  {
-    id: 'TP_01',
-    projectId: null,
-    project: 'Portfolio — no project link',
-    purpose: 'TRADING_PROCUREMENT',
-    molecule: 'e-Methanol',
-    counterparty: 'OCI Global NV',
-    annualVolume_mt: 15000,
-    unitPrice: 920,
-    contractStatus: 'INDICATIVE',
-    verification: 'UNVERIFIED',
-    notes: 'Spot bridge — covers Q1 2030 delivery gap before Rattlesnake Gap COD',
-    ownerCompany: 'ETFuels',
-  },
-  {
-    id: 'TP_02',
-    projectId: null,
-    project: 'Portfolio — no project link',
-    purpose: 'TRADING_PROCUREMENT',
-    molecule: 'SAF',
-    counterparty: 'Neste Oyj',
-    annualVolume_mt: 8000,
-    unitPrice: 1450,
-    contractStatus: 'TERM_SHEET',
-    verification: 'SUBMITTED',
-    notes: 'HVO-based SAF for Lufthansa pool obligation — not ETFuels production',
-    ownerCompany: 'ETFuels',
-  },
-  {
-    id: 'TP_03',
-    projectId: null,
-    project: 'Portfolio — no project link',
-    purpose: 'TRADING_PROCUREMENT',
-    molecule: 'NH3',
-    counterparty: 'ACME Green Ammonia Ltd',
-    annualVolume_mt: 5000,
-    unitPrice: 680,
-    contractStatus: 'SPOT',
-    verification: 'UNVERIFIED',
-    notes: 'Hedge position — ammonia market exposure balancing',
-    ownerCompany: 'ETFuels',
-  },
-]
 
 // ── Production Input enrichment ─────────────────────────────────────────────
 // Maps feedstock names to certification & capital relevance
 
 interface InputEnrichment {
   certRelevance: CertRelevance[]
-  capitalRelevance: CapitalRelevance
+  capitalRelevance: CapitalRelevance | null
   itemType: string
 }
 
-const INPUT_ENRICHMENT: Record<string, InputEnrichment> = {
-  'Renewable Electricity (BtM)': { certRelevance: ['45V', 'RFNBO'], capitalRelevance: 'BANKABILITY_CRITICAL', itemType: 'Energy / BtM' },
-  'Renewable Electricity':       { certRelevance: ['45V', 'RFNBO'], capitalRelevance: 'BANKABILITY_CRITICAL', itemType: 'Energy / PPA' },
-  'Green Electricity':           { certRelevance: ['45V', 'RFNBO'], capitalRelevance: 'BANKABILITY_CRITICAL', itemType: 'Energy / PPA' },
-  'Biogenic CO₂':               { certRelevance: ['RFNBO', '45V'], capitalRelevance: 'BANKABILITY_CRITICAL', itemType: 'Carbon source' },
-  'Biogenic CO2':                { certRelevance: ['RFNBO', '45V'], capitalRelevance: 'BANKABILITY_CRITICAL', itemType: 'Carbon source' },
-  'Nitrogen (N₂)':              { certRelevance: ['NONE'],         capitalRelevance: 'COST_DRIVER',          itemType: 'Chemical input' },
-  'Demin Water':                 { certRelevance: ['NONE'],         capitalRelevance: 'COST_DRIVER',          itemType: 'Utility' },
-  'Process Water':               { certRelevance: ['NONE'],         capitalRelevance: 'COST_DRIVER',          itemType: 'Utility' },
-  'Green H₂ (3rd party)':       { certRelevance: ['RFNBO', '45V'], capitalRelevance: 'BANKABILITY_CRITICAL', itemType: '3rd-party H₂' },
-  'e-Methanol (feed)':           { certRelevance: ['FUELEU'],       capitalRelevance: 'COST_DRIVER',          itemType: 'Intermediate' },
+
+function getEnrichment(feedstock: string, econ: ProjectEconomics): InputEnrichment {
+  const c = econ.input_classification[feedstock]
+  // Unclassified is said plainly; no relevance is assumed for it.
+  return c
+    ? { certRelevance: c.cert_relevance as CertRelevance[], capitalRelevance: c.capital_relevance as CapitalRelevance,
+        itemType: c.item_type }
+    : { certRelevance: [], capitalRelevance: null, itemType: 'Unclassified' }
 }
 
-function getEnrichment(feedstock: string): InputEnrichment {
-  return INPUT_ENRICHMENT[feedstock] ?? { certRelevance: ['NONE'], capitalRelevance: 'COMMERCIAL_ONLY', itemType: 'Other' }
+function toSpec(r: InputLineRecord): FeedstockSpec {
+  return {
+    verification: asVerification(r.verification_state), feedstock: r.feedstock, supplier: r.supplier ?? '—',
+    ratio: r.ratio, ratioUnit: r.ratio_unit as FeedstockSpec['ratioUnit'], unitPrice: r.unit_price,
+    priceUnit: r.price_unit as FeedstockSpec['priceUnit'], status: r.status, isUtility: r.is_utility,
+    capacityFactor: r.capacity_factor ?? undefined, firmingCost: r.firming_cost ?? undefined,
+  }
 }
 
 // ── Data builders ────────────────────────────────────────────────────────────
 
-export function buildFeedstockSummary(p: CustomerProject): ProjectFeedstockSummary {
-  const specs = PROJECT_FEEDSTOCK[p.id] ?? []
-  const annualOutput = Math.round(p.capacity_mtpd * 330)
-  const outputPrice = MOLECULE_SPOT[p.molecule]?.spot ?? 1000
+export function buildFeedstockSummary(p: CustomerProject, econ: ProjectEconomics): ProjectFeedstockSummary {
+  const specs = (econ.input_lines[p.id] ?? []).map(toSpec)
+  const annualOutput = Math.round(p.capacity_mtpd * 365)
+  const spot = econ.spot_prices[p.molecule]
+  const outputPrice = spot ? spot.value_base : null
 
   const lines: FeedstockLine[] = specs.map(s => {
     const annualVol = Math.round(annualOutput * s.ratio)
@@ -433,6 +239,7 @@ export function buildFeedstockSummary(p: CustomerProject): ProjectFeedstockSumma
       capacityFactor: s.capacityFactor ?? 0,
       status: s.status,
       isUtility: s.isUtility,
+      verification: s.verification,
     }
   })
 
@@ -447,62 +254,51 @@ export function buildFeedstockSummary(p: CustomerProject): ProjectFeedstockSumma
     capacity_mtpd: p.capacity_mtpd,
     annualOutput_mt: annualOutput,
     outputPrice,
+    outputPriceState: spot ? spot.state : null,
     totalFeedstockCostPerMt: Math.round(totalFeedstockCostPerMt),
     totalEffectiveCostPerMt: Math.round(totalEffectiveCostPerMt),
-    grossMarginPerMt: Math.round(outputPrice - totalEffectiveCostPerMt),
+    // No recorded inputs is not zero cost: without either side there is no margin.
+    grossMarginPerMt: outputPrice === null || lines.length === 0 ? null : Math.round(outputPrice - totalEffectiveCostPerMt),
     lines,
     status: p.status,
   }
 }
 
+/**
+ * Recorded volumes per period, nothing modelled: capacity × days, and the
+ * sold / pending / open / tokenised volumes the sales record holds, held flat.
+ * Until 2026-10-23 this generated ramps, seasonal sine waves, noise and a
+ * "Gabillon forward" line from a formula — none of it was data.
+ */
 function generateEnhancedChartData(
   gran: Granularity,
   project: CustomerProject,
   detail: SalesDetail | undefined,
 ): EnhancedChartPoint[] {
-  const pts: EnhancedChartPoint[] = []
-  const base = new Date(2026, 3, 1)
   const counts: Record<Granularity, number> = { daily: 90, weekly: 52, monthly: 12, quarterly: 8, yearly: 5 }
-  const n = counts[gran]
-  const spot = MOLECULE_SPOT[project.molecule]?.spot ?? 1000
-  const opFactor = project.status === 'operating' ? 0.92 : project.status === 'construction' ? 0.65 : 0.30
-
-  const avail = detail?.available.volume_mtpd ?? project.capacity_mtpd * 0.85
-  const soldMtpd = detail?.inMarket.filter(r => r.status === 'sold').reduce((s, r) => s + r.volume_mtpd, 0) ?? 0
-  const pendingMtpd = detail?.inMarket.filter(r => r.status === 'pending').reduce((s, r) => s + r.volume_mtpd, 0) ?? 0
-  const openMtpd = Math.max(0, avail - soldMtpd - pendingMtpd)
-  const total = soldMtpd + pendingMtpd + openMtpd
-  const soldShare = total > 0 ? soldMtpd / total : 0
-  const pendingShare = total > 0 ? pendingMtpd / total : 0
-  const openShare = total > 0 ? openMtpd / total : 1
-  const tokenisedShare = detail ? detail.tokenised.volume_mtpd / (detail.available.volume_mtpd || 1) : 0.7
-
-  for (let i = 0; i < n; i++) {
+  const days: Record<Granularity, number> = { daily: 1, weekly: 7, monthly: 30, quarterly: 91, yearly: 365 }
+  const vol = (status: 'open' | 'pending' | 'sold') =>
+    detail?.inMarket.filter(r => r.status === status).reduce((s, r) => s + r.volume_mtpd, 0) ?? 0
+  const base = new Date()
+  const pts: EnhancedChartPoint[] = []
+  for (let i = 0; i < counts[gran]; i++) {
     const d = new Date(base)
-    let label = '', tau = 0, days = 1
+    let label = ''
     switch (gran) {
-      case 'daily':    d.setDate(d.getDate() + i); label = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }); tau = i / 365; days = 1; break
-      case 'weekly':   d.setDate(d.getDate() + i * 7); label = `W${i + 1}`; tau = (i * 7) / 365; days = 7; break
-      case 'monthly':  d.setMonth(d.getMonth() + i); label = d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }); tau = i / 12; days = 30; break
-      case 'quarterly':d.setMonth(d.getMonth() + i * 3); label = `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`; tau = (i * 3) / 12; days = 90; break
-      case 'yearly':   d.setFullYear(d.getFullYear() + i); label = String(d.getFullYear()); tau = i; days = 330; break
+      case 'daily':    d.setDate(d.getDate() + i); label = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }); break
+      case 'weekly':   d.setDate(d.getDate() + i * 7); label = `W${i + 1}`; break
+      case 'monthly':  d.setMonth(d.getMonth() + i); label = d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }); break
+      case 'quarterly':d.setMonth(d.getMonth() + i * 3); label = `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`; break
+      case 'yearly':   d.setFullYear(d.getFullYear() + i); label = String(d.getFullYear()); break
     }
-    const seasonal = 0.09 * Math.sin(2 * Math.PI * (d.getMonth() / 12))
-    const fwd = Math.round(spot * Math.exp((0.04 - 0.05) * tau + seasonal * Math.exp(-0.12 * tau)))
-    const ramp = project.status === 'operating' ? opFactor : Math.min(opFactor, 0.1 + (opFactor - 0.1) * (1 - Math.exp(-2 * tau)))
-
-    const maxPotential = Math.round(project.capacity_mtpd * days)
-    const nominal = Math.round(project.capacity_mtpd * days * ramp * (1 + 0.04 * Math.sin(i * 1.7)))
-
+    const n = days[gran]
     pts.push({
       period: label,
-      maxPotential,
-      sold: Math.round(nominal * soldShare),
-      pending: Math.round(nominal * pendingShare),
-      open: Math.round(nominal * openShare),
-      tokenised: Math.round(nominal * tokenisedShare),
-      forwardCurve: fwd,
-      purchases: -Math.round(project.capacity_mtpd * days * ramp * 0.82 * (1 + 0.03 * Math.sin(i * 2.1))),
+      maxPotential: Math.round(project.capacity_mtpd * n),
+      sold: Math.round(vol('sold') * n),
+      pending: Math.round(vol('pending') * n),
+      open: Math.round(vol('open') * n),
+      tokenised: Math.round((detail?.tokenised.volume_mtpd ?? 0) * n),
     })
   }
   return pts
@@ -623,7 +419,7 @@ function Tip({ active, payload, label }: any) {
           <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
           <span className="text-gray-600">{e.name}:</span>
           <span className="font-mono font-bold text-gray-900">
-            {e.dataKey === 'forwardCurve' ? `${Math.abs(e.value).toLocaleString()} EUR/t` : `${Math.abs(e.value).toLocaleString()} MT`}
+            {`${Math.abs(e.value).toLocaleString()} MT`}
           </span>
         </div>
       ))}
@@ -664,10 +460,12 @@ function ProjectEconomicsCard({
   project,
   summary,
   detail,
+  econ,
 }: {
   project: CustomerProject
   summary: ProjectFeedstockSummary
   detail: SalesDetail | undefined
+  econ: ProjectEconomics
 }) {
   const allLines = summary.lines
   const offtakes = project.offtakes ?? []
@@ -681,10 +479,16 @@ function ProjectEconomicsCard({
   const coveragePct = annualOutput > 0 && bindingVol > 0 ? Math.round((bindingVol / annualOutput) * 100) : 0
 
   // Offtake price
-  const avgOfftakePrice = detail
-    ? Math.round(detail.inMarket.reduce((s, r) => s + r.targetPrice * r.volume_mtpd, 0) / Math.max(1, detail.inMarket.reduce((s, r) => s + r.volume_mtpd, 0)))
+  const inMarketVol = detail?.inMarket.reduce((s, r) => s + r.volume_mtpd, 0) ?? 0
+  const avgOfftakePrice = detail && inMarketVol > 0
+    ? Math.round(detail.inMarket.reduce((s, r) => s + r.targetPrice * r.volume_mtpd, 0) / inMarketVol)
     : summary.outputPrice
-  const margin = avgOfftakePrice - summary.totalEffectiveCostPerMt
+  const costRecorded = summary.lines.length > 0
+  const cost = costRecorded ? summary.totalEffectiveCostPerMt.toLocaleString() : '—'
+  const margin = avgOfftakePrice === null || !costRecorded ? null : avgOfftakePrice - summary.totalEffectiveCostPerMt
+  // Any figure on this card that comes from an unconfirmed record says so.
+  const unverified = detail?.verification === 'UNVERIFIED' || summary.outputPriceState === 'proposed'
+    || summary.lines.some(l => l.verification === 'UNVERIFIED')
 
   return (
     <div className="border-b border-gray-200 last:border-0">
@@ -695,15 +499,16 @@ function ProjectEconomicsCard({
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">{project.molecule}</span>
           <span className="text-[10px] text-gray-500">{project.location}</span>
           <StatusBadge status={project.status} />
+          {unverified && <VerifBadge state="UNVERIFIED" />}
         </div>
         <div className="flex items-center gap-4 text-xs font-mono whitespace-nowrap">
-          <span className="text-gray-400">{annualOutput.toLocaleString()} <span className="text-[9px]">MT/yr</span></span>
-          <span className="text-gray-400">Offtake <span className="font-bold text-emerald-700">{avgOfftakePrice.toLocaleString()}</span></span>
-          <span className="text-gray-400">Cost <span className="text-gray-700">{summary.totalEffectiveCostPerMt.toLocaleString()}</span></span>
-          <span className={`font-bold ${margin > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-            Margin {margin > 0 ? '+' : ''}{margin.toLocaleString()}
+          <span className="text-gray-400">{annualOutput.toLocaleString()} <span className="text-[9px]">MT/yr nameplate</span></span>
+          <span className="text-gray-400">Offtake <span className="font-bold text-emerald-700">{avgOfftakePrice === null ? '—' : avgOfftakePrice.toLocaleString()}</span></span>
+          <span className="text-gray-400">Cost <span className="text-gray-700">{cost}</span></span>
+          <span className={`font-bold ${margin === null ? 'text-gray-400' : margin > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            Margin {margin === null ? '—' : `${margin > 0 ? '+' : ''}${margin.toLocaleString()}`}
           </span>
-          <span className="text-gray-400">B/E <span className="text-gray-600">{summary.totalEffectiveCostPerMt.toLocaleString()}</span></span>
+          <span className="text-gray-400">B/E <span className="text-gray-600">{cost}</span></span>
           {offtakes.length > 0 && (
             <span className={coveragePct >= 50 ? 'text-emerald-600' : coveragePct > 0 ? 'text-amber-600' : 'text-rose-500'}>
               Bdg {coveragePct}%
@@ -788,9 +593,10 @@ function ProjectEconomicsCard({
       </div>
 
       {allLines.map((line, i) => {
-        const enrich = getEnrichment(line.feedstock)
+        const enrich = getEnrichment(line.feedstock, econ)
         const contractStatus: ContractStatus = line.status === 'contracted' ? 'CONTRACTED' : line.status === 'spot' ? 'SPOT' : 'PLANNED'
-        const verifState: VerificationState = line.status === 'contracted' ? 'CONFIRMED' : 'UNVERIFIED'
+        // The record's own state — a "contracted" line is not thereby verified.
+        const verifState: VerificationState = line.verification
         return (
           <div key={i} className={`px-5 py-1 flex items-center text-xs border-t border-gray-50 ${line.isUtility ? 'text-gray-400' : ''}`}>
             <div className="w-[7%] pl-2 text-[10px] text-gray-500">{enrich.itemType}</div>
@@ -804,7 +610,7 @@ function ProjectEconomicsCard({
             <div className="w-[6%] text-center"><ContractBadge status={contractStatus} /></div>
             <div className="w-[5%] text-center"><VerifBadge state={verifState} /></div>
             <div className="w-[7%] text-center"><CertBadges certs={enrich.certRelevance} /></div>
-            <div className="w-[8%] text-center"><CapitalBadge rel={enrich.capitalRelevance} /></div>
+            <div className="w-[8%] text-center">{enrich.capitalRelevance ? <CapitalBadge rel={enrich.capitalRelevance} /> : <span className="text-[10px] text-gray-400">—</span>}</div>
           </div>
         )
       })}
@@ -817,9 +623,11 @@ function ProjectEconomicsCard({
 function ProjectEconomicsPanel({
   projects,
   feedstockSummaries,
+  econ,
 }: {
   projects: CustomerProject[]
   feedstockSummaries: ProjectFeedstockSummary[]
+  econ: ProjectEconomics
 }) {
   const summaryMap = useMemo(() => {
     const m = new Map<string, ProjectFeedstockSummary>()
@@ -841,7 +649,8 @@ function ProjectEconomicsPanel({
             key={p.id}
             project={p}
             summary={summary}
-            detail={PROJECT_SALES_DETAIL[p.id]}
+            detail={toSalesDetail(econ.sales_detail[p.id])}
+            econ={econ}
           />
         )
       })}
@@ -898,13 +707,37 @@ export function FeedstockPurchasesPanel(props: {
 // ── Trading Procurement panel ───────────────────────────────────────────────
 
 function TradingProcurementPanel() {
-  // A company sees only its own trading positions. Until 16 Oct 2026 the
-  // ETFuels positions were shown to every signed-in company.
-  const { role } = useUserRole()
-  const company = (role.company_name || '').toLowerCase()
-  const positions = TRADING_PROCUREMENT.filter(p => company.includes(p.ownerCompany.toLowerCase()))
+  // The company's own buying on the market: contracts from matches where it is
+  // the BUYER. Until 2026-10-23 this panel showed three invented ETFuels
+  // positions (gap register G-04).
+  const [contracts, setContracts] = useState<MarketContract[]>([])
+  const [matches, setMatches] = useState<MarketMatch[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([marketAPI.myContracts(), marketAPI.myMatches()])
+      .then(([c, m]) => { setContracts(c.contracts); setMatches(m.matches) })
+      .catch(e => setError((e as Error).message))
+  }, [])
+
+  const bySide = new Map(matches.map(m => [m.id, m]))
+  const positions = contracts
+    .filter(c => bySide.get(c.match_id)?.side === 'buyer')
+    .map(c => ({
+      id: c.id,
+      molecule: c.molecule,
+      counterparty: bySide.get(c.match_id)?.seller_company_name ?? '—',
+      annualVolume_mt: Math.round(c.volume_mtpd * 365),
+      unitPrice: Math.round(c.price_eur_kg * 1000),
+      contractStatus: (c.status === 'active' ? 'CONTRACTED' : 'TERM_SHEET') as ContractStatus,
+      project: c.correlation_id ?? '—',
+      notes: [c.start_date, c.end_date].filter(Boolean).join(' → ') || c.status,
+    }))
+  if (error) {
+    return <div role="alert" className="px-5 py-8 text-center text-sm text-red-700">{error}</div>
+  }
   if (positions.length === 0) {
-    return <div className="px-5 py-8 text-center text-sm text-gray-400">No trading procurement items</div>
+    return <div className="px-5 py-8 text-center text-sm text-gray-400">No molecules bought on the market yet</div>
   }
 
   return (
@@ -917,9 +750,9 @@ function TradingProcurementPanel() {
         <div className="w-[10%] text-right">Volume/yr</div>
         <div className="w-[9%] text-right">Unit Price</div>
         <div className="w-[8%] text-center">Contract</div>
-        <div className="w-[8%] text-center">Verif.</div>
-        <div className="w-[12%]">Project Link</div>
-        <div className="w-[20%]">Notes</div>
+        <div className="w-[8%] text-center" />
+        <div className="w-[12%]">Trail</div>
+        <div className="w-[20%]">Delivery</div>
       </div>
       {positions.map(item => (
         <div key={item.id} className="px-5 py-2 flex items-center text-xs border-t border-gray-50">
@@ -933,8 +766,8 @@ function TradingProcurementPanel() {
           <div className="w-[10%] text-right font-mono text-gray-900 font-bold">{item.annualVolume_mt.toLocaleString()} MT</div>
           <div className="w-[9%] text-right font-mono text-gray-700">{item.unitPrice.toLocaleString()} EUR/t</div>
           <div className="w-[8%] text-center"><ContractBadge status={item.contractStatus} /></div>
-          <div className="w-[8%] text-center"><VerifBadge state={item.verification} /></div>
-          <div className="w-[12%] text-[10px] text-gray-400 truncate">{item.project}</div>
+          <div className="w-[8%]" />
+          <div className="w-[12%] text-[10px] font-mono text-gray-400 truncate">{item.project}</div>
           <div className="w-[20%] text-[10px] text-gray-500 truncate">{item.notes}</div>
         </div>
       ))}
@@ -954,12 +787,12 @@ function TradingProcurementPanel() {
 
 export function MarketplacePage() {
   const [tableView, setTableView] = useState<TableView>('project_economics')
-  const [chartView, setChartView] = useState<ChartView>('sales')
   const [gran, setGran] = useState<Granularity>('monthly')
   const [filterMol, setFilterMol] = useState('all')
   const [filterProj, setFilterProj] = useState('all')
 
   const { projects } = useVisibleProjects()
+  const { econ, error: econError } = useProjectEconomics()
   const molecules = [...new Set(projects.map(p => p.molecule))]
 
   const filteredProjects = useMemo(() => {
@@ -976,30 +809,32 @@ export function MarketplacePage() {
     return projects[0]
   }, [filterProj, filterMol, projects])
 
-  const chartDetail = PROJECT_SALES_DETAIL[chartProject.id]
+  const chartDetail = chartProject ? toSalesDetail(econ.sales_detail[chartProject.id]) : undefined
 
   const chartData = useMemo(
-    () => generateEnhancedChartData(gran, chartProject, chartDetail),
+    () => (chartProject ? generateEnhancedChartData(gran, chartProject, chartDetail) : []),
     [gran, chartProject, chartDetail],
   )
 
   const feedstockSummaries = useMemo(() => {
     const subset = filterProj !== 'all' ? projects.filter(p => p.id === filterProj)
       : filterMol !== 'all' ? projects.filter(p => p.molecule === filterMol) : projects
-    return subset.map(p => buildFeedstockSummary(p))
-  }, [projects, filterProj, filterMol])
+    return subset.map(p => buildFeedstockSummary(p, econ))
+  }, [projects, filterProj, filterMol, econ])
 
   // KPIs
-  const totalSalesVol = filteredProjects.reduce((s, p) => s + Math.round(p.capacity_mtpd * 330), 0)
+  const totalSalesVol = filteredProjects.reduce((s, p) => s + Math.round(p.capacity_mtpd * 365), 0)
   const totalInputLines = feedstockSummaries.reduce((s, fs) => s + fs.lines.length, 0)
   const bankabilityCriticalCount = feedstockSummaries.reduce((s, fs) =>
     s + fs.lines.filter(l => {
-      const e = getEnrichment(l.feedstock)
+      const e = getEnrichment(l.feedstock, econ)
       return e.capitalRelevance === 'BANKABILITY_CRITICAL'
     }).length, 0)
-  const avgGrossMargin = feedstockSummaries.length > 0
-    ? Math.round(feedstockSummaries.reduce((s, fs) => s + fs.grossMarginPerMt, 0) / feedstockSummaries.length)
-    : 0
+  const margins = feedstockSummaries.map(fs => fs.grossMarginPerMt).filter((m): m is number => m !== null)
+  const avgGrossMargin = margins.length > 0 ? Math.round(margins.reduce((s, m) => s + m, 0) / margins.length) : null
+  const anyUnverified = Object.values(econ.sales_detail).some(r => r.verification_state === 'UNVERIFIED')
+    || Object.values(econ.spot_prices).some(r => r.state !== 'approved')
+    || Object.values(econ.input_lines).flat().some(r => r.verification_state === 'UNVERIFIED')
 
   const grans: { v: Granularity; l: string }[] = [
     { v: 'daily', l: 'D' }, { v: 'weekly', l: 'W' }, { v: 'monthly', l: 'M' }, { v: 'quarterly', l: 'Q' }, { v: 'yearly', l: 'Y' },
@@ -1027,6 +862,17 @@ export function MarketplacePage() {
         </div>
       </div>
 
+      {econError && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{econError.message}</div>
+      )}
+      {anyUnverified && (
+        <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          Figures marked <strong>UNVERIFIED</strong> — spot prices, sales details and production inputs — were moved
+          from this screen's code into PostgreSQL on 23 Oct 2026. Their source is not recorded; do not rely on
+          them until each is confirmed. A figure that is not recorded shows as —.
+        </div>
+      )}
+
       {/* KPI Strip — 3 bankability signals */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
@@ -1042,8 +888,8 @@ export function MarketplacePage() {
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Avg Margin</span>
             <span className="text-[10px] text-gray-400">{totalInputLines} inputs · {bankabilityCriticalCount} critical</span>
           </div>
-          <span className={`text-xl font-black font-mono ${avgGrossMargin >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-            {avgGrossMargin >= 0 ? '+' : ''}{avgGrossMargin.toLocaleString()}
+          <span className={`text-xl font-black font-mono ${avgGrossMargin === null || avgGrossMargin >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+            {avgGrossMargin === null ? '—' : `${avgGrossMargin >= 0 ? '+' : ''}${avgGrossMargin.toLocaleString()}`}
           </span>
           <span className="text-[10px] text-gray-400 ml-1">EUR/MT</span>
         </div>
@@ -1083,6 +929,7 @@ export function MarketplacePage() {
           <ProjectEconomicsPanel
             projects={filteredProjects}
             feedstockSummaries={feedstockSummaries}
+            econ={econ}
           />
         )}
 
@@ -1096,12 +943,6 @@ export function MarketplacePage() {
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-bold text-gray-900 mr-2">{chartProject.name} — {chartProject.molecule}</h2>
-            {(['sales', 'purchases', 'combined'] as ChartView[]).map(v => (
-              <button key={v} onClick={() => setChartView(v)}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${chartView === v ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                {v === 'sales' ? 'Output' : v === 'purchases' ? 'Inputs' : 'Combined'}
-              </button>
-            ))}
           </div>
           <div className="flex items-center gap-1">
             {grans.map(g => (
@@ -1113,13 +954,13 @@ export function MarketplacePage() {
           </div>
         </div>
 
-        {(chartView === 'sales' || chartView === 'combined') && (
+        {(
           <div className="px-5 pt-5 pb-2">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Production Segments (MT) — Gabillon forward curve overlay</span>
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Production Segments (MT) — recorded volumes; no forward curve on this chart</span>
             </div>
-            <ResponsiveContainer width="100%" height={chartView === 'combined' ? 220 : 300}>
+            <ResponsiveContainer width="100%" height={300}>
               <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
@@ -1130,47 +971,20 @@ export function MarketplacePage() {
                 <Bar dataKey="open" name="Open" stackId="output" fill="#6ee7b7" radius={[3, 3, 0, 0]} maxBarSize={36} />
                 <Line dataKey="maxPotential" name="Max Potential" type="monotone" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="6 3" dot={false} />
                 <Line dataKey="tokenised" name="Tokenised" type="monotone" stroke="#0ea5a0" strokeWidth={2} dot={{ r: 2.5, fill: '#0ea5a0' }} />
-                <Line dataKey="forwardCurve" name="Gabillon Forward" type="monotone" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 3" dot={{ r: 2, fill: '#ef4444' }} yAxisId={0} connectNulls />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {chartView === 'combined' && <div className="mx-5 border-t border-gray-100" />}
-
-        {(chartView === 'purchases' || chartView === 'combined') && (
-          <div className="px-5 pt-4 pb-3">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-2 h-2 rounded-full bg-gray-400" />
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Production Input Consumption (MT) — no forward curve</span>
-            </div>
-            <ResponsiveContainer width="100%" height={chartView === 'combined' ? 180 : 260}>
-              <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={50}
-                  tickFormatter={v => { const a = Math.abs(v); return a >= 1000 ? `-${(a / 1000).toFixed(1)}k` : String(v) }} domain={['dataMin', 0]} />
-                <ReferenceLine y={0} stroke="#e5e7eb" />
-                <Tooltip content={<Tip />} />
-                <Bar dataKey="purchases" name="Input Consumption" fill="#d1d5db" radius={[0, 0, 3, 3]} maxBarSize={36} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
 
         <div className="px-5 pb-4 flex items-center gap-5 text-xs text-gray-500 flex-wrap">
-          {(chartView === 'sales' || chartView === 'combined') && (
+          {(
             <>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#047857' }} /> Sold</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#10b981' }} /> Pending</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#6ee7b7' }} /> Open</span>
               <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-[1.5px] border-dashed" style={{ borderColor: '#94a3b8' }} /> Max Potential</span>
               <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-2" style={{ borderColor: '#0ea5a0' }} /> Tokenised</span>
-              <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-2 border-dashed border-red-500" /> Gabillon Forward</span>
             </>
-          )}
-          {(chartView === 'purchases' || chartView === 'combined') && (
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-gray-300" /> Input Consumption (negative)</span>
           )}
         </div>
       </div>

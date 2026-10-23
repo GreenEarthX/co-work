@@ -4,7 +4,7 @@ GreenEarthX Platform - Main FastAPI Application
 # 1. Third-party imports
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -700,6 +700,17 @@ if HAS_CONTRACTS:
 if HAS_BANKABILITY_PROXY:
     app.include_router(routes_bankability_proxy.router, prefix="/api/v1/bankability", tags=["Bankability Proxy"])
 
+from app.core.db_backend import PostgresRequired as _PostgresRequired
+from fastapi.responses import JSONResponse as _JSONResponse
+
+
+@app.exception_handler(_PostgresRequired)
+async def _postgres_required(_request, exc: _PostgresRequired):
+    # The market and trading modules have no SQLite path (JML, 2026-10-23).
+    return _JSONResponse(status_code=503, content={"detail": {
+        "code": "POSTGRES_REQUIRED", "message": str(exc)}})
+
+
 if HAS_TRADING_BOOK:
     # Bind trading_book to the CANONICAL database (doctrine: no module-owned
     # database path). Its api.py ships a placeholder get_db that builds its own
@@ -707,24 +718,13 @@ if HAS_TRADING_BOOK:
     # — a database that does not exist here. The override the module's own
     # docstring calls for was never installed, so every trading-book request
     # failed: 401 before auth-by-default forwarded a token, 500 after.
-    from app.trading_book.api import get_db as _tb_get_db
-    from app.trading_book.models import Base as _TBBase
-    from sqlalchemy import create_engine as _create_engine
-    from sqlalchemy.orm import sessionmaker as _sessionmaker
+    #
+    # PostgreSQL only (JML, 2026-10-23), as gex_app under 064's policies; see
+    # trading_book.api.tenant_session_dependency.
+    from app.trading_book.api import get_db as _tb_get_db, tenant_session_dependency as _tb_session
+    from app.db.session import SyncSessionLocal as _TBSession
 
-    _tb_engine = _create_engine(
-        f"sqlite+pysqlite:///{settings.SQLITE_DB_PATH}",
-        connect_args={"check_same_thread": False},
-        pool_pre_ping=True,
-    )
-    _TBBase.metadata.create_all(_tb_engine)
-    _TBSession = _sessionmaker(bind=_tb_engine, autoflush=False, expire_on_commit=False)
-
-    def _canonical_tb_db():
-        with _TBSession() as session:
-            yield session
-
-    app.dependency_overrides[_tb_get_db] = _canonical_tb_db
+    app.dependency_overrides[_tb_get_db] = _tb_session(_TBSession)
     app.include_router(trading_book_router, prefix="/api/v1/trading-book", tags=["Trading Book (B1)"])
 
 if HAS_GATE_REGISTRY:
@@ -770,6 +770,10 @@ app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"]
 # Reviewer appointments — GEX staff appoint evidence reviewers on instruction (JML, 2026-10-21)
 from app.api.v1.routes_reviewer_appointments import router as reviewer_appointments_router
 app.include_router(reviewer_appointments_router, prefix="/api/v1/projects", tags=["Reviewer appointments"])
+
+# The market chain — every cross-company step of a trade (gap register P0, 2026-10-23)
+from app.api.v1.routes_market import router as market_router
+app.include_router(market_router, prefix="/api/v1/market", tags=["Market"])
 
 # ── Bankability Cockpit v2.0 ──
 if HAS_WORKFLOW:

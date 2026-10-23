@@ -142,31 +142,31 @@ def test_rls_is_enabled_and_forced_on_every_marketplace_table():
         conn.close()
 
 
-def test_trading_book_tables_are_admin_only_until_assets_name_a_project():
+def test_trading_book_tables_carry_real_tenant_policies_with_write_checks():
     """
-    tb_asset has no external reference — the same gap that makes the
-    trading-book cashflow endpoint reject GEX project slugs. There is no honest
-    tenant policy to write, so they are locked to PLATFORM_ADMIN rather than
-    left open or given a policy that only appears to isolate.
-
-    When the asset-to-project bridge lands, this test should be replaced with a
-    real isolation test.
+    036 locked tb_* to PLATFORM_ADMIN because tb_asset could not name a project,
+    and this test pinned that "until the asset-to-project bridge lands". 064 is
+    that bridge (tb_asset.project_id, tb_contract.owner_company_id), so each table
+    now has a read policy and separate INSERT / UPDATE / DELETE policies, every
+    write carrying its own check — never a FOR ALL whose read rule is the write
+    rule (the 062 flaw). Behaviour is tested in test_trading_book_pg.py.
     """
     conn, cur = _pg()
     try:
-        cur.execute("SELECT tablename, policyname, qual FROM pg_policies "
-                    "WHERE schemaname='public' AND tablename = ANY(%s)",
-                    (list(TB_TABLES),))
-        pols = {r["tablename"]: r for r in cur.fetchall()}
-        assert set(pols) == set(TB_TABLES), (
-            f"trading-book tables without a policy: {set(TB_TABLES) - set(pols)}"
-        )
-        for t, p in pols.items():
-            assert "PLATFORM_ADMIN" in (p["qual"] or ""), f"{t}: not admin-scoped"
-            assert "app_company" not in (p["qual"] or ""), (
-                f"{t}: claims project-based isolation, but tb_asset cannot name "
-                "a project — that policy would be decorative"
-            )
+        cur.execute("SELECT tablename, cmd, qual, with_check FROM pg_policies "
+                    "WHERE schemaname='public' AND tablename = ANY(%s)", (list(TB_TABLES),))
+        rows = cur.fetchall()
+        by_table: dict = {}
+        for r in rows:
+            by_table.setdefault(r["tablename"], {})[r["cmd"]] = r
+        for t in TB_TABLES:
+            cmds = by_table.get(t, {})
+            assert set(cmds) == {"SELECT", "INSERT", "UPDATE", "DELETE"}, f"{t}: policies {sorted(cmds)}"
+            assert cmds["INSERT"]["with_check"] and cmds["UPDATE"]["with_check"], f"{t}: a write without a check"
+        for t in ("tb_asset", "tb_contract", "tb_project_finance_link"):
+            assert "PLATFORM_ADMIN" in by_table[t]["INSERT"]["with_check"]
+            assert by_table[t]["INSERT"]["with_check"] != by_table[t]["SELECT"]["qual"], (
+                f"{t}: the write rule is the read rule — a company that can see could write")
     finally:
         conn.close()
 
@@ -258,42 +258,73 @@ def test_the_annulment_columns_survived_the_migration():
         conn.close()
 
 
-# ── Known gap, pinned so it is not forgotten ────────────────────────────────
+# ── The market chain lives in PostgreSQL only (JML, 2026-10-23) ─────────────
 
-def test_the_contracts_table_is_still_missing_on_BOTH_backends():
-    """
-    ⚠ PINNED DEFECT. `contracts_sqlite.py` is routed and queries a `contracts`
-    table that has NO DDL anywhere in app/ and exists in neither store.
-    /api/v1/contracts/summary returns 500 today.
-
-    It was NOT created during the migration: doing so would make PostgreSQL
-    work while SQLite still failed, breaking the backend-parity gate every
-    slice is verified against. Fix it as its own change — then delete this test.
-
-    Pinned symmetrically so the two backends cannot silently diverge.
-    """
-    import sqlite3
-
-    from app.core.config import settings
-
-    lite = sqlite3.connect(settings.SQLITE_DB_PATH)
-    in_sqlite = lite.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='contracts'"
-    ).fetchone() is not None
-    lite.close()
-
+@pytest.mark.parametrize("table", ["contracts", "rfqs"])
+def test_the_market_chain_tables_exist_in_postgres(table):
+    """`contracts` and `rfqs` were routed and queried but defined nowhere, so
+    every contract and RFQ call failed (gap register G-01). Alembic 063 owns them."""
     conn, cur = _pg()
     try:
-        cur.execute("SELECT to_regclass('public.contracts') AS t")
-        in_pg = cur.fetchone()["t"] is not None
+        cur.execute("SELECT to_regclass(%s) AS t", (f"public.{table}",))
+        assert cur.fetchone()["t"] is not None, f"`{table}` is missing from PostgreSQL"
     finally:
         conn.close()
 
-    assert in_sqlite == in_pg, (
-        f"`contracts` exists in only one store (sqlite={in_sqlite}, "
-        f"postgres={in_pg}) — the backends have diverged"
-    )
-    assert not in_sqlite, (
-        "`contracts` now exists — good. Fix contracts_sqlite.py, confirm "
-        "/api/v1/contracts/summary returns 200, and delete this test."
-    )
+
+POSTGRES_ONLY_MODULES = (
+    "app.core.market_engine", "app.api.v1.marketplace_sqlite", "app.api.v1.matching_sqlite",
+    "app.api.v1.tokens_sqlite", "app.api.v1.capacity_sqlite", "app.api.v1.contracts_sqlite",
+    "app.api.v1.trader_rfqs", "app.api.v1.settlement_events", "app.api.v1.carbon_attribution",
+    "app.api.v1.mass_balance", "app.trading_book.api", "app.trading_book.models",
+)
+
+
+@pytest.mark.parametrize("module", POSTGRES_ONLY_MODULES)
+def test_the_market_and_trading_modules_have_no_sqlite_path(module):
+    """JML, 2026-10-23: the market and trading data live in PostgreSQL only. None
+    of these modules imports sqlite3 or names a sqlite+pysqlite engine — read from
+    the AST, not the text, which discusses SQLite."""
+    import ast
+    import importlib
+    import inspect
+
+    tree = ast.parse(inspect.getsource(importlib.import_module(module)))
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))
+                for a in n.names} | {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    assert "sqlite3" not in imported, f"{module} imports sqlite3"
+    strings = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert not [x for x in strings if x.startswith("sqlite+")], f"{module} builds a SQLite engine"
+
+
+@pytest.mark.parametrize("module, fn", [
+    ("app.api.v1.marketplace_sqlite", "get_db_connection"), ("app.api.v1.matching_sqlite", "get_db_connection"),
+    ("app.api.v1.tokens_sqlite", "get_db_connection"), ("app.api.v1.capacity_sqlite", "get_db_connection"),
+    ("app.api.v1.settlement_events", "get_db"), ("app.api.v1.carbon_attribution", "get_db"),
+    ("app.api.v1.mass_balance", "get_db"),
+])
+def test_each_module_refuses_without_postgres(module, fn, monkeypatch):
+    import importlib
+
+    from app.core.config import settings
+    from app.core.db_backend import PostgresRequired
+
+    for switch in ("MARKET_DB_BACKEND", "DOMAIN_DB_BACKEND"):
+        monkeypatch.setenv(switch, "sqlite")                   # the env var wins over settings
+        monkeypatch.setattr(settings, switch, "sqlite")
+    call = getattr(importlib.import_module(module), fn)
+    with pytest.raises(PostgresRequired):
+        result = call()
+        if hasattr(result, "__next__"):                        # get_db is a generator dependency
+            next(result)
+
+
+def test_the_market_refuses_without_postgres(monkeypatch):
+    from app.core import market_engine as me
+    from app.core.config import settings
+
+    monkeypatch.setenv("MARKET_DB_BACKEND", "sqlite")          # the env var wins over settings
+    monkeypatch.setattr(settings, "MARKET_DB_BACKEND", "sqlite")
+    with pytest.raises(me.MarketRefused) as refused:
+        me._conn()
+    assert refused.value.code == "MARKET_REQUIRES_POSTGRES"

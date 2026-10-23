@@ -194,7 +194,13 @@ def upgrade() -> None:
     # which is their single definition. Build them from the models instead.
     from app.trading_book.models import Base as TBBase
 
-    TBBase.metadata.create_all(conn, checkfirst=True)
+    # ONLY the eight tables that existed at 036 (2026-10-23 fix): create_all()
+    # over the whole metadata would also build tables later migrations add (065+)
+    # on a fresh rebuild, and those migrations would then collide with them.
+    # Columns added to these eight later are added by their own migration with
+    # an "only if missing" check (see 064).
+    TBBase.metadata.create_all(conn, checkfirst=True,
+                               tables=[TBBase.metadata.tables[t] for t in TB_TABLES])
 
     # ── The capacity -> project resolver ────────────────────────────────────
     conn.execute(sa.text("""

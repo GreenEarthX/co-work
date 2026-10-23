@@ -176,10 +176,12 @@ export const offersAPI = {
     return fetchAPI(`/marketplace/offers${query ? `?${query}` : ""}`);
   },
   get: (id: string) => fetchAPI(`/marketplace/offers/${id}`),
-  updateStatus: (id: string, status: string) =>
-    fetchAPI(`/marketplace/offers/${id}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
+  // The seller opens or withdraws its listing; MATCHED and SETTLED are set by
+  // the market (the old PATCH .../status answers 409 USE_TRANSITION).
+  transition: (id: string, new_state: "OPEN" | "WITHDRAWN" | "EXPIRED") =>
+    fetchAPI(`/marketplace/offers/${id}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ new_state }),
     }),
   delete: (id: string) =>
     fetchAPI(`/marketplace/offers/${id}`, { method: "DELETE" }),
@@ -198,7 +200,6 @@ export const rfqsAPI = {
     const query = new URLSearchParams(params as any).toString();
     return fetchAPI(`/matching/rfqs${query ? `?${query}` : ""}`);
   },
-  get: (id: string) => fetchAPI(`/matching/rfqs/${id}`),
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -234,11 +235,234 @@ export const contractsAPI = {
   },
   get: (id: string) => fetchAPI(`/contracts/${id}`),
   updateStatus: (id: string, status: string) =>
-    fetchAPI(`/contracts/${id}/status`, {
+    fetchAPI(`/contracts/${id}/status?new_status=${encodeURIComponent(status)}`, {
       method: "PATCH",
-      body: JSON.stringify({ status }),
     }),
   getAcceptedMatches: () => fetchAPI("/contracts/accepted-matches/available"),
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Market API — prefix: /api/v1/market (backend core/market_engine.py)
+// Listings are anonymised: no company, project, token or location. Names
+// appear only on a match, to its two parties. A match needs BOTH to accept.
+// ═══════════════════════════════════════════════════════════════
+export interface OfferListing {
+  id: string;
+  molecule: string;
+  volume_mtpd: number;
+  price_eur_kg: number;
+  delivery_start: string;
+  delivery_end: string;
+  delivery_type?: string | null;
+  delivery_basis?: string | null;
+  price_basis?: string | null;
+  certification_pathway_required?: string | null;
+  certification_pathway?: string | null;
+  min_order_kg?: number | null;
+  carbon_intensity_gco2e_mj?: number | null;
+  esg_tier?: string | null;
+  created_at: string;
+  mine: boolean;
+  project_id?: string; // present only on the caller's own listings
+}
+
+export interface RFQListing {
+  id: string;
+  molecule: string;
+  volume_mtpd: number;
+  max_price_eur_kg: number | null;
+  delivery_start: string;
+  delivery_end: string;
+  compliance_requirements?: string | null;
+  created_at: string;
+  mine: boolean;
+}
+
+export interface MarketRFQ extends RFQListing {
+  status: string;
+  buyer_company_id: string;
+  buyer_name?: string | null;
+  location?: string | null;
+  correlation_id?: string | null;
+}
+
+export interface MarketMatch {
+  id: string;
+  project_id?: string | null;
+  status: string;
+  side: "seller" | "buyer";
+  match_score: number;
+  molecule: string;
+  volume_mtpd: number;
+  price_eur_kg: number;
+  delivery_start: string;
+  delivery_end: string;
+  seller_company_name?: string | null;
+  buyer_name?: string | null;
+  seller_accepted_by?: string | null;
+  buyer_accepted_by?: string | null;
+  correlation_id?: string | null;
+  created_at: string;
+}
+
+export interface MarketContract {
+  id: string;
+  match_id: string;
+  molecule: string;
+  volume_mtpd: number;
+  price_eur_kg: number;
+  counterparty?: string | null;
+  status: string;
+  seller_company_id: string;
+  buyer_company_id: string;
+  correlation_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  created_at: string;
+}
+
+export interface TrailEvent {
+  id: string;
+  event_type: string;
+  aggregate_type?: string | null;
+  aggregate_id?: string | null;
+  correlation_id?: string | null;
+  timestamp?: string | null;
+  previous_state?: string | null;
+  new_state?: string | null;
+  event_hash?: string | null;
+  metadata?: { user_id?: string } & Record<string, unknown>;
+  data?: Record<string, unknown>;
+}
+
+const q = (params?: Record<string, string | undefined>) => {
+  const clean = Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v));
+  const query = new URLSearchParams(clean as Record<string, string>).toString();
+  return query ? `?${query}` : "";
+};
+
+export interface Commodity {
+  code: string;
+  name: string;
+  default_unit: string;
+  market_molecule: string | null;
+}
+
+// Marketplace records (alembic 066) — moved out of MarketplacePage's code on
+// 2026-10-23, every one UNVERIFIED until its source is confirmed.
+export interface SpotPrice {
+  molecule: string;
+  value_base: number;
+  unit: string;
+  currency: string;
+  state: string;            // registry state: approved | proposed
+  source_name: string;
+}
+export interface SalesDetailRecord {
+  project_id: string;
+  region: string | null;
+  e_source: string | null;
+  green_energy_pct: number | null;
+  certifier: string | null;
+  breakeven_price: number | null;
+  available: { start: string; end: string; volume_mtpd: number; basePrice: number; pct: number; status: string } | null;
+  tokenised: { start: string; end: string; volume_mtpd: number; price: number; pct: number; status: string } | null;
+  in_market: { start: string; end: string; volume_mtpd: number; targetPrice: number; pct: number;
+    status: "open" | "pending" | "sold"; counterparty: string | null }[];
+  verification_state: string;
+  source: string;
+}
+export interface InputLineRecord {
+  project_id: string;
+  seq: number;
+  feedstock: string;
+  supplier: string | null;
+  ratio: number;
+  ratio_unit: string;
+  unit_price: number;
+  price_unit: string;
+  status: "contracted" | "planned" | "spot";
+  is_utility: boolean;
+  capacity_factor: number | null;
+  firming_cost: number | null;
+  verification_state: string;
+  source: string;
+}
+export interface InputClassRecord {
+  feedstock: string;
+  cert_relevance: string[];
+  capital_relevance: string;
+  item_type: string;
+  verification_state: string;
+}
+export interface ProjectEconomics {
+  spot_prices: Record<string, SpotPrice>;
+  sales_detail: Record<string, SalesDetailRecord>;
+  input_lines: Record<string, InputLineRecord[]>;
+  input_classification: Record<string, InputClassRecord>;
+}
+
+export const marketAPI = {
+  projectEconomics: (): Promise<ProjectEconomics> => fetchAPI("/market/project-economics"),
+  // tb_commodity (PostgreSQL) — the only source of molecule lists on screen.
+  commodities: (): Promise<{ commodities: Commodity[] }> => fetchAPI("/market/commodities"),
+  offerListings: (molecule?: string): Promise<{ offers: OfferListing[] }> =>
+    fetchAPI(`/market/listings/offers${q({ molecule })}`),
+  rfqListings: (molecule?: string): Promise<{ rfqs: RFQListing[] }> =>
+    fetchAPI(`/market/listings/rfqs${q({ molecule })}`),
+  createRFQ: (data: {
+    molecule: string;
+    volume_mtpd: number;
+    delivery_start: string;
+    delivery_end: string;
+    max_price_eur_kg?: number | null;
+    location?: string | null;
+    buyer_contact?: string | null;
+    compliance_requirements?: string[] | null;
+    status?: "draft" | "open";
+  }): Promise<MarketRFQ> =>
+    fetchAPI("/market/rfqs", { method: "POST", body: JSON.stringify(data) }),
+  myRFQs: (): Promise<{ rfqs: MarketRFQ[] }> => fetchAPI("/market/rfqs/mine"),
+  setRFQStatus: (id: string, status: string): Promise<MarketRFQ> =>
+    fetchAPI(`/market/rfqs/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+  openOffer: (id: string) => fetchAPI(`/market/offers/${id}/open`, { method: "POST" }),
+  withdrawOffer: (id: string) => fetchAPI(`/market/offers/${id}/withdraw`, { method: "POST" }),
+  // Automated matching is suspended (JML 2026-10-23, spec decision 2B): a party
+  // proposes a match to a specific listing; it binds only when both accept.
+  proposeMatch: (offer_id: string, rfq_id: string): Promise<MarketMatch> =>
+    fetchAPI("/market/matches", { method: "POST", body: JSON.stringify({ offer_id, rfq_id }) }),
+  myMatches: (): Promise<{ matches: MarketMatch[] }> => fetchAPI("/market/matches/mine"),
+  acceptMatch: (id: string): Promise<MarketMatch> =>
+    fetchAPI(`/market/matches/${id}/accept`, { method: "POST" }),
+  declineMatch: (id: string): Promise<MarketMatch> =>
+    fetchAPI(`/market/matches/${id}/decline`, { method: "POST" }),
+  createContract: (match_id: string, delivery_terms: string, payment_terms: string): Promise<MarketContract> =>
+    fetchAPI("/market/contracts", {
+      method: "POST",
+      body: JSON.stringify({ match_id, delivery_terms, payment_terms }),
+    }),
+  myContracts: (): Promise<{ contracts: MarketContract[] }> => fetchAPI("/market/contracts/mine"),
+  trail: (correlationId: string): Promise<{ correlation_id: string; events: TrailEvent[] }> =>
+    fetchAPI(`/market/trail/${encodeURIComponent(correlationId)}`),
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Trading book — prefix: /api/v1/trading-book (PostgreSQL, alembic 064/065)
+// ═══════════════════════════════════════════════════════════════
+export interface Counterparty {
+  id: string;
+  legal_name: string;
+  lei: string | null;
+  country_code: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const tradingBookAPI = {
+  counterparties: (): Promise<Counterparty[]> => fetchAPI("/trading-book/counterparties"),
+  addCounterparty: (data: { legal_name: string; lei?: string | null; country_code: string }): Promise<Counterparty> =>
+    fetchAPI("/trading-book/counterparties", { method: "POST", body: JSON.stringify(data) }),
 };
 
 // ═══════════════════════════════════════════════════════════════

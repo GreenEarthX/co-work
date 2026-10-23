@@ -123,6 +123,11 @@ class Asset(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(), primary_key=True, default=uuid.uuid4
     )
+    project_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    # ^^^ The GEX project this asset is (alembic 064). Tenancy hangs off it:
+    # the project's companies read the asset, only its owner writes it. FK'd to
+    # projects in PostgreSQL; not declared here, because this Base's metadata
+    # does not hold `projects`.
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     location: Mapped[str] = mapped_column(String(200), nullable=False)
     country_code: Mapped[str] = mapped_column(String(2), nullable=False)
@@ -319,6 +324,10 @@ class Contract(Base):
     contract_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     # ^^^ Human-readable identifier (e.g. "GEX-2026-NH3-001"). App layer
     # generates; uniqueness enforced at DB.
+
+    owner_company_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    # ^^^ The company whose book this is (alembic 064) — set from the caller,
+    # never from the body. Still no project here: the link table allocates.
 
     buy_side_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(), ForeignKey("tb_counterparty.id"), nullable=False

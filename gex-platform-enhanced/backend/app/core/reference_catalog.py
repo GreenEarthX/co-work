@@ -83,6 +83,13 @@ PARAMETERS: dict[str, ParameterDef] = {
     "capex_contingency": ParameterDef(
         "FRACTION_OF_TOTAL", "Capex contingency as a fraction of capex"),
     "dsra_months": ParameterDef("LIFETIME", "Debt service reserve, months of debt service"),
+    # Market spot reference per molecule (Marketplace). Seeded 2026-10-23 as
+    # `proposed` from the values the screen used to hard-code — provenance
+    # unknown, so not in force until approved. Two keys because one key has one
+    # unit family: mass-priced molecules, and e-NG priced per MWh.
+    "market_spot_price": ParameterDef("COST_PER_MASS", "Market spot reference price of the molecule"),
+    "market_spot_price_energy": ParameterDef(
+        "COST_PER_ENERGY", "Market spot reference price of an energy-priced molecule (e-NG)"),
 }
 
 

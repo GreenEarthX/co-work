@@ -140,6 +140,26 @@ Alembic rebuild**, a dump restore already carries it): `ehb_premium` base 0.40 -
 (new row, valid from 10-20), and `debt_gearing` 0.65 approved with OIES kept. Versions 1-3;
 three rows remain `proposed` (IEA capex ROW and CN, 45V).
 
+**2026-10-23 (late): head is 066** — Marketplace records (`project_sales_detail`,
+`project_input_line`, `input_classification`, `tb_commodity.registry_pathway`), all UNVERIFIED.
+**140** tables, **133** FORCED. Rows come from
+`backend/scripts/load_marketplace_unverified_20261023.py --execute` — **re-run it after an Alembic
+rebuild** (a dump restore already carries them). Its five spot prices are registry rows in state
+`proposed`, never in force until approved. Handoff §8 item 47.
+
+**2026-10-23 (later): head is 065** — the trading-book revision's M1: terms → legs → flows,
+orders, RFQs, fills, contract versions, frozen-terms trigger, per-party views (security_invoker).
+**137** tables, **130** FORCED. JML's decisions and the remaining steps M2–M6: handoff §8
+item 46. Automated matching is OFF (`MARKET_AUTO_MATCHING`) pending counsel. **036 now builds only
+its original eight `tb_*` tables** — never let a migration create tables from the live models
+wholesale: a later model would be created early on a rebuild and collide with its migration.
+
+**2026-10-23: head is 064.** 063 creates `rfqs` and `contracts` and lets the buyer read its
+own matches, contracts, settlements and the token it bought (`holder_company_id`); 064 gives
+`tb_asset` a `project_id` and `tb_contract` an `owner_company_id` and replaces 036's admin-only
+`tb_*` lock with real policies (SECURITY DEFINER lookups — the first draft recursed). Both
+round-tripped. Measured after: **125** tables, **118** FORCED. Handoff §8 item 45.
+
 **2026-10-21: head is 062.** 062 replaces `project_access`'s single FOR ALL policy (no
 WITH CHECK, so the read rule was the write rule) with a SELECT policy keeping the old read
 rule and INSERT / UPDATE / DELETE policies that require `PLATFORM_ADMIN`. Before it, a
@@ -255,6 +275,12 @@ any archived row as a client submission.
 read `postgres`: `AUTH_`, `CAPITAL_`, `DOMAIN_`, `ENTITLEMENT_`, `EVENTSTORE_`,
 `EVIDENCE_`, `FUELREF_`, `GOVERNANCE_`, `MARKET_`, `WORKSPACE_DB_BACKEND`. (This
 file previously said all eight read `sqlite`; there are ten, and none do.)
+
+**2026-10-23: the market and trading area has no SQLite path at all** (JML). Capacities,
+tokens, offers, RFQs, matching/mandates, contracts, settlements, carbon attribution, chain of
+custody and the trading book call `db_backend.require_postgres()` and answer 503
+`POSTGRES_REQUIRED` rather than open `gex_platform.db`. The `_sqlite` in their file names is
+historical. Do not add a SQLite fallback back — `test_marketplace_slice.py` will fail.
 
 **One module is switch-blind; the real defect is elsewhere.** An earlier version
 of this file named four — `ecosystem_store`, `ot_boundary`, `adversarial_reviews`,
@@ -501,6 +527,11 @@ only for a genuine bootstrap — reading the rules you are using to decide acces
     core/css.py               core/event_store.py         core/wae.py
     core/drpl.py              core/break_glass.py         core/open_interest.py
 
+**2026-10-23: a tenth — `core/market_engine.py`.** A trade crosses two tenants (seller's
+project, buyer's RFQ), so the engine authorises the Party from the token first, then performs
+the step on a PLATFORM_ADMIN market connection. Base tables stay tenant-scoped; listings are
+anonymised by the engine. GEX itself trades nothing (`GEX_DOES_NOT_TRADE`).
+
 Each says why, and every use is logged by `_tenant_context`.
 If you need it in a test, use `as_platform_admin()` from `tests/pg_support.py`.
 
@@ -640,7 +671,31 @@ PostgreSQL-only divergence — see the comprehension fixture below.
 (`test_reference_registry_pg.py`, `test_reference_catalog.py`, `test_reference_routes.py`,
 two guardrails in `test_fuel_reference_slice.py`). The same 18 skips, read with `-rs`.
 
-**2026-10-21 (last): 999 pass, 18 skip, 0 fail** at head 062. 987 + **6**
+**2026-10-23 (last): 1088 pass, 18 skip, 0 fail** at head 066. 1084 + 4
+(`test_marketplace_records_pg.py`).
+
+**2026-10-23 (before that): 1084 pass, 18 skip, 0 fail** at head 065. 1051 + 25
+(`test_trading_terms.py`) + 8 (`test_trading_terms_pg.py`, on `pg_store`). **One token per
+contract (JML):** an amendment is a new version and a modification of the same token —
+`tb_contract.token_ref` and each version's `token_event_ref` are fixed once written (triggers).
+
+**2026-10-23 (earlier): 1051 pass, 18 skip, 0 fail.** The market and trading area is
+PostgreSQL only (JML): +12 "no sqlite3" guards and +7 refusal checks, −1 superseded guard.
+Tests for those modules use the `pg_store` fixture (conftest): ONE throwaway database per
+session, migrated from scratch and dropped — the PostgreSQL counterpart of `isolated_store`.
+`isolated_store` pins every switch to sqlite, so it cannot be used for these modules any more.
+
+**2026-10-23 (before that): 1033 pass, 18 skip, 0 fail.** +2 guards: the market engine has no
+SQLite path and refuses without PostgreSQL (JML: RFQs stay in PostgreSQL only).
+`test_market_chain.py` runs in a throwaway database built by the migrations — see
+`pg_support.throwaway_pg_database`, the pattern for tests whose code commits.
+
+**2026-10-23 (earlier): 1031 pass, 18 skip, 0 fail** at head 064, both exported. 999 + 8
+(`test_market_chain.py`) + 4 (its legacy-route tests) + 6 (`test_market_chain_pg.py`) + 2
+(parity, parametrized) − 1 (the pinned "contracts missing" test it replaces) + 7
+(`test_trading_book_api.py`) + 6 (`test_trading_book_pg.py`). Same 18 skips.
+
+**2026-10-21 (earlier): 999 pass, 18 skip, 0 fail** at head 062. 987 + **6**
 (`test_refresh_reads_the_auth_store.py`) + **6** (`test_project_access_writes_pg.py`). Same
 18 skips. `POST /auth/refresh` now loads the account through `auth.load_user_for_refresh`
 (the auth slice's own store, the sign-in vetting rule) instead of opening the SQLite file and

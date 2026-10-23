@@ -12,6 +12,7 @@ import { ArrowRight, Filter } from 'lucide-react'
 import {
   buildFeedstockSummary,
   FeedstockPurchasesPanel,
+  useProjectEconomics,
 } from '@/features/marketplace/MarketplacePage'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
@@ -35,9 +36,11 @@ export function OfftakerSupplyTable({ molecule }: Props) {
     })
   }, [filterMol, filterProject, visibleProjects])
 
+  // Production inputs come from PostgreSQL (project_input_line), as on Commercial.
+  const { econ } = useProjectEconomics()
   const purchaseSummaries = useMemo(
-    () => filteredProjects.map(project => buildFeedstockSummary(project)),
-    [filteredProjects],
+    () => filteredProjects.map(project => buildFeedstockSummary(project, econ)),
+    [filteredProjects, econ],
   )
 
   const matchingQuery = new URLSearchParams({ mode: 'buy' })

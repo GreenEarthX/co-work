@@ -329,6 +329,26 @@ def market_backend() -> str:
             or getattr(settings, "MARKET_DB_BACKEND", SQLITE)).strip().lower()
 
 
+class PostgresRequired(RuntimeError):
+    """A module whose SQLite path is retired was asked to run without PostgreSQL.
+
+    JML, 2026-10-23: the market and trading data — capacities, tokens, offers,
+    RFQs, matches, buyer mandates, contracts, settlements, carbon attribution,
+    chain of custody and the trading book — live in PostgreSQL and nowhere else.
+    Those modules call require_postgres() instead of opening the SQLite file;
+    main.py answers this exception with 503 POSTGRES_REQUIRED.
+    """
+
+    def __init__(self, area: str, switch: str):
+        self.area, self.switch = area, switch
+        super().__init__(f"{area} runs on PostgreSQL only; set {switch}=postgres.")
+
+
+def require_postgres(is_postgres: bool, area: str, switch: str) -> None:
+    if not is_postgres:
+        raise PostgresRequired(area, switch)
+
+
 def market_is_postgres() -> bool:
     return market_backend() == POSTGRES
 

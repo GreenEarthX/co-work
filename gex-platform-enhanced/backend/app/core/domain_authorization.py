@@ -145,6 +145,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/deal-killers": "projects",
     # marketplace
     "/api/v1/marketplace": "marketplace",
+    "/api/v1/market": "marketplace",       # the market engine (core/market_engine.py)
     "/api/v1/matching": "marketplace",
     "/api/v1/demand": "marketplace",
     "/api/v1/contracts": "marketplace",

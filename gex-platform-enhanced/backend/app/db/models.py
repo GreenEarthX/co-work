@@ -35,7 +35,6 @@ class Organization(Base, TimestampMixin):
     users = relationship("User", back_populates="organization")
     capacities = relationship("Capacity", back_populates="organization")
     offers = relationship("Offer", back_populates="organization")
-    rfqs = relationship("RFQ", back_populates="buyer_organization")
 
 
 class User(Base, TimestampMixin):
@@ -132,38 +131,11 @@ class Offer(Base, TimestampMixin):
     )
 
 
-class RFQ(Base, TimestampMixin):
-    """Buyer Request for Quotes"""
-    __tablename__ = "rfqs"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    buyer_org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"))
-    molecule = Column(String(10), nullable=False)
-    volume_mtpd = Column(Numeric(10, 2), nullable=False)
-    price_max = Column(Numeric(10, 2))
-    delivery_start = Column(Date, nullable=False)
-    delivery_end = Column(Date, nullable=False)
-    
-    # Molecule-specific criteria (JSON)
-    criteria = Column(JSON, nullable=False)
-    
-    status = Column(String(20), default="open")  # open, matched, closed
-    
-    # Relationships
-    buyer_organization = relationship("Organization", back_populates="rfqs")
-    matches = relationship("Match", back_populates="rfq")
-    
-    __table_args__ = (
-        Index("idx_rfqs_molecule_status", "molecule", "status"),
-    )
-
-
 class Match(Base):
-    """Matching results between RFQs and Offers"""
+    """Matching results (legacy ORM, unused at runtime; the RFQ model was removed 2026-10-23)"""
     __tablename__ = "matches"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    rfq_id = Column(UUID(as_uuid=True), ForeignKey("rfqs.id"))
     offer_id = Column(UUID(as_uuid=True), ForeignKey("offers.id"))
     score = Column(Numeric(5, 2), nullable=False)
     
@@ -173,12 +145,11 @@ class Match(Base):
     matched_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
-    rfq = relationship("RFQ", back_populates="matches")
     offer = relationship("Offer", back_populates="matches")
     dd_pipeline = relationship("DDPipeline", back_populates="match", uselist=False)
     
     __table_args__ = (
-        Index("idx_matches_score", "rfq_id", "score"),
+        Index("idx_matches_score", "score"),
         CheckConstraint("score >= 0 AND score <= 100"),
     )
 

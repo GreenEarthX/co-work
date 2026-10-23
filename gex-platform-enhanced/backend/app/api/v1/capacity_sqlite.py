@@ -5,7 +5,6 @@ NOW WITH EVENT-DRIVEN ARCHITECTURE
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import sqlite3
 import json
 import os
 import uuid
@@ -22,17 +21,13 @@ DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     """
-    Slice-6 connection — SQLite or PostgreSQL by configuration
-    (MARKET_DB_BACKEND). The SQL is unchanged; the shim translates
-    placeholders and sets the RLS tenant context.
+    PostgreSQL only (JML, 2026-10-23): no SQLite fallback. The shim sets the RLS
+    tenant context from the bound caller.
     """
-    from app.core.db_backend import market_connection, market_is_postgres
+    from app.core.db_backend import market_connection, market_is_postgres, require_postgres
 
-    if market_is_postgres():
-        return market_connection()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    require_postgres(market_is_postgres(), "Capacities", "MARKET_DB_BACKEND")
+    return market_connection()
 
 # Schemas
 class CapacityCreate(BaseModel):

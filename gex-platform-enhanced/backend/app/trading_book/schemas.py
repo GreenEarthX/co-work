@@ -104,7 +104,7 @@ class AssetBase(BaseModel):
 
 
 class AssetCreate(AssetBase):
-    pass
+    project_id: str = Field(min_length=1, max_length=120)   # the GEX project; caller must own it
 
 
 class AssetUpdate(BaseModel):
@@ -121,6 +121,7 @@ class AssetRead(AssetBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    project_id: str
     created_at: datetime
     updated_at: datetime
 
@@ -329,6 +330,7 @@ class FixedPriceContractRead(BaseModel):
 
     id: uuid.UUID
     contract_number: str
+    owner_company_id: str
     contract_type: str
     buy_side_id: uuid.UUID
     sell_side_id: uuid.UUID
@@ -351,6 +353,7 @@ class IndexLinkedContractRead(BaseModel):
 
     id: uuid.UUID
     contract_number: str
+    owner_company_id: str
     contract_type: str
     buy_side_id: uuid.UUID
     sell_side_id: uuid.UUID

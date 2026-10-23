@@ -14,6 +14,7 @@ overrides) and refuse to overwrite. Apply later changes as tracked edits on top 
 | `build_master.py` | Every master edit, with 26 comments (expects `master_unpacked/`) |
 | `build_greenearthx.py` | The GREENEARTHX edits, with 12 comments (expects `greenearthx_unpacked/`) |
 | `accepted_view.py` | Accepted-view text of a redline, bold marked, for review |
+| `accept_all.py` | Accepts every tracked change in a .docx without Word or LibreOffice (neither is on this machine): `python3 accept_all.py in.docx out.docx`. Check the result with `accepted_view.py` — its text must equal the accepted view of the input (2026-10-21/22) |
 | `docx2md.py` | Text export of a .docx with body-child indices (the indices the build scripts use) |
 
 Preparing an input (the docx skill's `merge_runs.py` must run first, or phrases are split across runs):

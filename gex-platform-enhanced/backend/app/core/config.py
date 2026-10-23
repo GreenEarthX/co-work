@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     CAPITAL_DB_BACKEND: str = "sqlite"
     # Which store slice 6 (marketplace / trading tail) uses.
     MARKET_DB_BACKEND: str = "sqlite"
+    # Automated matching (GEX pairing third-party offers with RFQs). OFF: JML,
+    # 2026-10-23, decision 2B on the trading-book spec — matching is bilateral (a
+    # named company accepts a specific listing) until counsel confirms GEX would
+    # not be operating a trading venue. Turn on only on that confirmation.
+    MARKET_AUTO_MATCHING: bool = False
     # Which store slice 6b-1 (entitlements) uses.
     ENTITLEMENT_DB_BACKEND: str = "sqlite"
     # Which store slice 6b-2 (the platform event ledger) uses.

@@ -1,0 +1,843 @@
+{
+ "_about": "The four constants MarketplacePage.tsx held in code until 2026-10-23, extracted verbatim by evaluating the literals (no value retyped). Provenance of every value is unknown: loaded UNVERIFIED by scripts/load_marketplace_unverified_20261023.py. This file is the load source only; the screen reads PostgreSQL.",
+ "spot_prices": {
+  "H2": {
+   "spot": 5500,
+   "unit": "EUR/t"
+  },
+  "NH3": {
+   "spot": 700,
+   "unit": "EUR/t"
+  },
+  "e-Methanol": {
+   "spot": 1200,
+   "unit": "EUR/t"
+  },
+  "SAF": {
+   "spot": 1500,
+   "unit": "EUR/t"
+  },
+  "e-NG": {
+   "spot": 120,
+   "unit": "EUR/MWh"
+  }
+ },
+ "sales_detail": {
+  "proj_bremen_h2": {
+   "region": "N. Europe",
+   "eSource": "Offshore Wind",
+   "greenEnergyPct": 99,
+   "certifier": "TÜV SÜD",
+   "bePrice": 4200,
+   "available": {
+    "start": "10/2026",
+    "end": "09/2031",
+    "volume_mtpd": 78,
+    "basePrice": 5800,
+    "pct": 92,
+    "status": "Deposited"
+   },
+   "tokenised": {
+    "start": "10/2026",
+    "end": "09/2031",
+    "volume_mtpd": 70,
+    "price": 5600,
+    "pct": 90,
+    "status": "Deposited"
+   },
+   "inMarket": [
+    {
+     "start": "10/2026",
+     "end": "09/2031",
+     "volume_mtpd": 12,
+     "targetPrice": 5500,
+     "pct": 14,
+     "status": "sold",
+     "counterparty": "ThyssenKrupp"
+    },
+    {
+     "start": "10/2026",
+     "end": "09/2031",
+     "volume_mtpd": 50,
+     "targetPrice": 5650,
+     "pct": 59,
+     "status": "pending",
+     "counterparty": "Linde"
+    },
+    {
+     "start": "10/2026",
+     "end": "09/2031",
+     "volume_mtpd": 16,
+     "targetPrice": 5750,
+     "pct": 19,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  },
+  "proj_rotterdam_nh3": {
+   "region": "W. Europe",
+   "eSource": "Grid PPA",
+   "greenEnergyPct": 95,
+   "certifier": "Lloyd's Register",
+   "bePrice": 480,
+   "available": {
+    "start": "07/2028",
+    "end": "06/2033",
+    "volume_mtpd": 140,
+    "basePrice": 750,
+    "pct": 88,
+    "status": "Partially Deposited"
+   },
+   "tokenised": {
+    "start": "07/2028",
+    "end": "06/2033",
+    "volume_mtpd": 110,
+    "price": 720,
+    "pct": 79,
+    "status": "Deposited"
+   },
+   "inMarket": [
+    {
+     "start": "07/2028",
+     "end": "06/2033",
+     "volume_mtpd": 80,
+     "targetPrice": 780,
+     "pct": 50,
+     "status": "pending",
+     "counterparty": "Yara International"
+    },
+    {
+     "start": "07/2028",
+     "end": "06/2033",
+     "volume_mtpd": 30,
+     "targetPrice": 810,
+     "pct": 19,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  },
+  "proj_sansebastian_emethanol": {
+   "region": "S. Europe",
+   "eSource": "Solar PPA",
+   "greenEnergyPct": 97,
+   "certifier": "Bureau Veritas",
+   "bePrice": 850,
+   "available": {
+    "start": "01/2028",
+    "end": "12/2032",
+    "volume_mtpd": 37,
+    "basePrice": 1100,
+    "pct": 88,
+    "status": "Partially Deposited"
+   },
+   "tokenised": {
+    "start": "01/2028",
+    "end": "12/2032",
+    "volume_mtpd": 30,
+    "price": 1050,
+    "pct": 81,
+    "status": "Deposited"
+   },
+   "inMarket": [
+    {
+     "start": "01/2028",
+     "end": "12/2032",
+     "volume_mtpd": 20,
+     "targetPrice": 1150,
+     "pct": 48,
+     "status": "pending",
+     "counterparty": "Maersk"
+    },
+    {
+     "start": "01/2028",
+     "end": "12/2032",
+     "volume_mtpd": 10,
+     "targetPrice": 1200,
+     "pct": 24,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  },
+  "proj_wales_saf": {
+   "region": "W. Europe",
+   "eSource": "Wind PPA",
+   "greenEnergyPct": 96,
+   "certifier": "DNV",
+   "bePrice": 1100,
+   "available": {
+    "start": "06/2028",
+    "end": "05/2033",
+    "volume_mtpd": 48,
+    "basePrice": 1600,
+    "pct": 87,
+    "status": "Partially Deposited"
+   },
+   "tokenised": {
+    "start": "06/2028",
+    "end": "05/2033",
+    "volume_mtpd": 40,
+    "price": 1550,
+    "pct": 83,
+    "status": "Deposited"
+   },
+   "inMarket": [
+    {
+     "start": "06/2028",
+     "end": "05/2033",
+     "volume_mtpd": 28,
+     "targetPrice": 1650,
+     "pct": 51,
+     "status": "pending",
+     "counterparty": "Lufthansa Group"
+    },
+    {
+     "start": "06/2028",
+     "end": "05/2033",
+     "volume_mtpd": 12,
+     "targetPrice": 1700,
+     "pct": 22,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  },
+  "proj_lehavre_eng": {
+   "region": "W. Europe",
+   "eSource": "Offshore Wind",
+   "greenEnergyPct": 98,
+   "certifier": "Bureau Veritas",
+   "bePrice": 85,
+   "available": {
+    "start": "01/2025",
+    "end": "12/2029",
+    "volume_mtpd": 37,
+    "basePrice": 135,
+    "pct": 93,
+    "status": "Deposited"
+   },
+   "tokenised": {
+    "start": "01/2025",
+    "end": "12/2029",
+    "volume_mtpd": 35,
+    "price": 130,
+    "pct": 95,
+    "status": "Deposited"
+   },
+   "inMarket": [
+    {
+     "start": "01/2025",
+     "end": "12/2029",
+     "volume_mtpd": 25,
+     "targetPrice": 128,
+     "pct": 63,
+     "status": "sold",
+     "counterparty": "Engie"
+    },
+    {
+     "start": "01/2025",
+     "end": "12/2029",
+     "volume_mtpd": 8,
+     "targetPrice": 140,
+     "pct": 20,
+     "status": "pending",
+     "counterparty": "TotalEnergies"
+    },
+    {
+     "start": "01/2025",
+     "end": "12/2029",
+     "volume_mtpd": 4,
+     "targetPrice": 145,
+     "pct": 10,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  },
+  "proj_hamburgone_emethanol": {
+   "region": "N. Europe",
+   "eSource": "Solar + Wind",
+   "greenEnergyPct": 97,
+   "certifier": "DNV",
+   "bePrice": 600,
+   "available": {
+    "start": "06/2027",
+    "end": "06/2032",
+    "volume_mtpd": 26,
+    "basePrice": 850,
+    "pct": 85,
+    "status": "Partially Deposited"
+   },
+   "tokenised": {
+    "start": "06/2027",
+    "end": "06/2032",
+    "volume_mtpd": 23,
+    "price": 820,
+    "pct": 75,
+    "status": "Deposited"
+   },
+   "inMarket": [
+    {
+     "start": "06/2027",
+     "end": "06/2032",
+     "volume_mtpd": 18,
+     "targetPrice": 960,
+     "pct": 60,
+     "status": "pending",
+     "counterparty": "Vitol"
+    },
+    {
+     "start": "06/2027",
+     "end": "06/2032",
+     "volume_mtpd": 5,
+     "targetPrice": 975,
+     "pct": 15,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  },
+  "proj_madrid2_sansebastian": {
+   "region": "S. Europe",
+   "eSource": "Offshore Wind",
+   "greenEnergyPct": 94,
+   "certifier": "Bureau Veritas",
+   "bePrice": 750,
+   "available": {
+    "start": "07/2029",
+    "end": "06/2034",
+    "volume_mtpd": 36,
+    "basePrice": 1000,
+    "pct": 86,
+    "status": "Pending Deposit"
+   },
+   "tokenised": {
+    "start": "07/2029",
+    "end": "06/2034",
+    "volume_mtpd": 24,
+    "price": 950,
+    "pct": 67,
+    "status": "Pending"
+   },
+   "inMarket": [
+    {
+     "start": "07/2029",
+     "end": "06/2034",
+     "volume_mtpd": 15,
+     "targetPrice": 1050,
+     "pct": 36,
+     "status": "pending",
+     "counterparty": "RotterdamOfftake4"
+    },
+    {
+     "start": "07/2029",
+     "end": "06/2034",
+     "volume_mtpd": 9,
+     "targetPrice": 1100,
+     "pct": 21,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  },
+  "proj_etf_pecos1": {
+   "region": "N. America",
+   "eSource": "Behind-the-meter Wind",
+   "greenEnergyPct": 100,
+   "certifier": "DNV",
+   "bePrice": 620,
+   "available": {
+    "start": "01/2030",
+    "end": "12/2039",
+    "volume_mtpd": 280,
+    "basePrice": 800,
+    "pct": 85,
+    "status": "Pending Deposit"
+   },
+   "tokenised": {
+    "start": "01/2030",
+    "end": "12/2039",
+    "volume_mtpd": 0,
+    "price": 0,
+    "pct": 0,
+    "status": "Pre-production"
+   },
+   "inMarket": [
+    {
+     "start": "01/2030",
+     "end": "12/2039",
+     "volume_mtpd": 200,
+     "targetPrice": 800,
+     "pct": 61,
+     "status": "sold",
+     "counterparty": "RFOcean"
+    },
+    {
+     "start": "01/2030",
+     "end": "12/2039",
+     "volume_mtpd": 80,
+     "targetPrice": 850,
+     "pct": 24,
+     "status": "open",
+     "counterparty": null
+    }
+   ]
+  }
+ },
+ "input_lines": {
+  "proj_etf_pecos1": [
+   {
+    "feedstock": "Renewable Electricity (BtM)",
+    "supplier": "Behind-the-meter 340 MW Wind Farm",
+    "ratio": 11.5,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 28,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": false,
+    "capacityFactor": 0.42,
+    "firmingCost": 8
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "West Texas Ethanol Co-op",
+    "ratio": 1.46,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 45,
+    "priceUnit": "EUR/MT",
+    "status": "contracted",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Demin Water",
+    "supplier": "Pecos County Water District",
+    "ratio": 9.5,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 1.2,
+    "priceUnit": "EUR/kL",
+    "status": "contracted",
+    "isUtility": true
+   }
+  ],
+  "etfuels_us_tx_rattlesnake_gap": [
+   {
+    "feedstock": "Renewable Electricity (BtM)",
+    "supplier": "Behind-the-meter 500 MW Wind+Solar",
+    "ratio": 11.5,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 30,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": false,
+    "capacityFactor": 0.4,
+    "firmingCost": 10
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "Source TBC (West Texas industrial)",
+    "ratio": 1.46,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 50,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Demin Water",
+    "supplier": "Local water utility",
+    "ratio": 9.5,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 1.5,
+    "priceUnit": "EUR/kL",
+    "status": "planned",
+    "isUtility": true
+   }
+  ],
+  "etfuels_fi_ranua_naataaapa": [
+   {
+    "feedstock": "Renewable Electricity",
+    "supplier": "300 MW Wind PPA (Lapland)",
+    "ratio": 11.5,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 35,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": false,
+    "capacityFactor": 0.38,
+    "firmingCost": 12
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "Finnish forestry/industrial chain",
+    "ratio": 1.46,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 65,
+    "priceUnit": "EUR/MT",
+    "status": "spot",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Demin Water",
+    "supplier": "Ranua municipal water",
+    "ratio": 9.5,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 1.8,
+    "priceUnit": "EUR/kL",
+    "status": "planned",
+    "isUtility": true
+   }
+  ],
+  "etfuels_uk_skyfuel_teesside": [
+   {
+    "feedstock": "Green H₂ (3rd party)",
+    "supplier": "Protium Green H₂ Partnership",
+    "ratio": 0.21,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 5200,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "Teesside industrial capture",
+    "ratio": 1.46,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 85,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "e-Methanol (feed)",
+    "supplier": "ETFuels pipeline (TX/FI)",
+    "ratio": 1,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 800,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Renewable Electricity",
+    "supplier": "UK Grid PPA (REGO-backed)",
+    "ratio": 14,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 72,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": true,
+    "capacityFactor": 0.95,
+    "firmingCost": 0
+   }
+  ],
+  "proj_bremen_h2": [
+   {
+    "feedstock": "Green Electricity",
+    "supplier": "North Sea Offshore Wind PPA",
+    "ratio": 55,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 62,
+    "priceUnit": "EUR/MWh",
+    "status": "contracted",
+    "isUtility": false,
+    "capacityFactor": 0.45,
+    "firmingCost": 5
+   },
+   {
+    "feedstock": "Demin Water",
+    "supplier": "Weserstrom Utilities GmbH",
+    "ratio": 9,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 1.8,
+    "priceUnit": "EUR/kL",
+    "status": "contracted",
+    "isUtility": true
+   }
+  ],
+  "proj_rotterdam_nh3": [
+   {
+    "feedstock": "Renewable Electricity",
+    "supplier": "Maasvlakte Grid PPA",
+    "ratio": 12,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 68,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": false,
+    "capacityFactor": 0.92,
+    "firmingCost": 3
+   },
+   {
+    "feedstock": "Nitrogen (N₂)",
+    "supplier": "Air Liquide Rozenburg (ASU)",
+    "ratio": 0.82,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 180,
+    "priceUnit": "EUR/MT",
+    "status": "contracted",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Process Water",
+    "supplier": "Evides Waterbedrijf",
+    "ratio": 2.5,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 2.1,
+    "priceUnit": "EUR/kL",
+    "status": "contracted",
+    "isUtility": true
+   }
+  ],
+  "proj_sansebastian_emethanol": [
+   {
+    "feedstock": "Green Electricity",
+    "supplier": "Iberdrola Solar PPA",
+    "ratio": 11.5,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 58,
+    "priceUnit": "EUR/MWh",
+    "status": "contracted",
+    "isUtility": false,
+    "capacityFactor": 0.25,
+    "firmingCost": 15
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "Papelera Guipuzcoana (pulp mill)",
+    "ratio": 1.46,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 95,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Demin Water",
+    "supplier": "CAF Water Services",
+    "ratio": 9.5,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 2,
+    "priceUnit": "EUR/kL",
+    "status": "contracted",
+    "isUtility": true
+   }
+  ],
+  "proj_wales_saf": [
+   {
+    "feedstock": "Green Electricity",
+    "supplier": "National Grid Cymru PPA",
+    "ratio": 14,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 72,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": false,
+    "capacityFactor": 0.35,
+    "firmingCost": 10
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "Tata Steel Port Talbot DAC",
+    "ratio": 3.4,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 110,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Process Water",
+    "supplier": "Welsh Water / Dŵr Cymru",
+    "ratio": 12,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 1.9,
+    "priceUnit": "EUR/kL",
+    "status": "planned",
+    "isUtility": true
+   }
+  ],
+  "proj_lehavre_eng": [
+   {
+    "feedstock": "Green Electricity",
+    "supplier": "Normandie Offshore Wind PPA",
+    "ratio": 13,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 55,
+    "priceUnit": "EUR/MWh",
+    "status": "contracted",
+    "isUtility": false,
+    "capacityFactor": 0.48,
+    "firmingCost": 4
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "Carbon Capture Normandie SA",
+    "ratio": 2.9,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 88,
+    "priceUnit": "EUR/MT",
+    "status": "contracted",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Demin Water",
+    "supplier": "Veolia Le Havre",
+    "ratio": 10,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 1.7,
+    "priceUnit": "EUR/kL",
+    "status": "contracted",
+    "isUtility": true
+   }
+  ],
+  "proj_hamburgone_emethanol": [
+   {
+    "feedstock": "Green Electricity",
+    "supplier": "Vattenfall Elbe Wind PPA",
+    "ratio": 11.5,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 62,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": false,
+    "capacityFactor": 0.4,
+    "firmingCost": 8
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "Hamburg Waste-to-Energy Plant",
+    "ratio": 1.46,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 105,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Demin Water",
+    "supplier": "Hamburg Wasser",
+    "ratio": 9.5,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 2.2,
+    "priceUnit": "EUR/kL",
+    "status": "planned",
+    "isUtility": true
+   }
+  ],
+  "proj_madrid2_sansebastian": [
+   {
+    "feedstock": "Green Electricity",
+    "supplier": "Iberdrola Off-grid PPA",
+    "ratio": 11.5,
+    "ratioUnit": "MWh/MT",
+    "unitPrice": 55,
+    "priceUnit": "EUR/MWh",
+    "status": "planned",
+    "isUtility": false,
+    "capacityFactor": 0.3,
+    "firmingCost": 12
+   },
+   {
+    "feedstock": "Biogenic CO₂",
+    "supplier": "ArcelorMittal Gijón (Green Carbon)",
+    "ratio": 1.46,
+    "ratioUnit": "MT/MT",
+    "unitPrice": 92,
+    "priceUnit": "EUR/MT",
+    "status": "planned",
+    "isUtility": false
+   },
+   {
+    "feedstock": "Process Water",
+    "supplier": "Aguas del Añarbe",
+    "ratio": 9.5,
+    "ratioUnit": "kL/MT",
+    "unitPrice": 1.9,
+    "priceUnit": "EUR/kL",
+    "status": "planned",
+    "isUtility": true
+   }
+  ]
+ },
+ "input_classification": {
+  "Renewable Electricity (BtM)": {
+   "certRelevance": [
+    "45V",
+    "RFNBO"
+   ],
+   "capitalRelevance": "BANKABILITY_CRITICAL",
+   "itemType": "Energy / BtM"
+  },
+  "Renewable Electricity": {
+   "certRelevance": [
+    "45V",
+    "RFNBO"
+   ],
+   "capitalRelevance": "BANKABILITY_CRITICAL",
+   "itemType": "Energy / PPA"
+  },
+  "Green Electricity": {
+   "certRelevance": [
+    "45V",
+    "RFNBO"
+   ],
+   "capitalRelevance": "BANKABILITY_CRITICAL",
+   "itemType": "Energy / PPA"
+  },
+  "Biogenic CO₂": {
+   "certRelevance": [
+    "RFNBO",
+    "45V"
+   ],
+   "capitalRelevance": "BANKABILITY_CRITICAL",
+   "itemType": "Carbon source"
+  },
+  "Biogenic CO2": {
+   "certRelevance": [
+    "RFNBO",
+    "45V"
+   ],
+   "capitalRelevance": "BANKABILITY_CRITICAL",
+   "itemType": "Carbon source"
+  },
+  "Nitrogen (N₂)": {
+   "certRelevance": [
+    "NONE"
+   ],
+   "capitalRelevance": "COST_DRIVER",
+   "itemType": "Chemical input"
+  },
+  "Demin Water": {
+   "certRelevance": [
+    "NONE"
+   ],
+   "capitalRelevance": "COST_DRIVER",
+   "itemType": "Utility"
+  },
+  "Process Water": {
+   "certRelevance": [
+    "NONE"
+   ],
+   "capitalRelevance": "COST_DRIVER",
+   "itemType": "Utility"
+  },
+  "Green H₂ (3rd party)": {
+   "certRelevance": [
+    "RFNBO",
+    "45V"
+   ],
+   "capitalRelevance": "BANKABILITY_CRITICAL",
+   "itemType": "3rd-party H₂"
+  },
+  "e-Methanol (feed)": {
+   "certRelevance": [
+    "FUELEU"
+   ],
+   "capitalRelevance": "COST_DRIVER",
+   "itemType": "Intermediate"
+  }
+ }
+}

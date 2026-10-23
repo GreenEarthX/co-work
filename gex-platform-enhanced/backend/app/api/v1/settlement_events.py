@@ -37,10 +37,10 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
 
-from app.core.db_backend import domain_connection, domain_is_postgres
+from app.core.db_backend import domain_connection, domain_is_postgres, require_postgres
 
 router = APIRouter(prefix="/api/v1/settlements", tags=["settlement-events"])
 
@@ -112,6 +112,7 @@ class SettlementResponse(BaseModel):
     version:                int
     created_at:             str
     updated_at:             str
+    correlation_id:         Optional[str] = None
 
 
 class SettlementProjectSummary(BaseModel):
@@ -129,12 +130,10 @@ class SettlementProjectSummary(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_db():
-    # Follows DOMAIN_DB_BACKEND; resolved per request, never at import,
+    # PostgreSQL only (JML, 2026-10-23); resolved per request, never at import,
     # so 044's project-scoped policies see THIS caller's tenant.
+    require_postgres(domain_is_postgres(), "Settlement", "DOMAIN_DB_BACKEND")
     conn = domain_connection()
-    if not domain_is_postgres():
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
     finally:
@@ -142,64 +141,9 @@ def get_db():
 
 
 def init_db():
-    """
-    Create SETTLEMENT_EVENTS table.
-    Call from app/main.py startup alongside other init_db() calls.
-    """
-    if domain_is_postgres():
-        # Migrations 043/044 own these tables and their RLS policies. gex_app
-        # has no CREATE on schema public, so this DDL cannot run there — and
-        # must not: a runtime-created table would carry no policy.
-        return
-    conn = domain_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS settlement_events (
-            settlement_id          TEXT PRIMARY KEY,
-            contract_id            TEXT NOT NULL,
-            project_id             TEXT NOT NULL,
-            token_id               TEXT NOT NULL,
-            counterparty_buyer_id  TEXT NOT NULL,
-            counterparty_seller_id TEXT NOT NULL,
-            settlement_type        TEXT NOT NULL,
-            settlement_status      TEXT NOT NULL DEFAULT 'PENDING',
-            volume_kg              REAL NOT NULL,
-            price_per_kg           REAL NOT NULL,
-            total_amount           REAL NOT NULL,
-            currency               TEXT NOT NULL DEFAULT 'EUR',
-            payment_reference      TEXT,
-            settlement_date        TEXT,
-            matrix_thread_id       TEXT,
-            audit_hash             TEXT NOT NULL,
-            version                INTEGER NOT NULL DEFAULT 1,
-            created_at             TEXT NOT NULL,
-            updated_at             TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_se_contract ON settlement_events(contract_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_se_project ON settlement_events(project_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_se_status ON settlement_events(settlement_status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_se_token ON settlement_events(token_id)")
-
-    # Audit table — append-only
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS settlement_event_log (
-            event_id       TEXT PRIMARY KEY,
-            settlement_id  TEXT NOT NULL,
-            project_id     TEXT NOT NULL,
-            event_type     TEXT NOT NULL,
-            field_changed  TEXT,
-            old_value      TEXT,
-            new_value      TEXT,
-            changed_by     TEXT NOT NULL,
-            justification  TEXT,
-            event_hash     TEXT NOT NULL,
-            prev_hash      TEXT,
-            created_at     TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sel_settlement ON settlement_event_log(settlement_id)")
-    conn.commit()
-    conn.close()
+    """Nothing to create: migrations 043/044 own these tables and their RLS
+    policies on PostgreSQL, the only store (JML, 2026-10-23). Requests refuse in
+    get_db() when the switch is not postgres; startup does not."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -271,6 +215,7 @@ def _row_to_response(row) -> dict:
         "version":                row["version"],
         "created_at":             row["created_at"],
         "updated_at":             row["updated_at"],
+        "correlation_id":         row["correlation_id"] if "correlation_id" in row.keys() else None,
     }
 
 
@@ -278,48 +223,37 @@ def _row_to_response(row) -> dict:
 # ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
 
+class SettlementFromContract(BaseModel):
+    contract_id:     str = Field(..., description="The contract being settled")
+    settlement_type: SettlementType
+    volume_kg:       float = Field(..., gt=0)
+    settlement_date: Optional[str] = None
+    currency:        str = Field(default="EUR")
+
+
+def _market_party(request: Request):
+    from app.core import market_engine as me
+    try:
+        return me.Party.from_payload(getattr(request.state, "user_payload", None) or {})
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
+
+
 @router.post("", response_model=SettlementResponse, status_code=201)
-def create_settlement(s: SettlementCreate, db: Any = Depends(get_db)):
+def create_settlement(s: SettlementFromContract, request: Request):
     """
-    Create a settlement event for a matched contract.
-    Initial status is always PENDING.
-    Fires event: settlement.created
+    Create a settlement for a contract (PENDING). Only the quantity is supplied:
+    token, project, both counterparties, price and total come from the contract,
+    through the market engine (gap register G-02/G-03, 2026-10-23). Until then
+    every field was typed in and nothing checked they belonged together.
     """
-    settlement_id = str(uuid.uuid4())
-    now = _now()
-
-    content = {
-        "settlement_id": settlement_id,
-        "contract_id": s.contract_id,
-        "project_id": s.project_id,
-        "token_id": s.token_id,
-        "volume_kg": s.volume_kg,
-        "total_amount": s.total_amount,
-        "created_at": now,
-    }
-    audit_hash = _hash_settlement(content)
-
-    db.execute("""
-        INSERT INTO settlement_events
-        (settlement_id, contract_id, project_id, token_id,
-         counterparty_buyer_id, counterparty_seller_id,
-         settlement_type, settlement_status, volume_kg, price_per_kg,
-         total_amount, currency, payment_reference, settlement_date,
-         matrix_thread_id, audit_hash, version, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, (
-        settlement_id, s.contract_id, s.project_id, s.token_id,
-        s.counterparty_buyer_id, s.counterparty_seller_id,
-        s.settlement_type.value, SettlementStatus.PENDING.value,
-        s.volume_kg, s.price_per_kg, s.total_amount, s.currency,
-        s.payment_reference, s.settlement_date, s.matrix_thread_id,
-        audit_hash, 1, now, now
-    ))
-    _log_event(db, settlement_id, s.project_id, "settlement.created",
-               s.changed_by, new_val=s.contract_id)
-    db.commit()
-
-    row = db.execute("SELECT * FROM settlement_events WHERE settlement_id=?", (settlement_id,)).fetchone()
+    from app.core import market_engine as me
+    try:
+        row = me.create_settlement(_market_party(request), s.contract_id,
+                                   settlement_type=s.settlement_type.value, volume_kg=s.volume_kg,
+                                   settlement_date=s.settlement_date, currency=s.currency)
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
     return _row_to_response(row)
 
 
@@ -361,46 +295,20 @@ def list_by_project(
 @router.post("/{settlement_id}/confirm", response_model=SettlementResponse)
 def confirm_settlement(
     settlement_id: str,
+    request: Request,
     payment_reference: str = Query(..., description="Bank payment reference"),
-    changed_by: str = Query(...),
-    db: Any = Depends(get_db)
 ):
     """
-    Advance settlement to CONFIRMED. Requires payment_reference.
-    Fires event: settlement.confirmed
+    The seller confirms the payment arrived: CONFIRMED, the token SETTLED and its
+    title passed to the buyer — one step, through the market engine. The actor
+    is the signed-in user; the old free-text `changed_by` is gone.
     """
-    row = db.execute("SELECT * FROM settlement_events WHERE settlement_id=?", (settlement_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, f"Settlement {settlement_id} not found")
-
-    current = SettlementStatus(row["settlement_status"])
-    if SettlementStatus.CONFIRMED not in VALID_TRANSITIONS.get(current, []):
-        raise HTTPException(400,
-            f"Invalid transition: {current.value} -> CONFIRMED. "
-            f"Valid next states: {[s.value for s in VALID_TRANSITIONS.get(current, [])]}"
-        )
-
-    now = _now()
-    new_hash = _hash_settlement({
-        "settlement_id": settlement_id,
-        "status": "CONFIRMED",
-        "payment_reference": payment_reference,
-        "confirmed_at": now,
-    })
-
-    db.execute("""
-        UPDATE settlement_events
-        SET settlement_status=?, payment_reference=?, audit_hash=?,
-            version=version+1, updated_at=?
-        WHERE settlement_id=?
-    """, (SettlementStatus.CONFIRMED.value, payment_reference, new_hash, now, settlement_id))
-
-    _log_event(db, settlement_id, row["project_id"], "settlement.confirmed",
-               changed_by, field="settlement_status",
-               old_val=current.value, new_val=SettlementStatus.CONFIRMED.value)
-    db.commit()
-
-    row = db.execute("SELECT * FROM settlement_events WHERE settlement_id=?", (settlement_id,)).fetchone()
+    from app.core import market_engine as me
+    try:
+        row = me.confirm_settlement(_market_party(request), settlement_id,
+                                    payment_reference=payment_reference)
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
     return _row_to_response(row)
 
 

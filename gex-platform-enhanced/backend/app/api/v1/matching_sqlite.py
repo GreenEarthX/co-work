@@ -3,9 +3,8 @@ Matching Engine API Routes (SQLite)
 Match offers with RFQs and manage buyer requests + mandate-based matching
 """
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-import sqlite3
 import json
 import os
 import uuid
@@ -19,17 +18,13 @@ DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     """
-    Slice-6 connection — SQLite or PostgreSQL by configuration
-    (MARKET_DB_BACKEND). The SQL is unchanged; the shim translates
-    placeholders and sets the RLS tenant context.
+    PostgreSQL only (JML, 2026-10-23): no SQLite fallback. The shim sets the RLS
+    tenant context from the bound caller.
     """
-    from app.core.db_backend import market_connection, market_is_postgres
+    from app.core.db_backend import market_connection, market_is_postgres, require_postgres
 
-    if market_is_postgres():
-        return market_connection()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    require_postgres(market_is_postgres(), "Matching", "MARKET_DB_BACKEND")
+    return market_connection()
 
 # Schemas
 class RFQCreate(BaseModel):
@@ -103,113 +98,47 @@ class MandateMatchResult(BaseModel):
 
 
 # ============================================
-# RFQ ENDPOINTS
+# RFQ ENDPOINTS — through the market engine (core/market_engine.py)
 # ============================================
+# Until 2026-10-23 these wrote a `rfqs` table that existed in neither store, and
+# the matching run read it: every RFQ call and every run failed (gap register
+# G-01). The buyer is the signed-in company; other companies see an RFQ only as
+# an anonymised listing (JML, 2026-10-23).
 
-@router.post("/rfqs", response_model=RFQResponse, status_code=201)
-async def create_rfq(rfq: RFQCreate):
-    """
-    Create Request for Quote (RFQ)
-    """
+def _party(request: Request):
+    from app.core import market_engine as me
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Generate UUID
-        rfq_id = str(uuid.uuid4())
-        
-        # Create RFQ
-        cursor.execute("""
-            INSERT INTO rfqs (
-                id, molecule, volume_mtpd, max_price_eur_kg,
-                delivery_start, delivery_end, location, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            rfq_id,
-            rfq.molecule,
-            rfq.volume_mtpd,
-            rfq.max_price_eur_kg,
-            rfq.delivery_start,
-            rfq.delivery_end,
-            rfq.location,
-            'open'
-        ))
-        
-        conn.commit()
-        
-        # Get created RFQ
-        cursor.execute("SELECT * FROM rfqs WHERE id = ?", (rfq_id,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        if not row:
-            raise HTTPException(status_code=500, detail="Failed to retrieve created RFQ")
-        
-        return {
-            "id": row['id'],
-            "molecule": row['molecule'],
-            "volume_mtpd": row['volume_mtpd'],
-            "max_price_eur_kg": row['max_price_eur_kg'],
-            "delivery_start": row['delivery_start'],
-            "delivery_end": row['delivery_end'],
-            "location": row['location'],
-            "status": row['status'],
-            "created_at": row['created_at'],
-        }
-        
-    except Exception as e:
-        print(f"Error creating RFQ: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create RFQ: {str(e)}")
+        return me.Party.from_payload(getattr(request.state, "user_payload", None) or {})
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
+
+
+def _call(fn, *args, **kwargs):
+    from app.core import market_engine as me
+    try:
+        return fn(*args, **kwargs)
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
+
+
+@router.post("/rfqs", status_code=201)
+async def create_rfq(rfq: RFQCreate, request: Request):
+    from app.core import market_engine as me
+    return _call(me.create_rfq, _party(request), **rfq.model_dump(), status="open")
 
 
 @router.get("/rfqs", response_model=dict)
-async def list_rfqs(
-    molecule: Optional[str] = None,
-    status: Optional[str] = None
-):
-    """
-    List all RFQs with optional filtering
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        query = "SELECT * FROM rfqs WHERE 1=1"
-        params = []
-        
-        if molecule:
-            query += " AND molecule = ?"
-            params.append(molecule)
-        
-        if status:
-            query += " AND status = ?"
-            params.append(status)
-        
-        query += " ORDER BY created_at DESC"
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
-        
-        rfqs = []
-        for row in rows:
-            rfqs.append({
-                "id": row['id'],
-                "molecule": row['molecule'],
-                "volume_mtpd": row['volume_mtpd'],
-                "max_price_eur_kg": row['max_price_eur_kg'],
-                "delivery_start": row['delivery_start'],
-                "delivery_end": row['delivery_end'],
-                "location": row['location'],
-                "status": row['status'],
-                "created_at": row['created_at'],
-            })
-        
-        return {"rfqs": rfqs}
-        
-    except Exception as e:
-        print(f"Error listing RFQs: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list RFQs: {str(e)}")
+async def list_rfqs(request: Request, molecule: Optional[str] = None, status: Optional[str] = None):
+    """Open RFQs as anonymised listings, plus the caller's own in any state."""
+    from app.core import market_engine as me
+    party = _party(request)
+    listed = _call(me.rfq_listings, party, molecule)
+    mine = [r for r in _call(me.my_rfqs, party) if not molecule or r["molecule"] == molecule]
+    seen = {r["id"] for r in mine}
+    rows = mine + [r for r in listed if r["id"] not in seen]
+    if status:
+        rows = [r for r in rows if r.get("status", "open") == status]
+    return {"rfqs": rows}
 
 
 # ============================================
@@ -218,7 +147,11 @@ async def list_rfqs(
 
 def calculate_match_score(offer: dict, rfq: dict) -> int:
     """
-    Calculate match score (0-100) based on compatibility
+    Calculate match score (0-100) based on compatibility.
+
+    The weights below are the scoring METHOD and stay in code (JML, 2026-10-23).
+    The score is information on a bilateral match, never a gate: a party's own
+    proposal is not refused for a low score (market_engine.create_match).
     """
     score = 0
     
@@ -253,237 +186,41 @@ def calculate_match_score(offer: dict, rfq: dict) -> int:
 
 
 @router.post("/run", response_model=dict)
-async def run_matching():
-    """
-    Run matching engine to find offer-RFQ matches
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Get active offers
-        cursor.execute("""
-            SELECT o.*, c.project_name
-            FROM offers o
-            JOIN tokens t ON o.token_id = t.id
-            JOIN capacities c ON t.capacity_id = c.id
-            WHERE o.status = 'active'
-        """)
-        offers = cursor.fetchall()
-        
-        # Get open RFQs
-        cursor.execute("SELECT * FROM rfqs WHERE status = 'open'")
-        rfqs = cursor.fetchall()
-        
-        matches_created = 0
-        
-        # Find matches
-        for offer in offers:
-            for rfq in rfqs:
-                score = calculate_match_score(dict(offer), dict(rfq))
-                
-                # Only create match if score is good enough
-                if score >= 60:
-                    # Check if match already exists
-                    cursor.execute("""
-                        SELECT id FROM matches 
-                        WHERE offer_id = ? AND rfq_id = ?
-                    """, (offer['id'], rfq['id']))
-                    
-                    if not cursor.fetchone():
-                        # Create new match
-                        match_id = str(uuid.uuid4())
-                        match_volume = min(offer['volume_mtpd'], rfq['volume_mtpd'])
-                        
-                        cursor.execute("""
-                            INSERT INTO matches (
-                                id, offer_id, rfq_id, match_score, 
-                                volume_mtpd, price_eur_kg, status
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            match_id,
-                            offer['id'],
-                            rfq['id'],
-                            score,
-                            match_volume,
-                            offer['price_eur_kg'],
-                            'pending'
-                        ))
-                        matches_created += 1
-        
-        conn.commit()
-        conn.close()
-        
-        return {
-            "message": "Matching complete",
-            "matches_created": matches_created,
-            "offers_processed": len(offers),
-            "rfqs_processed": len(rfqs)
-        }
-        
-    except Exception as e:
-        print(f"Error running matching: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to run matching: {str(e)}")
+async def run_matching(request: Request):
+    """Match the caller's open offers and RFQs (GEX: the whole market)."""
+    from app.core import market_engine as me
+    return _call(me.run_matching, _party(request))
 
 
 @router.get("/", response_model=dict)
-async def list_matches(molecule: Optional[str] = None):
-    """
-    List all matches with optional filtering
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        query = """
-            SELECT 
-                m.*,
-                o.molecule as offer_molecule,
-                c.project_name as offer_project,
-                o.delivery_start,
-                o.delivery_end
-            FROM matches m
-            JOIN offers o ON m.offer_id = o.id
-            JOIN tokens t ON o.token_id = t.id
-            JOIN capacities c ON t.capacity_id = c.id
-            WHERE 1=1
-        """
-        params = []
-        
-        if molecule:
-            query += " AND o.molecule = ?"
-            params.append(molecule)
-        
-        query += " ORDER BY m.match_score DESC, m.created_at DESC"
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
-        
-        matches = []
-        for row in rows:
-            matches.append({
-                "id": row['id'],
-                "offer_id": row['offer_id'],
-                "rfq_id": row['rfq_id'],
-                "match_score": row['match_score'],
-                "volume_mtpd": row['volume_mtpd'],
-                "price_eur_kg": row['price_eur_kg'],
-                "status": row['status'],
-                "created_at": row['created_at'],
-                "offer_project": row['offer_project'],
-                "offer_molecule": row['offer_molecule'],
-                "delivery_start": row['delivery_start'],
-                "delivery_end": row['delivery_end'],
-            })
-        
-        return {"matches": matches}
-        
-    except Exception as e:
-        print(f"Error listing matches: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list matches: {str(e)}")
+async def list_matches(request: Request, molecule: Optional[str] = None):
+    """The caller's matches, with the counterparty revealed."""
+    from app.core import market_engine as me
+    rows = _call(me.my_matches, _party(request))
+    return {"matches": [r for r in rows if not molecule or r.get("molecule") == molecule]}
 
 
-@router.get("/{match_id}", response_model=MatchResponse)
-async def get_match(match_id: str):
-    """
-    Get a specific match by ID
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                m.*,
-                o.molecule as offer_molecule,
-                c.project_name as offer_project
-            FROM matches m
-            JOIN offers o ON m.offer_id = o.id
-            JOIN tokens t ON o.token_id = t.id
-            JOIN capacities c ON t.capacity_id = c.id
-            WHERE m.id = ?
-        """, (match_id,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Match not found")
-        
-        return {
-            "id": row['id'],
-            "offer_id": row['offer_id'],
-            "rfq_id": row['rfq_id'],
-            "match_score": row['match_score'],
-            "volume_mtpd": row['volume_mtpd'],
-            "price_eur_kg": row['price_eur_kg'],
-            "status": row['status'],
-            "created_at": row['created_at'],
-            "offer_project": row['offer_project'],
-            "offer_molecule": row['offer_molecule'],
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error getting match: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get match: {str(e)}")
+@router.get("/{match_id}")
+async def get_match(match_id: str, request: Request):
+    from app.core import market_engine as me
+    for r in _call(me.my_matches, _party(request)):
+        if r["id"] == match_id:
+            return r
+    raise HTTPException(status_code=404, detail="Match not found")
 
 
 @router.post("/{match_id}/accept", status_code=200)
-async def accept_match(match_id: str):
-    """
-    Accept a match
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("UPDATE matches SET status = 'accepted' WHERE id = ?", (match_id,))
-
-        if cursor.rowcount == 0:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Match not found")
-
-        conn.commit()
-        conn.close()
-
-        return {"message": "Match accepted", "match_id": match_id}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error accepting match: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to accept match: {str(e)}")
+async def accept_match(match_id: str, request: Request):
+    """The caller's side accepts. Both sides accepted = agreed (JML, 2026-10-23)."""
+    from app.core import market_engine as me
+    return _call(me.accept_match, _party(request), match_id)
 
 
 # ═══════════════════════════════════════════════════════════════
 # MANDATE ENDPOINTS — Buyer-side structured demand matching
 # ═══════════════════════════════════════════════════════════════
 
-def _init_mandates_table():
-    """Create buyer_mandates table if not exists."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS buyer_mandates (
-            mandate_id               TEXT PRIMARY KEY,
-            buyer_id                 TEXT NOT NULL,
-            esg_compliance_level     TEXT NOT NULL DEFAULT 'STANDARD',
-            certification_acceptable TEXT NOT NULL DEFAULT '[]',
-            delivery_basis_acceptable TEXT NOT NULL DEFAULT '[]',
-            price_band_min           REAL NOT NULL DEFAULT 0.0,
-            price_band_max           REAL NOT NULL DEFAULT 999999.0,
-            volume_band_min_kg       REAL NOT NULL DEFAULT 0.0,
-            volume_band_max_kg       REAL NOT NULL DEFAULT 999999999.0,
-            created_at               TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mandate_buyer ON buyer_mandates(buyer_id)")
-    conn.commit()
-    conn.close()
-
-# Ensure table exists on module load
-_init_mandates_table()
+# buyer_mandates is alembic 036's table (PostgreSQL, RLS); no runtime DDL.
 
 
 @router.post("/mandates", response_model=BuyerMandateResponse, status_code=201)

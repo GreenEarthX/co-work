@@ -7,7 +7,6 @@ from typing import List, Optional
 from enum import Enum
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-import sqlite3
 import json
 import hashlib
 import os
@@ -25,17 +24,13 @@ DB_PATH = settings.SQLITE_DB_PATH
 
 def get_db_connection():
     """
-    Slice-6 connection — SQLite or PostgreSQL by configuration
-    (MARKET_DB_BACKEND). The SQL is unchanged; the shim translates
-    placeholders and sets the RLS tenant context.
+    PostgreSQL only (JML, 2026-10-23): no SQLite fallback. The shim sets the RLS
+    tenant context from the bound caller.
     """
-    from app.core.db_backend import market_connection, market_is_postgres
+    from app.core.db_backend import market_connection, market_is_postgres, require_postgres
 
-    if market_is_postgres():
-        return market_connection()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    require_postgres(market_is_postgres(), "Tokens", "MARKET_DB_BACKEND")
+    return market_connection()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -170,21 +165,11 @@ def _ensure_lifecycle_columns(conn) -> None:
     """
     Add the retirement/annulment accountability columns if absent.
 
-    SQLite only — PRAGMA is not PostgreSQL, and on PostgreSQL the schema is
-    owned by alembic (migration 036), which also declares the lifecycle CHECK
-    constraint and the RLS policy. Running DDL from here would bypass both.
+    Retired 2026-10-23: tokens are PostgreSQL only and migration 036 owns the
+    schema, including the lifecycle CHECK constraint and the RLS policy.
     """
-    from app.core.db_backend import market_is_postgres
-
-    if market_is_postgres():
-        return
-    existing = {r["name"] for r in conn.execute("PRAGMA table_info(tokens)").fetchall()}
-    if not existing:
-        return  # table not created yet — creator owns the schema
-    for col, coltype in _LIFECYCLE_COLUMNS.items():
-        if col not in existing:
-            conn.execute(f"ALTER TABLE tokens ADD COLUMN {col} {coltype}")
-    conn.commit()
+    # PostgreSQL only since 2026-10-23: migration 036 owns these columns.
+    return
 
 
 def _compute_provenance_hash(token_id: str, data: dict) -> str:

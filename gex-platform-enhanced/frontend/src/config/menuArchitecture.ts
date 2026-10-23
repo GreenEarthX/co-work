@@ -259,7 +259,15 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT('COMMERCIAL'), TP('BANK')],
         gate_prerequisite: 'G4' },
 
-      { id: 'matching-engine', path: '/matching', label: 'Matching Engine', section: 'NEGOTIATION',
+      // The market (2026-10-23): anonymised listings, the company's own RFQs, and the
+      // counterparty register — all read from PostgreSQL.
+      { id: 'market-listings', path: '/market-discovery', label: 'Market Discovery', section: 'NEGOTIATION',
+        visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
+      { id: 'rfqs', path: '/rfqs', label: 'RFQs', section: 'NEGOTIATION',
+        visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
+      { id: 'counterparty-register', path: '/counterparties', label: 'Counterparties', section: 'NEGOTIATION',
+        visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
+      { id: 'matching-engine', path: '/matching', label: 'Your Matches', section: 'NEGOTIATION',
         visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL')] },
       { id: 'rfq-management', path: '/trader-dashboard', label: 'RFQ Management', section: 'NEGOTIATION',
         visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
