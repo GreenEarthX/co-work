@@ -57,6 +57,7 @@ export function ResidencyPolicies() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ required_jurisdiction: '', storage_zone: '' })
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -66,7 +67,7 @@ export function ResidencyPolicies() {
       setPolicies(pData.policies || [])
       setAuditData(aData)
       setLoading(false)
-    }).catch(() => setLoading(false))
+    }).catch((e) => { setLoadError(e.message); setLoading(false) })
   }, [])
 
   const handleSavePolicy = async (policy: ResidencyPolicy) => {
@@ -102,6 +103,9 @@ export function ResidencyPolicies() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">{loadError}</div>
+      )}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Globe size={22} className="text-emerald-600" />

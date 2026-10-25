@@ -10,7 +10,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useUserRole } from '@/contexts/UserRoleContext'
-import { getProjectById, type RiskFlag } from '@/data/customerProjects'
+import { type RiskFlag } from '@/data/customerProjects'
 
 async function fetchRiskFlags(projectId: string, token: string): Promise<RiskFlag[]> {
   const res = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/risk-flags`, {
@@ -30,7 +30,7 @@ export function useRiskFlags(projectId: string): UseRiskFlagsResult {
   const { authSession, sessionTier } = useUserRole()
   const token = authSession?.token ?? null
 
-  const { data, isError } = useQuery<RiskFlag[]>({
+  const { data } = useQuery<RiskFlag[]>({
     queryKey: ['projects', projectId, 'risk-flags', token],
     queryFn: () => fetchRiskFlags(projectId, token!),
     enabled: !!token && sessionTier === 'authenticated' && !!projectId,
@@ -38,9 +38,7 @@ export function useRiskFlags(projectId: string): UseRiskFlagsResult {
     retry: import.meta.env.DEV ? 0 : 2,
   })
 
-  const staticFlags = getProjectById(projectId)?.bankability.risk_flags ?? []
-  return {
-    flags: data ?? staticFlags,
-    isStaticFallback: !data && (isError || staticFlags.length > 0),
-  }
+  // Server-filtered flags only (project_risk_flag in PostgreSQL, ABAC applied
+  // per caller); no static copy stands in when the server cannot answer.
+  return { flags: data ?? [], isStaticFallback: false }
 }

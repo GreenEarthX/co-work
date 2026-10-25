@@ -29,8 +29,14 @@ logger = logging.getLogger("gex.wae")
 
 _DB_PATH = settings.SQLITE_DB_PATH
 
-def _gov_conn(db_path: str):
+def _gov_conn(db_path: str, company_id: Optional[str] = None):
     """
+    `company_id` (2026-10-25): the CALLER's tenant for reads and writes of
+    approval requests, so RLS (approval_requests: the project's owner and the
+    companies with access) filters them. Omitted, the connection is
+    PLATFORM_ADMIN — for the policy rules, and for a decision step the route
+    has already authorised against a tenant-scoped read.
+
     Slice-6b-4 connection — SQLite or PostgreSQL by configuration
     (GOVERNANCE_DB_BACKEND).
 
@@ -43,7 +49,7 @@ def _gov_conn(db_path: str):
     if governance_is_postgres():
         # Explicit admin: these rules are read WHILE deciding whether an
         # action is permitted, so they cannot be filtered by that decision.
-        return governance_connection(company_id=PLATFORM_ADMIN)
+        return governance_connection(company_id=company_id or PLATFORM_ADMIN)
     import sqlite3 as _s
 
     conn = _s.connect(db_path)
@@ -328,6 +334,7 @@ def evaluate_authorization(
     amount: Optional[float] = None,
     volume: Optional[float] = None,
     db_path: str = _DB_PATH,
+    company_id: Optional[str] = None,
 ) -> AuthorizationDecision:
     """
     Evaluate whether the action can proceed immediately or requires countersignatures.
@@ -381,8 +388,14 @@ def evaluate_authorization(
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(hours=timeout_h)).isoformat()
 
+    if not project_id:
+        # A request with no project is visible to nobody but GEX under RLS.
+        raise ValueError("An action that needs approval must name its project.")
+    # Written as the caller: RLS refuses a request on a project the caller's
+    # company neither owns nor has access to. A failed write is an error — it
+    # used to be logged and a request_id that does not exist returned anyway.
+    con = _gov_conn(db_path, company_id)
     try:
-        con = _gov_conn(db_path)
         cur = con.cursor()
         cur.execute(
             """INSERT INTO approval_requests
@@ -395,9 +408,8 @@ def evaluate_authorization(
              min_approvers, now.isoformat(), expires_at)
         )
         con.commit()
+    finally:
         con.close()
-    except Exception as exc:
-        logger.warning("WAE DB write failed: %s", exc)
 
     logger.info("WAE PENDING: action=%s initiator=%s request_id=%s",
                 action_type, initiator_user_id, request_id)
@@ -441,6 +453,17 @@ def record_decision(
         con.close()
         return {"error": f"Request is already {req['status']}"}
 
+    # Four eyes: the initiator never approves their own request, and nobody
+    # counts twice towards the quorum. Neither was checked before 2026-10-25.
+    if approver_user_id == req["initiator_user_id"]:
+        con.close()
+        return {"error": "The initiator cannot decide their own request.", "code": "SOD_SELF_APPROVAL"}
+    cur.execute("SELECT 1 FROM approval_decisions WHERE request_id = ? AND approver_user_id = ?",
+                (request_id, approver_user_id))
+    if cur.fetchone():
+        con.close()
+        return {"error": "You have already decided this request.", "code": "ALREADY_DECIDED"}
+
     # Insert decision
     decision_id = str(uuid.uuid4())
     cur.execute(
@@ -451,10 +474,10 @@ def record_decision(
 
     # Count approvals
     cur.execute(
-        "SELECT COUNT(*) FROM approval_decisions WHERE request_id = ? AND decision = 'APPROVE'",
+        "SELECT COUNT(*) AS n FROM approval_decisions WHERE request_id = ? AND decision = 'APPROVE'",
         (request_id,)
     )
-    approval_count = cur.fetchone()[0]
+    approval_count = cur.fetchone()["n"]   # by name: PostgreSQL rows are dicts, [0] raised KeyError
     min_approvers = req["min_approvers"]
 
     new_status = req["status"]
@@ -487,11 +510,13 @@ def record_decision(
 
 
 def get_pending_approvals(
-    company_id: Optional[str] = None,
+    company_id: str,
     project_id: Optional[str] = None,
     db_path: str = _DB_PATH,
 ) -> list[dict]:
-    con = _gov_conn(db_path)
+    """Pending requests the caller's company may see (RLS). It used to return
+    every company's, whatever company was named."""
+    con = _gov_conn(db_path, company_id)
     cur = con.cursor()
     if project_id:
         cur.execute(
@@ -510,15 +535,19 @@ def get_pending_approvals(
     return rows
 
 
-def get_request(request_id: str, db_path: str = _DB_PATH) -> Optional[dict]:
-    con = _gov_conn(db_path)
+def get_request(request_id: str, company_id: str, db_path: str = _DB_PATH) -> Optional[dict]:
+    """One request, if the caller's company may see it (RLS); None otherwise."""
+    con = _gov_conn(db_path, company_id)
     cur = con.cursor()
     cur.execute("SELECT * FROM approval_requests WHERE id = ?", (request_id,))
     row = cur.fetchone()
+    con.close()
     if not row:
-        con.close()
         return None
     req = dict(row)
+    # Decisions are GEX-only under RLS; the request was authorised just above.
+    con = _gov_conn(db_path)
+    cur = con.cursor()
     cur.execute("SELECT * FROM approval_decisions WHERE request_id = ? ORDER BY decided_at", (request_id,))
     req["decisions"] = [dict(d) for d in cur.fetchall()]
     con.close()
@@ -527,16 +556,18 @@ def get_request(request_id: str, db_path: str = _DB_PATH) -> Optional[dict]:
     return req
 
 
-def get_audit_trail(resource_id: str, db_path: str = _DB_PATH) -> list[dict]:
-    con = _gov_conn(db_path)
+def get_audit_trail(resource_id: str, company_id: str, db_path: str = _DB_PATH) -> list[dict]:
+    con = _gov_conn(db_path, company_id)
     cur = con.cursor()
     cur.execute(
         "SELECT * FROM approval_requests WHERE resource_id = ? ORDER BY created_at DESC",
         (resource_id,)
     )
+    visible = [dict(r) for r in cur.fetchall()]
+    con.close()
+    con = _gov_conn(db_path)   # decisions: GEX-only under RLS, requests authorised above
     rows = []
-    for req in cur.fetchall():
-        r = dict(req)
+    for r in visible:
         cur2 = con.cursor()
         cur2.execute("SELECT * FROM approval_decisions WHERE request_id = ?", (r["id"],))
         r["decisions"] = [dict(d) for d in cur2.fetchall()]

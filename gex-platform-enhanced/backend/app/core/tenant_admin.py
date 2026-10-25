@@ -1,12 +1,11 @@
 """
-Tenant administration — grant/revoke project access, sync registry, list tenants.
+Tenant administration — grant/revoke project access, list tenants.
 
 All mutations write to PostgreSQL.  RLS is bypassed here because these
 functions run under a service/admin connection (BYPASSRLS role) or with
 company_id = 'PLATFORM_ADMIN'.
 
 CLI usage (from backend/):
-    python -m app.core.tenant_admin sync
     python -m app.core.tenant_admin list-projects --company hamburgone_com
     python -m app.core.tenant_admin grant  --project proj_hamburgone_emethanol --company nordlb --actor COMMERCIAL_BANKER --role MANDATED_LENDER
     python -m app.core.tenant_admin revoke --project proj_hamburgone_emethanol --company nordlb --actor COMMERCIAL_BANKER
@@ -21,7 +20,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
-from app.core.project_registry import PROJECT_ACCESS_PROFILES, company_slug
 
 _engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
 _SessionLocal = sessionmaker(_engine, autocommit=False, autoflush=False)
@@ -35,72 +33,9 @@ def _admin_session() -> Session:
     return db
 
 
-# ── Sync ──────────────────────────────────────────────────────────────────────
-
-def sync_from_registry() -> None:
-    """
-    Upsert tenants, projects, and project_access rows from the static
-    project_registry.py.  Safe to run repeatedly — uses ON CONFLICT DO UPDATE.
-    """
-    db = _admin_session()
-    try:
-        # Collect all company names that appear anywhere in the registry
-        all_companies: dict[str, str] = {}  # company_id -> company_name
-        for profile in PROJECT_ACCESS_PROFILES.values():
-            for name in (profile.owner_company_name, *profile.associated_company_names):
-                cid = company_slug(name)
-                all_companies[cid] = name
-
-        # Upsert tenants
-        for cid, name in all_companies.items():
-            db.execute(text("""
-                INSERT INTO tenants (company_id, company_name, company_type, jurisdiction)
-                VALUES (:cid, :name, 'THIRD_PARTY', 'EU')
-                ON CONFLICT (company_id) DO UPDATE
-                  SET company_name = EXCLUDED.company_name,
-                      updated_at   = now()
-            """), {"cid": cid, "name": name})
-
-        # Upsert projects
-        for project_id, profile in PROJECT_ACCESS_PROFILES.items():
-            db.execute(text("""
-                INSERT INTO projects
-                    (project_id, project_name, owner_tenant_id, molecule, jurisdiction)
-                VALUES (:pid, :pname, :oid, 'H2', :jur)
-                ON CONFLICT (project_id) DO UPDATE
-                  SET project_name    = EXCLUDED.project_name,
-                      owner_tenant_id = EXCLUDED.owner_tenant_id,
-                      jurisdiction    = EXCLUDED.jurisdiction,
-                      updated_at      = now()
-            """), {
-                "pid":   project_id,
-                "pname": profile.project_name,
-                "oid":   profile.owner_company_id,
-                "jur":   profile.jurisdiction,
-            })
-
-            # Owner access row
-            _upsert_access(db, project_id, profile.owner_company_id,
-                           "PRODUCER", "OWNER", profile.owner_company_id)
-
-            # Associated company access rows
-            for name in profile.associated_company_names:
-                cid = company_slug(name)
-                if cid in profile.mandated_lender_ids:
-                    actor, role = "COMMERCIAL_BANKER", "MANDATED_LENDER"
-                elif cid in profile.mandated_insurer_ids:
-                    actor, role = "INSURER", "MANDATED_INSURER"
-                else:
-                    actor, role = "STAKEHOLDER", "STAKEHOLDER"
-                _upsert_access(db, project_id, cid, actor, role, profile.owner_company_id)
-
-        db.commit()
-        print(f"Synced {len(PROJECT_ACCESS_PROFILES)} projects from registry.")
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+# There is no registry to sync from: projects and access live in PostgreSQL only
+# (JML, 2026-10-25). sync_from_registry, which copied the code dictionary into
+# these tables, was removed with that dictionary.
 
 
 def _upsert_access(
@@ -208,8 +143,6 @@ def _cli() -> None:  # pragma: no cover
     parser = argparse.ArgumentParser(description="GEX tenant admin")
     sub = parser.add_subparsers(dest="cmd")
 
-    sub.add_parser("sync", help="Sync tenants/projects from project_registry.py")
-
     lp = sub.add_parser("list-projects", help="List projects visible to a company")
     lp.add_argument("--company", required=True)
 
@@ -230,10 +163,7 @@ def _cli() -> None:  # pragma: no cover
 
     args = parser.parse_args()
 
-    if args.cmd == "sync":
-        sync_from_registry()
-
-    elif args.cmd == "list-projects":
+    if args.cmd == "list-projects":
         rows = list_projects_for_company(args.company)
         for r in rows:
             print(f"  {r['project_id']:40s} {r['actor_type']:20s} {r['access_role']}")

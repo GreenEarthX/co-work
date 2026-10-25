@@ -8,6 +8,10 @@ from typing import Optional
 
 from app.core.deal_killers import DealKillerEngine, KillerSeverity, KillerStatus
 from app.core.project_truth import build_deal_killer_project_data
+# The project's structuring context, from PostgreSQL (404 when not recorded).
+# eligible_instruments used to call this without importing it — NameError, a
+# 500 for every project that the screen swallowed into an empty catalog.
+from app.api.v1.routes_structuring import _get_demo_context
 
 instruments_router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -72,7 +76,6 @@ async def instrument_compatibility(project_id: str):
     registry = get_instrument_registry()
 
     # Import demo context from structuring routes
-    from app.api.v1.routes_structuring import _get_demo_context
     ctx = _get_demo_context(project_id)
 
     stage = ctx["stage"]

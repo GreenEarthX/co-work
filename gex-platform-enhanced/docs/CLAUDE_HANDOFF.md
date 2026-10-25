@@ -2467,6 +2467,160 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     **133** FORCED. **Backend 1088 pass, 18 skip, 0 fail**; frontend 226 pass, 1 FAIL (the
     pre-existing `EconomicsSnapshotPage` refusal test). Backups `…_2254.dump`, `…_2319.dump`.
 
+48. **25 Oct 2026 — JML's decisions; project data out of code (part 1).**
+    - **Spot prices approved, Marketplace records confirmed** ("they will be modified anyway"):
+      migration **067** adds `verified_by` / `verified_at` (set exactly when a record is no
+      longer UNVERIFIED); `backend/scripts/apply_marketplace_decisions_20261025.py` approved the
+      5 `market_spot_price*` rows (registry version 8) and confirmed 8 + 33 + 10 records, all as
+      `jean-marie_greenearthx_com`. Re-run after an Alembic rebuild (after the 10-23 loader).
+    - **Errors cleaned:** `EconomicsSnapshotPage` refusal test narrowed to the page's own notice
+      (the currency selector legitimately reports the same failure); the frontend suite is
+      **227/227**. Unknown or retired addresses now redirect to `/` (catch-all route).
+    - **Project data moved to PostgreSQL** (PostgreSQL the reference where it holds a value):
+      `move_project_registry_20261025.py` (7 countries into `projects.country`; Pecos I's ING
+      Capital, BNP Paribas CIB, Maersk Decarbonization as THIRD_PARTY tenants + STAKEHOLDER
+      access) and, after migration **068** (`project_profile` jsonb, `project_risk_flag`),
+      `move_project_profiles_20261025.py` (headline columns filled where NULL; 12 profiles; 15
+      flags; 7 `project_context` rows from `PROJECT_PHYSICAL`; the one
+      `project_profile_intelligence` record). Both idempotent; re-run after a rebuild.
+      **Deleted from code:** frontend `CUSTOMER_PROJECTS` (now a TEST fixture in
+      `src/test/fixtures/` only), `useCustomerProjects`, the static fallback in
+      `useVisibleProjects` (fails closed), `DEFAULT_PROJECT_ID`; backend
+      `PROJECT_ACCESS_PROFILES`, `PROJECT_PHYSICAL`, `_PROJECT_META`, `_PROJECT_PROFILE_INTELLIGENCE`,
+      `FALLBACK_PROJECT_META` (with its SQLite `capacities` read and invented capex/jurisdiction
+      defaults — eligible instruments now return none when a fact is unrecorded), `RISK_FLAGS`,
+      `tenant_admin.sync_from_registry`. Reviewers (`access_role = REVIEWER`) are not stakeholders.
+      **PostgreSQL kept over the file — please check:** status of Bremen H2 and San Sebastián
+      (file: construction) and Le Havre (file: operating) are `development` in PostgreSQL, which
+      is also the column default; Madrid2's name without the accent.
+    - **Still in code (part 2, next):** `routes_ciso.py` (`_COMPANY_PROJECT_IDS`, `GEX_PROJECTS`,
+      user lists per company), `project_truth.PROJECT_TRUTH`, `routes_structuring.DEMO_CONTEXTS`,
+      `routes_finance_model._DRAWDOWN_BY_PROJECT`, `adjacency.MOCK_PROJECTS`, `PROJECT_ID_ALIASES`.
+      Then trading-book M2–M6, then the remaining SQLite paths.
+    Tests: `test_project_records.py` (6, two source guards negative-verified), two
+    `test_projects_canonical.py` tests re-expressed for one source. Head **068**, **142** tables,
+    **135** FORCED. **Backend 1094 pass, 18 skip, 0 fail; frontend 227/227.** Backups
+    `…_10-25_1624`, `_1628`, `_1632`. Not synced to `co-work`.
+
+49. **25 Oct 2026 — project data out of code, part 2 (backend complete).** Migration **069**:
+    `project_dataset` ((project_id, kind) → jsonb, UNVERIFIED; kinds deal_inputs,
+    task_router_inputs, structuring_context, drawdown_layer, adjacency_profile) and
+    `project_id_alias`. `backend/scripts/move_project_datasets_20261025.py` loaded 20 datasets and
+    2 aliases verbatim (re-run after an Alembic rebuild). **Deleted from code, with their
+    defaults:** `PROJECT_TRUTH` + `DEFAULT_PROJECT_TRUTH` (invented deal-killer / task-router
+    inputs applied to EVERY unknown project), `routes_structuring.DEMO_CONTEXTS` + `_DEFAULT_CTX`
+    (a non-existent "Breizh SAF" answering for every project), `routes_finance_model.
+    _DRAWDOWN_BY_PROJECT` + `_DRAWDOWN_DEFAULT`, `adjacency.MOCK_PROJECTS` (and its eMeOH / US /
+    ISCC_EU fallback; its SQLite `projects` reads now read PostgreSQL), and `PROJECT_ID_ALIASES`
+    (two copies). Unrecorded now means: deal-killers all active (the engine fails closed),
+    task-router steps not done, structuring / instruments 404
+    `STRUCTURING_CONTEXT_NOT_RECORDED`, drawdowns empty with status NOT_RECORDED.
+    **Found and fixed:** `instruments/eligible` raised NameError — a 500 for EVERY project — which
+    the screen had swallowed into an empty catalog. Five finance screens (Gap analysis,
+    Structuring timeline, Risk allocation, Package builder, Instrument catalog) were hard-wired to
+    `proj_bremen_h2` and fetched without the bearer token; they now use the selected project
+    through `features/finance/useProjectResource.ts` and show the server's refusal.
+    **Projects with recorded structuring context: Bremen H2, Le Havre e-NG, Wales SAF only**;
+    deal / task inputs for the 7 seeded projects; drawdowns for Le Havre and Bremen. All
+    UNVERIFIED — JML to confirm or correct.
+    **Still in code — the FRONTEND (part 3):** CFOReport portfolio figures, ProjectTimeline /
+    DataRoom / TermSheetTracker per-project branches, ApprovalQueuePage DEMO_REQUESTS,
+    TransferReadiness TRANSFER_DATA and InsuranceSchedule SCHEDULE_DATA (each defaulting to Wales
+    SAF), PlantDataDashboard / CommitmentSigning "Breizh SAF" fallbacks, DrawdownTimeline and
+    MoleculeLineage mocks, PlantBuilder's Pecos branch, InstrumentCompatibility's Bremen; and the
+    CISO workspace (backend `routes_ciso.py` rosters, generated access events, invented compliance
+    scores, barriers, gateway fallback; company from a header defaulting to bp_global_energy; an
+    attribute PATCH that saves nothing) with its 8 screens.
+    Tests: `test_project_records.py` now 10 (guard extended to 14 removed names, negative-
+    verified). Head **069**, **144** tables, **137** FORCED. **Backend 1098 pass, 18 skip, 0 fail;
+    frontend 227/227.** Backup `…_10-25_1659`. Not synced to `co-work`.
+
+50. **25 Oct 2026 — the CISO workspace serves real data (JML: "replace the CISO demo with real
+    data").** Migration **070** adds `information_barrier` (company-owned, FORCED RLS: the company
+    and GEX only). `backend/app/api/v1/routes_ciso.py` rewritten: the four invented rosters, the
+    random access-event generator, invented ISO 27001 / SOC 2 scores, sample barriers and
+    residency rows, and the `bp_global_energy` default are gone. Now:
+    - **company** = the token's. GEX staff (platform admin) may open a client with header
+      **`x-ciso-company`** — not `x-demo-company`, which the frontend fetch bridge stamps on
+      every request as a slug of the company NAME (hyphens) and would have refused every CISO.
+    - **users / overview** from `auth_users`, `auth_user_project_roles`, projects; **access log**
+      = `auth_login_history` sign-ins (access decisions are not recorded — the response says so);
+      **MFA, security score, compliance** = not recorded (null / `recorded: false`); **policy
+      matrix** = `abac.GATE_VISIBILITY` live; **gateways** filtered to the company's projects
+      (it returned every company's); **residency audit** no longer reports the drpl placeholder
+      (`eu-west-1`, COMPLIANT, sample per-company defaults) — `storage_checked: false`.
+    - **attribute PATCH writes `auth_users`, GEX staff only** (403 `GEX_ADMINISTERS_ACCOUNTS`
+      otherwise), recorded in the event ledger as `account.attributes_changed`; project roles
+      (appointments) and certifications (no store) → 422. It used to save nothing.
+    - new `GET /ciso/companies` (staff: all tenants; others: own).
+    Screens: `CISODashboardPage`, `ClientCISODashboard` (1,425 → ~470 lines, every demo
+    fallback removed), `ABACManagementPage` (no invented NDA partners or certifications, roles
+    read-only, gates from the server, refusals shown; the guest-policy panel that saved only to
+    localStorage removed), `ComplianceReportingPage` (no default score 74), `SecurityMonitoring`,
+    `BarrierManagement`, `ResidencyPolicies`, `GatewayStatus` (errors shown), shared
+    `features/ciso/cisoApi.ts`. Verified in the browser as Lisa Friedrich (HamburgOne): 3 real
+    accounts, KYC shown as the DB's `SEED`, 30 real sign-ins, other company refused, save refused
+    with the server's message.
+    Tests: `test_ciso_real_data_pg.py` (12, on `pg_store`) replaces `test_ciso_seed_provenance.py`
+    (it asserted the seeded behaviour). Company check, admin-only write, the AST guard and the
+    screens guard all negative-verified.
+    **Not fixed, found on the way:** `components/CISOGate.tsx` is a client-side password
+    (`Enter-123` default) — not a control; `/approvals/pending` and `/commitments/project/{id}`
+    take the company from `x-demo-company` / the query and do no caller check; `core/drpl.py`
+    `DEFAULT_POLICIES` enforces residency defaults for two sample companies (`bp_global_energy`,
+    `totsa_total_energy`); `auth_login_history` timestamps are text (ordered as text).
+    Head **070**, **145** tables, **138** FORCED. **Backend 1102 pass, 18 skip, 0 fail; frontend 227/227.** Not synced to `co-work`. Backup `…_10-25_1717`.
+
+51. **25 Oct 2026 — three fixes, and project data out of code part 3 (the frontend).** JML: "fix
+    first and do the part".
+    **Fixes.** (1) `components/CISOGate.tsx` deleted: it compared a password held in the bundle
+    (`Enter-123`). The CISO menu now follows the sign-in; the server decides (own company; writes
+    EXECUTIVE or GEX staff). (2) **Approvals (WAE) and commitments (CSS) act as the signed-in
+    account.** Before: initiator/approver/signer — user AND company — came from `x-demo-user` or
+    the body, so anyone could approve or sign in anyone's name; the initiator could approve their
+    own request, and twice; `/approvals/pending` returned every company's requests; commitment
+    records were readable by anyone. Now identity is the token's; requests and records are read
+    and written in the caller's tenant (RLS); a decision must come from the initiator's company,
+    not the initiator, once (`SOD_SELF_APPROVAL`, `ALREADY_DECIDED`); a countersignature from the
+    other party (`SAME_COMPANY`); a signature naming an approval needs it APPROVED for the same
+    project and action, and its approvers come from the recorded decisions. Also found:
+    `record_decision` read `fetchone()[0]` — a KeyError on PostgreSQL, so **no decision had ever
+    been recordable there**; WAE and CSS writes swallowed failures and returned ids that did not
+    exist (now raise). Screens: ApprovalQueuePage (read `data.requests`, the server answers
+    `items` — always empty — and fell back to three invented requests), CommitmentSigning (typed-in
+    signer, prefilled `usr_bp_01` / `bp_global_energy` / `proj_breizh_saf`), CommitmentVerifier
+    (typed-in counterparty), ApprovalTrail (invented trail on failure). (3) `core/drpl.py`
+    `DEFAULT_POLICIES` (sample companies) and the `get_residency_audit` placeholder (`eu-west-1`,
+    COMPLIANT) removed; the CISO route uses it again. Tests `test_governance_identity_pg.py` (8);
+    self-approval and tenant scoping negative-verified.
+    **Part 3.** Migration **071** widens `project_dataset.kind` with 16 screen kinds;
+    `GET /api/v1/projects/{id}/datasets/{kind}` serves them in the caller's tenant (404
+    `NOT_RECORDED`). `scripts/move_frontend_datasets_20261025.py` loaded **54** datasets,
+    UNVERIFIED, from `scripts/data/frontend_datasets_20261025.json` (extracted verbatim by
+    `extract_frontend_datasets_20261025.cjs`; the screens no longer hold the constants, so a re-run
+    needs `SRC_ROOT` at a pre-move copy — co-work 5da95a7 was used). Notes it printed: capital stack
+    held both an alias and the current id twice (current kept); `proj_helios_solar` is no project;
+    every `default` entry not moved; DFI had only a default (nothing moved). Screens on datasets:
+    BankersSnapshot, CapitalStack, CertReadiness (+45V), OfftakeQuality, InsuranceSchedule,
+    TransferReadiness (both defaulted to Wales SAF), ICPackBuilder (and a real SHA-256 pack hash —
+    it was hex generated from the project id), SpendWaveView, DrawdownTimeline (+milestones; axis
+    from the cells), TermSheetTracker, ProjectTimeline, PlantBuilder (Pecos preset as
+    `plant_builder_preset`). Rewritten on real stores: DemandPipeline (invented volumes/prices/
+    coverage → recorded buyers + G4), DFIDashboard (one invented list for every project →
+    `/dfi-criteria`), DataRoom (~40 invented documents with fake hashes and Math.random statuses →
+    `evidence_documents`), CFOReport (fixed sample → visible projects), MoleculeLineage (one invented
+    financing stack for every project → the recorded capital stack; no decomposition without one).
+    Fallbacks removed: DealKillerBanner, InstrumentCompatibility (Bremen), PlantDataDashboard (Breizh
+    + backend `/plant-data/demo` deleted), SettlementPage (RANDOM delivered volumes, 99.97 % purity),
+    AdjacencyCard (random proximity, unused), OwnershipRolesPanel (five invented people seeded into
+    localStorage; purged where present). Backend: `/plant-builder/breizh-reference` deleted,
+    `/risk-pricing/layer-wacc` now requires the layers (it priced invented Breizh layers), the
+    seeded `gw-breizh-001` gateway row deleted. Tests `test_frontend_datasets_pg.py` (5; tenant read
+    and the screen guard negative-verified). Head **071**, 145 tables, 138 FORCED. **Backend 1115 pass, 18 skip, 0 fail; frontend 227/227.** Not synced to `co-work`.
+    **Still open, not done here:** the LoginPage lists demo accounts with their shared password in
+    the bundle; 16 kinds of UNVERIFIED datasets await JML's confirmation; subsidy and insurance inputs
+    to the price decomposition are not recorded anywhere (MoleculeLineage now sends none).
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
@@ -2580,6 +2734,11 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 ---
 
 ## 10. Current task
+
+**2026-10-25:** spot prices approved, Marketplace records confirmed, errors cleaned; project data
+parts 1–2 moved to PostgreSQL — the backend holds no per-project data except the CISO workspace
+(§8 items 48–49). **Next: part 3, the frontend's own per-project data and the CISO workspace**,
+then trading-book M2–M6, then retiring the remaining SQLite paths.
 
 **2026-10-23 (late):** pre-push audit done (§8 item 47): Marketplace data moved to PostgreSQL
 UNVERIFIED (066), placeholders removed, Counterparties built. **Next: project data out of code**

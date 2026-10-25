@@ -1,53 +1,45 @@
 """
-GEX Platform — CISO Workspace API
-===================================
-Endpoints for client-company Chief Information Security Officers.
-Each client's CISO can:
-  • View their organisation's users and ABAC attributes
-  • Update user clearance levels, actor-type assignments and NDA partners
-  • Monitor real-time ABAC access events (ALLOW / DENY feed)
-  • View compliance posture (ISO 27001, SOC 2, GDPR, ABAC phases)
-  • Run policy simulations to preview access decisions
+GEX Platform — CISO Workspace API (/api/v1/ciso)
+================================================
+A client company's CISO sees its own organisation's security posture.
 
-Demo mode: company is resolved from the `x-demo-company` request header
-(default: "bp_global_energy").  In production this comes from the JWT claim.
+REAL DATA ONLY (JML, 2026-10-25). Until then this module served a seeded demo:
+invented user rosters (BP, HamburgOne, NordLB, BremenThree), a randomly
+generated access-event feed, invented ISO 27001 / SOC 2 scores, sample barriers,
+residency and gateway fallbacks — and it took the company from a request header
+defaulting to "bp_global_energy", and an attribute PATCH that saved nothing.
+Now every figure comes from PostgreSQL, or says it is not recorded:
 
-THE DATA IN THIS MODULE IS SEEDED. ALL OF IT.
----------------------------------------------
-The user rosters (`_BP_USERS`, `_HAMBURGONE_USERS`, `_NORDLB_USERS`,
-`_BREMENTHREE_USERS`), the information barriers, the residency policies and the
-access-event feed are invented. The people do not exist; neither do their S&P
-credit ratings, their ISO 27001 certifications or their KYC checks.
+  users / projects   auth_users, auth_user_project_roles, projects + project_access
+  access log         auth_login_history — real sign-in attempts. Access DECISIONS
+                     (ABAC allow/deny) are not recorded anywhere yet.
+  compliance         not recorded: no certification store exists
+  MFA                not recorded: accounts carry no MFA attribute
+  barriers           information_barrier (alembic 070)
+  residency          data_residency_policies through core/drpl (no fallback)
+  gateways           core/ot_boundary (no fallback)
+  policy matrix      the live rule, app.core.abac.GATE_VISIBILITY
 
-Seeding a pre-production platform with plausible values is deliberate and
-useful — it is how a prospect sees their own shape of problem, and these values
-will be replaced by OSINT, open-source publications, the geomap and finally the
-client's own input. What is NOT acceptable is seeded data that cannot be told
-apart from observed data: 125 fabricated `bankability_evidence` rows once
-carried status VERIFIED and fed a risk classification indistinguishable from a
-real one.
-
-So every response from this module is stamped `provenance: "SEED"` by
-`_seeded()`, and every roster record is stamped by `_get_company_data()`. The
-stamp is applied WHERE THE DATA IS SERVED rather than typed into each literal,
-so a new fabricated record cannot be added without inheriting it.
+The company is the signed-in account's. GEX staff (platform admin) may look at
+a client by naming it in the x-ciso-company header (not x-demo-company, which the frontend fetch bridge stamps on every request); anyone else naming another
+company is refused. Attribute changes are account administration, which is GEX's
+(accounts are vetted, not self-served): they are written to auth_users by GEX
+staff only and recorded in the event ledger.
 """
-
 from __future__ import annotations
 
-import random
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
-# Security extension imports (Domain 3, 4, 5)
+from app.core.abac import ActorType, GATE_VISIBILITY
+
 try:
     from app.core.drpl import (
-        check_residency, get_policies as drpl_get_policies,
-        upsert_policy as drpl_upsert_policy, get_residency_audit, init_drpl_db,
-        DataCategory,
+        get_policies as drpl_get_policies, get_residency_audit, upsert_policy as drpl_upsert_policy, init_drpl_db,
     )
     init_drpl_db()
     HAS_DRPL = True
@@ -63,872 +55,325 @@ except Exception:
 
 router = APIRouter()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Reference data
-# ─────────────────────────────────────────────────────────────────────────────
-
-ACTOR_TYPES = [
-    "PRODUCER", "OFFTAKER", "COMMERCIAL_BANKER", "DFI", "INSURER",
-    "REGULATOR", "GOV_AGENCY", "CERTIFIER", "EPC_CONTRACTOR",
-    "LOGISTICS_OPERATOR", "TECHNOLOGY_PROVIDER", "EXECUTIVE",
-]
-
+# ── Vocabulary of the access rules (rules live in code; data does not) ──────
+ACTOR_TYPES = [a.value for a in ActorType]
 CAPABILITIES = ["OFFTAKE", "PRODUCE", "SELL", "TRADE", "CERTIFY", "FINANCE", "INSURE"]
-
 CLEARANCE_LEVELS = ["STANDARD", "CONFIDENTIAL", "RESTRICTED"]
-
-CERTIFICATIONS = ["ISO_27001", "SOC2_TYPE_II", "GDPR_DPO", "ISO_14064", "RED_III"]
-
 CREDIT_RATINGS = [
-    "NR", "D", "C", "CC",
-    "CCC-", "CCC", "CCC+",
-    "B-", "B", "B+",
-    "BB-", "BB", "BB+",
-    "BBB-", "BBB", "BBB+",
-    "A-", "A", "A+",
-    "AA-", "AA", "AA+",
-    "AAA",
+    "NR", "D", "C", "CC", "CCC-", "CCC", "CCC+", "B-", "B", "B+", "BB-", "BB", "BB+",
+    "BBB-", "BBB", "BBB+", "A-", "A", "A+", "AA-", "AA", "AA+", "AAA",
     "GEX-1", "GEX-2", "GEX-3", "GEX-4", "GEX-5",
 ]
-
-GEX_PROJECTS = [
-    {"id": "proj_bremen_h2",              "name": "Bremen Green Hydrogen Plant",     "molecule": "H2",        "location": "Bremen, DE"},
-    {"id": "proj_rotterdam_nh3",          "name": "Rotterdam Green Ammonia",         "molecule": "NH3",       "location": "Rotterdam, NL"},
-    {"id": "proj_sansebastian_emethanol", "name": "Project Helios e-Methanol",       "molecule": "e-Methanol","location": "San Sebastián, ES"},
-    {"id": "proj_wales_saf",              "name": "Celtic Green SAF Complex",        "molecule": "SAF",       "location": "Neath Port Talbot, GB"},
-    {"id": "proj_lehavre_eng",            "name": "Le Havre e-Gas Hub",              "molecule": "e-NG",      "location": "Le Havre, FR"},
-    {"id": "proj_hamburgone_emethanol",   "name": "HamburgOne e-Methanol Plant",     "molecule": "e-Methanol","location": "Hamburg, DE"},
-    {"id": "proj_madrid2_sansebastian",   "name": "Madrid2 San-Sebastián e-Methanol","molecule": "e-Methanol","location": "San Sebastián, ES"},
-]
-
-# Projects visible per company (owner + associated)
-_COMPANY_PROJECT_IDS: dict[str, list[str]] = {
-    "bp_global_energy":   ["proj_bremen_h2", "proj_rotterdam_nh3", "proj_sansebastian_emethanol",
-                           "proj_wales_saf", "proj_lehavre_eng"],
-    "hamburgone_com":     ["proj_hamburgone_emethanol"],
-    "nordlb":             ["proj_hamburgone_emethanol", "proj_madrid2_sansebastian"],
-    "brementhree_ag":     ["proj_hamburgone_emethanol"],
-    "heliosnord_gmbh":    ["proj_bremen_h2"],
-    "allianz":            ["proj_bremen_h2", "proj_sansebastian_emethanol",
-                           "proj_lehavre_eng", "proj_hamburgone_emethanol"],
-    "zurich_versicherung_ag": ["proj_rotterdam_nh3", "proj_sansebastian_emethanol",
-                               "proj_wales_saf", "proj_lehavre_eng"],
-    "siemens_energy":     ["proj_bremen_h2", "proj_hamburgone_emethanol"],
-    "abn_amro":           ["proj_madrid2_sansebastian"],
-}
-
-# Simulated users for the demo company
-_BP_USERS = [
-    {
-        "user_id": "usr_bp_01",
-        "name": "Sophie Hartmann",
-        "email": "s.hartmann@bp-energy.com",
-        "role": "Head of Trading — Green Fuels",
-        "clearance_level": "CONFIDENTIAL",
-        "actor_type_per_project": {
-            "proj_bremen_h2": ["OFFTAKER", "PRODUCER"],
-            "proj_rotterdam_nh3": ["OFFTAKER"],
-            "proj_lehavre_eng": ["OFFTAKER"],
-        },
-        "capabilities": ["OFFTAKE", "PRODUCE", "SELL", "TRADE"],
-        "credit_rating": "A",
-        "credit_rating_source": "S&P",
-        "export_licenses": ["DE", "NL", "FR", "GB"],
-        "token_ready": True,
-        "transformation_license": True,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin", "proj_bremen_operator"],
-        "certifications": ["ISO_27001"],
-        "last_active": "2026-03-16T08:14:22Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-    {
-        "user_id": "usr_bp_02",
-        "name": "Liam Donovan",
-        "email": "l.donovan@bp-energy.com",
-        "role": "Project Finance Manager",
-        "clearance_level": "RESTRICTED",
-        "actor_type_per_project": {
-            "proj_wales_saf": ["COMMERCIAL_BANKER"],
-            "proj_sansebastian_emethanol": ["DFI"],
-        },
-        "capabilities": ["FINANCE"],
-        "credit_rating": "AA-",
-        "credit_rating_source": "S&P",
-        "export_licenses": [],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin", "proj_wales_operator", "proj_helios_operator"],
-        "certifications": ["ISO_27001", "SOC2_TYPE_II"],
-        "last_active": "2026-03-15T17:45:01Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-    {
-        "user_id": "usr_bp_03",
-        "name": "Priya Nair",
-        "email": "p.nair@bp-energy.com",
-        "role": "Regulatory Affairs Specialist",
-        "clearance_level": "STANDARD",
-        "actor_type_per_project": {
-            "proj_bremen_h2": ["REGULATOR"],
-            "proj_sansebastian_emethanol": ["CERTIFIER"],
-        },
-        "capabilities": ["CERTIFY"],
-        "credit_rating": "NR",
-        "credit_rating_source": "GEX",
-        "export_licenses": [],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin"],
-        "certifications": ["ISO_14064", "RED_III"],
-        "last_active": "2026-03-16T09:02:55Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": False,
-    },
-    {
-        "user_id": "usr_bp_04",
-        "name": "Marcus Johansson",
-        "email": "m.johansson@bp-energy.com",
-        "role": "SAF Production Lead",
-        "clearance_level": "CONFIDENTIAL",
-        "actor_type_per_project": {
-            "proj_wales_saf": ["PRODUCER"],
-            "proj_lehavre_eng": ["PRODUCER"],
-        },
-        "capabilities": ["PRODUCE", "SELL"],
-        "credit_rating": "A",
-        "credit_rating_source": "S&P",
-        "export_licenses": ["GB", "FR"],
-        "token_ready": True,
-        "transformation_license": True,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin", "proj_wales_operator"],
-        "certifications": ["ISO_14064"],
-        "last_active": "2026-03-14T11:30:00Z",
-        "kyc_status": "PENDING",
-        "mfa_enabled": True,
-    },
-    {
-        "user_id": "usr_bp_05",
-        "name": "Aisha Al-Farsi",
-        "email": "a.alfarsi@bp-energy.com",
-        "role": "IT Security Analyst",
-        "clearance_level": "RESTRICTED",
-        "actor_type_per_project": {},
-        "capabilities": [],
-        "credit_rating": "NR",
-        "credit_rating_source": "GEX",
-        "export_licenses": [],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin"],
-        "certifications": ["ISO_27001", "SOC2_TYPE_II", "GDPR_DPO"],
-        "last_active": "2026-03-16T10:00:00Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-]
-
-_HAMBURGONE_USERS = [
-    {
-        "user_id": "usr_h1_01",
-        "name": "Lisa Friedrich",
-        "email": "l.friedrich@hamburgone.com",
-        "role": "CEO / CFO",
-        "clearance_level": "RESTRICTED",
-        "actor_type_per_project": {
-            "proj_hamburgone_emethanol": ["PRODUCER", "EXECUTIVE"],
-        },
-        "capabilities": ["PRODUCE", "FINANCE"],
-        "credit_rating": "A-",
-        "credit_rating_source": "GEX",
-        "export_licenses": ["DE"],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
-        "certifications": ["ISO_27001"],
-        "last_active": "2026-03-28T09:15:00Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-    {
-        "user_id": "usr_h1_02",
-        "name": "Mark Puntz",
-        "email": "m.puntz@hamburgone.com",
-        "role": "Chief Engineer",
-        "clearance_level": "CONFIDENTIAL",
-        "actor_type_per_project": {
-            "proj_hamburgone_emethanol": ["EPC_CONTRACTOR"],
-        },
-        "capabilities": ["PRODUCE"],
-        "credit_rating": "NR",
-        "credit_rating_source": "GEX",
-        "export_licenses": [],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin"],
-        "certifications": ["ISO_14064"],
-        "last_active": "2026-03-27T14:30:00Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-    {
-        "user_id": "usr_h1_03",
-        "name": "Lucie Mertz",
-        "email": "l.mertz@hamburgone.com",
-        "role": "CCO",
-        "clearance_level": "CONFIDENTIAL",
-        "actor_type_per_project": {
-            "proj_hamburgone_emethanol": ["PRODUCER"],
-        },
-        "capabilities": ["PRODUCE", "SELL"],
-        "credit_rating": "NR",
-        "credit_rating_source": "GEX",
-        "export_licenses": ["DE"],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
-        "certifications": [],
-        "last_active": "2026-03-29T11:00:00Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": False,
-    },
-    {
-        "user_id": "usr_h1_04",
-        "name": "Frank Sabak",
-        "email": "f.sabak@hamburgone.com",
-        "role": "IT Security / CISO",
-        "clearance_level": "CONFIDENTIAL",
-        "actor_type_per_project": {
-            "proj_hamburgone_emethanol": ["PRODUCER"],
-        },
-        "capabilities": [],
-        "credit_rating": "NR",
-        "credit_rating_source": "GEX",
-        "export_licenses": [],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin"],
-        "certifications": ["ISO_27001", "GDPR_DPO"],
-        "last_active": "2026-03-30T08:00:00Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-]
-
-_NORDLB_USERS = [
-    {
-        "user_id": "usr_nordlb_01",
-        "name": "Henrik Vost",
-        "email": "h.vost@nordlb.de",
-        "role": "Head of Structured Lending",
-        "clearance_level": "CONFIDENTIAL",
-        "actor_type_per_project": {
-            "proj_hamburgone_emethanol": ["COMMERCIAL_BANKER", "DFI"],
-            "proj_madrid2_sansebastian": ["COMMERCIAL_BANKER"],
-        },
-        "capabilities": ["FINANCE"],
-        "credit_rating": "AA",
-        "credit_rating_source": "S&P",
-        "export_licenses": ["DE", "ES"],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
-        "certifications": ["ISO_27001", "SOC2_TYPE_II"],
-        "last_active": "2026-03-29T16:45:00Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-]
-
-_BREMENTHREE_USERS = [
-    {
-        "user_id": "usr_bt_01",
-        "name": "Kai Bergmann",
-        "email": "k.bergmann@brementhree.de",
-        "role": "Head of Procurement — Green Fuels",
-        "clearance_level": "CONFIDENTIAL",
-        "actor_type_per_project": {
-            "proj_hamburgone_emethanol": ["OFFTAKER"],
-        },
-        "capabilities": ["OFFTAKE"],
-        "credit_rating": "BBB+",
-        "credit_rating_source": "S&P",
-        "export_licenses": [],
-        "token_ready": False,
-        "transformation_license": False,
-        "aggregation_limit_mt": None,
-        "nda_signed_with": ["GreenEarthX_Admin", "proj_hamburgone_operator"],
-        "certifications": [],
-        "last_active": "2026-03-25T10:30:00Z",
-        "kyc_status": "VERIFIED",
-        "mfa_enabled": True,
-    },
-]
-
-# ── Company registry ──────────────────────────────────────────────────────────
-
-_COMPANY_DISPLAY_NAMES: dict[str, str] = {
-    "bp_global_energy":       "BP Global Energy",
-    "hamburgone_com":         "HamburgOne.com",
-    "nordlb":                 "NordLB",
-    "brementhree_ag":         "BremenThree AG",
-    "heliosnord_gmbh":        "HeliosNord GmbH",
-    "allianz":                "Allianz",
-    "zurich_versicherung_ag": "Zürich Versicherung AG",
-    "siemens_energy":         "Siemens Energy",
-    "abn_amro":               "ABN-AMRO",
-}
-
-_COMPANY_USERS: dict[str, list] = {
-    "bp_global_energy":   _BP_USERS,
-    "hamburgone_com":     _HAMBURGONE_USERS,
-    "nordlb":             _NORDLB_USERS,
-    "brementhree_ag":     _BREMENTHREE_USERS,
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _company_from_header(x_demo_company: Optional[str]) -> str:
-    """Normalise the company slug coming from the frontend header.
-
-    The frontend sends the raw company_name (e.g. "HamburgOne.com") slugified
-    to lowercase with non-alphanumeric chars replaced by underscores.
-    Fall back to 'bp_global_energy' for backward compatibility.
-    """
-    return x_demo_company or "bp_global_energy"
+ALWAYS_EU = {"AUDIT_LOG", "COMMS_METADATA"}
+NOT_RECORDED = "not recorded"
 
 
-# Every value this module serves is invented — see the module docstring.
-SEED_PROVENANCE = "SEED"
-SEED_NOTE = (
-    "Seeded demonstration data. These users, ratings, certifications and events "
-    "are invented and have not been observed, submitted or verified."
-)
+# ── Who is asking, and about which company ──────────────────────────────────
+
+def _caller(request: Request) -> dict:
+    payload = getattr(request.state, "user_payload", None) or {}
+    if not (payload.get("user_id") or payload.get("sub")):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return payload
 
 
-def _seeded(payload: dict) -> dict:
-    """Stamp a response so a consumer can tell seeded data from observed data.
-
-    Applied at the boundary rather than baked into each literal: a record added
-    to a roster later inherits the stamp instead of relying on whoever adds it
-    to remember.
-    """
-    return {**payload, "provenance": SEED_PROVENANCE, "provenance_note": SEED_NOTE}
-
-
-def _seeded_user(user: dict) -> dict:
-    """A roster record, marked.
-
-    `kyc_status` is forced to SEED rather than left at the literal 'VERIFIED':
-    nobody ran a KYC check on a person who does not exist, and
-    `requires_kyc:VERIFIED` is a real gate elsewhere in the platform. The
-    original literal is kept as `kyc_status_seeded_as` so the demo still shows
-    the shape it was written to show.
-    """
-    return {**user,
-            "kyc_status": SEED_PROVENANCE,
-            "kyc_status_seeded_as": user.get("kyc_status"),
-            "provenance": SEED_PROVENANCE}
+def _company(request: Request, header: Optional[str]) -> tuple[str, dict]:
+    """The signed-in company; GEX staff may name a client company instead."""
+    caller = _caller(request)
+    own = caller.get("company_id")
+    if header and header != own:
+        if not caller.get("is_platform_admin"):
+            raise HTTPException(status_code=403, detail={
+                "code": "OTHER_COMPANY", "message": "A CISO sees its own company only."})
+        return header, caller
+    if not own:
+        raise HTTPException(status_code=403, detail="Your account belongs to no company.")
+    return own, caller
 
 
-def _get_company_data(company_id: str) -> tuple[str, list, list]:
-    """Return (display_name, users, scoped_projects) for a company key."""
-    display_name = _COMPANY_DISPLAY_NAMES.get(company_id, company_id.replace("_", " ").title())
-    users = [_seeded_user(u) for u in _COMPANY_USERS.get(company_id, [])]
-    project_ids = _COMPANY_PROJECT_IDS.get(company_id, [p["id"] for p in GEX_PROJECTS])
-    scoped_projects = [p for p in GEX_PROJECTS if p["id"] in project_ids]
-    return display_name, users, scoped_projects
+def _rows(sql: str, params: dict, company_id: Optional[str] = None) -> list[dict]:
+    """Account tables carry no RLS; the caller's company is checked by _company first.
+    Pass company_id to read a tenant-scoped table under its own policy."""
+    from app.core.projects_store import PLATFORM_ADMIN, _rows as rows
+    return rows(sql, params, company_id or PLATFORM_ADMIN)
 
 
-def _gen_access_events(company_id: str, count: int = 50):
-    """Generate deterministic-looking ABAC event log for the given company."""
-    users = [u for u in _BP_USERS]
-    resource_types = ["EVIDENCE", "FINANCIAL_MODEL", "CONTRACT", "PLANT_TECHNICAL", "MARKETPLACE", "TRADE"]
-    actions = ["READ", "WRITE", "EXPORT", "VERIFY", "SHARE", "BUY", "SELL"]
-    rules = ["R1", "R3", "R4", "R5", "R6", "R7", "R8", "R9"]
-    denial_reasons = [
-        "User is not a stakeholder on this project",
-        "Evidence sensitivity=CONFIDENTIAL, company not in shared_with",
-        "Not a mandated lender/insurer or data owner",
-        "Only assigned certifiers can verify evidence",
-        "Clearance STANDARD insufficient for sensitivity RESTRICTED",
-        "Entity lacks OFFTAKE capability for BUY action",
-        "Credit quality insufficient: BB+ (HOUSE_BANK) < required A-",
-        "Export restricted: destination FR not in licensed regions [DE]",
-    ]
-
-    events = []
-    base = datetime(2026, 3, 16, 10, 0, 0, tzinfo=timezone.utc)
-
-    random.seed(42)
-    for i in range(count):
-        user = users[i % len(users)]
-        project = GEX_PROJECTS[i % len(GEX_PROJECTS)]
-        action = actions[i % len(actions)]
-        is_deny = (i % 5 == 3)  # ~20 % deny rate
-        rule = rules[i % len(rules)] if is_deny else None
-        events.append({
-            "id": f"evt_{1000 + i}",
-            "timestamp": (base - timedelta(minutes=i * 3)).isoformat(),
-            "user_id": user["user_id"],
-            "user_name": user["name"],
-            "company_id": company_id,
-            "project_id": project["id"],
-            "project_name": project["name"],
-            "resource_type": resource_types[i % len(resource_types)],
-            "action": action,
-            "decision": "DENY" if is_deny else "ALLOW",
-            "rule_triggered": rule,
-            "denial_reason": denial_reasons[rules.index(rule)] if is_deny else None,
-        })
-    return events
+def _company_name(company_id: str) -> str:
+    r = _rows("SELECT company_name FROM tenants WHERE company_id = :c", {"c": company_id})
+    return r[0]["company_name"] if r else company_id
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Routes
-# ─────────────────────────────────────────────────────────────────────────────
+def _users(company_id: str) -> list[dict]:
+    """The company's real accounts, their access attributes and project roles."""
+    users = _rows(
+        "SELECT user_id, email, user_name, business_function, clearance_level, kyc_status, account_state, "
+        "nda_signed_with_json, capabilities_json, credit_rating, credit_rating_source, export_licenses_json, "
+        "token_ready, transformation_license, aggregation_limit_mt, is_active, created_at "
+        "FROM auth_users WHERE company_id = :c ORDER BY user_name", {"c": company_id})
+    roles = _rows("SELECT r.user_id, r.project_id, r.actor_type FROM auth_user_project_roles r "
+                  "JOIN auth_users u ON u.user_id = r.user_id WHERE u.company_id = :c", {"c": company_id})
+    by_user: dict[str, dict[str, list[str]]] = {}
+    for r in roles:
+        by_user.setdefault(r["user_id"], {}).setdefault(r["project_id"], []).append(r["actor_type"])
+
+    def js(v, default):
+        if v is None:
+            return default
+        return v if isinstance(v, (list, dict)) else json.loads(v)
+
+    return [{
+        "user_id": u["user_id"], "name": u["user_name"], "email": u["email"],
+        "role": u["business_function"], "clearance_level": u["clearance_level"],
+        "kyc_status": u["kyc_status"], "account_state": u["account_state"], "is_active": u["is_active"],
+        "actor_type_per_project": by_user.get(u["user_id"], {}),
+        "nda_signed_with": js(u["nda_signed_with_json"], []),
+        "capabilities": js(u["capabilities_json"], []),
+        "credit_rating": u["credit_rating"], "credit_rating_source": u["credit_rating_source"],
+        "export_licenses": js(u["export_licenses_json"], []),
+        "token_ready": bool(u["token_ready"]), "transformation_license": bool(u["transformation_license"]),
+        "aggregation_limit_mt": u["aggregation_limit_mt"],
+        "mfa_enabled": None,   # no MFA attribute is recorded on accounts
+    } for u in users]
+
+
+def _projects(company_id: str) -> list[dict]:
+    from app.core.project_registry import all_project_profiles
+    from app.core.projects_store import list_projects
+
+    visible = {p.project_id for p in all_project_profiles() if company_id in p.stakeholder_company_ids}
+    return [{"id": r["project_id"], "name": r["project_name"], "molecule": r.get("molecule"),
+             "location": r.get("location")} for r in list_projects() if r["project_id"] in visible]
+
+
+def _sign_ins(company_id: str, since: Optional[datetime] = None, limit: int = 500) -> list[dict]:
+    """Real sign-in attempts by the company's accounts (auth_login_history)."""
+    where, params = "u.company_id = :c", {"c": company_id, "lim": limit}
+    if since:
+        where += " AND h.timestamp >= :since"
+        params["since"] = since.isoformat()
+    rows = _rows(
+        "SELECT h.id, h.user_id, u.user_name, h.event_type, h.ip_address, h.timestamp, h.success "
+        f"FROM auth_login_history h JOIN auth_users u ON u.user_id = h.user_id WHERE {where} "
+        "ORDER BY h.timestamp DESC LIMIT :lim", params)
+    return [{
+        "id": f"login_{r['id']}", "timestamp": str(r["timestamp"]), "user_id": r["user_id"],
+        "user_name": r["user_name"], "company_id": company_id, "project_id": None, "project_name": None,
+        "resource_type": "SIGN_IN", "action": (r["event_type"] or "LOGIN").upper(),
+        "decision": "ALLOW" if r["success"] else "DENY", "rule_triggered": None,
+        "denial_reason": None if r["success"] else "Sign-in refused",
+        "ip_address": r["ip_address"],
+    } for r in rows]
+
+
+# ── Companies a caller may open ─────────────────────────────────────────────
+
+@router.get("/companies")
+def list_companies(request: Request):
+    """GEX staff: every registered company. Anyone else: their own."""
+    caller = _caller(request)
+    if caller.get("is_platform_admin"):
+        rows = _rows("SELECT company_id, company_name, company_type FROM tenants ORDER BY company_name", {})
+    else:
+        rows = _rows("SELECT company_id, company_name, company_type FROM tenants WHERE company_id = :c",
+                     {"c": caller.get("company_id") or ""})
+    return {"companies": rows, "own_company_id": caller.get("company_id"),
+            "is_platform_admin": bool(caller.get("is_platform_admin"))}
+
+
+# ── Overview ────────────────────────────────────────────────────────────────
 
 @router.get("/overview")
-def get_ciso_overview(x_demo_company: Optional[str] = Header(default=None)):
-    """
-    Security posture KPIs for the client company's CISO dashboard.
-    """
-    company_id = _company_from_header(x_demo_company)
-    display_name, company_users, _ = _get_company_data(company_id)
-    # Fall back to BP users for event log generation (events are synthetic)
-    events = _gen_access_events(company_id, 50)
-    deny_events = [e for e in events if e["decision"] == "DENY"]
-    last_24h = events[:28]  # ~last 24 h (every 3 min, 28 × 3 min ≈ 84 min window)
+def get_ciso_overview(request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    """The company's posture from its real accounts and sign-ins. No composite score:
+    its weights and its MFA input were never data."""
+    from app.core.config import settings
 
-    user_list = company_users if company_users else _BP_USERS  # fallback for event stats
+    company_id, _ = _company(request, x_ciso_company)
+    users = _users(company_id)
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    recent = _sign_ins(company_id, since=since)
+    kyc_ok = sum(1 for u in users if u["kyc_status"] == "VERIFIED")
+    assigned = sum(1 for u in users if u["actor_type_per_project"])
+    pending = [u for u in users if u["account_state"] != "ACTIVE"]
 
-    # MFA adoption
-    mfa_on  = sum(1 for u in user_list if u["mfa_enabled"])
-    mfa_pct = round(mfa_on / len(user_list) * 100) if user_list else 0
+    alerts = []
+    if users and kyc_ok < len(users):
+        alerts.append({"id": "kyc", "severity": "medium",
+                       "message": f"{len(users) - kyc_ok} account(s) without verified KYC"})
+    if pending:
+        alerts.append({"id": "state", "severity": "medium",
+                       "message": f"{len(pending)} account(s) not active: " + ", ".join(u["name"] for u in pending)})
+    if users and assigned < len(users):
+        alerts.append({"id": "roles", "severity": "low",
+                       "message": f"{len(users) - assigned} account(s) with no project role"})
+    failed = sum(1 for e in recent if e["decision"] == "DENY")
+    if failed:
+        alerts.append({"id": "signin", "severity": "high" if failed >= 5 else "medium",
+                       "message": f"{failed} refused sign-in(s) in the last 24 hours"})
 
-    # KYC
-    kyc_ok  = sum(1 for u in user_list if u["kyc_status"] == "VERIFIED")
-
-    # ABAC coverage: users with at least one actor_type assignment
-    abac_assigned = sum(1 for u in user_list if u["actor_type_per_project"])
-
-    # Compute a simple security score
-    mfa_score       = mfa_pct * 0.30
-    kyc_score       = (kyc_ok / len(user_list)) * 100 * 0.25 if user_list else 0
-    abac_score      = (abac_assigned / len(user_list)) * 100 * 0.25 if user_list else 0
-    deny_rate       = len(deny_events) / max(len(events), 1)
-    vigilance_score = min(deny_rate * 500, 20)  # up to 20 pts for having denials (means policy is active)
-    total_score     = round(mfa_score + kyc_score + abac_score + vigilance_score)
-
-    return _seeded({
+    return {
         "company_id": company_id,
-        "company_name": display_name,
-        "security_score": total_score,
-        "score_label": "Good" if total_score >= 75 else ("Fair" if total_score >= 50 else "At Risk"),
+        "company_name": _company_name(company_id),
+        "security_score": None,
+        "score_label": NOT_RECORDED,
         "kpis": {
-            "total_users": len(user_list),
-            "mfa_enabled_pct": mfa_pct,
+            "total_users": len(users),
+            "mfa_enabled_pct": None,
             "kyc_verified": kyc_ok,
-            "kyc_pending": len(user_list) - kyc_ok,
-            "abac_assigned": abac_assigned,
-            "abac_unassigned": len(user_list) - abac_assigned,
+            "kyc_pending": len(users) - kyc_ok,
+            "abac_assigned": assigned,
+            "abac_unassigned": len(users) - assigned,
         },
         "events_24h": {
-            "total": len(last_24h),
-            "allow": len([e for e in last_24h if e["decision"] == "ALLOW"]),
-            "deny":  len([e for e in last_24h if e["decision"] == "DENY"]),
-            "deny_rate_pct": round(len([e for e in last_24h if e["decision"] == "DENY"]) / max(len(last_24h), 1) * 100, 1),
+            "kind": "sign-ins",
+            "total": len(recent),
+            "allow": len(recent) - failed,
+            "deny": failed,
+            "deny_rate_pct": round(failed / len(recent) * 100, 1) if recent else 0.0,
         },
-        "abac_phase": {
-            "current": 3,
-            "phases": [
-                {"phase": 1, "label": "R0–R3: Guest gate + Stakeholder + Evidence", "status": "active"},
-                {"phase": 2, "label": "R4–R6: Financial + Export + Write", "status": "active"},
-                {"phase": 3, "label": "R7–R9: Trade Policy — Capability + Credit + Geofence", "status": "active"},
-            ],
-        },
-        "alerts": [
-            {
-                "id": "alert_001",
-                "severity": "high",
-                "message": f"{mfa_pct}% MFA adoption — {len(_BP_USERS) - mfa_on} user(s) without MFA",
-                "ts": "2026-03-16T06:00:00Z",
-            },
-            {
-                "id": "alert_002",
-                "severity": "medium",
-                "message": "1 user with KYC status PENDING (Marcus Johansson)",
-                "ts": "2026-03-15T14:00:00Z",
-            },
-            {
-                "id": "alert_003",
-                "severity": "low",
-                "message": "ABAC Phase 3 (context attributes) not yet enabled",
-                "ts": "2026-03-14T09:00:00Z",
-            },
-        ],
-    })
+        "abac_phase": {"current": settings.ABAC_PHASE},
+        "alerts": alerts,
+    }
 
 
 @router.get("/access-log")
 def get_access_log(
+    request: Request,
     limit: int = 50,
     decision: Optional[str] = None,
     user_id: Optional[str] = None,
     project_id: Optional[str] = None,
-    x_demo_company: Optional[str] = Header(default=None),
+    x_ciso_company: Optional[str] = Header(default=None),
 ):
-    """
-    Paginated ABAC access event log for the client company.
-    Filterable by decision (ALLOW / DENY), user_id, project_id.
-    """
-    company_id = _company_from_header(x_demo_company)
-    events = _gen_access_events(company_id, 120)
-
+    """Real sign-in attempts by the company's accounts. Access decisions are not
+    recorded yet, so a project filter matches nothing."""
+    company_id, _ = _company(request, x_ciso_company)
+    events = _sign_ins(company_id, limit=1000)
     if decision:
         events = [e for e in events if e["decision"] == decision.upper()]
     if user_id:
         events = [e for e in events if e["user_id"] == user_id]
     if project_id:
-        events = [e for e in events if e["project_id"] == project_id]
-
-    total = len(events)
-    events = events[:limit]
-
-    return _seeded({
-        "total": total,
-        "returned": len(events),
-        "events": events,
-    })
+        events = []
+    return {"total": len(events), "returned": min(len(events), limit), "events": events[:limit],
+            "kind": "sign-ins",
+            "note": "Sign-in attempts from the account history. Access decisions are not recorded yet."}
 
 
 @router.get("/users")
-def list_users(x_demo_company: Optional[str] = Header(default=None)):
-    """List users and projects scoped to the requesting company."""
-    company_id = _company_from_header(x_demo_company)
-    _, company_users, scoped_projects = _get_company_data(company_id)
-    return _seeded({
-        "users": company_users,
-        "projects": scoped_projects,
-    })
+def list_users(request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    return {"users": _users(company_id), "projects": _projects(company_id)}
 
 
 class UserAttributeUpdate(BaseModel):
     clearance_level: Optional[str] = None
-    actor_type_per_project: Optional[dict] = None   # {project_id: [actor_type, …]}
     nda_signed_with: Optional[list] = None
-    certifications: Optional[list] = None
-    # Prosumer / trade attributes
-    capabilities: Optional[list] = None              # ["OFFTAKE", "PRODUCE", "SELL", …]
-    credit_rating: Optional[str] = None              # "A-", "GEX-4", etc.
-    credit_rating_source: Optional[str] = None       # "GEX" | "S&P" | "HOUSE_BANK"
-    export_licenses: Optional[list] = None           # ["DE", "NL", …]
+    capabilities: Optional[list] = None
+    credit_rating: Optional[str] = None
+    credit_rating_source: Optional[str] = None
+    export_licenses: Optional[list] = None
     token_ready: Optional[bool] = None
     transformation_license: Optional[bool] = None
     aggregation_limit_mt: Optional[float] = None
+    # Not editable here: project roles are appointments (reviewer flow, GEX
+    # administration) and certifications have no store.
+    actor_type_per_project: Optional[dict] = None
+    certifications: Optional[list] = None
 
 
 @router.patch("/users/{user_id}/attributes")
-def update_user_attributes(
-    user_id: str,
-    body: UserAttributeUpdate,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """
-    Update ABAC attributes for a specific user.
-    Only the client's CISO (same company) may call this endpoint.
-    """
-    company_id = _company_from_header(x_demo_company)
-    _, company_users, _ = _get_company_data(company_id)
-
-    user = next((u for u in company_users if u["user_id"] == user_id), None)
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail=f"User {user_id} not found in company {company_id}",
-        )
-
-    # Validate values
+def update_user_attributes(user_id: str, body: UserAttributeUpdate, request: Request,
+                           x_ciso_company: Optional[str] = Header(default=None)):
+    """Write an account's access attributes — GEX staff only, recorded in the ledger."""
+    company_id, caller = _company(request, x_ciso_company)
+    if not caller.get("is_platform_admin"):
+        raise HTTPException(status_code=403, detail={
+            "code": "GEX_ADMINISTERS_ACCOUNTS",
+            "message": "Accounts are vetted and administered by GEX; ask GEX staff to change these attributes."})
+    if body.actor_type_per_project is not None or body.certifications is not None:
+        raise HTTPException(status_code=422, detail={
+            "code": "NOT_EDITABLE_HERE",
+            "message": "Project roles are changed through appointments; certifications have no store."})
     if body.clearance_level and body.clearance_level not in CLEARANCE_LEVELS:
         raise HTTPException(status_code=422, detail=f"clearance_level must be one of {CLEARANCE_LEVELS}")
-    if body.actor_type_per_project:
-        for pid, atypes in body.actor_type_per_project.items():
-            # Accept list or single string (back-compat)
-            types_list = atypes if isinstance(atypes, list) else [atypes]
-            for atype in types_list:
-                if atype not in ACTOR_TYPES:
-                    raise HTTPException(status_code=422, detail=f"Unknown actor_type: {atype}")
-    if body.capabilities:
-        for cap in body.capabilities:
-            if cap not in CAPABILITIES:
-                raise HTTPException(status_code=422, detail=f"Unknown capability: {cap}. Must be one of {CAPABILITIES}")
+    for cap in body.capabilities or []:
+        if cap not in CAPABILITIES:
+            raise HTTPException(status_code=422, detail=f"Unknown capability: {cap}")
     if body.credit_rating and body.credit_rating not in CREDIT_RATINGS:
         raise HTTPException(status_code=422, detail=f"Unknown credit_rating: {body.credit_rating}")
     if body.credit_rating_source and body.credit_rating_source not in ("GEX", "S&P", "HOUSE_BANK"):
         raise HTTPException(status_code=422, detail="credit_rating_source must be GEX, S&P, or HOUSE_BANK")
 
-    # Apply (in-memory only for demo)
-    updated = dict(user)
-    if body.clearance_level is not None:
-        updated["clearance_level"] = body.clearance_level
-    if body.actor_type_per_project is not None:
-        updated["actor_type_per_project"] = body.actor_type_per_project
-    if body.nda_signed_with is not None:
-        updated["nda_signed_with"] = body.nda_signed_with
-    if body.certifications is not None:
-        updated["certifications"] = body.certifications
-    if body.capabilities is not None:
-        updated["capabilities"] = body.capabilities
-    if body.credit_rating is not None:
-        updated["credit_rating"] = body.credit_rating
-    if body.credit_rating_source is not None:
-        updated["credit_rating_source"] = body.credit_rating_source
-    if body.export_licenses is not None:
-        updated["export_licenses"] = body.export_licenses
-    if body.token_ready is not None:
-        updated["token_ready"] = body.token_ready
-    if body.transformation_license is not None:
-        updated["transformation_license"] = body.transformation_license
-    if body.aggregation_limit_mt is not None:
-        updated["aggregation_limit_mt"] = body.aggregation_limit_mt
+    columns = {"clearance_level": body.clearance_level, "credit_rating": body.credit_rating,
+               "credit_rating_source": body.credit_rating_source, "token_ready": body.token_ready,
+               "transformation_license": body.transformation_license,
+               "aggregation_limit_mt": body.aggregation_limit_mt,
+               "nda_signed_with_json": None if body.nda_signed_with is None else json.dumps(body.nda_signed_with),
+               "capabilities_json": None if body.capabilities is None else json.dumps(body.capabilities),
+               "export_licenses_json": None if body.export_licenses is None else json.dumps(body.export_licenses)}
+    changes = {k: v for k, v in columns.items() if v is not None}
+    if not changes:
+        raise HTTPException(status_code=422, detail="Nothing to change.")
 
-    return _seeded({
-        "status": "updated",
-        "user": updated,
-        "audit_entry": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "changed_by": "ciso_session",
-            "changes": body.model_dump(exclude_none=True),
-        },
-    })
+    from app.core.db_backend import auth_connection
+    conn = auth_connection()
+    try:
+        row = conn.execute("SELECT user_id FROM auth_users WHERE user_id = ? AND company_id = ?",
+                           (user_id, company_id)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"User {user_id} not found in company {company_id}")
+        sets = ", ".join(f"{k} = ?" for k in changes)
+        conn.execute(f"UPDATE auth_users SET {sets}, updated_at = ? WHERE user_id = ?",
+                     (*changes.values(), datetime.now(timezone.utc).isoformat(), user_id))
+        conn.commit()
+    finally:
+        conn.close()
 
+    from app.core.event_store import append_event
+    actor = caller.get("user_id") or caller.get("sub")
+    append_event(event_type="account.attributes_changed", aggregate_type="auth_user", aggregate_id=user_id,
+                 data={"company_id": company_id, "changes": body.model_dump(exclude_none=True)},
+                 user_id=actor)
+    user = next(u for u in _users(company_id) if u["user_id"] == user_id)
+    return {"status": "updated", "user": user, "changed_by": actor}
+
+
+# ── Compliance and policy ───────────────────────────────────────────────────
 
 @router.get("/compliance")
-def get_compliance(x_demo_company: Optional[str] = Header(default=None)):
-    """
-    Compliance posture across ISO 27001, SOC 2 Type II, GDPR and ABAC phases.
-    """
-    _company_from_header(x_demo_company)
-
-    return _seeded({
-        "overall_score": 74,
-        "frameworks": [
-            {
-                "id": "iso_27001",
-                "name": "ISO 27001:2022",
-                "description": "Information Security Management System",
-                "score": 81,
-                "status": "certified",
-                "cert_expiry": "2027-06-30",
-                "domains": [
-                    {"domain": "A.5 — Policies",              "score": 100, "controls": 2,  "passed": 2},
-                    {"domain": "A.6 — Organisation",          "score": 90,  "controls": 7,  "passed": 6},
-                    {"domain": "A.7 — HR Security",           "score": 85,  "controls": 6,  "passed": 5},
-                    {"domain": "A.8 — Asset Management",      "score": 78,  "controls": 10, "passed": 8},
-                    {"domain": "A.9 — Access Control",        "score": 88,  "controls": 14, "passed": 12},
-                    {"domain": "A.10 — Cryptography",         "score": 100, "controls": 2,  "passed": 2},
-                    {"domain": "A.12 — Operations Security",  "score": 75,  "controls": 14, "passed": 11},
-                    {"domain": "A.13 — Communications",       "score": 80,  "controls": 7,  "passed": 6},
-                    {"domain": "A.14 — System Dev",           "score": 70,  "controls": 13, "passed": 9},
-                    {"domain": "A.18 — Compliance",           "score": 65,  "controls": 8,  "passed": 5},
-                ],
-            },
-            {
-                "id": "soc2",
-                "name": "SOC 2 Type II",
-                "description": "Trust Services Criteria (AICPA)",
-                "score": 72,
-                "status": "in_progress",
-                "cert_expiry": None,
-                "domains": [
-                    {"domain": "CC1 — Control Environment",     "score": 90, "controls": 5,  "passed": 5},
-                    {"domain": "CC2 — Communication & Info",    "score": 80, "controls": 5,  "passed": 4},
-                    {"domain": "CC3 — Risk Assessment",         "score": 75, "controls": 4,  "passed": 3},
-                    {"domain": "CC6 — Logical Access",          "score": 65, "controls": 8,  "passed": 5},
-                    {"domain": "CC7 — System Operations",       "score": 60, "controls": 5,  "passed": 3},
-                    {"domain": "CC9 — Risk Mitigation",         "score": 70, "controls": 3,  "passed": 2},
-                ],
-            },
-            {
-                "id": "gdpr",
-                "name": "GDPR / EU Data Protection",
-                "description": "Regulation (EU) 2016/679",
-                "score": 68,
-                "status": "partial",
-                "cert_expiry": None,
-                "domains": [
-                    {"domain": "Art. 5 — Data Principles",     "score": 90, "controls": 6,  "passed": 5},
-                    {"domain": "Art. 12-14 — Transparency",    "score": 80, "controls": 3,  "passed": 2},
-                    {"domain": "Art. 15-22 — Data Subject Rts","score": 70, "controls": 8,  "passed": 6},
-                    {"domain": "Art. 25 — Privacy by Design",  "score": 60, "controls": 2,  "passed": 1},
-                    {"domain": "Art. 32 — Security Measures",  "score": 65, "controls": 4,  "passed": 3},
-                    {"domain": "Art. 33-34 — Breach Reporting","score": 50, "controls": 2,  "passed": 1},
-                    {"domain": "Art. 37 — DPO Appointment",    "score": 50, "controls": 1,  "passed": 0},
-                ],
-            },
-            {
-                "id": "abac",
-                "name": "GEX ABAC Policy",
-                "description": "Attribute-Based Access Control implementation",
-                "score": 67,
-                "status": "partial",
-                "cert_expiry": None,
-                "domains": [
-                    {"domain": "R0 — Guest Gate",                "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R1 — Stakeholder Gate",          "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R2 — Gate Visibility Matrix",    "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R3 — Evidence Sensitivity",      "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R4 — Financial Model Protection","score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R5 — Write Permissions",         "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R6 — Export & Share Control",    "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R7 — Capability Gate (Prosumer)","score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R8 — Credit Quality Gate",       "score": 100, "controls": 1, "passed": 1},
-                    {"domain": "R9 — Geofence + Tokenization",  "score": 100, "controls": 3, "passed": 3},
-                    {"domain": "MFA Enforcement",                "score": 60,  "controls": 5, "passed": 3},
-                    {"domain": "Audit Trail Completeness",       "score": 55,  "controls": 4, "passed": 2},
-                ],
-            },
-        ],
-    })
+def get_compliance(request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    """No certification or control-assessment store exists, so nothing is scored."""
+    company_id, _ = _company(request, x_ciso_company)
+    return {"company_id": company_id, "overall_score": None, "frameworks": [], "recorded": False,
+            "note": "Certifications and control assessments are not recorded on the platform yet."}
 
 
 @router.get("/policy-matrix")
-def get_policy_matrix(x_demo_company: Optional[str] = Header(default=None)):
-    """
-    Returns the ABAC GATE_VISIBILITY matrix — which gates each actor type can access.
-    Used by the CISO to understand what each role can see before assigning it.
-    """
-    _company_from_header(x_demo_company)
-
+def get_policy_matrix(request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    """The live access rule (app.core.abac), not a copy of it."""
+    _company(request, x_ciso_company)
     return {
-        "gate_visibility": {
-            "PRODUCER":           ["G0_SITE_RIGHTS", "G1_GRID_WATER", "G3_FEEDSTOCK_LOGISTICS", "G5_EPC", "G9_PERMITS", "G11_COD"],
-            "OFFTAKER":           ["G4_OFFTAKE"],
-            "COMMERCIAL_BANKER":  ["G4_OFFTAKE", "G6_IE_SIGNOFF", "G7_INSURANCE", "G8_MODEL_AUDIT", "G10_FINANCIAL_CLOSE"],
-            "DFI":                ["G4_OFFTAKE", "G6_IE_SIGNOFF", "G7_INSURANCE", "G8_MODEL_AUDIT", "G10_FINANCIAL_CLOSE"],
-            "INSURER":            ["G5_EPC", "G6_IE_SIGNOFF", "G7_INSURANCE"],
-            "REGULATOR":          ["G2_CERTIFICATION", "G6_IE_SIGNOFF", "G9_PERMITS"],
-            "GOV_AGENCY":         ["G0_SITE_RIGHTS", "G1_GRID_WATER", "G2_CERTIFICATION", "G3_FEEDSTOCK_LOGISTICS", "G4_OFFTAKE", "G5_EPC", "G6_IE_SIGNOFF", "G7_INSURANCE", "G8_MODEL_AUDIT", "G9_PERMITS", "G10_FINANCIAL_CLOSE", "G11_COD"],
-            "CERTIFIER":          ["G2_CERTIFICATION", "G6_IE_SIGNOFF", "G9_PERMITS"],
-            "EPC_CONTRACTOR":     ["G5_EPC", "G11_COD"],
-            "LOGISTICS_OPERATOR": ["G3_FEEDSTOCK_LOGISTICS"],
-            "TECHNOLOGY_PROVIDER":["G5_EPC", "G11_COD"],
-            "EXECUTIVE":          ["G0_SITE_RIGHTS", "G1_GRID_WATER", "G2_CERTIFICATION", "G3_FEEDSTOCK_LOGISTICS", "G4_OFFTAKE", "G5_EPC", "G6_IE_SIGNOFF", "G7_INSURANCE", "G8_MODEL_AUDIT", "G9_PERMITS", "G10_FINANCIAL_CLOSE", "G11_COD"],
-        },
+        "gate_visibility": {a.value: gates for a, gates in GATE_VISIBILITY.items()},
         "sensitivity_clearance_map": {
-            "PUBLIC":       "Any clearance",
-            "SHARED":       "STANDARD+",
-            "CONFIDENTIAL": "CONFIDENTIAL+",
-            "RESTRICTED":   "RESTRICTED only",
+            "PUBLIC": "Any clearance", "SHARED": "STANDARD+",
+            "CONFIDENTIAL": "CONFIDENTIAL+", "RESTRICTED": "RESTRICTED only",
         },
         "trade_policy": {
-            "R7_capability_map": {
-                "BUY": "OFFTAKE",
-                "SELL": "SELL",
-                "PRODUCE": "PRODUCE",
-                "TRANSFORM": "PRODUCE",
-            },
+            "R7_capability_map": {"BUY": "OFFTAKE", "SELL": "SELL", "PRODUCE": "PRODUCE", "TRANSFORM": "PRODUCE"},
             "R8_credit_ratings": CREDIT_RATINGS,
-            "R9_constraints": ["export_licenses (geofence)", "token_ready", "aggregation_limit_mt", "transformation_license"],
+            "R9_constraints": ["export_licenses (geofence)", "token_ready", "aggregation_limit_mt",
+                               "transformation_license"],
         },
         "actor_types": ACTOR_TYPES,
         "capabilities": CAPABILITIES,
         "clearance_levels": CLEARANCE_LEVELS,
-        "certifications": CERTIFICATIONS,
+        "certifications": [],
         "credit_ratings": CREDIT_RATINGS,
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Domain 3: Information Barriers
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Seeded demo barriers for bp_global_energy
-_DEMO_BARRIERS = [
-    {
-        "id": "IB-01",
-        "company_id": "bp_global_energy",
-        "side_a": "TRADING",
-        "side_b": "ORIGINATION",
-        "barrier_type": "HARD",
-        "applies_to_data": ["FINANCIAL_MODEL", "CONTRACT"],
-        "description": "Trading desk is firewalled from project origination to prevent front-running",
-        "active": True,
-        "created_at": "2026-01-15T00:00:00Z",
-    },
-    {
-        "id": "IB-02",
-        "company_id": "bp_global_energy",
-        "side_a": "TREASURY",
-        "side_b": "RISK",
-        "barrier_type": "SOFT",
-        "applies_to_data": ["FINANCIAL_MODEL"],
-        "description": "Treasury and Risk share financial models but access is logged (Chinese Wall variant)",
-        "active": True,
-        "created_at": "2026-01-15T00:00:00Z",
-    },
-    {
-        "id": "IB-03",
-        "company_id": "bp_global_energy",
-        "side_a": "LEGAL",
-        "side_b": "TRADING",
-        "barrier_type": "HARD",
-        "applies_to_data": ["CONTRACT", "CERTIFICATION"],
-        "description": "Legal dept. may not share draft contracts with trading prior to execution",
-        "active": True,
-        "created_at": "2026-02-01T00:00:00Z",
-    },
-]
-
-
-@router.get("/barriers")
-def list_barriers(x_demo_company: Optional[str] = Header(default=None)):
-    """
-    List information barriers configured for the client company (Domain 3).
-    Returns barrier definitions, types (HARD/SOFT/CHINESE_WALL), and data categories covered.
-    """
-    company_id = _company_from_header(x_demo_company)
-    barriers = [b for b in _DEMO_BARRIERS if b["company_id"] == company_id]
-    return _seeded({"company_id": company_id, "total": len(barriers), "barriers": barriers})
-
-
-@router.get("/barriers/{barrier_id}")
-def get_barrier(
-    barrier_id: str,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """Get a single information barrier by ID."""
-    company_id = _company_from_header(x_demo_company)
-    barrier = next((b for b in _DEMO_BARRIERS if b["id"] == barrier_id and b["company_id"] == company_id), None)
-    if not barrier:
-        raise HTTPException(status_code=404, detail=f"Barrier {barrier_id} not found")
-    # Simulate a recent access log for this barrier
-    barrier_with_log = dict(barrier)
-    barrier_with_log["recent_violations"] = [
-        {
-            "id": f"{barrier_id}-viol-001",
-            "user_id": "usr_bp_01",
-            "user_name": "Sophie Hartmann",
-            "attempted_at": "2026-03-15T14:22:00Z",
-            "outcome": "BLOCKED",
-            "resource_id": "contract_wales_saf_001",
-        }
-    ] if barrier_id == "IB-01" else []
-    return _seeded(barrier_with_log)
-
+# ── Information barriers (alembic 070) ──────────────────────────────────────
 
 class BarrierCreate(BaseModel):
     side_a: str
@@ -938,95 +383,73 @@ class BarrierCreate(BaseModel):
     description: Optional[str] = None
 
 
-@router.post("/barriers")
-def create_barrier(
-    body: BarrierCreate,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """Create a new information barrier (CISO only). Demo: returns created object."""
-    company_id = _company_from_header(x_demo_company)
-    new_id = f"IB-{len(_DEMO_BARRIERS) + 1:02d}"
-    new_barrier = {
-        "id": new_id,
-        "company_id": company_id,
-        "side_a": body.side_a,
-        "side_b": body.side_b,
-        "barrier_type": body.barrier_type,
-        "applies_to_data": body.applies_to_data,
-        "description": body.description,
-        "active": True,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    return _seeded({"status": "created", "barrier": new_barrier})
+def _barrier_rows(company_id: str, barrier_id: Optional[str] = None) -> list[dict]:
+    where, params = "company_id = :c", {"c": company_id}
+    if barrier_id:
+        where += " AND id::text = :id"
+        params["id"] = barrier_id
+    rows = _rows("SELECT id, company_id, side_a, side_b, barrier_type, applies_to_data, description, active, "
+                 f"created_by, created_at FROM information_barrier WHERE {where} ORDER BY created_at", params,
+                 company_id=company_id)
+    return [{**r, "id": str(r["id"]), "created_at": str(r["created_at"]),
+             "applies_to_data": list(r["applies_to_data"] or [])} for r in rows]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Domain 5: Data Residency Policies
-# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/barriers")
+def list_barriers(request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    barriers = _barrier_rows(company_id)
+    return {"company_id": company_id, "total": len(barriers), "barriers": barriers}
 
-_DEMO_RESIDENCY_POLICIES = [
-    {
-        "id": "drp-001", "company_id": "bp_global_energy",
-        "data_category": "PERSONAL", "required_jurisdiction": "EU",
-        "storage_zone": "eu-west-1", "note": "GDPR Art. 44 — no transfer outside EU without adequacy", "active": True,
-    },
-    {
-        "id": "drp-002", "company_id": "bp_global_energy",
-        "data_category": "CONTRACT", "required_jurisdiction": "EU",
-        "storage_zone": "eu-west-1", "note": "Contract data within EU to meet eIDAS requirements", "active": True,
-    },
-    {
-        "id": "drp-003", "company_id": "bp_global_energy",
-        "data_category": "FINANCIAL_MODEL", "required_jurisdiction": "EU",
-        "storage_zone": "eu-west-1", "note": "Model sensitivity RESTRICTED — EU jurisdiction only", "active": True,
-    },
-    {
-        "id": "drp-004", "company_id": "bp_global_energy",
-        "data_category": "AUDIT_LOG", "required_jurisdiction": "EU",
-        "storage_zone": "eu-west-1", "note": "Audit logs ALWAYS_EU per GEX Security Arch §5.3", "active": True,
-    },
-    {
-        "id": "drp-005", "company_id": "bp_global_energy",
-        "data_category": "COMMS_METADATA", "required_jurisdiction": "EU",
-        "storage_zone": "eu-west-1", "note": "Matrix room metadata ALWAYS_EU — ISO 27001 A.12.4", "active": True,
-    },
-    {
-        "id": "drp-006", "company_id": "bp_global_energy",
-        "data_category": "PLANT_DATA", "required_jurisdiction": "EU",
-        "storage_zone": "eu-west-1", "note": "OT telemetry stored in-region per NIS2 directive", "active": True,
-    },
-]
+
+@router.get("/barriers/{barrier_id}")
+def get_barrier(barrier_id: str, request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    rows = _barrier_rows(company_id, barrier_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Barrier {barrier_id} not found")
+    return {**rows[0], "recent_violations": [], "violations_recorded": False}
+
+
+@router.post("/barriers", status_code=201)
+def create_barrier(body: BarrierCreate, request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, caller = _company(request, x_ciso_company)
+    if body.barrier_type not in ("HARD", "SOFT", "CHINESE_WALL"):
+        raise HTTPException(status_code=422, detail="barrier_type must be HARD, SOFT or CHINESE_WALL")
+    if body.side_a.strip() == body.side_b.strip():
+        raise HTTPException(status_code=422, detail="A barrier separates two different sides.")
+    from app.core.db_backend import governance_connection, governance_is_postgres, require_postgres
+    require_postgres(governance_is_postgres(), "information barriers", "GOVERNANCE_DB_BACKEND")
+    conn = governance_connection(company_id="PLATFORM_ADMIN" if caller.get("is_platform_admin") else company_id)
+    try:
+        conn.execute("INSERT INTO information_barrier (company_id, side_a, side_b, barrier_type, applies_to_data, "
+                     "description, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     (company_id, body.side_a.strip(), body.side_b.strip(), body.barrier_type,
+                      body.applies_to_data, body.description, caller.get("user_id") or caller.get("sub")))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "created", "barrier": _barrier_rows(company_id)[-1]}
+
+
+# ── Data residency (core/drpl; no fallback) ─────────────────────────────────
+
+def _require_drpl() -> None:
+    if not HAS_DRPL:
+        raise HTTPException(status_code=503, detail="The data-residency store is unavailable.")
 
 
 @router.get("/residency/policies")
-def list_residency_policies(x_demo_company: Optional[str] = Header(default=None)):
-    """
-    List DRPL (Data Residency Policy Layer) rules for the client company.
-    Returns per data-category jurisdiction constraints.
-    """
-    company_id = _company_from_header(x_demo_company)
-    # Provenance depends on which branch answered: the DRPL store holds real
-    # policies somebody configured, the fallback list does not. Stamping this
-    # response unconditionally would be the mirror of the bug being fixed —
-    # labelling real data as seeded is also a lie, just a less dangerous one.
-    if HAS_DRPL:
-        policies = drpl_get_policies(company_id)
-        seeded = False
-    else:
-        policies = [p for p in _DEMO_RESIDENCY_POLICIES if p["company_id"] == company_id]
-        seeded = True
-    body = {
-        "company_id": company_id,
-        "total": len(policies),
-        "policies": policies,
-        "always_eu_categories": ["AUDIT_LOG", "COMMS_METADATA"],
-        "zones": {
-            "eu-west-1":   "EU (GDPR + eIDAS)",
-            "ch-zurich-1": "CH (FADP 2023)",
-            "gb-london-1": "GB (UK GDPR)",
-        },
+def list_residency_policies(request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    _require_drpl()
+    policies = drpl_get_policies(company_id)
+    return {
+        "company_id": company_id, "total": len(policies), "policies": policies,
+        "always_eu_categories": sorted(ALWAYS_EU),
+        "zones": {"eu-west-1": "EU (GDPR + eIDAS)", "ch-zurich-1": "CH (FADP 2023)",
+                  "gb-london-1": "GB (UK GDPR)"},
     }
-    return _seeded(body) if seeded else body
 
 
 class ResidencyPolicyUpdate(BaseModel):
@@ -1037,211 +460,78 @@ class ResidencyPolicyUpdate(BaseModel):
 
 
 @router.post("/residency/policies")
-def upsert_residency_policy(
-    body: ResidencyPolicyUpdate,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """
-    Create or update a DRPL policy for a data category.
-    ALWAYS_EU categories (AUDIT_LOG, COMMS_METADATA) cannot be changed.
-    """
-    company_id = _company_from_header(x_demo_company)
-    always_eu = {"AUDIT_LOG", "COMMS_METADATA"}
-    if body.data_category in always_eu:
-        raise HTTPException(
-            status_code=422,
-            detail=f"{body.data_category} is ALWAYS_EU — jurisdiction cannot be changed per GEX Security Arch §5.3"
-        )
-    if HAS_DRPL:
-        result = drpl_upsert_policy(
-            company_id=company_id,
-            data_category=body.data_category,
-            required_jurisdiction=body.required_jurisdiction,
-            storage_zone=body.storage_zone,
-        )
-        return {"status": "updated", "policy": result}
-    # Demo fallback
-    return {
-        "status": "updated",
-        "policy": {
-            "company_id": company_id,
-            "data_category": body.data_category,
-            "required_jurisdiction": body.required_jurisdiction,
-            "storage_zone": body.storage_zone,
-            "note": body.note,
-            "active": True,
-        }
-    }
+def upsert_residency_policy(body: ResidencyPolicyUpdate, request: Request,
+                            x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    if body.data_category in ALWAYS_EU:
+        raise HTTPException(status_code=422, detail=(
+            f"{body.data_category} is ALWAYS_EU — jurisdiction cannot be changed per GEX Security Arch §5.3"))
+    _require_drpl()
+    result = drpl_upsert_policy(company_id=company_id, data_category=body.data_category,
+                                required_jurisdiction=body.required_jurisdiction, storage_zone=body.storage_zone)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail="The residency policy was not saved.")
+    return {"status": "updated", "policy": result}
 
 
 @router.get("/residency/audit")
-def get_residency_audit_log(x_demo_company: Optional[str] = Header(default=None)):
-    """Residency check audit log for the client company (last 100 checks)."""
-    company_id = _company_from_header(x_demo_company)
-    if HAS_DRPL:
-        return get_residency_audit(company_id)
-    # Demo data
-    return {
-        "company_id": company_id,
-        "recent_checks": [
-            {
-                "id": "rc-001", "data_category": "PERSONAL",
-                "requested_zone": "eu-west-1", "outcome": "ALLOWED",
-                "required_jurisdiction": "EU", "checked_at": "2026-03-16T09:14:00Z",
-            },
-            {
-                "id": "rc-002", "data_category": "FINANCIAL_MODEL",
-                "requested_zone": "us-east-1", "outcome": "BLOCKED",
-                "required_jurisdiction": "EU",
-                "reason": "US zone does not meet EU jurisdiction requirement",
-                "checked_at": "2026-03-16T08:55:00Z",
-            },
-            {
-                "id": "rc-003", "data_category": "PLANT_DATA",
-                "requested_zone": "eu-west-1", "outcome": "ALLOWED",
-                "required_jurisdiction": "EU", "checked_at": "2026-03-16T08:30:00Z",
-            },
-        ],
-        "blocked_count_24h": 1,
-        "allowed_count_24h": 12,
-    }
+def get_residency_audit_log(request: Request, x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    _require_drpl()
+    return get_residency_audit(company_id)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Trade Policy Simulation (R7-R9)
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Trade policy simulation (R7–R9) against a REAL account ──────────────────
 
 class TradePolicySimRequest(BaseModel):
-    """Simulate a trade policy decision for a given user and trade context."""
     user_id: str
     action: str           # BUY | SELL | PRODUCE | TRANSFORM
-    molecule: str = ""    # H2 | NH3 | SAF | eMeOH
-    destination: str = "" # ISO-3166 alpha-2
+    molecule: str = ""
+    destination: str = ""
     required_rating: str = "NR"
     volume_mt: float = 0
     is_tokenized: bool = False
 
 
 @router.post("/simulate-trade-policy")
-def simulate_trade_policy(
-    body: TradePolicySimRequest,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """
-    CISO can preview what would happen if a user attempted a trade action.
-    Runs rules R7 (capability), R8 (credit), R9 (geofence + tokenization)
-    against the demo user's attributes and returns the ABAC decision.
-    """
-    _company_from_header(x_demo_company)
-
-    user = next((u for u in _BP_USERS if u["user_id"] == body.user_id), None)
+def simulate_trade_policy(body: TradePolicySimRequest, request: Request,
+                          x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    user = next((u for u in _users(company_id) if u["user_id"] == body.user_id), None)
     if not user:
-        raise HTTPException(status_code=404, detail=f"User {body.user_id} not found")
+        raise HTTPException(status_code=404, detail=f"User {body.user_id} not found in company {company_id}")
 
     from app.core.abac import (
-        UserAttributes, TradeContext, TradeAction, Capability,
-        ClearanceLevel, evaluate_trade_policy,
+        Capability, ClearanceLevel, TradeAction, TradeContext, UserAttributes, evaluate_trade_policy,
     )
 
-    user_attrs = UserAttributes(
-        user_id=user["user_id"],
-        company_id="bp_global_energy",
-        actor_type_per_project={},
-        clearance_level=ClearanceLevel(user.get("clearance_level", "STANDARD")),
-        capabilities={Capability(c) for c in user.get("capabilities", [])},
-        credit_rating=user.get("credit_rating", "NR"),
-        credit_rating_source=user.get("credit_rating_source", "GEX"),
-        export_licenses=user.get("export_licenses", []),
-        token_ready=user.get("token_ready", False),
-        transformation_license=user.get("transformation_license", False),
-        aggregation_limit_mt=user.get("aggregation_limit_mt"),
+    attrs = UserAttributes(
+        user_id=user["user_id"], company_id=company_id, actor_type_per_project={},
+        clearance_level=ClearanceLevel(user["clearance_level"] or "STANDARD"),
+        capabilities={Capability(c) for c in user["capabilities"] if c in Capability.__members__},
+        credit_rating=user["credit_rating"] or "NR",
+        credit_rating_source=user["credit_rating_source"] or "GEX",
+        export_licenses=user["export_licenses"], token_ready=user["token_ready"],
+        transformation_license=user["transformation_license"],
+        aggregation_limit_mt=user["aggregation_limit_mt"],
     )
-
-    trade_ctx = TradeContext(
-        action=TradeAction(body.action),
-        molecule=body.molecule,
-        destination=body.destination,
-        required_rating=body.required_rating,
-        volume_mt=body.volume_mt,
-        is_tokenized=body.is_tokenized,
-    )
-
-    decision = evaluate_trade_policy(user_attrs, trade_ctx)
-
-    return _seeded({
-        "user_id": body.user_id,
-        "user_name": user["name"],
-        "decision": decision.decision.value,
-        "rules_evaluated": decision.rules_evaluated,
-        "denial_reason": decision.denial_reason,
-        "attributes_snapshot": decision.attributes_snapshot,
-    })
+    ctx = TradeContext(action=TradeAction(body.action), molecule=body.molecule, destination=body.destination,
+                       required_rating=body.required_rating, volume_mt=body.volume_mt,
+                       is_tokenized=body.is_tokenized)
+    decision = evaluate_trade_policy(attrs, ctx)
+    return {"user_id": body.user_id, "user_name": user["name"], "decision": decision.decision.value,
+            "rules_evaluated": decision.rules_evaluated, "denial_reason": decision.denial_reason,
+            "attributes_snapshot": decision.attributes_snapshot}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Domain 4: OT/IT Gateway Status (CISO monitoring view)
-# ─────────────────────────────────────────────────────────────────────────────
+# ── OT/IT gateways (core/ot_boundary; no fallback) ──────────────────────────
 
 @router.get("/gateways")
-def ciso_list_gateways(
-    project_id: Optional[str] = None,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """
-    CISO view of all registered OT gateways with health and last-seen status.
-    Proxies to ot_boundary.get_gateways() when available, otherwise returns demo data.
-    """
-    _company_from_header(x_demo_company)
-    if HAS_OT:
-        gws = ot_get_gateways(project_id)
-        return {"total": len(gws), "gateways": gws}
-    # Demo fallback
-    gateways = [
-        {
-            "id": "gw-breizh-001",
-            "name": "Breizh SAF Plant — Primary Gateway",
-            "project_id": "proj_breizh_saf",
-            "location": "Brest, Bretagne, FR",
-            "allowed_ips": ["10.12.0.1"],
-            "allowed_data_types": ["PRODUCTION_VOLUME", "ELECTROLYSER_EFFICIENCY", "GHG_MEASUREMENT", "PLANT_STATUS"],
-            "cert_fingerprint": None,
-            "active": True,
-            "last_seen_at": "2026-03-17T08:01:00Z",
-            "registered_at": "2026-01-10T00:00:00Z",
-            "status": "ONLINE",
-        },
-        {
-            "id": "gw-wales-001",
-            "name": "Celtic SAF Complex — Gateway A",
-            "project_id": "proj_wales_saf",
-            "location": "Neath Port Talbot, GB",
-            "allowed_ips": ["10.14.0.5"],
-            "allowed_data_types": ["PRODUCTION_VOLUME", "POWER_CONSUMPTION", "PLANT_STATUS", "ALARM_EVENT"],
-            "cert_fingerprint": None,
-            "active": True,
-            "last_seen_at": "2026-03-16T22:15:00Z",
-            "registered_at": "2026-02-01T00:00:00Z",
-            "status": "ONLINE",
-        },
-        {
-            "id": "gw-rotterdam-001",
-            "name": "Rotterdam NH3 — SCADA Gateway",
-            "project_id": "proj_rotterdam_nh3",
-            "location": "Rotterdam, NL",
-            "allowed_ips": [],
-            "allowed_data_types": ["PRODUCTION_VOLUME", "QUALITY_CERTIFICATE", "METERED_DELIVERY"],
-            "cert_fingerprint": None,
-            "active": False,
-            "last_seen_at": "2026-03-10T06:00:00Z",
-            "registered_at": "2025-11-20T00:00:00Z",
-            "status": "OFFLINE",
-        },
-    ]
-    if project_id:
-        gateways = [g for g in gateways if g["project_id"] == project_id]
-    return {
-        "total": len(gateways),
-        "online": sum(1 for g in gateways if g["status"] == "ONLINE"),
-        "offline": sum(1 for g in gateways if g["status"] == "OFFLINE"),
-        "gateways": gateways,
-    }
+def ciso_list_gateways(request: Request, project_id: Optional[str] = None,
+                       x_ciso_company: Optional[str] = Header(default=None)):
+    company_id, _ = _company(request, x_ciso_company)
+    if not HAS_OT:
+        raise HTTPException(status_code=503, detail="The OT gateway registry is unavailable.")
+    mine = {p["id"] for p in _projects(company_id)}
+    gws = [g for g in ot_get_gateways(project_id) if g.get("project_id") in mine]
+    return {"total": len(gws), "gateways": gws}

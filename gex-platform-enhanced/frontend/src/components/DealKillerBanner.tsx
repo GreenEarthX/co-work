@@ -162,33 +162,12 @@ export function useActiveKillers(projectId: string | undefined): {
         setKillers(data.active_killers);
       })
       .catch(() => {
-        // Demo fallback — representative killers for demo projects
-        setKillers(DEMO_KILLERS);
+        // No fallback (2026-10-25): two "representative" killers used to be
+        // shown for any project whose evaluation failed.
+        setKillers([]);
       })
       .finally(() => setLoading(false));
   }, [projectId]);
 
   return { killers, loading };
 }
-
-// Demo data — used when API is unavailable
-const DEMO_KILLERS: ActiveKiller[] = [
-  {
-    id: "DK_G5_NO_EPC",
-    gate: "G5",
-    severity: "FATAL",
-    plain_language:
-      "No EPC or EPCM contract has been executed — construction cannot proceed without a signed engineering, procurement, and construction agreement.",
-    action: "Execute an EPC or EPCM contract with an approved contractor.",
-    page: "/finance/stage-gates",
-  },
-  {
-    id: "DK_G8_NO_AUDIT_MODEL",
-    gate: "G8",
-    severity: "FATAL",
-    plain_language:
-      "The financial model has not been verified to audit grade — credit committees require an independently reviewed, audited model before approving debt.",
-    action: "Commission a financial model audit from a named firm.",
-    page: "/finance/bankability",
-  },
-];

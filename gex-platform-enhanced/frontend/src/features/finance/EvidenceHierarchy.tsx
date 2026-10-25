@@ -6,11 +6,7 @@ import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { HELP } from "@/config/helpText";
 import { useSelectedProject } from "@/contexts/ProjectContext";
 import { useUserRole } from "@/contexts/UserRoleContext";
-import {
-  type CustomerProject,
-  getProjectById,
-  CUSTOMER_PROJECTS,
-} from "@/data/customerProjects";
+import { type CustomerProject } from "@/data/customerProjects";
 import {
   DealKillerBanner,
   useActiveKillers,
@@ -432,11 +428,11 @@ function hasActiveProjectData(project: CustomerProject): boolean {
 export default function EvidenceHierarchy() {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   const { role } = useUserRole();
-  const selectedProject =
-    getProjectById(selectedProjectId) ?? CUSTOMER_PROJECTS[0];
   const { projects: visibleProjects } = useVisibleProjects();
-  const baseProjects =
-    visibleProjects.length > 0 ? visibleProjects : [selectedProject];
+  // From the server only; no project from code stands in while it loads.
+  const baseProjects = visibleProjects;
+  const selectedProject: CustomerProject | undefined =
+    visibleProjects.find((p) => p.id === selectedProjectId) ?? visibleProjects[0];
   const isExecutive = role.business_function === "EXECUTIVE";
   const visibleGateIds = useMemo(() => getVisibleGateShortIds(role), [role]);
   const visibleGateLabel =

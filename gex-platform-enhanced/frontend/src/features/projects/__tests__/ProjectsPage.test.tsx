@@ -8,7 +8,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ProjectsPage, fmtCod } from '../ProjectsPage'
-import { CUSTOMER_PROJECTS, type CustomerProject } from '@/data/customerProjects'
+import type { CustomerProject } from '@/data/customerProjects'
+import { CUSTOMER_PROJECTS } from '@/test/fixtures/customerProjects'
 import { engineRoutes, speculativeReadout, stubFetch } from '@/test/engineReadoutFixture'
 
 const HAMBURG = CUSTOMER_PROJECTS.find(p => p.id === 'proj_hamburgone_emethanol')!

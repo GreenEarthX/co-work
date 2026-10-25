@@ -30,10 +30,8 @@ def company_slug(name: str | None) -> str:
     return slug or "unknown_company"
 
 
-PROJECT_ID_ALIASES = {
-    "proj_le_havre_eng": "proj_lehavre_eng",
-    "proj_helios_emethanol": "proj_sansebastian_emethanol",
-}
+# Retired project ids live in PostgreSQL (project_id_alias, alembic 069); the
+# PROJECT_ID_ALIASES dictionary that stood here was moved there on 2026-10-25.
 
 
 @dataclass(frozen=True)
@@ -70,111 +68,17 @@ class ProjectAccessProfile:
         return {company_slug(name) for name in self.mandated_insurer_names}
 
 
-PROJECT_ACCESS_PROFILES: dict[str, ProjectAccessProfile] = {
-    # ── ETFuels SA portfolio ─────────────────────────────────────────────
-    "proj_etf_pecos1": ProjectAccessProfile(
-        project_id="proj_etf_pecos1",
-        project_name="ETFuels Pecos I",
-        owner_company_name="ETFuels SA",
-        associated_company_names=("ING Capital", "BNP Paribas CIB", "Maersk Decarbonization"),
-        jurisdiction="US",
-    ),
-    "etfuels_us_tx_rattlesnake_gap": ProjectAccessProfile(
-        project_id="etfuels_us_tx_rattlesnake_gap",
-        project_name="Rattlesnake Gap",
-        owner_company_name="ETFuels SA",
-        associated_company_names=(),
-        jurisdiction="US",
-    ),
-    "etfuels_fi_ranua_naataaapa": ProjectAccessProfile(
-        project_id="etfuels_fi_ranua_naataaapa",
-        project_name="Ranua Näätäaapa e-Methanol",
-        owner_company_name="ETFuels SA",
-        associated_company_names=(),
-        jurisdiction="FI",
-    ),
-    "etfuels_uk_skyfuel_teesside": ProjectAccessProfile(
-        project_id="etfuels_uk_skyfuel_teesside",
-        project_name="Project SkyFuel Teesside",
-        owner_company_name="ETFuels SA",
-        associated_company_names=(),
-        jurisdiction="GB",
-    ),
-    # ── Other companies ──────────────────────────────────────────────────
-    "proj_rheinwerk_prosumer": ProjectAccessProfile(
-        project_id="proj_rheinwerk_prosumer",
-        project_name="RheinWerk Duisburg H₂ (Prosumer)",
-        owner_company_name="RheinWerk Industries AG",
-        associated_company_names=(),
-        jurisdiction="DE",
-    ),
-    "proj_bremen_h2": ProjectAccessProfile(
-        project_id="proj_bremen_h2",
-        project_name="Bremen Green Hydrogen Plant",
-        owner_company_name="HeliosNord GmbH",
-        associated_company_names=("Allianz", "Siemens Energy"),
-        jurisdiction="DE",
-        mandated_insurer_names=("Allianz",),
-    ),
-    "proj_rotterdam_nh3": ProjectAccessProfile(
-        project_id="proj_rotterdam_nh3",
-        project_name="Rotterdam Green Ammonia Terminal",
-        owner_company_name="RotterdamGreenFuels BV",
-        associated_company_names=("Allianz", "Zurich Versicherung AG"),
-        jurisdiction="NL",
-        mandated_insurer_names=("Allianz", "Zurich Versicherung AG"),
-    ),
-    "proj_sansebastian_emethanol": ProjectAccessProfile(
-        project_id="proj_sansebastian_emethanol",
-        project_name="Project Helios e-Methanol",
-        owner_company_name="Helios Energia SL",
-        associated_company_names=("Allianz",),
-        jurisdiction="ES",
-        mandated_insurer_names=("Allianz",),
-    ),
-    "proj_wales_saf": ProjectAccessProfile(
-        project_id="proj_wales_saf",
-        project_name="Celtic Green SAF Complex",
-        owner_company_name="Celtic Green Fuels Ltd",
-        associated_company_names=("Zurich Versicherung AG",),
-        jurisdiction="GB",
-        mandated_insurer_names=("Zurich Versicherung AG",),
-    ),
-    "proj_lehavre_eng": ProjectAccessProfile(
-        project_id="proj_lehavre_eng",
-        project_name="Le Havre e-Gas Hub",
-        owner_company_name="Normandie Hydrogene SA",
-        associated_company_names=("Allianz", "Zurich Versicherung AG"),
-        jurisdiction="FR",
-        mandated_insurer_names=("Allianz", "Zurich Versicherung AG"),
-    ),
-    "proj_hamburgone_emethanol": ProjectAccessProfile(
-        project_id="proj_hamburgone_emethanol",
-        project_name="HamburgOne e-Methanol Plant",
-        owner_company_name="HamburgOne.com",
-        associated_company_names=("NordLB", "BremenThree AG", "Allianz", "Siemens Energy"),
-        jurisdiction="DE",
-        mandated_lender_names=("NordLB",),
-        mandated_insurer_names=("Allianz",),
-    ),
-    "proj_madrid2_sansebastian": ProjectAccessProfile(
-        project_id="proj_madrid2_sansebastian",
-        project_name="Madrid2 San-Sebastian e-Methanol",
-        owner_company_name="Madrid2.com",
-        associated_company_names=("ABN-AMRO", "RotterdamOfftake4 AG", "Zurich Versicherung AG"),
-        jurisdiction="ES",
-        mandated_lender_names=("ABN-AMRO",),
-        mandated_insurer_names=("Zurich Versicherung AG",),
-    ),
-}
+# Project access lives in PostgreSQL only (projects, tenants, project_access).
+# The PROJECT_ACCESS_PROFILES dictionary that stood here was moved by
+# scripts/move_project_registry_20261025.py and deleted (JML, 2026-10-25).
 
 
 # ── Physical context — power model + lifecycle phase per project ────────────
-# Server-side source for the bankability engine's power-model-aware gate
-# scoping and phase-aware severity escalation. The frontend static seeds in
-# customerProjects.ts mirror this for dev fallback; THIS is what the engine
-# actually receives. Belongs in the project store once projects are
-# server-persisted.
+# Read by the bankability engine for power-model-aware gate scoping and
+# phase-aware severity. Source: the project_context table (migration 033),
+# written by PATCH /api/v1/projects/{id}/context. The PROJECT_PHYSICAL seed
+# dictionary that stood here was moved into that table (scripts/
+# move_project_profiles_20261025.py) and deleted (JML, 2026-10-25).
 
 @dataclass(frozen=True)
 class ProjectPhysicalContext:
@@ -183,35 +87,13 @@ class ProjectPhysicalContext:
     financing_model: str = "PROJECT_FINANCE"  # PROJECT_FINANCE | BALANCE_SHEET
 
 
-# SEED ONLY. The runtime source of truth is the project_context DB table
-# (see routes_project_context.py) — these values initialise it and are
-# superseded by any PATCH. Editing this dict is NOT how projects are
-# onboarded or updated; the API is.
-PROJECT_PHYSICAL: dict[str, ProjectPhysicalContext] = {
-    # ETFuels portfolio — off-grid behind-the-meter, SPV project finance
-    "proj_etf_pecos1":                ProjectPhysicalContext("OFF_GRID_BTM", "development"),
-    "etfuels_us_tx_rattlesnake_gap":  ProjectPhysicalContext("OFF_GRID_BTM", "development"),
-    "etfuels_fi_ranua_naataaapa":     ProjectPhysicalContext("OFF_GRID_BTM", "development"),
-    "etfuels_uk_skyfuel_teesside":    ProjectPhysicalContext("OFF_GRID_BTM", "development"),
-    # Grid-connected SPV projects
-    "proj_bremen_h2":                 ProjectPhysicalContext("GRID_CONNECTED", "construction"),
-    "proj_hamburgone_emethanol":      ProjectPhysicalContext("GRID_CONNECTED", "development"),
-    # Prosumer demo — hybrid power, corporate balance sheet, internal offtake
-    "proj_rheinwerk_prosumer":        ProjectPhysicalContext("HYBRID", "development", "BALANCE_SHEET"),
-}
-
-
 def get_project_physical(project_id: str | None) -> ProjectPhysicalContext | None:
-    normalized = normalize_project_id(project_id)
-    if not normalized:
-        return None
-    return PROJECT_PHYSICAL.get(normalized)
+    return get_effective_context(project_id)
 
 
-# ── Effective context: DB override > seed ────────────────────────────────────
+# ── Effective context: the project_context table ─────────────────────────────
 # project_context rows are written by PATCH /api/v1/projects/{id}/context
-# (audited, owner-EXEC/admin only). This is how project context is updated in
-# operation — code-edits to PROJECT_PHYSICAL are seed/dev only.
+# (audited, owner-EXEC/admin only) and by project creation.
 
 import os as _os
 import sqlite3 as _sqlite3
@@ -240,7 +122,7 @@ def ensure_context_tables(conn: "_sqlite3.Connection") -> None:
 
 def get_effective_context(project_id: str | None) -> ProjectPhysicalContext | None:
     """
-    Stored context wins; the in-code seed is the fallback.
+    The stored context; None when the project has none (no in-code fallback).
 
     Reads the CANONICAL PostgreSQL project_context (migration 033), which moved
     there with `projects` so that create_project stays atomic. The SQLite copy
@@ -257,22 +139,21 @@ def get_effective_context(project_id: str | None) -> ProjectPhysicalContext | No
         return ProjectPhysicalContext(
             row["power_model"], row["phase"], row["financing_model"]
         )
-    return PROJECT_PHYSICAL.get(normalized)
+    return None
 
 
 def normalize_project_id(project_id: str | None) -> str | None:
     if not project_id:
         return project_id
-    return PROJECT_ID_ALIASES.get(project_id, project_id)
+    from app.core.projects_store import resolve_alias
+
+    return resolve_alias(project_id) or project_id
 
 
-# ── Runtime project registry (the on-ramp) ───────────────────────────────────
-# The static PROJECT_ACCESS_PROFILES / PROJECT_PHYSICAL dicts are SEED/demo
-# data. New projects are created at runtime via POST /api/v1/projects and live
-# in the `projects` table. get_project_profile() consults the seed first, then
-# the runtime table — so a UI-created project is a first-class bridge citizen
-# (ABAC, context, gates, packages) without a code edit. This is the fix for the
-# "master data lives in a TypeScript file" gap.
+# ── Project registry: PostgreSQL only ────────────────────────────────────────
+# Every project — seeded or created through POST /api/v1/projects — lives in
+# the `projects` table, with access in `project_access` and context in
+# `project_context`. Since 2026-10-25 there is no seed dictionary in code.
 
 def ensure_project_table(conn: "_sqlite3.Connection") -> None:
     """
@@ -291,53 +172,58 @@ def ensure_project_table(conn: "_sqlite3.Connection") -> None:
     return None
 
 
-def _runtime_profile(project_id: str) -> ProjectAccessProfile | None:
+# Roles that make a company a project stakeholder. REVIEWER is deliberately
+# absent: an appointed reviewer's access is gate-scoped (JML, 2026-10-21) and is
+# enforced by RLS and the reviewer rules, not by stakeholder visibility.
+_STAKEHOLDER_ROLES = ("STAKEHOLDER", "MANDATED_LENDER", "MANDATED_INSURER")
+
+
+def _build_profile(row: dict, access: list[dict]) -> ProjectAccessProfile:
     """
-    Runtime project lookup against the CANONICAL projects table.
-
-    Collision resolved 2026-08-07: the PostgreSQL shape wins (migration 033).
-    There is no longer a second `projects` table in SQLite with its own shape.
-
-    NOTE on jurisdiction: this returns `country` ("DE"), not the row's
-    `jurisdiction` ("EU"). The pre-migration code did the same — the two were
-    conflated — and downstream ABAC compares against country values. Changing
-    it here would silently alter authorization, so the behaviour is preserved
-    deliberately and the columns are now separate so it CAN be untangled.
+    jurisdiction is the row's `country` ("DE"), not its `jurisdiction` ("EU"):
+    downstream ABAC compares country values, and the dictionary this replaced
+    carried countries (moved to the country column on 2026-10-25).
     """
-    from app.core.projects_store import fetch_project
+    def names(*roles):
+        return tuple(a["company_name"] for a in access if a["access_role"] in roles)
 
-    row = fetch_project(project_id)
-    if not row:
-        return None
     return ProjectAccessProfile(
-        project_id=project_id,
+        project_id=row["project_id"],
         project_name=row["project_name"],
         owner_company_name=row["owner_company_name"],
-        associated_company_names=(),
+        associated_company_names=names(*_STAKEHOLDER_ROLES),
         jurisdiction=row["country"] or "",
+        mandated_lender_names=names("MANDATED_LENDER"),
+        mandated_insurer_names=names("MANDATED_INSURER"),
     )
 
 
 def get_project_profile(project_id: str | None) -> ProjectAccessProfile | None:
+    """The project's access profile, from PostgreSQL (projects, tenants, project_access)."""
+    from app.core.projects_store import fetch_project, fetch_project_access
+
     normalized = normalize_project_id(project_id)
     if not normalized:
         return None
-    return PROJECT_ACCESS_PROFILES.get(normalized) or _runtime_profile(normalized)
+    row = fetch_project(normalized)
+    if not row:
+        return None
+    return _build_profile(row, fetch_project_access(normalized))
+
+
+def all_project_profiles() -> list[ProjectAccessProfile]:
+    """Every active project's access profile, in two queries."""
+    from app.core.projects_store import fetch_project_access, list_projects
+
+    access: dict[str, list[dict]] = {}
+    for a in fetch_project_access():
+        access.setdefault(a["project_id"], []).append(a)
+    return [_build_profile(r, access.get(r["project_id"], [])) for r in list_projects()]
 
 
 def visible_project_ids_for_company(company_name: str) -> list[str]:
     company_id = company_slug(company_name)
-    visible: list[str] = []
-    for project_id, profile in PROJECT_ACCESS_PROFILES.items():
-        if company_id in profile.stakeholder_company_ids:
-            visible.append(project_id)
-    # Runtime-created projects owned by this company, from the canonical store.
-    from app.core.projects_store import project_ids_owned_by
-
-    for pid in project_ids_owned_by(company_id):
-        if pid not in visible:
-            visible.append(pid)
-    return visible
+    return [p.project_id for p in all_project_profiles() if company_id in p.stakeholder_company_ids]
 
 
 def _gen_project_id(name: str) -> str:

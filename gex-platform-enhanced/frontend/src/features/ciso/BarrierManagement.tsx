@@ -45,6 +45,7 @@ export function BarrierManagement() {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
     side_a: '',
     side_b: '',
@@ -59,19 +60,18 @@ export function BarrierManagement() {
         setBarriers(data.barriers || [])
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch((e) => { setError(e.message); setLoading(false) })
   }, [])
 
   const handleCreate = async () => {
     try {
       const result = await cisoSecurityAPI.createBarrier(form)
-      if (result.barrier) {
-        setBarriers((prev) => [...prev, result.barrier])
-        setShowForm(false)
-        setForm({ side_a: '', side_b: '', barrier_type: 'HARD', applies_to_data: [], description: '' })
-      }
+      setBarriers((prev) => [...prev, result.barrier])
+      setShowForm(false)
+      setError(null)
+      setForm({ side_a: '', side_b: '', barrier_type: 'HARD', applies_to_data: [], description: '' })
     } catch (e) {
-      // ignore in demo
+      setError((e as Error).message)
     }
   }
 
@@ -183,6 +183,9 @@ export function BarrierManagement() {
         </div>
       )}
 
+      {error && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">{error}</div>
+      )}
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading barriers…</div>
       ) : barriers.length === 0 ? (

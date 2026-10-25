@@ -5,33 +5,26 @@
 // Zone: STRUCTURE (teal)
 // API: GET /api/v1/instruments/eligible/{project_id}
 // ──────────────────────────────────────────────────────────
- 
+
 // Save as: src/features/finance/InstrumentCatalog.tsx
- 
-import { useState, useEffect } from 'react';
+
+import { useState } from 'react';
+import { useProjectResource } from './useProjectResource';
 import { Layers, ArrowRight } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
 
 export function InstrumentCatalog() {
-  const [instruments, setInstruments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, error } = useProjectResource<{ instruments?: any[] }>((pid) => `/api/v1/instruments/eligible/${pid}`);
+  const instruments: any[] = data?.instruments || [];
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [projectId] = useState('proj_bremen_h2');
- 
-  useEffect(() => {
-    fetch(`/api/v1/instruments/eligible/${projectId}`)
-      .then(r => r.json())
-      .then(data => { setInstruments(data.instruments || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [projectId]);
- 
+
   const toggleSelect = (id: string) => {
     setSelectedIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
- 
+
   const TYPE_COLORS: Record<string, string> = {
     GRANT: 'text-green-400 bg-green-900/30',
     CFD: 'text-blue-400 bg-blue-900/30',
@@ -47,7 +40,7 @@ export function InstrumentCatalog() {
     CAR_INSURANCE: 'text-pink-400 bg-pink-900/30',
     IRS: 'text-gray-400 bg-gray-900/30',
   };
- 
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -67,7 +60,7 @@ export function InstrumentCatalog() {
           </button>
         )}
       </div>
- 
+
       <div className="border-l-4 border-teal-500 bg-teal-900/10 px-4 py-2 rounded-r-lg">
         <span className="text-xs font-bold uppercase tracking-wider text-teal-400">
           Structure Zone
@@ -76,8 +69,10 @@ export function InstrumentCatalog() {
           Browse eligible instruments → Select → Build package
         </span>
       </div>
- 
-      {loading ? (
+
+      {error ? (
+        <div role="alert" className="p-6 text-center text-sm text-[var(--text-secondary)]">{error}</div>
+      ) : loading ? (
         <div className="text-center py-12 text-gray-500">Loading eligible instruments...</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -145,4 +140,3 @@ export function InstrumentCatalog() {
     </div>
   );
 }
- 

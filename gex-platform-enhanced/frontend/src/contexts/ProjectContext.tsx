@@ -6,7 +6,6 @@ import {
   useEffect,
   ReactNode,
 } from "react";
-import { DEFAULT_PROJECT_ID } from "@/data/customerProjects";
 import { useUserRole } from "@/contexts/UserRoleContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
 
@@ -27,7 +26,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const visibleIds = projects.map((p) => p.id);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
-    () => localStorage.getItem("gex_selected_project") ?? DEFAULT_PROJECT_ID,
+    // No hard-coded default project: until one is chosen, the auto-correct below
+    // selects the first project the server says is visible.
+    () => localStorage.getItem("gex_selected_project") ?? "",
   );
 
   // Auto-correct: once the AUTHORITATIVE visible set is known, ensure the

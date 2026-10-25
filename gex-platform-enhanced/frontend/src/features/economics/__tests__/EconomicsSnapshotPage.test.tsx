@@ -149,6 +149,9 @@ describe('the refusals', () => {
   it('surfaces a transport failure rather than rendering an empty shell', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
     renderPage()
-    await waitFor(() => expect(screen.getByText(/network down/i)).toBeInTheDocument())
+    // The page's own notice. The currency selector on the page reports its own
+    // failed request as well, so the message legitimately appears twice.
+    const notice = await screen.findByText('Unavailable')
+    expect(notice.parentElement).toHaveTextContent(/network down/i)
   })
 })

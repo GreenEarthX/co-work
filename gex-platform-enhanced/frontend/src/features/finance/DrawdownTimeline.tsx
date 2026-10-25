@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { Calendar, Milestone, ChevronDown, ChevronUp } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { useSelectedProject } from '@/contexts/ProjectContext'
+import { useProjectDataset, DatasetNotice, UnverifiedBadge } from './useProjectDataset'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -43,132 +44,6 @@ const STATUS_STYLE: Record<DrawdownStatus, { bg: string; text: string; border: s
   RECONCILED: { bg: 'bg-green-100',   text: 'text-green-700',  border: 'border-green-300',  label: 'Reconciled' },
 }
 
-const QUARTERS = [
-  'Q1-2029', 'Q2-2029', 'Q3-2029', 'Q4-2029',
-  'Q1-2030', 'Q2-2030', 'Q3-2030', 'Q4-2030',
-  'Q1-2031', 'Q2-2031', 'Q3-2031', 'Q4-2031',
-]
-
-// ═══════════════════════════════════════════════════════════════
-// MOCK DATA — ETFuels Pecos I post-FID drawdowns
-// ═══════════════════════════════════════════════════════════════
-
-const MOCK_MILESTONES: MilestoneMarker[] = [
-  { quarter: 'Q2-2029', label: 'EPC 25%',  icon: '25' },
-  { quarter: 'Q4-2029', label: 'EPC 50%',  icon: '50' },
-  { quarter: 'Q4-2031', label: 'COD',       icon: 'COD' },
-]
-
-const MOCK_TRANCHES: Record<string, Tranche[]> = {
-  proj_etf_pecos1: [
-    {
-      id: 'senior',
-      name: 'Senior Debt (Syndicate)',
-      totalCommitted: 285,
-      cells: {
-        'Q1-2029': { status: 'DISBURSED',  amount: 28.5 },
-        'Q2-2029': { status: 'DISBURSED',  amount: 42.8 },
-        'Q3-2029': { status: 'DISBURSED',  amount: 42.8 },
-        'Q4-2029': { status: 'RECONCILED', amount: 42.8 },
-        'Q1-2030': { status: 'APPROVED',   amount: 42.8 },
-        'Q2-2030': { status: 'APPROVED',   amount: 42.8 },
-        'Q3-2030': { status: 'REQUESTED',  amount: 28.5 },
-        'Q4-2030': { status: 'REQUESTED',  amount: 14.0 },
-      },
-    },
-    {
-      id: 'eib',
-      name: 'EIB Concessional',
-      totalCommitted: 120,
-      cells: {
-        'Q1-2029': { status: 'DISBURSED',  amount: 12.0 },
-        'Q2-2029': { status: 'DISBURSED',  amount: 18.0 },
-        'Q3-2029': { status: 'DISBURSED',  amount: 24.0 },
-        'Q4-2029': { status: 'RECONCILED', amount: 24.0 },
-        'Q1-2030': { status: 'APPROVED',   amount: 18.0 },
-        'Q2-2030': { status: 'APPROVED',   amount: 12.0 },
-        'Q3-2030': { status: 'REQUESTED',  amount: 12.0 },
-      },
-    },
-    {
-      id: 'eca',
-      name: 'ECA (EXIM)',
-      totalCommitted: 95,
-      cells: {
-        'Q2-2029': { status: 'DISBURSED',  amount: 14.2 },
-        'Q3-2029': { status: 'DISBURSED',  amount: 19.0 },
-        'Q4-2029': { status: 'RECONCILED', amount: 19.0 },
-        'Q1-2030': { status: 'APPROVED',   amount: 19.0 },
-        'Q2-2030': { status: 'REQUESTED',  amount: 14.2 },
-        'Q3-2030': { status: 'REQUESTED',  amount: 9.6  },
-      },
-    },
-    {
-      id: 'equity',
-      name: 'Sponsor Equity',
-      totalCommitted: 112,
-      cells: {
-        'Q1-2029': { status: 'RECONCILED', amount: 22.4 },
-        'Q2-2029': { status: 'RECONCILED', amount: 22.4 },
-        'Q3-2029': { status: 'DISBURSED',  amount: 22.4 },
-        'Q4-2029': { status: 'DISBURSED',  amount: 22.4 },
-        'Q1-2030': { status: 'APPROVED',   amount: 11.2 },
-        'Q2-2030': { status: 'APPROVED',   amount: 11.2 },
-      },
-    },
-  ],
-  default: [
-    {
-      id: 'senior',
-      name: 'Senior Debt',
-      totalCommitted: 200,
-      cells: {
-        'Q1-2029': { status: 'DISBURSED',  amount: 25.0 },
-        'Q2-2029': { status: 'DISBURSED',  amount: 35.0 },
-        'Q3-2029': { status: 'APPROVED',   amount: 35.0 },
-        'Q4-2029': { status: 'APPROVED',   amount: 35.0 },
-        'Q1-2030': { status: 'REQUESTED',  amount: 35.0 },
-        'Q2-2030': { status: 'REQUESTED',  amount: 35.0 },
-      },
-    },
-    {
-      id: 'concessional',
-      name: 'Concessional (DFI)',
-      totalCommitted: 80,
-      cells: {
-        'Q1-2029': { status: 'DISBURSED', amount: 16.0 },
-        'Q2-2029': { status: 'DISBURSED', amount: 16.0 },
-        'Q3-2029': { status: 'APPROVED',  amount: 16.0 },
-        'Q4-2029': { status: 'APPROVED',  amount: 16.0 },
-        'Q1-2030': { status: 'REQUESTED', amount: 16.0 },
-      },
-    },
-    {
-      id: 'eca',
-      name: 'ECA Guarantee',
-      totalCommitted: 60,
-      cells: {
-        'Q2-2029': { status: 'DISBURSED', amount: 15.0 },
-        'Q3-2029': { status: 'APPROVED',  amount: 15.0 },
-        'Q4-2029': { status: 'REQUESTED', amount: 15.0 },
-        'Q1-2030': { status: 'REQUESTED', amount: 15.0 },
-      },
-    },
-    {
-      id: 'equity',
-      name: 'Sponsor Equity',
-      totalCommitted: 90,
-      cells: {
-        'Q1-2029': { status: 'RECONCILED', amount: 18.0 },
-        'Q2-2029': { status: 'RECONCILED', amount: 18.0 },
-        'Q3-2029': { status: 'DISBURSED',  amount: 18.0 },
-        'Q4-2029': { status: 'DISBURSED',  amount: 18.0 },
-        'Q1-2030': { status: 'APPROVED',   amount: 18.0 },
-      },
-    },
-  ],
-}
-
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
@@ -193,7 +68,12 @@ export function DrawdownTimeline() {
   // the on-ramp, or one that hasn't reached financial close). Do NOT borrow the
   // 'default' demo schedule — a drawdown calendar implies committed debt and
   // signed facilities. Show an honest empty state instead.
-  const tranches = MOCK_TRANCHES[selectedProjectId]
+  // project_dataset drawdown_tranches / drawdown_milestones (PostgreSQL since
+  // 2026-10-25), UNVERIFIED.
+  const ds = useProjectDataset<Tranche[]>('drawdown_tranches', selectedProjectId)
+  const milestoneDs = useProjectDataset<MilestoneMarker[]>('drawdown_milestones', selectedProjectId)
+  const tranches = ds.data
+  if (ds.loading || ds.error) return <DatasetNotice ds={ds} what="drawdown schedule" />
   if (!tranches) {
     return (
       <div className="mx-auto max-w-3xl space-y-4 pb-8">
@@ -215,7 +95,11 @@ export function DrawdownTimeline() {
     )
   }
 
-  const milestones = MOCK_MILESTONES
+  const milestones = milestoneDs.data ?? []
+  // The quarter axis comes from the recorded cells (it was a fixed 2029–2031
+  // list — Pecos's dates — whatever the project).
+  const QUARTERS = [...new Set(tranches.flatMap(t => Object.keys(t.cells)))].sort(
+    (a, b) => a.slice(3).localeCompare(b.slice(3)) || a.localeCompare(b))
 
   const totalCommitted = tranches.reduce((s, t) => s + t.totalCommitted, 0)
   const totalDrawn = tranches.reduce((s, t) => s + trancheDrawn(t), 0)
@@ -239,7 +123,7 @@ export function DrawdownTimeline() {
               <Calendar className="w-4 h-4 text-gray-400" />
               <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Drawdown Timeline</span>
             </div>
-            <h1 className="text-2xl font-black text-white">Post-FID Quarterly Drawdowns</h1>
+            <h1 className="text-2xl font-black text-white flex items-center gap-2">Post-FID Quarterly Drawdowns <UnverifiedBadge verification={ds.verification} /></h1>
             <p className="text-sm text-gray-400 mt-0.5">{QUARTERS[0]} through {QUARTERS[QUARTERS.length - 1]}</p>
           </div>
         </div>

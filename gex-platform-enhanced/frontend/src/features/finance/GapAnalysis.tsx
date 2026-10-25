@@ -5,10 +5,10 @@
 // Zone: STRUCTURE (teal)
 // API: GET /api/v1/structuring/{project_id}/gaps
 // ──────────────────────────────────────────────────────────
- 
-import { useState, useEffect } from 'react';
+
+import { useProjectResource } from './useProjectResource';
 import { AlertTriangle, Search } from 'lucide-react';
- 
+
 interface Gap {
   gap_id: string;
   gap_type: string;
@@ -21,29 +21,21 @@ interface Gap {
   affected_metrics: string[];
   risk_category: string;
 }
- 
+
 const SEVERITY_STYLES: Record<string, { text: string; border: string; badge: string }> = {
   BLOCKING: { text: 'text-red-700', border: 'border-red-500', badge: 'bg-white text-red-700 border-red-200' },
   DEGRADING: { text: 'text-amber-700', border: 'border-amber-500', badge: 'bg-white text-amber-700 border-amber-200' },
   ADVISORY: { text: 'text-slate-700', border: 'border-slate-500', badge: 'bg-white text-slate-700 border-slate-200' },
 };
- 
+
 export function GapAnalysis() {
-  const [gaps, setGaps] = useState<Gap[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [projectId] = useState('proj_bremen_h2');
- 
-  useEffect(() => {
-    fetch(`/api/v1/structuring/${projectId}/gaps`)
-      .then(r => r.json())
-      .then(data => { setGaps(data.gaps || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [projectId]);
- 
+  const { data, loading, error } = useProjectResource<{ gaps?: Gap[] }>((pid) => `/api/v1/structuring/${pid}/gaps`);
+  const gaps: Gap[] = data?.gaps || [];
+
   const blocking = gaps.filter(g => g.severity === 'BLOCKING');
   const degrading = gaps.filter(g => g.severity === 'DEGRADING');
   const advisory = gaps.filter(g => g.severity === 'ADVISORY');
- 
+
   return (
     <div className="p-6 space-y-5">
       {/* Header */}
@@ -68,7 +60,7 @@ export function GapAnalysis() {
           </span>
         </div>
       </div>
- 
+
       {/* Zone indicator */}
       <div className="rounded-r-lg border border-l-4 border-[var(--border)] border-l-teal-500 bg-[var(--surface)] px-4 py-2.5">
         <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
@@ -78,8 +70,10 @@ export function GapAnalysis() {
           Identify gaps → Find instruments → Build package
         </span>
       </div>
- 
-      {loading ? (
+
+      {error ? (
+        <div role="alert" className="p-6 text-center text-sm text-[var(--text-secondary)]">{error}</div>
+      ) : loading ? (
         <div className="py-12 text-center text-[var(--text-muted)]">Analyzing project gaps...</div>
       ) : (
         <div className="space-y-3">
@@ -153,7 +147,7 @@ export function GapAnalysis() {
     </div>
   );
 }
- 
+
 export default GapAnalysis;
- 
- 
+
+

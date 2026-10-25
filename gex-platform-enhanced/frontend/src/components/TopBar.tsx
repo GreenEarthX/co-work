@@ -9,16 +9,16 @@ import {
 } from "@/config/menuArchitecture";
 import { useUserRole } from "@/contexts/UserRoleContext";
 import { TopBarDropdown } from "./TopBarDropdown";
-import { CISOGate } from "./CISOGate";
 
 export function TopBar() {
   const { role, sessionTier, logout } = useUserRole();
   const navigate = useNavigate();
   const [openTab, setOpenTab] = useState<string | null>(null);
-  const [cisoOpen, setCisoOpen] = useState(false);
-  const [cisoAuthed, setCisoAuthed] = useState(
-    () => sessionStorage.getItem("gex_ciso_session") === "true",
-  );
+  // The CISO menu follows the sign-in, not a shared password: the server
+  // decides what each account may read (its own company) and write
+  // (governance domain: EXECUTIVE or GEX staff). The old CISOGate compared a
+  // password held in this bundle (default "Enter-123") — no control at all.
+  const cisoAuthed = sessionTier === "authenticated";
   const [logoError, setLogoError] = useState(false);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -49,11 +49,8 @@ export function TopBar() {
   };
 
   const handleCISOClick = () => {
-    if (cisoAuthed) {
-      setOpenTab(openTab === "ciso" ? null : "ciso");
-    } else {
-      setCisoOpen(true);
-    }
+    if (cisoAuthed) setOpenTab(openTab === "ciso" ? null : "ciso");
+    else navigate("/login");
   };
 
   const handleLogout = () => {
@@ -233,8 +230,8 @@ export function TopBar() {
               onClick={handleCISOClick}
               title={
                 cisoAuthed
-                  ? "CISO Admin — authenticated"
-                  : "CISO Administration (password required)"
+                  ? "CISO Admin"
+                  : "CISO Administration (sign in required)"
               }
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors"
               style={
@@ -285,16 +282,6 @@ export function TopBar() {
         </div>
       </div>
 
-      {/* CISO password gate */}
-      <CISOGate
-        isOpen={cisoOpen}
-        onClose={() => setCisoOpen(false)}
-        onAuthenticated={() => {
-          setCisoOpen(false);
-          setCisoAuthed(true);
-          setOpenTab("ciso");
-        }}
-      />
     </>
   );
 }

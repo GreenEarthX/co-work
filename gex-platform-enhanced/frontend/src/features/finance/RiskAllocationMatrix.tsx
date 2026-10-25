@@ -5,34 +5,26 @@
 // Zone: STRUCTURE (teal)
 // API: GET /api/v1/structuring/{project_id}/risk-allocation
 // ──────────────────────────────────────────────────────────
- 
+
 // Save as: src/features/finance/RiskAllocationMatrix.tsx
- 
-import { useState, useEffect } from 'react';
+
+import { useProjectResource } from './useProjectResource';
 import { AlertTriangle } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
 
 export function RiskAllocationMatrix() {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [projectId] = useState('proj_bremen_h2');
- 
-  useEffect(() => {
-    fetch(`/api/v1/structuring/${projectId}/risk-allocation`)
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [projectId]);
- 
+  const { data, loading, error } = useProjectResource<any>((pid) => `/api/v1/structuring/${pid}/risk-allocation`);
+
   const RISK_COLORS: Record<string, string> = {
     HIGH: 'text-red-600 dark:text-red-400', MEDIUM: 'text-amber-600 dark:text-amber-400', LOW: 'text-emerald-600 dark:text-emerald-400', NEGLIGIBLE: 'text-[var(--text-muted)]',
   };
- 
+
   if (loading) return <div className="p-6 text-center text-[var(--text-muted)]">Computing risk allocation...</div>;
- 
+  if (error) return <div role="alert" className="p-6 text-center text-sm text-[var(--text-secondary)]">{error}</div>;
+
   const entries = data?.entries || [];
- 
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -53,13 +45,13 @@ export function RiskAllocationMatrix() {
           </span>
         </div>
       </div>
- 
+
       <div className="border-l-4 border-teal-500 bg-teal-50 dark:bg-teal-900/10 px-4 py-2 rounded-r-lg">
         <span className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400">
           Structure Zone
         </span>
       </div>
- 
+
       {/* Unmitigated blocking risks */}
       {(data?.unmitigated_blocking || []).length > 0 && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 rounded-xl p-4">
@@ -73,7 +65,7 @@ export function RiskAllocationMatrix() {
           ))}
         </div>
       )}
- 
+
       {/* Matrix table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -132,4 +124,3 @@ export function RiskAllocationMatrix() {
     </div>
   );
 }
- 

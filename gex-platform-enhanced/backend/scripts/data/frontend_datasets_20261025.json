@@ -1,0 +1,4505 @@
+[
+ {
+  "kind": "bankers_snapshot",
+  "from": "features/finance/BankersSnapshot.tsx SNAPSHOT_DATA",
+  "data": {
+   "proj_bremen_h2": {
+    "bankabilityState": "BUILDABLE",
+    "trustScore": 72,
+    "technology": "120MW PEM + DSO integration",
+    "financials": {
+     "capex": 220,
+     "dscrP50": 1.34,
+     "dscrP90": 1.18,
+     "llcr": 1.41,
+     "wacc": 8.9,
+     "breakeven": 1.62
+    },
+    "offtake": {
+     "contracted": 78,
+     "tenor": 15,
+     "buyerCredit": "BBB+ (Vattenfall parent guarantee)",
+     "index": "ICIS H2 NWE + logistics escalator",
+     "score": 79
+    },
+    "financing": {
+     "seniorDebt": 145,
+     "ecaDfi": "EIB indicative offer received",
+     "equity": 58,
+     "mezzEur": 17,
+     "termSheetTarget": "Q4-2026",
+     "fidTarget": "Q1-2027",
+     "codTarget": "Q3-2028",
+     "concessionalShare": 0.53,
+     "blendedDebtCost": 4.83,
+     "catalyticRatio": 0.67,
+     "maxGracePeriod": 3
+    },
+    "gates": [
+     {
+      "id": "G0",
+      "name": "Site Rights",
+      "status": "PASS",
+      "score": 95
+     },
+     {
+      "id": "G1",
+      "name": "Grid Connection",
+      "status": "IN_PROGRESS",
+      "score": 67
+     },
+     {
+      "id": "G2",
+      "name": "Certification",
+      "status": "IN_PROGRESS",
+      "score": 72
+     },
+     {
+      "id": "G3",
+      "name": "Feedstock",
+      "status": "PASS",
+      "score": 88
+     },
+     {
+      "id": "G4",
+      "name": "Offtake",
+      "status": "IN_PROGRESS",
+      "score": 78
+     },
+     {
+      "id": "G5",
+      "name": "EPC & Construction",
+      "status": "IN_PROGRESS",
+      "score": 80
+     },
+     {
+      "id": "G6",
+      "name": "IE Signoff",
+      "status": "PENDING",
+      "score": 30
+     },
+     {
+      "id": "G7",
+      "name": "Insurance",
+      "status": "IN_PROGRESS",
+      "score": 55
+     },
+     {
+      "id": "G8",
+      "name": "Financial Model",
+      "status": "IN_PROGRESS",
+      "score": 68
+     },
+     {
+      "id": "G9",
+      "name": "Permits",
+      "status": "PASS",
+      "score": 92
+     },
+     {
+      "id": "G10",
+      "name": "Financial Close",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G11",
+      "name": "COD",
+      "status": "NOT_STARTED",
+      "score": 0
+     }
+    ],
+    "certReadiness": 74,
+    "criticalPath": [
+     "Grid connection firm offer by Q3-2026",
+     "EPC full wrap by Q4-2026",
+     "RFNBO pre-audit Q1-2027"
+    ],
+    "killSwitches": [
+     "Grid slippage > 9 months voids offtake",
+     "PEM efficiency < 62% fails covenant",
+     "RFNBO additionality challenge"
+    ]
+   },
+   "proj_rotterdam_nh3": {
+    "bankabilityState": "EARLY_DEV",
+    "trustScore": 40,
+    "technology": "80MW HB synthesis + NH3 cracker",
+    "financials": {
+     "capex": 190,
+     "dscrP50": 1.05,
+     "dscrP90": 0.88,
+     "llcr": 1.08,
+     "wacc": 12.1,
+     "breakeven": 0.48
+    },
+    "offtake": {
+     "contracted": 35,
+     "tenor": 10,
+     "buyerCredit": "BB (Yara subsidiary)",
+     "index": "Argus NH3 FOB Rotterdam",
+     "score": 38
+    },
+    "financing": {
+     "seniorDebt": 110,
+     "ecaDfi": "None secured",
+     "equity": 65,
+     "mezzEur": 15,
+     "termSheetTarget": "Q2-2028",
+     "fidTarget": "Q3-2028",
+     "codTarget": "Q1-2030"
+    },
+    "gates": [
+     {
+      "id": "G0",
+      "name": "Site Rights",
+      "status": "PASS",
+      "score": 90
+     },
+     {
+      "id": "G1",
+      "name": "Grid Connection",
+      "status": "PENDING",
+      "score": 25
+     },
+     {
+      "id": "G2",
+      "name": "Certification",
+      "status": "PENDING",
+      "score": 20
+     },
+     {
+      "id": "G3",
+      "name": "Feedstock",
+      "status": "IN_PROGRESS",
+      "score": 45
+     },
+     {
+      "id": "G4",
+      "name": "Offtake",
+      "status": "IN_PROGRESS",
+      "score": 35
+     },
+     {
+      "id": "G5",
+      "name": "EPC & Construction",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G6",
+      "name": "IE Signoff",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G7",
+      "name": "Insurance",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G8",
+      "name": "Financial Model",
+      "status": "PENDING",
+      "score": 20
+     },
+     {
+      "id": "G9",
+      "name": "Permits",
+      "status": "IN_PROGRESS",
+      "score": 40
+     },
+     {
+      "id": "G10",
+      "name": "Financial Close",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G11",
+      "name": "COD",
+      "status": "NOT_STARTED",
+      "score": 0
+     }
+    ],
+    "certReadiness": 22,
+    "criticalPath": [
+     "Secure grid capacity reservation",
+     "Execute LOI with second NH3 offtaker",
+     "Commission independent IE review"
+    ],
+    "killSwitches": [
+     "No grid reservation blocks G1 indefinitely",
+     "Yara subsidiary credit insufficient alone",
+     "NH3 market price collapse below breakeven"
+    ]
+   },
+   "proj_sansebastian_emethanol": {
+    "bankabilityState": "FUNDABLE",
+    "trustScore": 51,
+    "technology": "45MW electrolyser + CO2 capture + methanol synthesis",
+    "financials": {
+     "capex": 165,
+     "dscrP50": 1.22,
+     "dscrP90": 1.04,
+     "llcr": 1.25,
+     "wacc": 10.2,
+     "breakeven": 320
+    },
+    "offtake": {
+     "contracted": 60,
+     "tenor": 12,
+     "buyerCredit": "A- (Maersk direct)",
+     "index": "ICIS Methanol NWE + carbon premium",
+     "score": 62
+    },
+    "financing": {
+     "seniorDebt": 98,
+     "ecaDfi": "EKF pre-application submitted",
+     "equity": 52,
+     "mezzEur": 15,
+     "termSheetTarget": "Q1-2027",
+     "fidTarget": "Q2-2027",
+     "codTarget": "Q4-2028"
+    },
+    "gates": [
+     {
+      "id": "G0",
+      "name": "Site Rights",
+      "status": "PASS",
+      "score": 88
+     },
+     {
+      "id": "G1",
+      "name": "Grid Connection",
+      "status": "PASS",
+      "score": 82
+     },
+     {
+      "id": "G2",
+      "name": "Certification",
+      "status": "IN_PROGRESS",
+      "score": 65
+     },
+     {
+      "id": "G3",
+      "name": "Feedstock",
+      "status": "IN_PROGRESS",
+      "score": 70
+     },
+     {
+      "id": "G4",
+      "name": "Offtake",
+      "status": "IN_PROGRESS",
+      "score": 60
+     },
+     {
+      "id": "G5",
+      "name": "EPC & Construction",
+      "status": "PENDING",
+      "score": 35
+     },
+     {
+      "id": "G6",
+      "name": "IE Signoff",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G7",
+      "name": "Insurance",
+      "status": "PENDING",
+      "score": 20
+     },
+     {
+      "id": "G8",
+      "name": "Financial Model",
+      "status": "IN_PROGRESS",
+      "score": 55
+     },
+     {
+      "id": "G9",
+      "name": "Permits",
+      "status": "PASS",
+      "score": 85
+     },
+     {
+      "id": "G10",
+      "name": "Financial Close",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G11",
+      "name": "COD",
+      "status": "NOT_STARTED",
+      "score": 0
+     }
+    ],
+    "certReadiness": 58,
+    "criticalPath": [
+     "CO2 supply agreement with Repsol",
+     "EPC bidder shortlist by Q4-2026",
+     "DNV pre-audit for RED III compliance"
+    ],
+    "killSwitches": [
+     "CO2 sourcing interruption kills synthesis",
+     "Maersk shipping rerouting reduces volumes",
+     "RED III temporal matching non-compliance"
+    ]
+   },
+   "proj_wales_saf": {
+    "bankabilityState": "EARLY_DEV",
+    "trustScore": 30,
+    "technology": "30MW Fischer-Tropsch SAF pathway",
+    "financials": {
+     "capex": 120,
+     "dscrP50": 0.98,
+     "dscrP90": 0.81,
+     "llcr": 0.95,
+     "wacc": 15.5,
+     "breakeven": 2.85
+    },
+    "offtake": {
+     "contracted": 20,
+     "tenor": 8,
+     "buyerCredit": "B+ (regional airline LOI only)",
+     "index": "Platts Jet + SAF premium",
+     "score": 22
+    },
+    "financing": {
+     "seniorDebt": 0,
+     "ecaDfi": "None",
+     "equity": 45,
+     "mezzEur": 0,
+     "termSheetTarget": "Not set",
+     "fidTarget": "Not set",
+     "codTarget": "Not set"
+    },
+    "gates": [
+     {
+      "id": "G0",
+      "name": "Site Rights",
+      "status": "IN_PROGRESS",
+      "score": 55
+     },
+     {
+      "id": "G1",
+      "name": "Grid Connection",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G2",
+      "name": "Certification",
+      "status": "PENDING",
+      "score": 15
+     },
+     {
+      "id": "G3",
+      "name": "Feedstock",
+      "status": "PENDING",
+      "score": 20
+     },
+     {
+      "id": "G4",
+      "name": "Offtake",
+      "status": "PENDING",
+      "score": 20
+     },
+     {
+      "id": "G5",
+      "name": "EPC & Construction",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G6",
+      "name": "IE Signoff",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G7",
+      "name": "Insurance",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G8",
+      "name": "Financial Model",
+      "status": "PENDING",
+      "score": 10
+     },
+     {
+      "id": "G9",
+      "name": "Permits",
+      "status": "PENDING",
+      "score": 30
+     },
+     {
+      "id": "G10",
+      "name": "Financial Close",
+      "status": "NOT_STARTED",
+      "score": 0
+     },
+     {
+      "id": "G11",
+      "name": "COD",
+      "status": "NOT_STARTED",
+      "score": 0
+     }
+    ],
+    "certReadiness": 18,
+    "criticalPath": [
+     "Secure site lease and grid reservation",
+     "Engage EPC for pre-FEED study",
+     "Execute binding offtake with tier-1 airline"
+    ],
+    "killSwitches": [
+     "DSCR below 1.0 \u2014 project not bankable as modelled",
+     "No grid connection path identified",
+     "SAF mandate risk if CORSIA rules shift"
+    ]
+   },
+   "proj_lehavre_eng": {
+    "bankabilityState": "BANKABLE",
+    "trustScore": 94,
+    "technology": "200MW SOEC + methanation + pipeline injection",
+    "financials": {
+     "capex": 310,
+     "dscrP50": 1.58,
+     "dscrP90": 1.42,
+     "llcr": 1.72,
+     "wacc": 7.2,
+     "breakeven": 95
+    },
+    "offtake": {
+     "contracted": 92,
+     "tenor": 20,
+     "buyerCredit": "AA- (GRTgaz regulated tariff)",
+     "index": "TTF + green premium + capacity payment",
+     "score": 94
+    },
+    "financing": {
+     "seniorDebt": 210,
+     "ecaDfi": "BPI mandate letter + EIB co-finance",
+     "equity": 82,
+     "mezzEur": 18,
+     "termSheetTarget": "Q2-2026",
+     "fidTarget": "Q3-2026",
+     "codTarget": "Q2-2028"
+    },
+    "gates": [
+     {
+      "id": "G0",
+      "name": "Site Rights",
+      "status": "PASS",
+      "score": 100
+     },
+     {
+      "id": "G1",
+      "name": "Grid Connection",
+      "status": "PASS",
+      "score": 98
+     },
+     {
+      "id": "G2",
+      "name": "Certification",
+      "status": "PASS",
+      "score": 95
+     },
+     {
+      "id": "G3",
+      "name": "Feedstock",
+      "status": "PASS",
+      "score": 97
+     },
+     {
+      "id": "G4",
+      "name": "Offtake",
+      "status": "PASS",
+      "score": 92
+     },
+     {
+      "id": "G5",
+      "name": "EPC & Construction",
+      "status": "PASS",
+      "score": 88
+     },
+     {
+      "id": "G6",
+      "name": "IE Signoff",
+      "status": "IN_PROGRESS",
+      "score": 82
+     },
+     {
+      "id": "G7",
+      "name": "Insurance",
+      "status": "PASS",
+      "score": 90
+     },
+     {
+      "id": "G8",
+      "name": "Financial Model",
+      "status": "PASS",
+      "score": 95
+     },
+     {
+      "id": "G9",
+      "name": "Permits",
+      "status": "PASS",
+      "score": 100
+     },
+     {
+      "id": "G10",
+      "name": "Financial Close",
+      "status": "IN_PROGRESS",
+      "score": 75
+     },
+     {
+      "id": "G11",
+      "name": "COD",
+      "status": "NOT_STARTED",
+      "score": 0
+     }
+    ],
+    "certReadiness": 96,
+    "criticalPath": [
+     "IE final signoff due Q2-2026",
+     "BPI/EIB co-finance term sheet Q2-2026",
+     "NTP after FID Q3-2026"
+    ],
+    "killSwitches": [
+     "IE negative opinion delays financial close",
+     "GRTgaz injection licence delay > 6 months",
+     "SOEC supplier delivery slippage"
+    ]
+   }
+  }
+ },
+ {
+  "kind": "capital_stack",
+  "from": "features/finance/CapitalStack.tsx CAPITAL_DATA",
+  "data": {
+   "proj_le_havre_eng": {
+    "blendedWacc": 7.2,
+    "tranches": [
+     {
+      "type": "GRANT",
+      "source": "H2Global + EU IH2",
+      "amount": 18,
+      "cost": 0,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "CONCESSIONAL",
+      "source": "BPI France",
+      "amount": 95,
+      "cost": 3.2,
+      "tenor": 20,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "MANDATE",
+      "gracePeriod": 3,
+      "dfiProvider": "BPI",
+      "isConcessional": true
+     },
+     {
+      "type": "ECA/DFI",
+      "source": "EIB Project Finance",
+      "amount": 115,
+      "cost": 3.8,
+      "tenor": 18,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "MANDATE",
+      "gracePeriod": 2,
+      "dfiProvider": "EIB",
+      "isConcessional": true
+     },
+     {
+      "type": "SENIOR",
+      "source": "Credit Agricole CIB lead",
+      "amount": 0,
+      "cost": 0,
+      "tenor": 0,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "EQUITY",
+      "source": "Project sponsors",
+      "amount": 82,
+      "cost": 12,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "MEZZ",
+      "source": "GreenFin Mezz Fund",
+      "amount": 18,
+      "cost": 8.5,
+      "tenor": 12,
+      "phase": "CONSTRUCTION",
+      "status": "PIPELINE"
+     }
+    ],
+    "concessional": {
+     "concessionalShare": 0.64,
+     "catalyticRatio": 0.86,
+     "blendedDebtCost": 3.53,
+     "maxGracePeriod": 3
+    }
+   },
+   "proj_lehavre_eng": {
+    "blendedWacc": 7.2,
+    "tranches": [
+     {
+      "type": "GRANT",
+      "source": "H2Global + EU IH2",
+      "amount": 18,
+      "cost": 0,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "CONCESSIONAL",
+      "source": "BPI France",
+      "amount": 95,
+      "cost": 3.2,
+      "tenor": 20,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "MANDATE",
+      "gracePeriod": 3,
+      "dfiProvider": "BPI",
+      "isConcessional": true
+     },
+     {
+      "type": "ECA/DFI",
+      "source": "EIB Project Finance",
+      "amount": 115,
+      "cost": 3.8,
+      "tenor": 18,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "MANDATE",
+      "gracePeriod": 2,
+      "dfiProvider": "EIB",
+      "isConcessional": true
+     },
+     {
+      "type": "SENIOR",
+      "source": "Credit Agricole CIB lead",
+      "amount": 0,
+      "cost": 0,
+      "tenor": 0,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "EQUITY",
+      "source": "Project sponsors",
+      "amount": 82,
+      "cost": 12,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "MEZZ",
+      "source": "GreenFin Mezz Fund",
+      "amount": 18,
+      "cost": 8.5,
+      "tenor": 12,
+      "phase": "CONSTRUCTION",
+      "status": "PIPELINE"
+     }
+    ],
+    "concessional": {
+     "concessionalShare": 0.64,
+     "catalyticRatio": 0.86,
+     "blendedDebtCost": 3.53,
+     "maxGracePeriod": 3
+    }
+   },
+   "proj_bremen_h2": {
+    "blendedWacc": 8.9,
+    "tranches": [
+     {
+      "type": "GRANT",
+      "source": "IPCEI H2 + BMWK",
+      "amount": 22,
+      "cost": 0,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "CONCESSIONAL",
+      "source": "EIB (indicative)",
+      "amount": 80,
+      "cost": 4.1,
+      "tenor": 15,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE",
+      "gracePeriod": 3,
+      "dfiProvider": "EIB",
+      "isConcessional": true
+     },
+     {
+      "type": "EQUITY",
+      "source": "Project sponsors",
+      "amount": 58,
+      "cost": 14,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "CONCESSIONAL",
+      "source": "KfW Climate Action",
+      "amount": 17,
+      "cost": 7.2,
+      "tenor": 10,
+      "phase": "CONSTRUCTION",
+      "status": "PIPELINE",
+      "gracePeriod": 2,
+      "dfiProvider": "KfW",
+      "isConcessional": true
+     },
+     {
+      "type": "SENIOR",
+      "source": "DZ Bank syndicate",
+      "amount": 65,
+      "cost": 5.2,
+      "tenor": 15,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     }
+    ],
+    "concessional": {
+     "concessionalShare": 0.53,
+     "catalyticRatio": 0.67,
+     "blendedDebtCost": 4.83,
+     "maxGracePeriod": 3
+    }
+   },
+   "proj_helios_emethanol": {
+    "blendedWacc": 10.2,
+    "tranches": [
+     {
+      "type": "GRANT",
+      "source": "CEF + Spanish IDAE",
+      "amount": 12,
+      "cost": 0,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "ECA/DFI",
+      "source": "EKF Denmark (pre-app)",
+      "amount": 55,
+      "cost": 4.5,
+      "tenor": 15,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "EQUITY",
+      "source": "Project sponsors",
+      "amount": 52,
+      "cost": 15,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "MEZZ",
+      "source": "TBD",
+      "amount": 15,
+      "cost": 10,
+      "tenor": 8,
+      "phase": "CONSTRUCTION",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "SENIOR",
+      "source": "Banco Santander (unsolicited)",
+      "amount": 43,
+      "cost": 5.8,
+      "tenor": 12,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     }
+    ]
+   },
+   "proj_sansebastian_emethanol": {
+    "blendedWacc": 10.2,
+    "tranches": [
+     {
+      "type": "GRANT",
+      "source": "CEF + Spanish IDAE",
+      "amount": 12,
+      "cost": 0,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "ECA/DFI",
+      "source": "EKF Denmark (pre-app)",
+      "amount": 55,
+      "cost": 4.5,
+      "tenor": 15,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "EQUITY",
+      "source": "Project sponsors",
+      "amount": 52,
+      "cost": 15,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "MEZZ",
+      "source": "TBD",
+      "amount": 15,
+      "cost": 10,
+      "tenor": 8,
+      "phase": "CONSTRUCTION",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "SENIOR",
+      "source": "Banco Santander (unsolicited)",
+      "amount": 43,
+      "cost": 5.8,
+      "tenor": 12,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     }
+    ]
+   },
+   "proj_rotterdam_nh3": {
+    "blendedWacc": 12.1,
+    "tranches": [
+     {
+      "type": "GRANT",
+      "source": "NL RVO IPCEI",
+      "amount": 8,
+      "cost": 0,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "EQUITY",
+      "source": "Project sponsors",
+      "amount": 65,
+      "cost": 18,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "SENIOR",
+      "source": "ING/Rabobank (no mandate)",
+      "amount": 40,
+      "cost": 6.5,
+      "tenor": 10,
+      "phase": "FINANCIAL_CLOSE",
+      "status": "PIPELINE"
+     },
+     {
+      "type": "MEZZ",
+      "source": "None",
+      "amount": 15,
+      "cost": 12,
+      "tenor": 8,
+      "phase": "CONSTRUCTION",
+      "status": "PIPELINE"
+     }
+    ]
+   },
+   "proj_wales_saf": {
+    "blendedWacc": 15.5,
+    "tranches": [
+     {
+      "type": "EQUITY",
+      "source": "Project sponsors",
+      "amount": 45,
+      "cost": 22,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "COMMITTED"
+     },
+     {
+      "type": "GRANT",
+      "source": "UK JETCO (applied)",
+      "amount": 10,
+      "cost": 0,
+      "tenor": null,
+      "phase": "ADVISORY",
+      "status": "PIPELINE"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "kind": "cert_readiness",
+  "from": "features/finance/CertReadiness.tsx CERT_DATA",
+  "data": {
+   "proj_le_havre_eng": {
+    "overall": 96,
+    "additionality": {
+     "id": "additionality",
+     "name": "Additionality",
+     "description": "Is the renewable power source new and additional capacity?",
+     "status": "PASS",
+     "score": 98,
+     "evidence": [
+      {
+       "text": "Dedicated 200MW offshore wind farm (new capacity)",
+       "pass": true
+      },
+      {
+       "text": "PPA signed with commissioning date 2024",
+       "pass": true
+      },
+      {
+       "text": "Additionality declaration from RTE confirmed",
+       "pass": true
+      },
+      {
+       "text": "No grid injection \u2014 direct connection",
+       "pass": true
+      }
+     ]
+    },
+    "temporal": {
+     "id": "temporal",
+     "name": "Temporal Correlation",
+     "description": "Is H\u2082 production correlated hourly with renewable generation?",
+     "status": "PASS",
+     "score": 95,
+     "evidence": [
+      {
+       "text": "Hourly matching protocol in place",
+       "pass": true
+      },
+      {
+       "text": "SOEC can modulate down to 15% in <5min",
+       "pass": true
+      },
+      {
+       "text": "Smart charging controller installed",
+       "pass": true
+      },
+      {
+       "text": "Data logger: 15-min intervals, 99.7% uptime",
+       "pass": true
+      }
+     ]
+    },
+    "geographical": {
+     "id": "geographical",
+     "name": "Geographical Correlation",
+     "description": "Same bidding zone or direct physical connection?",
+     "status": "PASS",
+     "score": 98,
+     "evidence": [
+      {
+       "text": "Same bidding zone (FR)",
+       "pass": true
+      },
+      {
+       "text": "Direct cable connection confirmed",
+       "pass": true
+      },
+      {
+       "text": "No cross-zone transfer required",
+       "pass": true
+      }
+     ]
+    },
+    "lca": {
+     "id": "lca",
+     "name": "LCA Intensity",
+     "description": "Lifecycle CO\u2082 below 3.4 kgCO\u2082e/kgH\u2082 threshold (RFNBO/RED III)?",
+     "status": "PASS",
+     "score": 92,
+     "evidence": [
+      {
+       "text": "LCA: 0.82 kgCO\u2082e/kgH\u2082 (well below 3.4 threshold)",
+       "pass": true
+      },
+      {
+       "text": "DNV LCA report completed",
+       "pass": true
+      },
+      {
+       "text": "Methane slip: <0.1%",
+       "pass": true
+      },
+      {
+       "text": "Electrolysis: SOEC 82% efficiency",
+       "pass": true
+      }
+     ]
+    },
+    "track": "PRE_AUDIT",
+    "verifier": "DNV \u2014 pre-audit scheduled Q2-2026",
+    "nextAction": "Submit pre-audit documentation package to DNV",
+    "gaps": []
+   },
+   "proj_bremen_h2": {
+    "overall": 74,
+    "additionality": {
+     "id": "additionality",
+     "name": "Additionality",
+     "description": "Is the renewable power source new and additional capacity?",
+     "status": "PASS",
+     "score": 85,
+     "evidence": [
+      {
+       "text": "PPA with Vattenfall offshore wind (new build)",
+       "pass": true
+      },
+      {
+       "text": "PPA commissioning date 2023",
+       "pass": true
+      },
+      {
+       "text": "Additionality declaration from BNetzA pending",
+       "pass": false
+      },
+      {
+       "text": "Grid-connected but RFNBO hourly rule applies",
+       "pass": true
+      }
+     ]
+    },
+    "temporal": {
+     "id": "temporal",
+     "name": "Temporal Correlation",
+     "description": "Is H\u2082 production correlated hourly with renewable generation?",
+     "status": "PARTIAL",
+     "score": 72,
+     "evidence": [
+      {
+       "text": "Hourly matching controller installed",
+       "pass": true
+      },
+      {
+       "text": "Periods of grid draw during low-wind \u2014 12% of hours in Q1 2025",
+       "pass": false
+      },
+      {
+       "text": "Dynamic modulation protocol in operation",
+       "pass": true
+      },
+      {
+       "text": "Backup grid use not yet excluded from LCA boundary",
+       "pass": false
+      }
+     ]
+    },
+    "geographical": {
+     "id": "geographical",
+     "name": "Geographical Correlation",
+     "description": "Same bidding zone or direct physical connection?",
+     "status": "PASS",
+     "score": 88,
+     "evidence": [
+      {
+       "text": "Same bidding zone (DE-LU)",
+       "pass": true
+      },
+      {
+       "text": "Wind farm within 50km",
+       "pass": true
+      },
+      {
+       "text": "No cross-zone transfer",
+       "pass": true
+      }
+     ]
+    },
+    "lca": {
+     "id": "lca",
+     "name": "LCA Intensity",
+     "description": "Lifecycle CO\u2082 below 3.4 kgCO\u2082e/kgH\u2082 threshold (RFNBO/RED III)?",
+     "status": "PARTIAL",
+     "score": 65,
+     "evidence": [
+      {
+       "text": "Preliminary LCA: 2.1 kgCO\u2082e/kgH\u2082 (below 3.4)",
+       "pass": true
+      },
+      {
+       "text": "Full LCA not yet commissioned",
+       "pass": false
+      },
+      {
+       "text": "Backup grid emissions not excluded",
+       "pass": false
+      },
+      {
+       "text": "PEM efficiency 68% confirmed by commissioning test",
+       "pass": true
+      }
+     ]
+    },
+    "track": "LCA_COMMISSION",
+    "verifier": "T\u00dcV Rheinland \u2014 engagement letter under review",
+    "nextAction": "Commission full LCA study and exclude backup grid use from boundary",
+    "gaps": [
+     {
+      "gate": "Additionality",
+      "missing": "BNetzA declaration pending",
+      "action": "File additionality declaration with BNetzA",
+      "timeToClose": "4\u20136 weeks"
+     },
+     {
+      "gate": "Temporal",
+      "missing": "12% grid draw hours unaccounted",
+      "action": "Implement dynamic curtailment to eliminate grid draw",
+      "timeToClose": "2\u20133 months"
+     },
+     {
+      "gate": "LCA",
+      "missing": "Full LCA not commissioned",
+      "action": "Commission T\u00dcV Rheinland LCA \u2014 exclude backup grid boundary",
+      "timeToClose": "3\u20134 months"
+     }
+    ]
+   },
+   "proj_helios_emethanol": {
+    "overall": 58,
+    "additionality": {
+     "id": "additionality",
+     "name": "Additionality",
+     "description": "Is the renewable power source new and additional capacity?",
+     "status": "PARTIAL",
+     "score": 65,
+     "evidence": [
+      {
+       "text": "PPA with Iberdrola solar (new capacity)",
+       "pass": true
+      },
+      {
+       "text": "Additionality confirmation from CNMC pending",
+       "pass": false
+      },
+      {
+       "text": "PPA covers 80% of demand \u2014 20% grid top-up not yet addressed",
+       "pass": false
+      },
+      {
+       "text": "Direct connection planned for 2027",
+       "pass": true
+      }
+     ]
+    },
+    "temporal": {
+     "id": "temporal",
+     "name": "Temporal Correlation",
+     "description": "Is production correlated hourly with renewable generation?",
+     "status": "PARTIAL",
+     "score": 55,
+     "evidence": [
+      {
+       "text": "Hourly matching protocol not yet implemented",
+       "pass": false
+      },
+      {
+       "text": "Electrolyser can modulate to 20%",
+       "pass": true
+      },
+      {
+       "text": "Control system upgrade needed for RFNBO compliance",
+       "pass": false
+      },
+      {
+       "text": "15-min data logging not yet operational",
+       "pass": false
+      }
+     ]
+    },
+    "geographical": {
+     "id": "geographical",
+     "name": "Geographical Correlation",
+     "description": "Same bidding zone or direct physical connection?",
+     "status": "PASS",
+     "score": 82,
+     "evidence": [
+      {
+       "text": "Same bidding zone (ES)",
+       "pass": true
+      },
+      {
+       "text": "Wind/solar within 100km",
+       "pass": true
+      },
+      {
+       "text": "No cross-zone transfer",
+       "pass": true
+      }
+     ]
+    },
+    "lca": {
+     "id": "lca",
+     "name": "LCA Intensity",
+     "description": "Lifecycle CO\u2082 below 3.4 kgCO\u2082e/kgH\u2082 threshold (RFNBO/RED III)?",
+     "status": "PARTIAL",
+     "score": 48,
+     "evidence": [
+      {
+       "text": "LCA not yet commissioned",
+       "pass": false
+      },
+      {
+       "text": "Expected intensity: ~1.8 kgCO\u2082e/kgH\u2082 (estimate only)",
+       "pass": true
+      },
+      {
+       "text": "CO\u2082 feedstock chain LCA required (methanol pathway)",
+       "pass": false
+      },
+      {
+       "text": "No verifier engaged",
+       "pass": false
+      }
+     ]
+    },
+    "track": "PRE_ASSESSMENT",
+    "verifier": "None engaged",
+    "nextAction": "Commission LCA study and implement hourly matching protocol",
+    "gaps": [
+     {
+      "gate": "Additionality",
+      "missing": "CNMC declaration missing; 20% grid top-up not addressed",
+      "action": "File with CNMC; negotiate additional PPA capacity",
+      "timeToClose": "4\u20138 weeks"
+     },
+     {
+      "gate": "Temporal",
+      "missing": "No hourly matching; control system upgrade required",
+      "action": "Install 15-min data logger and dynamic control system",
+      "timeToClose": "3\u20135 months"
+     },
+     {
+      "gate": "LCA",
+      "missing": "LCA not commissioned; CO\u2082 feedstock chain missing",
+      "action": "Engage verifier and scope full methanol pathway LCA",
+      "timeToClose": "5\u20137 months"
+     }
+    ]
+   },
+   "proj_rotterdam_nh3": {
+    "overall": 22,
+    "additionality": {
+     "id": "additionality",
+     "name": "Additionality",
+     "description": "Is the renewable power source new and additional capacity?",
+     "status": "FAIL",
+     "score": 20,
+     "evidence": [
+      {
+       "text": "No PPA signed",
+       "pass": false
+      },
+      {
+       "text": "No additionality plan",
+       "pass": false
+      },
+      {
+       "text": "Grid power only \u2014 disqualified for RFNBO under current structure",
+       "pass": false
+      },
+      {
+       "text": "Wind farm site not identified",
+       "pass": false
+      }
+     ]
+    },
+    "temporal": {
+     "id": "temporal",
+     "name": "Temporal Correlation",
+     "description": "Is production correlated hourly with renewable generation?",
+     "status": "FAIL",
+     "score": 10,
+     "evidence": [
+      {
+       "text": "No renewable power agreement",
+       "pass": false
+      },
+      {
+       "text": "No modulation protocol",
+       "pass": false
+      },
+      {
+       "text": "Grid-only operation not RFNBO compliant",
+       "pass": false
+      }
+     ]
+    },
+    "geographical": {
+     "id": "geographical",
+     "name": "Geographical Correlation",
+     "description": "Same bidding zone or direct physical connection?",
+     "status": "FAIL",
+     "score": 15,
+     "evidence": [
+      {
+       "text": "No dedicated renewable generation",
+       "pass": false
+      },
+      {
+       "text": "Grid power from NL bidding zone \u2014 mixed origin",
+       "pass": false
+      }
+     ]
+    },
+    "lca": {
+     "id": "lca",
+     "name": "LCA Intensity",
+     "description": "Lifecycle CO\u2082 below 3.4 kgCO\u2082e/kgH\u2082 threshold (RFNBO/RED III)?",
+     "status": "FAIL",
+     "score": 18,
+     "evidence": [
+      {
+       "text": "No LCA commissioned",
+       "pass": false
+      },
+      {
+       "text": "Grid power LCA: ~18 kgCO\u2082e/kgH\u2082 (well above 3.4 limit)",
+       "pass": false
+      },
+      {
+       "text": "Project structurally non-compliant until power sourcing resolved",
+       "pass": false
+      }
+     ]
+    },
+    "track": "NOT_STARTED",
+    "verifier": "None",
+    "nextAction": "CRITICAL: Secure dedicated renewable PPA before any certification pathway can begin",
+    "gaps": [
+     {
+      "gate": "Additionality",
+      "missing": "No PPA, no additionality plan, grid-only structure",
+      "action": "CRITICAL: Source and execute dedicated renewable PPA",
+      "timeToClose": "6\u201312 months"
+     },
+     {
+      "gate": "Temporal",
+      "missing": "No renewable agreement, no modulation",
+      "action": "Cannot proceed until power sourcing resolved",
+      "timeToClose": "12+ months"
+     },
+     {
+      "gate": "Geographical",
+      "missing": "No dedicated generation in zone",
+      "action": "Identify wind/solar asset within NL bidding zone",
+      "timeToClose": "6\u201312 months"
+     },
+     {
+      "gate": "LCA",
+      "missing": "LCA would fail (18 kgCO\u2082e/kgH\u2082 grid intensity)",
+      "action": "LCA cannot pass until renewable power secured",
+      "timeToClose": "12+ months"
+     }
+    ]
+   },
+   "proj_wales_saf": {
+    "overall": 18,
+    "additionality": {
+     "id": "additionality",
+     "name": "Additionality",
+     "description": "Is the renewable power source new and additional capacity?",
+     "status": "FAIL",
+     "score": 15,
+     "evidence": [
+      {
+       "text": "No PPA executed",
+       "pass": false
+      },
+      {
+       "text": "LOI with grid-balancing wind only",
+       "pass": false
+      },
+      {
+       "text": "Additionality not established",
+       "pass": false
+      }
+     ]
+    },
+    "temporal": {
+     "id": "temporal",
+     "name": "Temporal Correlation",
+     "description": "Is production correlated hourly with renewable generation?",
+     "status": "FAIL",
+     "score": 12,
+     "evidence": [
+      {
+       "text": "No hourly matching",
+       "pass": false
+      },
+      {
+       "text": "Fischer-Tropsch cannot modulate on hourly basis",
+       "pass": false
+      },
+      {
+       "text": "SAF pathway requires upstream H\u2082 hourly matching",
+       "pass": false
+      }
+     ]
+    },
+    "geographical": {
+     "id": "geographical",
+     "name": "Geographical Correlation",
+     "description": "Same bidding zone or direct physical connection?",
+     "status": "PARTIAL",
+     "score": 35,
+     "evidence": [
+      {
+       "text": "Welsh offshore wind in same GB zone",
+       "pass": true
+      },
+      {
+       "text": "No direct connection or firm capacity",
+       "pass": false
+      },
+      {
+       "text": "Transmission constraints in Welsh grid identified",
+       "pass": false
+      }
+     ]
+    },
+    "lca": {
+     "id": "lca",
+     "name": "LCA Intensity",
+     "description": "Lifecycle CO\u2082 below 3.4 kgCO\u2082e/kgH\u2082 threshold (RFNBO/RED III)?",
+     "status": "FAIL",
+     "score": 10,
+     "evidence": [
+      {
+       "text": "No LCA commissioned",
+       "pass": false
+      },
+      {
+       "text": "F-T SAF pathway LCA complex \u2014 needs verifier",
+       "pass": false
+      },
+      {
+       "text": "No efficiency data available",
+       "pass": false
+      }
+     ]
+    },
+    "track": "NOT_STARTED",
+    "verifier": "None",
+    "nextAction": "Project not cert-ready. Resolve power sourcing and offtake before certification planning.",
+    "gaps": [
+     {
+      "gate": "Additionality",
+      "missing": "No executed PPA; LOI insufficient",
+      "action": "Execute dedicated offshore wind PPA",
+      "timeToClose": "9\u201312 months"
+     },
+     {
+      "gate": "Temporal",
+      "missing": "F-T process cannot hourly-match; no upstream H\u2082 matching",
+      "action": "Redesign process to enable H\u2082 buffer and hourly matching",
+      "timeToClose": "12+ months"
+     },
+     {
+      "gate": "Geographical",
+      "missing": "No firm capacity; transmission constraint identified",
+      "action": "Secure firm grid connection and resolve transmission constraint",
+      "timeToClose": "12\u201318 months"
+     },
+     {
+      "gate": "LCA",
+      "missing": "No data; F-T SAF LCA scope undefined",
+      "action": "Commission verifier for SAF LCA once power sourcing resolved",
+      "timeToClose": "12+ months"
+     }
+    ]
+   },
+   "proj_etf_pecos1": {
+    "overall": 61,
+    "additionality": {
+     "id": "additionality",
+     "name": "Additionality",
+     "description": "Is the renewable power source new and additional capacity?",
+     "status": "PASS",
+     "score": 88,
+     "evidence": [
+      {
+       "text": "Dedicated 340 MW greenfield wind farm (new capacity)",
+       "pass": true
+      },
+      {
+       "text": "PPA commissioning date: Q3 2026",
+       "pass": true
+      },
+      {
+       "text": "No grid injection \u2014 direct cable connection to electrolysis plant",
+       "pass": true
+      },
+      {
+       "text": "Additionality declaration submitted to DOE (H2Hubs programme)",
+       "pass": true
+      }
+     ]
+    },
+    "temporal": {
+     "id": "temporal",
+     "name": "Temporal Correlation",
+     "description": "Is H\u2082 production correlated hourly with renewable generation?",
+     "status": "PARTIAL",
+     "score": 58,
+     "evidence": [
+      {
+       "text": "Annual matching: compliant under current IRS Notice 2023-29 (45V)",
+       "pass": true
+      },
+      {
+       "text": "RFNBO hourly matching: not yet implemented \u2014 rule review pending",
+       "pass": false
+      },
+      {
+       "text": "PEM electrolyser can modulate to 15% within 3 min",
+       "pass": true
+      },
+      {
+       "text": "15-min interval data logging: certification not yet issued",
+       "pass": false
+      }
+     ]
+    },
+    "geographical": {
+     "id": "geographical",
+     "name": "Geographical Correlation",
+     "description": "Same bidding zone or direct physical connection?",
+     "status": "PASS",
+     "score": 91,
+     "evidence": [
+      {
+       "text": "ERCOT West zone \u2014 same interconnect as electrolysis plant",
+       "pass": true
+      },
+      {
+       "text": "No cross-zone transfer required",
+       "pass": true
+      },
+      {
+       "text": "Pecos County: surplus wind region, minimal grid congestion",
+       "pass": true
+      },
+      {
+       "text": "DOE geographic mapping complete",
+       "pass": true
+      }
+     ]
+    },
+    "lca": {
+     "id": "lca",
+     "name": "LCA Intensity",
+     "description": "Lifecycle CO\u2082 below 3.4 kgCO\u2082e/kgH\u2082 threshold (RFNBO/RED III)?",
+     "status": "PASS",
+     "score": 85,
+     "evidence": [
+      {
+       "text": "Preliminary LCA: 0.82 kgCO\u2082e/kgH\u2082 (well below 3.4 RFNBO threshold)",
+       "pass": true
+      },
+      {
+       "text": "DNV pre-audit complete",
+       "pass": true
+      },
+      {
+       "text": "Methanol synthesis chain emissions included",
+       "pass": true
+      },
+      {
+       "text": "Final DNV certification report pending (Q3 2026)",
+       "pass": false
+      }
+     ]
+    },
+    "track": "PRE_AUDIT",
+    "verifier": "DNV \u2014 pre-audit complete; final report Q3 2026",
+    "nextAction": "Resolve RFNBO temporal matching (hourly vs annual) before EU certification filing",
+    "gaps": [
+     {
+      "gate": "Temporal",
+      "missing": "RFNBO requires hourly matching; IRS annual rule conflicts",
+      "action": "Elect 45V primary; use annual matching for 45V. Defer RFNBO hourly matching to post-IRS guidance update.",
+      "timeToClose": "IRS guidance Q4 2026 (est.)"
+     },
+     {
+      "gate": "LCA",
+      "missing": "DNV final report not yet issued",
+      "action": "Finalise DNV LCA report \u2014 on track Q3 2026",
+      "timeToClose": "2\u20133 months"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "kind": "cert_45v",
+  "from": "features/finance/CertReadiness.tsx V45_DATA",
+  "data": {
+   "proj_etf_pecos1": [
+    {
+     "id": "v45_ghg_tier",
+     "name": "GHG Intensity \u2014 Tier 1",
+     "description": "Well-to-gate lifecycle <0.45 kgCO\u2082e/kgH\u2082 \u2192 $3/kg PTC (max credit tier)",
+     "status": "PASS",
+     "score": 92,
+     "evidence": [
+      {
+       "text": "Lifecycle emissions: 0.42 kgCO\u2082e/kgH\u2082 (below 0.45 Tier 1 threshold)",
+       "pass": true
+      },
+      {
+       "text": "GREET model pathway verified by Argonne National Lab (pre-audit)",
+       "pass": true
+      },
+      {
+       "text": "DNV Tier 1 determination letter received",
+       "pass": true
+      },
+      {
+       "text": "Final IRS-compliant LCA report pending Q3 2026",
+       "pass": false
+      }
+     ]
+    },
+    {
+     "id": "v45_prevailing_wage",
+     "name": "Prevailing Wage & Apprenticeship",
+     "description": "Davis-Bacon Act wage compliance + 15% apprenticeship ratio for construction",
+     "status": "PARTIAL",
+     "score": 55,
+     "evidence": [
+      {
+       "text": "Davis-Bacon wage schedule filed with DOE H2Hubs",
+       "pass": true
+      },
+      {
+       "text": "Payroll certification and tracking system operational",
+       "pass": true
+      },
+      {
+       "text": "Apprenticeship ratio: 12% vs 15% required (ramp-up in progress)",
+       "pass": false
+      },
+      {
+       "text": "Q2 2026 apprenticeship compliance filing pending with DOL",
+       "pass": false
+      }
+     ]
+    },
+    {
+     "id": "v45_temporal",
+     "name": "Temporal Matching (Annual)",
+     "description": "IRS Notice 2023-29: annual matching currently permitted; hourly rule under review",
+     "status": "PASS",
+     "score": 78,
+     "evidence": [
+      {
+       "text": "Annual matching: compliant under IRS Notice 2023-29 (current rule)",
+       "pass": true
+      },
+      {
+       "text": "340 MW wind operates surplus to PEM demand 74% of hours (annual average)",
+       "pass": true
+      },
+      {
+       "text": "IRS final rule on hourly matching pending \u2014 risk flag (timing conflict with RFNBO)",
+       "pass": false
+      },
+      {
+       "text": "GEX model parameterised for both annual and hourly scenarios",
+       "pass": true
+      }
+     ]
+    },
+    {
+     "id": "v45_geography",
+     "name": "Geographic RE Correlation",
+     "description": "Renewable generation must be in the same region as hydrogen production facility",
+     "status": "PASS",
+     "score": 88,
+     "evidence": [
+      {
+       "text": "Wind farm and electrolysis plant both in ERCOT West zone",
+       "pass": true
+      },
+      {
+       "text": "No cross-zone transfer required",
+       "pass": true
+      },
+      {
+       "text": "Pecos County geographic constraint met \u2014 surplus RE region",
+       "pass": true
+      },
+      {
+       "text": "DOE technology-neutral geographic mapping complete",
+       "pass": true
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "kind": "offtake_quality",
+  "from": "features/finance/OfftakeQuality.tsx OFFTAKE_DATA",
+  "data": {
+   "proj_le_havre_eng": {
+    "overall": 94,
+    "tests": [
+     {
+      "id": "TENOR",
+      "label": "Tenor Match",
+      "result": "PASS",
+      "score": 100,
+      "detail": "20y offtake exceeds 15y debt by 5 years. Extension option included."
+     },
+     {
+      "id": "CREDIT",
+      "label": "Counterparty Credit",
+      "result": "PASS",
+      "score": 98,
+      "detail": "GRTgaz AA- regulated utility + state backstop. Best-in-class counterparty."
+     },
+     {
+      "id": "VOLUME_FIRMNESS",
+      "label": "Volume Firmness",
+      "result": "PASS",
+      "score": 95,
+      "detail": "92% contracted. Take-or-pay with force majeure curtailment protocol. Storage buffer confirmed."
+     },
+     {
+      "id": "PRICING_INDEXATION",
+      "label": "Pricing & Indexation",
+      "result": "PASS",
+      "score": 90,
+      "detail": "TTF + green premium + capacity payment. Floor covers DSCR at P90. Reopener at year 10."
+     },
+     {
+      "id": "CURTAILMENT_SHAPE",
+      "label": "Curtailment Shape",
+      "result": "PASS",
+      "score": 88,
+      "detail": "Pipeline injection with 8h buffer tank. Curtailment compensation clause at \u20ac0.85/kg."
+     }
+    ],
+    "redFlags": [],
+    "remedies": []
+   },
+   "proj_bremen_h2": {
+    "overall": 79,
+    "tests": [
+     {
+      "id": "TENOR",
+      "label": "Tenor Match",
+      "result": "PASS",
+      "score": 95,
+      "detail": "15y offtake matches 15y debt. 2-year extension option recommended."
+     },
+     {
+      "id": "CREDIT",
+      "label": "Counterparty Credit",
+      "result": "PASS",
+      "score": 88,
+      "detail": "Vattenfall BBB+ + parent guarantee. Acceptable for senior lender."
+     },
+     {
+      "id": "VOLUME_FIRMNESS",
+      "label": "Volume Firmness",
+      "result": "PASS_WITH_NOTE",
+      "score": 72,
+      "detail": "78% contracted. Take-or-pay but no make-good clause. Second offtaker for remaining 22% needed."
+     },
+     {
+      "id": "PRICING_INDEXATION",
+      "label": "Pricing & Indexation",
+      "result": "PASS",
+      "score": 82,
+      "detail": "ICIS H\u2082 NWE + logistics escalator. Floor at \u20ac1.55/kg covers DSCR minimum."
+     },
+     {
+      "id": "CURTAILMENT_SHAPE",
+      "label": "Curtailment Shape",
+      "result": "PASS_WITH_NOTE",
+      "score": 58,
+      "detail": "No dedicated H\u2082 storage on-site. Port tank access via off-take agreement \u2014 acceptable but fragile."
+     }
+    ],
+    "redFlags": [
+     "78% contracted below 85% target \u2014 second offtaker required",
+     "No make-good clause \u2014 add to next offtake amendment",
+     "Storage dependency on port operator creates single point of failure"
+    ],
+    "remedies": [
+     "Execute binding LOI with industrial H\u2082 user (refinery or transport hub) for remaining 22%",
+     "Add make-good clause and outage protocol in next amendment",
+     "Negotiate dedicated H\u2082 storage slot at port or install 500kg buffer tank"
+    ]
+   },
+   "proj_helios_emethanol": {
+    "overall": 62,
+    "tests": [
+     {
+      "id": "TENOR",
+      "label": "Tenor Match",
+      "result": "PASS",
+      "score": 85,
+      "detail": "12y Maersk contract vs 15y debt \u2014 3-year tail exposure. Recommend extension or balloon."
+     },
+     {
+      "id": "CREDIT",
+      "label": "Counterparty Credit",
+      "result": "PASS",
+      "score": 88,
+      "detail": "Maersk A- direct. Strong counterparty but shipping demand is volume-cyclical."
+     },
+     {
+      "id": "VOLUME_FIRMNESS",
+      "label": "Volume Firmness",
+      "result": "PASS_WITH_NOTE",
+      "score": 55,
+      "detail": "60% contracted. Maersk shipping volumes subject to route changes. Need volume firmness clause."
+     },
+     {
+      "id": "PRICING_INDEXATION",
+      "label": "Pricing & Indexation",
+      "result": "PASS_WITH_NOTE",
+      "score": 60,
+      "detail": "ICIS Methanol NWE with carbon premium \u2014 good structure but premium schedule not fixed."
+     },
+     {
+      "id": "CURTAILMENT_SHAPE",
+      "label": "Curtailment Shape",
+      "result": "PASS_WITH_NOTE",
+      "score": 22,
+      "detail": "No curtailment compensation clause. CO\u2082 feedstock interruption creates double exposure. Critical gap."
+     }
+    ],
+    "redFlags": [
+     "Offtake tenor 3 years short of debt \u2014 balloon risk",
+     "60% contracted \u2014 exactly at the 60% coverage bar, no headroom for a buyer default",
+     "No curtailment compensation \u2014 gas methanol synthesis cannot ramp quickly",
+     "Carbon premium schedule undefined \u2014 revenue uncertainty in model"
+    ],
+    "remedies": [
+     "Add 3-year extension option to Maersk contract aligned with debt amortization tail",
+     "Engage Shell Chemicals or HELM as second offtaker for 20\u201325%",
+     "Insert curtailment compensation at \u20ac180/tonne missed delivery",
+     "Fix carbon premium schedule: ICIS Methanol + \u20ac120/tonne CO\u2082 certificate"
+    ]
+   },
+   "proj_rotterdam_nh3": {
+    "overall": 38,
+    "tests": [
+     {
+      "id": "TENOR",
+      "label": "Tenor Match",
+      "result": "FAIL",
+      "score": 30,
+      "detail": "10y contract vs 15y debt \u2014 5-year unsecured tail. Unacceptable for senior lending."
+     },
+     {
+      "id": "CREDIT",
+      "label": "Counterparty Credit",
+      "result": "PASS_WITH_NOTE",
+      "score": 55,
+      "detail": "Yara subsidiary BB \u2014 below BBB- threshold. Parent guarantee not yet confirmed."
+     },
+     {
+      "id": "VOLUME_FIRMNESS",
+      "label": "Volume Firmness",
+      "result": "FAIL",
+      "score": 20,
+      "detail": "35% contracted. No take-or-pay. LOI only \u2014 not binding. Cannot be modelled as revenue."
+     },
+     {
+      "id": "PRICING_INDEXATION",
+      "label": "Pricing & Indexation",
+      "result": "PASS_WITH_NOTE",
+      "score": 48,
+      "detail": "Argus NH\u2083 FOB Rotterdam \u2014 market index acceptable but no floor or collar in place."
+     },
+     {
+      "id": "CURTAILMENT_SHAPE",
+      "label": "Curtailment Shape",
+      "result": "FAIL",
+      "score": 15,
+      "detail": "No curtailment provisions. NH\u2083 cannot be vented \u2014 storage critical but not costed."
+     }
+    ],
+    "redFlags": [
+     "Offtake tenor 5 years below debt \u2014 cannot be financed as structured",
+     "35% contracted \u2014 project cannot reach financial close",
+     "Yara subsidiary credit insufficient \u2014 need Yara AG parent guarantee",
+     "No NH\u2083 storage plan \u2014 curtailment creates safety + liability exposure",
+     "No pricing floor \u2014 full NH\u2083 price risk passed to model"
+    ],
+    "remedies": []
+   },
+   "proj_wales_saf": {
+    "overall": 22,
+    "tests": [
+     {
+      "id": "TENOR",
+      "label": "Tenor Match",
+      "result": "FAIL",
+      "score": 15,
+      "detail": "8y LOI vs undefined debt tenor. Cannot be structured."
+     },
+     {
+      "id": "CREDIT",
+      "label": "Counterparty Credit",
+      "result": "FAIL",
+      "score": 20,
+      "detail": "Regional airline B+ credit. No parent guarantee. LOI non-binding."
+     },
+     {
+      "id": "VOLUME_FIRMNESS",
+      "label": "Volume Firmness",
+      "result": "FAIL",
+      "score": 10,
+      "detail": "20% contracted, LOI only. Project cannot reach financial close at this coverage level."
+     },
+     {
+      "id": "PRICING_INDEXATION",
+      "label": "Pricing & Indexation",
+      "result": "PASS_WITH_NOTE",
+      "score": 35,
+      "detail": "Platts Jet + SAF premium is the right index. But no binding pricing terms \u2014 LOI only."
+     },
+     {
+      "id": "CURTAILMENT_SHAPE",
+      "label": "Curtailment Shape",
+      "result": "FAIL",
+      "score": 5,
+      "detail": "No curtailment plan. SAF Fischer-Tropsch cannot modulate quickly. No storage defined."
+     }
+    ],
+    "redFlags": [
+     "Project not bankable at current offtake coverage (20%)",
+     "No binding offtake \u2014 all LOIs",
+     "DSCR 0.98 at base case \u2014 below covenant minimum before any offtake stress",
+     "No major airline or fuel buyer engaged"
+    ],
+    "remedies": []
+   }
+  }
+ },
+ {
+  "kind": "insurance_schedule",
+  "from": "features/finance/InsuranceSchedule.tsx SCHEDULE_DATA",
+  "data": {
+   "proj_lehavre_eng": {
+    "linesActive": 4,
+    "totalLimit": "\u20ac485M",
+    "annualPremium": "\u20ac4.2M",
+    "nextRenewal": "2026-11-01",
+    "lines": [
+     {
+      "line": "Construction All-Risk (CAR)",
+      "insurer": "AXA XL",
+      "limit": "\u20ac195M",
+      "deductible": "\u20ac250K",
+      "trigger": "Physical damage during construction",
+      "status": "PLACED",
+      "renewal": "2026-11-01",
+      "endorsements": [
+       "Lender Loss Payee",
+       "Waiver of Subrogation"
+      ]
+     },
+     {
+      "line": "Delay in Start-Up (DSU)",
+      "insurer": "Zurich Insurance",
+      "limit": "\u20ac80M",
+      "deductible": "30-day waiting period",
+      "trigger": "Construction delay causing revenue loss",
+      "status": "PLACED",
+      "renewal": "2026-11-01",
+      "endorsements": [
+       "Lender Loss Payee"
+      ]
+     },
+     {
+      "line": "Performance Bond",
+      "insurer": "Euler Hermes (Allianz Trade)",
+      "limit": "\u20ac25M",
+      "deductible": "\u20ac0",
+      "trigger": "EPC/OEM non-performance vs. guaranteed output",
+      "status": "PLACED",
+      "renewal": "2027-06-30",
+      "endorsements": [
+       "Assignment on Financial Close"
+      ]
+     },
+     {
+      "line": "Marine Cargo",
+      "insurer": "Lloyd's of London (Syndicate 4472)",
+      "limit": "\u20ac35M",
+      "deductible": "\u20ac50K per occurrence",
+      "trigger": "Loss or damage during equipment transit",
+      "status": "PLACED",
+      "renewal": "2026-08-15",
+      "endorsements": []
+     },
+     {
+      "line": "Third Party Liability",
+      "insurer": "AXA XL",
+      "limit": "\u20ac50M",
+      "deductible": "\u20ac100K per occurrence",
+      "trigger": "Bodily injury or property damage to third parties",
+      "status": "QUOTED",
+      "renewal": "2026-11-01",
+      "endorsements": [
+       "Additional Named Insured (lender)"
+      ]
+     },
+     {
+      "line": "Pollution Liability",
+      "insurer": "Chubb European Group",
+      "limit": "\u20ac30M",
+      "deductible": "\u20ac200K",
+      "trigger": "Sudden and accidental pollution event",
+      "status": "QUOTED",
+      "renewal": "2026-11-01",
+      "endorsements": []
+     },
+     {
+      "line": "Business Interruption (ops phase)",
+      "insurer": "Swiss Re Corporate Solutions",
+      "limit": "\u20ac60M",
+      "deductible": "45-day waiting period",
+      "trigger": "Operational revenue loss from insured peril",
+      "status": "QUOTED",
+      "renewal": "2026-11-01",
+      "endorsements": [
+       "Lender Loss Payee",
+       "Assignment on Financial Close"
+      ]
+     },
+     {
+      "line": "Lender Loss Payee Endorsement",
+      "insurer": "All insurers (endorsement)",
+      "limit": "\u2014",
+      "deductible": "\u2014",
+      "trigger": "Claims proceeds paid directly to lender group",
+      "status": "REQUIRED",
+      "renewal": "2026-11-01",
+      "endorsements": [
+       "Required on all property lines"
+      ]
+     }
+    ],
+    "endorsements": [
+     {
+      "name": "Additional Named Insured (Senior Lender)",
+      "status": "PLACED",
+      "note": "BNP Paribas as ANI on CAR, DSU and BI policies."
+     },
+     {
+      "name": "Waiver of Subrogation",
+      "status": "PLACED",
+      "note": "In favour of lender group on all property damage policies."
+     },
+     {
+      "name": "Assignment on Financial Close",
+      "status": "PLACED",
+      "note": "Policies assigned to lender group on drawdown date."
+     },
+     {
+      "name": "Lender Loss Payee",
+      "status": "PENDING",
+      "note": "Awaiting final wording approval from lender insurance counsel."
+     }
+    ],
+    "g7Evidence": [
+     {
+      "item": "CAR policy placed and bound",
+      "satisfied": true
+     },
+     {
+      "item": "DSU policy placed with \u226518 months cover",
+      "satisfied": true
+     },
+     {
+      "item": "Performance bond in place for EPC and OEM",
+      "satisfied": true
+     },
+     {
+      "item": "Marine cargo policy placed",
+      "satisfied": true
+     },
+     {
+      "item": "Third party liability \u2265\u20ac50M placed",
+      "satisfied": false
+     },
+     {
+      "item": "Pollution liability placed",
+      "satisfied": false
+     },
+     {
+      "item": "Business interruption placed (ops phase)",
+      "satisfied": false
+     },
+     {
+      "item": "All lender endorsements confirmed",
+      "satisfied": false
+     }
+    ]
+   },
+   "proj_bremen_h2": {
+    "linesActive": 2,
+    "totalLimit": "\u20ac280M",
+    "annualPremium": "\u20ac2.6M",
+    "nextRenewal": "2027-03-01",
+    "lines": [
+     {
+      "line": "Construction All-Risk (CAR)",
+      "insurer": "Munich Re",
+      "limit": "\u20ac220M",
+      "deductible": "\u20ac300K",
+      "trigger": "Physical damage during construction",
+      "status": "PLACED",
+      "renewal": "2027-03-01",
+      "endorsements": [
+       "Lender Loss Payee"
+      ]
+     },
+     {
+      "line": "Performance Bond",
+      "insurer": "Allianz Trade",
+      "limit": "\u20ac18M",
+      "deductible": "\u20ac0",
+      "trigger": "EPC non-performance",
+      "status": "PLACED",
+      "renewal": "2027-09-30",
+      "endorsements": []
+     },
+     {
+      "line": "Delay in Start-Up (DSU)",
+      "insurer": "Zurich Insurance",
+      "limit": "\u20ac40M",
+      "deductible": "45-day waiting period",
+      "trigger": "Construction delay causing revenue loss",
+      "status": "QUOTED",
+      "renewal": "2027-03-01",
+      "endorsements": []
+     },
+     {
+      "line": "Marine Cargo",
+      "insurer": "Generali",
+      "limit": "\u20ac22M",
+      "deductible": "\u20ac75K",
+      "trigger": "Equipment transit damage",
+      "status": "QUOTED",
+      "renewal": "2026-12-01",
+      "endorsements": []
+     },
+     {
+      "line": "Third Party Liability",
+      "insurer": "AXA",
+      "limit": "\u20ac30M",
+      "deductible": "\u20ac150K",
+      "trigger": "Third party bodily injury / property damage",
+      "status": "QUOTED",
+      "renewal": "2027-03-01",
+      "endorsements": []
+     },
+     {
+      "line": "Pollution Liability",
+      "insurer": "Not yet selected",
+      "limit": "\u20ac20M",
+      "deductible": "TBD",
+      "trigger": "Pollution event",
+      "status": "QUOTED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Business Interruption (ops phase)",
+      "insurer": "Not yet selected",
+      "limit": "\u20ac50M",
+      "deductible": "TBD",
+      "trigger": "Operational revenue loss",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Lender Loss Payee Endorsement",
+      "insurer": "All insurers",
+      "limit": "\u2014",
+      "deductible": "\u2014",
+      "trigger": "Claims proceeds to lender",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     }
+    ],
+    "endorsements": [
+     {
+      "name": "Additional Named Insured (Senior Lender)",
+      "status": "PENDING",
+      "note": "Lender group to be confirmed at financial close."
+     },
+     {
+      "name": "Waiver of Subrogation",
+      "status": "PENDING",
+      "note": "Required on CAR policy \u2014 wording in review."
+     },
+     {
+      "name": "Assignment on Financial Close",
+      "status": "PENDING",
+      "note": "Draft assignment clause agreed in principle."
+     },
+     {
+      "name": "Lender Loss Payee",
+      "status": "REQUIRED",
+      "note": "Not yet agreed. Broker mandate to issue by Q2 2026."
+     }
+    ],
+    "g7Evidence": [
+     {
+      "item": "CAR policy placed and bound",
+      "satisfied": true
+     },
+     {
+      "item": "DSU policy placed with \u226518 months cover",
+      "satisfied": false
+     },
+     {
+      "item": "Performance bond in place for EPC and OEM",
+      "satisfied": true
+     },
+     {
+      "item": "Marine cargo policy placed",
+      "satisfied": false
+     },
+     {
+      "item": "Third party liability \u2265\u20ac50M placed",
+      "satisfied": false
+     },
+     {
+      "item": "Pollution liability placed",
+      "satisfied": false
+     },
+     {
+      "item": "Business interruption placed (ops phase)",
+      "satisfied": false
+     },
+     {
+      "item": "All lender endorsements confirmed",
+      "satisfied": false
+     }
+    ]
+   },
+   "proj_sansebastian_emethanol": {
+    "linesActive": 1,
+    "totalLimit": "\u20ac165M",
+    "annualPremium": "\u20ac1.4M",
+    "nextRenewal": "2027-09-01",
+    "lines": [
+     {
+      "line": "Construction All-Risk (CAR)",
+      "insurer": "Mapfre Re",
+      "limit": "\u20ac165M",
+      "deductible": "\u20ac400K",
+      "trigger": "Physical damage during construction",
+      "status": "PLACED",
+      "renewal": "2027-09-01",
+      "endorsements": []
+     },
+     {
+      "line": "Delay in Start-Up (DSU)",
+      "insurer": "Zurich",
+      "limit": "\u20ac30M",
+      "deductible": "60-day waiting period",
+      "trigger": "Revenue loss from construction delay",
+      "status": "QUOTED",
+      "renewal": "2027-09-01",
+      "endorsements": []
+     },
+     {
+      "line": "Performance Bond",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "EPC non-performance",
+      "status": "QUOTED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Marine Cargo",
+      "insurer": "Not selected",
+      "limit": "\u20ac15M",
+      "deductible": "TBD",
+      "trigger": "Equipment transit",
+      "status": "QUOTED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Third Party Liability",
+      "insurer": "Not yet selected",
+      "limit": "\u20ac25M",
+      "deductible": "TBD",
+      "trigger": "Third party liability",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Pollution Liability",
+      "insurer": "Not yet selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Pollution event",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Business Interruption (ops phase)",
+      "insurer": "Not yet selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Operational revenue loss",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Lender Loss Payee Endorsement",
+      "insurer": "All insurers",
+      "limit": "\u2014",
+      "deductible": "\u2014",
+      "trigger": "Claims to lender",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     }
+    ],
+    "endorsements": [
+     {
+      "name": "Additional Named Insured (Senior Lender)",
+      "status": "REQUIRED",
+      "note": "Lender not yet confirmed."
+     },
+     {
+      "name": "Waiver of Subrogation",
+      "status": "REQUIRED",
+      "note": "Not yet placed on any policy."
+     },
+     {
+      "name": "Assignment on Financial Close",
+      "status": "REQUIRED",
+      "note": "Pre-FID \u2014 financial close not imminent."
+     },
+     {
+      "name": "Lender Loss Payee",
+      "status": "REQUIRED",
+      "note": "Outstanding. Required for G7 gate."
+     }
+    ],
+    "g7Evidence": [
+     {
+      "item": "CAR policy placed and bound",
+      "satisfied": true
+     },
+     {
+      "item": "DSU policy placed with \u226518 months cover",
+      "satisfied": false
+     },
+     {
+      "item": "Performance bond in place for EPC and OEM",
+      "satisfied": false
+     },
+     {
+      "item": "Marine cargo policy placed",
+      "satisfied": false
+     },
+     {
+      "item": "Third party liability \u2265\u20ac50M placed",
+      "satisfied": false
+     },
+     {
+      "item": "Pollution liability placed",
+      "satisfied": false
+     },
+     {
+      "item": "Business interruption placed (ops phase)",
+      "satisfied": false
+     },
+     {
+      "item": "All lender endorsements confirmed",
+      "satisfied": false
+     }
+    ]
+   },
+   "proj_rotterdam_nh3": {
+    "linesActive": 0,
+    "totalLimit": "\u2014",
+    "annualPremium": "\u2014",
+    "nextRenewal": "\u2014",
+    "lines": [
+     {
+      "line": "Construction All-Risk (CAR)",
+      "insurer": "Not selected",
+      "limit": "\u20ac380M (target)",
+      "deductible": "TBD",
+      "trigger": "Physical damage during construction",
+      "status": "QUOTED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Delay in Start-Up (DSU)",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Revenue loss from delay",
+      "status": "QUOTED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Performance Bond",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "EPC non-performance",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Marine Cargo",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Equipment transit",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Third Party Liability",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Third party liability",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Pollution Liability",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Pollution event",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Business Interruption (ops phase)",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Operational revenue loss",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Lender Loss Payee Endorsement",
+      "insurer": "All insurers",
+      "limit": "\u2014",
+      "deductible": "\u2014",
+      "trigger": "Claims to lender",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     }
+    ],
+    "endorsements": [
+     {
+      "name": "Additional Named Insured (Senior Lender)",
+      "status": "REQUIRED",
+      "note": "Lender group TBD."
+     },
+     {
+      "name": "Waiver of Subrogation",
+      "status": "REQUIRED",
+      "note": "No policies placed."
+     },
+     {
+      "name": "Assignment on Financial Close",
+      "status": "REQUIRED",
+      "note": "Pre-FID."
+     },
+     {
+      "name": "Lender Loss Payee",
+      "status": "REQUIRED",
+      "note": "Required \u2014 no policies placed yet."
+     }
+    ],
+    "g7Evidence": [
+     {
+      "item": "CAR policy placed and bound",
+      "satisfied": false
+     },
+     {
+      "item": "DSU policy placed with \u226518 months cover",
+      "satisfied": false
+     },
+     {
+      "item": "Performance bond in place for EPC and OEM",
+      "satisfied": false
+     },
+     {
+      "item": "Marine cargo policy placed",
+      "satisfied": false
+     },
+     {
+      "item": "Third party liability \u2265\u20ac50M placed",
+      "satisfied": false
+     },
+     {
+      "item": "Pollution liability placed",
+      "satisfied": false
+     },
+     {
+      "item": "Business interruption placed (ops phase)",
+      "satisfied": false
+     },
+     {
+      "item": "All lender endorsements confirmed",
+      "satisfied": false
+     }
+    ]
+   },
+   "proj_wales_saf": {
+    "linesActive": 0,
+    "totalLimit": "\u2014",
+    "annualPremium": "\u2014",
+    "nextRenewal": "\u2014",
+    "lines": [
+     {
+      "line": "Construction All-Risk (CAR)",
+      "insurer": "Not selected",
+      "limit": "\u20ac290M (target)",
+      "deductible": "TBD",
+      "trigger": "Physical damage during construction",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Delay in Start-Up (DSU)",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Revenue loss from delay",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Performance Bond",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "EPC non-performance",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Marine Cargo",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Equipment transit",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Third Party Liability",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Third party liability",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Pollution Liability",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Pollution event",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Business Interruption (ops phase)",
+      "insurer": "Not selected",
+      "limit": "TBD",
+      "deductible": "TBD",
+      "trigger": "Operational revenue loss",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     },
+     {
+      "line": "Lender Loss Payee Endorsement",
+      "insurer": "All insurers",
+      "limit": "\u2014",
+      "deductible": "\u2014",
+      "trigger": "Claims to lender",
+      "status": "REQUIRED",
+      "renewal": "TBD",
+      "endorsements": []
+     }
+    ],
+    "endorsements": [
+     {
+      "name": "Additional Named Insured (Senior Lender)",
+      "status": "REQUIRED",
+      "note": "Pre-FID \u2014 not applicable yet."
+     },
+     {
+      "name": "Waiver of Subrogation",
+      "status": "REQUIRED",
+      "note": "Not placed."
+     },
+     {
+      "name": "Assignment on Financial Close",
+      "status": "REQUIRED",
+      "note": "Not placed."
+     },
+     {
+      "name": "Lender Loss Payee",
+      "status": "REQUIRED",
+      "note": "Not placed."
+     }
+    ],
+    "g7Evidence": [
+     {
+      "item": "CAR policy placed and bound",
+      "satisfied": false
+     },
+     {
+      "item": "DSU policy placed with \u226518 months cover",
+      "satisfied": false
+     },
+     {
+      "item": "Performance bond in place for EPC and OEM",
+      "satisfied": false
+     },
+     {
+      "item": "Marine cargo policy placed",
+      "satisfied": false
+     },
+     {
+      "item": "Third party liability \u2265\u20ac50M placed",
+      "satisfied": false
+     },
+     {
+      "item": "Pollution liability placed",
+      "satisfied": false
+     },
+     {
+      "item": "Business interruption placed (ops phase)",
+      "satisfied": false
+     },
+     {
+      "item": "All lender endorsements confirmed",
+      "satisfied": false
+     }
+    ]
+   }
+  }
+ },
+ {
+  "kind": "transfer_readiness",
+  "from": "features/finance/TransferReadiness.tsx TRANSFER_DATA",
+  "data": {
+   "proj_lehavre_eng": {
+    "overall": 88,
+    "assignable": {
+     "label": "Assignable Contracts %",
+     "score": 92,
+     "badge": "HIGH",
+     "evidence": [
+      "Offtake TOTSA: Assignment clause present",
+      "EPC Technip Energies: Yes (consent required, 20-day notice)",
+      "Grid connection RTE: Yes \u2014 automatic upon lender notification",
+      "Insurance AXA XL: Fully transferable with 10-day notice"
+     ],
+     "notes": "92% of contracts by value carry explicit assignment provisions. Only the TOTSA offtake requires written consent (non-waivable)."
+    },
+    "dscrPostTransfer": {
+     "label": "DSCR Post-Transfer",
+     "score": 85,
+     "badge": "STABLE",
+     "evidence": [
+      "Base case DSCR: 1.58x",
+      "Transfer WACC premium applied: +0.8pp",
+      "Post-transfer DSCR estimate: 1.44x",
+      "Minimum covenant: 1.20x \u2014 headroom maintained"
+     ],
+     "notes": "Transfer premium of +0.8pp WACC applied. DSCR headroom of 24bp above covenant floor. No waiver required."
+    },
+    "warrantyTail": {
+     "label": "Warranty Tail Coverage",
+     "score": 90,
+     "badge": "STRONG",
+     "evidence": [
+      "SOEC stack OEM warranty: 10 years from COD",
+      "Years remaining at transfer date: 6 years",
+      "EPC defects liability period: 2 years remaining",
+      "Performance guarantee: 92% efficiency floor maintained"
+     ],
+     "notes": "OEM SOEC warranty 10 years. 6 years remaining at transfer date. Warranty survives asset change of ownership under current terms."
+    },
+    "gooPorts": {
+     "label": "GoO / PoS Portability",
+     "score": 82,
+     "badge": "GOOD",
+     "evidence": [
+      "GRTgaz injection licence: 5 business days transfer",
+      "AIB GoO registry update: 8 business days",
+      "RFNBO certification: Transferable \u2014 new holder notification to T\u00dcV Rheinland",
+      "French green gas tariff scheme: Assignment subject to CRE approval (30 days)"
+     ],
+     "notes": "GRTgaz injection licence: 5 days transfer. GoO registry update: 8 days. CRE approval is longest path at 30 days."
+    },
+    "consentMatrix": [
+     {
+      "asset": "Offtake \u2014 TOTSA TotalEnergies",
+      "assignmentClause": "Yes",
+      "counterpartyConsent": "Written consent required",
+      "status": "CONDITIONAL",
+      "timeToClear": "10\u201320 business days"
+     },
+     {
+      "asset": "EPC Contract \u2014 Technip Energies",
+      "assignmentClause": "Yes (with consent)",
+      "counterpartyConsent": "Not to be unreasonably withheld",
+      "status": "CLEAR",
+      "timeToClear": "5 business days"
+     },
+     {
+      "asset": "Grid Connection \u2014 RTE",
+      "assignmentClause": "Yes",
+      "counterpartyConsent": "Automatic on lender notification",
+      "status": "CLEAR",
+      "timeToClear": "2 business days"
+     },
+     {
+      "asset": "Insurance \u2014 AXA XL",
+      "assignmentClause": "Fully transferable",
+      "counterpartyConsent": "Endorsement update only",
+      "status": "CLEAR",
+      "timeToClear": "3 business days"
+     },
+     {
+      "asset": "PPA \u2014 EDF Renouvelables",
+      "assignmentClause": "Yes",
+      "counterpartyConsent": "Consent not unreasonably withheld",
+      "status": "CLEAR",
+      "timeToClear": "10 business days"
+     }
+    ],
+    "timeToTransfer": "6\u20138 weeks"
+   },
+   "proj_bremen_h2": {
+    "overall": 55,
+    "assignable": {
+     "label": "Assignable Contracts %",
+     "score": 60,
+     "badge": "PARTIAL",
+     "evidence": [
+      "Vattenfall offtake: Consent required \u2014 counterparty discretionary",
+      "EPC Linde Engineering: No explicit assignment clause",
+      "Grid connection TenneT: Conditional on regulator sign-off",
+      "Insurance Munich Re: Transferable"
+     ],
+     "notes": "60% of contracts carry assignment provisions. EPC contract gap is material for lender comfort."
+    },
+    "dscrPostTransfer": {
+     "label": "DSCR Post-Transfer",
+     "score": 52,
+     "badge": "STRESSED",
+     "evidence": [
+      "Base case DSCR: 1.34x",
+      "Transfer WACC premium applied: +1.0pp",
+      "Post-transfer DSCR estimate: 1.18x",
+      "Minimum covenant: 1.20x \u2014 covenant breach on transfer"
+     ],
+     "notes": "Post-transfer DSCR of 1.18x falls below 1.20x covenant floor after WACC premium. Requires covenant waiver from lender group."
+    },
+    "warrantyTail": {
+     "label": "Warranty Tail Coverage",
+     "score": 58,
+     "badge": "LIMITED",
+     "evidence": [
+      "PEM electrolyser OEM warranty: 8 years from COD",
+      "Years remaining at transfer date: 4 years",
+      "Stack degradation risk increases post year 5",
+      "EPC defects liability: expired"
+     ],
+     "notes": "PEM warranty 8y \u2014 4y remaining. Stack degradation risk post-transfer increases buyer exposure. No wrap insurance placed."
+    },
+    "gooPorts": {
+     "label": "GoO / PoS Portability",
+     "score": 45,
+     "badge": "SLOW",
+     "evidence": [
+      "BNetzA hydrogen registry transfer: 15 business days",
+      "Custom port setup at Hamburg terminal: 22 business days",
+      "RFNBO certification re-notification: Required to Dena",
+      "German Green H2 subsidies: Subject to BMWK review on transfer"
+     ],
+     "notes": "BNetzA registry transfer: 15 days. Custom port setup: 22 days. BMWK review path is longest \u2014 not yet tested."
+    },
+    "consentMatrix": [
+     {
+      "asset": "Offtake \u2014 Vattenfall Energy",
+      "assignmentClause": "Requires consent",
+      "counterpartyConsent": "Counterparty discretionary",
+      "status": "REQUIRED",
+      "timeToClear": "20\u201330 business days"
+     },
+     {
+      "asset": "EPC Contract \u2014 Linde Engineering",
+      "assignmentClause": "Not present",
+      "counterpartyConsent": "Renegotiation required",
+      "status": "MISSING",
+      "timeToClear": "TBD \u2014 material gap"
+     },
+     {
+      "asset": "Grid Connection \u2014 TenneT",
+      "assignmentClause": "Conditional",
+      "counterpartyConsent": "BNetzA regulator sign-off",
+      "status": "REQUIRED",
+      "timeToClear": "15\u201325 business days"
+     },
+     {
+      "asset": "Insurance \u2014 Munich Re",
+      "assignmentClause": "Transferable",
+      "counterpartyConsent": "Endorsement update",
+      "status": "CLEAR",
+      "timeToClear": "3 business days"
+     },
+     {
+      "asset": "PPA \u2014 Vattenfall Wind",
+      "assignmentClause": "Consent required",
+      "counterpartyConsent": "Discretionary",
+      "status": "CONDITIONAL",
+      "timeToClear": "15 business days"
+     }
+    ],
+    "timeToTransfer": "3\u20134 months"
+   },
+   "proj_sansebastian_emethanol": {
+    "overall": 42,
+    "assignable": {
+     "label": "Assignable Contracts %",
+     "score": 45,
+     "badge": "PARTIAL",
+     "evidence": [
+      "Maersk offtake: Assignment clause missing",
+      "EPC contract: Consent required, terms unclear",
+      "Grid: Conditional on Spanish regulator"
+     ],
+     "notes": "Assignment provisions are incomplete. Significant renegotiation likely required before transfer."
+    },
+    "dscrPostTransfer": {
+     "label": "DSCR Post-Transfer",
+     "score": 40,
+     "badge": "AT RISK",
+     "evidence": [
+      "Base case DSCR: 1.22x",
+      "Transfer WACC premium: +1.2pp estimated",
+      "Post-transfer DSCR: ~1.05x",
+      "Covenant floor: 1.20x \u2014 breach likely"
+     ],
+     "notes": "Slim DSCR headroom pre-transfer leaves insufficient buffer for any WACC premium. Equity injection or debt restructuring likely required."
+    },
+    "warrantyTail": {
+     "label": "Warranty Tail Coverage",
+     "score": 44,
+     "badge": "LIMITED",
+     "evidence": [
+      "Electrolyser OEM warranty: 5 years remaining",
+      "Fischer-Tropsch reactor: 3 years remaining",
+      "No wrap insurance placed"
+     ],
+     "notes": "Multiple warranty components near expiry. Buyer will face elevated technical risk without new OEM wrap agreements."
+    },
+    "gooPorts": {
+     "label": "GoO / PoS Portability",
+     "score": 38,
+     "badge": "SLOW",
+     "evidence": [
+      "Spanish MITECO registry: 20+ business days",
+      "Maersk fuel blending certification: Transfer protocol undefined",
+      "RFNBO re-audit required on change of owner"
+     ],
+     "notes": "Spanish regulatory pathway for GoO transfer is undefined for e-Methanol. Likely requires pilot process with MITECO."
+    },
+    "consentMatrix": [
+     {
+      "asset": "Offtake \u2014 Maersk",
+      "assignmentClause": "Not present",
+      "counterpartyConsent": "Full renegotiation",
+      "status": "MISSING",
+      "timeToClear": "TBD"
+     },
+     {
+      "asset": "EPC Contract",
+      "assignmentClause": "Requires consent",
+      "counterpartyConsent": "Terms unclear",
+      "status": "REQUIRED",
+      "timeToClear": "30+ days"
+     },
+     {
+      "asset": "Grid \u2014 REE",
+      "assignmentClause": "Conditional",
+      "counterpartyConsent": "Spanish regulator sign-off",
+      "status": "REQUIRED",
+      "timeToClear": "20\u201330 days"
+     }
+    ],
+    "timeToTransfer": "5\u20137 months"
+   },
+   "proj_rotterdam_nh3": {
+    "overall": 20,
+    "assignable": {
+     "label": "Assignable Contracts %",
+     "score": 22,
+     "badge": "WEAK",
+     "evidence": [
+      "Most contracts still in term-sheet stage",
+      "Assignment provisions not yet negotiated"
+     ],
+     "notes": "At early development stage, assignment provisions have not been inserted. This is a critical gap to address in final contract drafts."
+    },
+    "dscrPostTransfer": {
+     "label": "DSCR Post-Transfer",
+     "score": 18,
+     "badge": "NOT MODELLED",
+     "evidence": [
+      "Financial model not yet at audit-grade",
+      "Offtake terms not finalised \u2014 DSCR highly uncertain"
+     ],
+     "notes": "Insufficient model maturity to estimate post-transfer DSCR. Gate G8 completion required before this metric is meaningful."
+    },
+    "warrantyTail": {
+     "label": "Warranty Tail Coverage",
+     "score": 20,
+     "badge": "NOT PLACED",
+     "evidence": [
+      "EPC contractor not selected",
+      "OEM warranty terms not negotiated"
+     ],
+     "notes": "Technology vendor not locked. Warranty tail coverage cannot be assessed until EPC/OEM contracts are executed."
+    },
+    "gooPorts": {
+     "label": "GoO / PoS Portability",
+     "score": 22,
+     "badge": "NOT MAPPED",
+     "evidence": [
+      "Netherlands ACM registry onboarding not initiated",
+      "GoO framework for NH3 under development at AIB"
+     ],
+     "notes": "No GoO registry enrolment initiated. NH3 PoS framework still being defined at EU level."
+    },
+    "consentMatrix": [
+     {
+      "asset": "Offtake (term sheet only)",
+      "assignmentClause": "Not yet drafted",
+      "counterpartyConsent": "N/A at this stage",
+      "status": "MISSING",
+      "timeToClear": "Requires FID"
+     },
+     {
+      "asset": "EPC (vendor not selected)",
+      "assignmentClause": "Not yet drafted",
+      "counterpartyConsent": "N/A",
+      "status": "MISSING",
+      "timeToClear": "Requires EPC award"
+     }
+    ],
+    "timeToTransfer": ">12 months (post-FID)"
+   },
+   "proj_wales_saf": {
+    "overall": 8,
+    "assignable": {
+     "label": "Assignable Contracts %",
+     "score": 8,
+     "badge": "NOT APPLICABLE",
+     "evidence": [
+      "Project at pre-FID stage",
+      "No bankable contracts executed"
+     ],
+     "notes": "Transfer readiness not applicable at current development stage. No executed contracts in place."
+    },
+    "dscrPostTransfer": {
+     "label": "DSCR Post-Transfer",
+     "score": 5,
+     "badge": "NOT MODELLED",
+     "evidence": [
+      "No audit-grade financial model",
+      "Offtake discussions at MOU stage only"
+     ],
+     "notes": "Transfer scenario analysis deferred until G8 (Audit-Grade Model) is complete."
+    },
+    "warrantyTail": {
+     "label": "Warranty Tail Coverage",
+     "score": 10,
+     "badge": "NOT PLACED",
+     "evidence": [
+      "Fischer-Tropsch licensor selected but no wrap",
+      "OEM warranty negotiations not commenced"
+     ],
+     "notes": "Technology wrap insurance not placed. License agreement only."
+    },
+    "gooPorts": {
+     "label": "GoO / PoS Portability",
+     "score": 8,
+     "badge": "NOT MAPPED",
+     "evidence": [
+      "UK RTFO / SAF mandate registry undefined for transfer",
+      "No GoO registry enrolment"
+     ],
+     "notes": "UK post-Brexit RTFO pathway for SAF GoO transfer not yet established. Regulatory engagement required."
+    },
+    "consentMatrix": [
+     {
+      "asset": "All contracts",
+      "assignmentClause": "Not yet drafted",
+      "counterpartyConsent": "N/A",
+      "status": "MISSING",
+      "timeToClear": "Requires FID + 18 months"
+     }
+    ],
+    "timeToTransfer": "Not applicable \u2014 pre-FID"
+   }
+  }
+ },
+ {
+  "kind": "ic_pack_config",
+  "from": "features/finance/ICPackBuilder.tsx PROJECT_CONFIGS",
+  "data": {
+   "proj_le_havre_eng": {
+    "S1": {
+     "status": "AUTO"
+    },
+    "S2": {
+     "status": "AUTO"
+    },
+    "S3": {
+     "status": "AUTO"
+    },
+    "S4": {
+     "status": "AUTO"
+    },
+    "S5": {
+     "status": "AUTO"
+    },
+    "S6": {
+     "status": "PARTIAL",
+     "note": "Insurance schedule needs endorsements"
+    },
+    "S7": {
+     "status": "PARTIAL",
+     "note": "CPs not yet cleared"
+    },
+    "S8": {
+     "status": "AUTO"
+    },
+    "S9": {
+     "status": "AUTO"
+    }
+   },
+   "proj_bremen_h2": {
+    "S1": {
+     "status": "AUTO"
+    },
+    "S2": {
+     "status": "AUTO"
+    },
+    "S3": {
+     "status": "PARTIAL"
+    },
+    "S4": {
+     "status": "PARTIAL"
+    },
+    "S5": {
+     "status": "PARTIAL",
+     "note": "Grid connection agreement pending"
+    },
+    "S6": {
+     "status": "PARTIAL"
+    },
+    "S7": {
+     "status": "MISSING"
+    },
+    "S8": {
+     "status": "AUTO"
+    },
+    "S9": {
+     "status": "PARTIAL"
+    }
+   },
+   "proj_helios_solar": {
+    "S1": {
+     "status": "AUTO"
+    },
+    "S2": {
+     "status": "PARTIAL"
+    },
+    "S3": {
+     "status": "PARTIAL"
+    },
+    "S4": {
+     "status": "PARTIAL"
+    },
+    "S5": {
+     "status": "PARTIAL"
+    },
+    "S6": {
+     "status": "PARTIAL"
+    },
+    "S7": {
+     "status": "PARTIAL"
+    },
+    "S8": {
+     "status": "PARTIAL"
+    },
+    "S9": {
+     "status": "PARTIAL"
+    }
+   },
+   "proj_rotterdam_nh3": {
+    "S1": {
+     "status": "PARTIAL"
+    },
+    "S2": {
+     "status": "PARTIAL"
+    },
+    "S3": {
+     "status": "MISSING"
+    },
+    "S4": {
+     "status": "MISSING"
+    },
+    "S5": {
+     "status": "PARTIAL"
+    },
+    "S6": {
+     "status": "MISSING"
+    },
+    "S7": {
+     "status": "MISSING"
+    },
+    "S8": {
+     "status": "PARTIAL"
+    },
+    "S9": {
+     "status": "PARTIAL"
+    }
+   }
+  }
+ },
+ {
+  "kind": "ic_pack_readiness",
+  "from": "features/finance/ICPackBuilder.tsx READINESS_OVERRIDES",
+  "data": {
+   "proj_le_havre_eng": 78,
+   "proj_bremen_h2": 52,
+   "proj_helios_solar": 38,
+   "proj_rotterdam_nh3": 21
+  }
+ },
+ {
+  "kind": "demand_buyers",
+  "from": "features/finance/DemandPipeline.tsx PROJECT_BUYERS",
+  "data": {
+   "proj_bremen_h2": [
+    "Bremen Port Industrial Consortium"
+   ],
+   "proj_rotterdam_nh3": [
+    "EU Fertiliser Manufacturers Consortium"
+   ],
+   "proj_sansebastian_emethanol": [
+    "Maersk",
+    "CMA CGM"
+   ],
+   "proj_wales_saf": [
+    "British Airways",
+    "easyJet"
+   ],
+   "proj_lehavre_eng": [
+    "Engie SA"
+   ],
+   "proj_hamburgone_emethanol": [
+    "BremenThree AG"
+   ],
+   "proj_madrid2_sansebastian": [
+    "RotterdamOfftake4 AG"
+   ]
+  }
+ },
+ {
+  "kind": "dfi_institutions",
+  "from": "features/finance/DFIDashboard.tsx MOCK_DFI",
+  "data": {
+   "default": [
+    {
+     "id": "eib",
+     "name": "European Investment Bank",
+     "shortName": "EIB",
+     "criteria": [
+      {
+       "code": "EIB-01",
+       "name": "EU Taxonomy Alignment",
+       "status": "MET",
+       "blocks_drawdown": true,
+       "note": "Substantial contribution to climate mitigation confirmed"
+      },
+      {
+       "code": "EIB-02",
+       "name": "DNSH Assessment",
+       "status": "MET",
+       "blocks_drawdown": true,
+       "note": "Do No Significant Harm criteria satisfied"
+      },
+      {
+       "code": "EIB-03",
+       "name": "Carbon Footprint Estimate",
+       "status": "IN_PROGRESS",
+       "blocks_drawdown": true,
+       "note": "Awaiting scope 3 upstream verification"
+      },
+      {
+       "code": "EIB-04",
+       "name": "Paris Alignment Certification",
+       "status": "PENDING",
+       "blocks_drawdown": false,
+       "note": "Requires final board approval"
+      }
+     ],
+     "additionality": {
+      "irr_with_dfi": 8.2,
+      "irr_without_dfi": 4.1,
+      "pass": true,
+      "catalytic_ratio": 2.8
+     }
+    },
+    {
+     "id": "kfw",
+     "name": "Kreditanstalt fur Wiederaufbau",
+     "shortName": "KfW",
+     "criteria": [
+      {
+       "code": "KfW-01",
+       "name": "German Energy Transition Alignment",
+       "status": "MET",
+       "blocks_drawdown": false
+      },
+      {
+       "code": "KfW-02",
+       "name": "BMZ Development Impact Assessment",
+       "status": "MET",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "KfW-03",
+       "name": "Environmental & Social Impact Study",
+       "status": "IN_PROGRESS",
+       "blocks_drawdown": true,
+       "note": "ESIA Phase 2 underway"
+      },
+      {
+       "code": "KfW-04",
+       "name": "Procurement Compliance",
+       "status": "MET",
+       "blocks_drawdown": false
+      },
+      {
+       "code": "KfW-05",
+       "name": "Local Content Requirement",
+       "status": "PENDING",
+       "blocks_drawdown": false
+      }
+     ],
+     "additionality": {
+      "irr_with_dfi": 7.9,
+      "irr_without_dfi": 3.8,
+      "pass": true,
+      "catalytic_ratio": 3.1
+     }
+    },
+    {
+     "id": "ifc",
+     "name": "International Finance Corporation",
+     "shortName": "IFC",
+     "criteria": [
+      {
+       "code": "IFC-01",
+       "name": "Performance Standard 1 \u2014 Assessment & Mgmt",
+       "status": "MET",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "IFC-02",
+       "name": "Performance Standard 2 \u2014 Labor & Working Conds",
+       "status": "MET",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "IFC-03",
+       "name": "Performance Standard 3 \u2014 Resource Efficiency",
+       "status": "MET",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "IFC-04",
+       "name": "Performance Standard 4 \u2014 Community Health & Safety",
+       "status": "MET",
+       "blocks_drawdown": false
+      },
+      {
+       "code": "IFC-05",
+       "name": "Performance Standard 5 \u2014 Land Acquisition",
+       "status": "MET",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "IFC-06",
+       "name": "Performance Standard 6 \u2014 Biodiversity",
+       "status": "IN_PROGRESS",
+       "blocks_drawdown": false,
+       "note": "Habitat assessment pending field survey"
+      },
+      {
+       "code": "IFC-07",
+       "name": "Performance Standard 8 \u2014 Cultural Heritage",
+       "status": "IN_PROGRESS",
+       "blocks_drawdown": false
+      },
+      {
+       "code": "IFC-08",
+       "name": "Additionality & Development Impact",
+       "status": "CHECK",
+       "blocks_drawdown": true,
+       "note": "Under IFC Board review"
+      }
+     ],
+     "additionality": {
+      "irr_with_dfi": 9.1,
+      "irr_without_dfi": 5.2,
+      "pass": true,
+      "catalytic_ratio": 2.4
+     }
+    },
+    {
+     "id": "bpi",
+     "name": "Bpifrance",
+     "shortName": "BPI",
+     "criteria": [
+      {
+       "code": "BPI-01",
+       "name": "France 2030 Strategic Alignment",
+       "status": "MET",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "BPI-02",
+       "name": "French Content & Employment",
+       "status": "MET",
+       "blocks_drawdown": false
+      },
+      {
+       "code": "BPI-03",
+       "name": "Innovation Score Threshold",
+       "status": "CHECK",
+       "blocks_drawdown": false,
+       "note": "TRL 7+ required, project at TRL 6-7 boundary"
+      }
+     ],
+     "additionality": {
+      "irr_with_dfi": 8.5,
+      "irr_without_dfi": 4.8,
+      "pass": true,
+      "catalytic_ratio": 3.5
+     }
+    },
+    {
+     "id": "dfc",
+     "name": "US International Development Finance Corp",
+     "shortName": "DFC",
+     "criteria": [
+      {
+       "code": "DFC-01",
+       "name": "Development Impact Assessment",
+       "status": "PENDING",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "DFC-02",
+       "name": "US Foreign Policy Alignment",
+       "status": "MET",
+       "blocks_drawdown": false
+      },
+      {
+       "code": "DFC-03",
+       "name": "Environmental Assessment (Cat B)",
+       "status": "IN_PROGRESS",
+       "blocks_drawdown": true,
+       "note": "EA report in review"
+      }
+     ],
+     "additionality": {
+      "irr_with_dfi": 7.4,
+      "irr_without_dfi": 3.2,
+      "pass": true,
+      "catalytic_ratio": 2.1
+     }
+    },
+    {
+     "id": "afdb",
+     "name": "African Development Bank",
+     "shortName": "AfDB",
+     "criteria": [
+      {
+       "code": "AfDB-01",
+       "name": "High 5 Priority Alignment",
+       "status": "PENDING",
+       "blocks_drawdown": false
+      },
+      {
+       "code": "AfDB-02",
+       "name": "Environmental & Social Safeguards",
+       "status": "PENDING",
+       "blocks_drawdown": true
+      },
+      {
+       "code": "AfDB-03",
+       "name": "Country Strategy Paper Consistency",
+       "status": "PENDING",
+       "blocks_drawdown": false
+      }
+     ],
+     "additionality": {
+      "irr_with_dfi": 6.8,
+      "irr_without_dfi": 2.5,
+      "pass": true,
+      "catalytic_ratio": 1.9
+     }
+    }
+   ]
+  }
+ },
+ {
+  "kind": "spend_wave",
+  "from": "features/finance/SpendWaveView.tsx MOCK_SPEND",
+  "data": {
+   "proj_etf_pecos1": [
+    {
+     "year": 2025,
+     "layers": {
+      "EQUITY_SEED": 4.2,
+      "GRANT": 1.8
+     }
+    },
+    {
+     "year": 2026,
+     "layers": {
+      "EQUITY_SEED": 6.1,
+      "EQUITY_SPONSOR": 3.5,
+      "GRANT": 5.2,
+      "BRIDGE": 2
+     }
+    },
+    {
+     "year": 2027,
+     "layers": {
+      "EQUITY_SPONSOR": 12.4,
+      "GRANT": 8.6,
+      "BRIDGE": 6.8,
+      "CONCESSIONAL": 4
+     }
+    },
+    {
+     "year": 2028,
+     "layers": {
+      "EQUITY_SPONSOR": 18,
+      "GRANT": 3.2,
+      "BRIDGE": 9.5,
+      "CONCESSIONAL": 14.2
+     }
+    },
+    {
+     "year": 2029,
+     "layers": {
+      "EQUITY_SPONSOR": 8,
+      "BRIDGE": 3,
+      "CONCESSIONAL": 7.8
+     }
+    }
+   ],
+   "default": [
+    {
+     "year": 2025,
+     "layers": {
+      "EQUITY_SEED": 2,
+      "GRANT": 1
+     }
+    },
+    {
+     "year": 2026,
+     "layers": {
+      "EQUITY_SEED": 3.5,
+      "EQUITY_SPONSOR": 5,
+      "GRANT": 4,
+      "BRIDGE": 1.5
+     }
+    },
+    {
+     "year": 2027,
+     "layers": {
+      "EQUITY_SPONSOR": 10,
+      "GRANT": 6,
+      "BRIDGE": 4.5,
+      "CONCESSIONAL": 3
+     }
+    },
+    {
+     "year": 2028,
+     "layers": {
+      "EQUITY_SPONSOR": 14,
+      "GRANT": 2,
+      "BRIDGE": 7,
+      "CONCESSIONAL": 10
+     }
+    },
+    {
+     "year": 2029,
+     "layers": {
+      "EQUITY_SPONSOR": 6,
+      "BRIDGE": 2,
+      "CONCESSIONAL": 5
+     }
+    }
+   ]
+  }
+ },
+ {
+  "kind": "drawdown_tranches",
+  "from": "features/finance/DrawdownTimeline.tsx MOCK_TRANCHES",
+  "data": {
+   "proj_etf_pecos1": [
+    {
+     "id": "senior",
+     "name": "Senior Debt (Syndicate)",
+     "totalCommitted": 285,
+     "cells": {
+      "Q1-2029": {
+       "status": "DISBURSED",
+       "amount": 28.5
+      },
+      "Q2-2029": {
+       "status": "DISBURSED",
+       "amount": 42.8
+      },
+      "Q3-2029": {
+       "status": "DISBURSED",
+       "amount": 42.8
+      },
+      "Q4-2029": {
+       "status": "RECONCILED",
+       "amount": 42.8
+      },
+      "Q1-2030": {
+       "status": "APPROVED",
+       "amount": 42.8
+      },
+      "Q2-2030": {
+       "status": "APPROVED",
+       "amount": 42.8
+      },
+      "Q3-2030": {
+       "status": "REQUESTED",
+       "amount": 28.5
+      },
+      "Q4-2030": {
+       "status": "REQUESTED",
+       "amount": 14
+      }
+     }
+    },
+    {
+     "id": "eib",
+     "name": "EIB Concessional",
+     "totalCommitted": 120,
+     "cells": {
+      "Q1-2029": {
+       "status": "DISBURSED",
+       "amount": 12
+      },
+      "Q2-2029": {
+       "status": "DISBURSED",
+       "amount": 18
+      },
+      "Q3-2029": {
+       "status": "DISBURSED",
+       "amount": 24
+      },
+      "Q4-2029": {
+       "status": "RECONCILED",
+       "amount": 24
+      },
+      "Q1-2030": {
+       "status": "APPROVED",
+       "amount": 18
+      },
+      "Q2-2030": {
+       "status": "APPROVED",
+       "amount": 12
+      },
+      "Q3-2030": {
+       "status": "REQUESTED",
+       "amount": 12
+      }
+     }
+    },
+    {
+     "id": "eca",
+     "name": "ECA (EXIM)",
+     "totalCommitted": 95,
+     "cells": {
+      "Q2-2029": {
+       "status": "DISBURSED",
+       "amount": 14.2
+      },
+      "Q3-2029": {
+       "status": "DISBURSED",
+       "amount": 19
+      },
+      "Q4-2029": {
+       "status": "RECONCILED",
+       "amount": 19
+      },
+      "Q1-2030": {
+       "status": "APPROVED",
+       "amount": 19
+      },
+      "Q2-2030": {
+       "status": "REQUESTED",
+       "amount": 14.2
+      },
+      "Q3-2030": {
+       "status": "REQUESTED",
+       "amount": 9.6
+      }
+     }
+    },
+    {
+     "id": "equity",
+     "name": "Sponsor Equity",
+     "totalCommitted": 112,
+     "cells": {
+      "Q1-2029": {
+       "status": "RECONCILED",
+       "amount": 22.4
+      },
+      "Q2-2029": {
+       "status": "RECONCILED",
+       "amount": 22.4
+      },
+      "Q3-2029": {
+       "status": "DISBURSED",
+       "amount": 22.4
+      },
+      "Q4-2029": {
+       "status": "DISBURSED",
+       "amount": 22.4
+      },
+      "Q1-2030": {
+       "status": "APPROVED",
+       "amount": 11.2
+      },
+      "Q2-2030": {
+       "status": "APPROVED",
+       "amount": 11.2
+      }
+     }
+    }
+   ],
+   "default": [
+    {
+     "id": "senior",
+     "name": "Senior Debt",
+     "totalCommitted": 200,
+     "cells": {
+      "Q1-2029": {
+       "status": "DISBURSED",
+       "amount": 25
+      },
+      "Q2-2029": {
+       "status": "DISBURSED",
+       "amount": 35
+      },
+      "Q3-2029": {
+       "status": "APPROVED",
+       "amount": 35
+      },
+      "Q4-2029": {
+       "status": "APPROVED",
+       "amount": 35
+      },
+      "Q1-2030": {
+       "status": "REQUESTED",
+       "amount": 35
+      },
+      "Q2-2030": {
+       "status": "REQUESTED",
+       "amount": 35
+      }
+     }
+    },
+    {
+     "id": "concessional",
+     "name": "Concessional (DFI)",
+     "totalCommitted": 80,
+     "cells": {
+      "Q1-2029": {
+       "status": "DISBURSED",
+       "amount": 16
+      },
+      "Q2-2029": {
+       "status": "DISBURSED",
+       "amount": 16
+      },
+      "Q3-2029": {
+       "status": "APPROVED",
+       "amount": 16
+      },
+      "Q4-2029": {
+       "status": "APPROVED",
+       "amount": 16
+      },
+      "Q1-2030": {
+       "status": "REQUESTED",
+       "amount": 16
+      }
+     }
+    },
+    {
+     "id": "eca",
+     "name": "ECA Guarantee",
+     "totalCommitted": 60,
+     "cells": {
+      "Q2-2029": {
+       "status": "DISBURSED",
+       "amount": 15
+      },
+      "Q3-2029": {
+       "status": "APPROVED",
+       "amount": 15
+      },
+      "Q4-2029": {
+       "status": "REQUESTED",
+       "amount": 15
+      },
+      "Q1-2030": {
+       "status": "REQUESTED",
+       "amount": 15
+      }
+     }
+    },
+    {
+     "id": "equity",
+     "name": "Sponsor Equity",
+     "totalCommitted": 90,
+     "cells": {
+      "Q1-2029": {
+       "status": "RECONCILED",
+       "amount": 18
+      },
+      "Q2-2029": {
+       "status": "RECONCILED",
+       "amount": 18
+      },
+      "Q3-2029": {
+       "status": "DISBURSED",
+       "amount": 18
+      },
+      "Q4-2029": {
+       "status": "DISBURSED",
+       "amount": 18
+      },
+      "Q1-2030": {
+       "status": "APPROVED",
+       "amount": 18
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "kind": "drawdown_milestones",
+  "from": "features/finance/DrawdownTimeline.tsx MOCK_MILESTONES",
+  "data": {
+   "proj_etf_pecos1": [
+    {
+     "quarter": "Q2-2029",
+     "label": "EPC 25%",
+     "icon": "25"
+    },
+    {
+     "quarter": "Q4-2029",
+     "label": "EPC 50%",
+     "icon": "50"
+    },
+    {
+     "quarter": "Q4-2031",
+     "label": "COD",
+     "icon": "COD"
+    }
+   ]
+  }
+ },
+ {
+  "kind": "term_sheet",
+  "from": "features/finance/TermSheetTracker.tsx buildTerms()",
+  "data": {
+   "proj_lehavre_eng": [
+    {
+     "group": "Financial Terms",
+     "term": "Pricing & Indexation",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-02-14",
+     "notes": "CPI-linked with 3% cap. Annual reset in Q1."
+    },
+    {
+     "group": "Financial Terms",
+     "term": "Floor price mechanism",
+     "status": "AGREED",
+     "party": "Seller",
+     "lastUpdated": "2026-02-14",
+     "notes": "Floor at \u20ac55/MWh H2-equiv. Escalates 1.5%/yr."
+    },
+    {
+     "group": "Financial Terms",
+     "term": "Price cap",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2026-01-20",
+     "notes": "Cap at \u20ac120/MWh. Buyer requesting \u20ac110 \u2014 under review."
+    },
+    {
+     "group": "Financial Terms",
+     "term": "Escalation formula",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2025-12-05",
+     "notes": "Dispute: Seller prefers HHPPI; Buyer insists on CPI only."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Volume commitment (ToP %)",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2026-02-28",
+     "notes": "85% take-or-pay over contract year."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Make-good clause",
+     "status": "AGREED",
+     "party": "Seller",
+     "lastUpdated": "2025-11-30",
+     "notes": "Make-good window: 6 months post-shortfall event."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Outage protocol",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2025-12-10",
+     "notes": "Force-majeure outages excluded from ToP obligation."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Delivery point",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-01-08",
+     "notes": "Gate delivery at grid injection point / custody meter."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Force majeure definition",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-02-01",
+     "notes": "Includes grid curtailment >20% for >15 consecutive days."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Change-in-law clause",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2025-11-15",
+     "notes": "Full pass-through to Buyer if direct regulatory impact."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Curtailment compensation",
+     "status": "AGREED",
+     "party": "Seller",
+     "lastUpdated": "2026-01-25",
+     "notes": "Seller claims 100% TOTSA compensation; under negotiation."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Environmental indemnity",
+     "status": "AGREED",
+     "party": "Seller",
+     "lastUpdated": "2025-10-20",
+     "notes": "Covers soil contamination attributable to construction."
+    },
+    {
+     "group": "Security Package",
+     "term": "Step-in rights",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2026-02-10",
+     "notes": "Lender step-in triggered at 90-day payment default."
+    },
+    {
+     "group": "Security Package",
+     "term": "Cut-through provisions",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2025-12-18",
+     "notes": "Direct agreement with senior lender pending legal sign-off."
+    },
+    {
+     "group": "Security Package",
+     "term": "Assignment consent",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-01-12",
+     "notes": "Consent not to be unreasonably withheld within 20 business days."
+    },
+    {
+     "group": "Security Package",
+     "term": "Charge over accounts",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2026-02-20",
+     "notes": "DSRA and Revenue account charged in favour of lender group."
+    },
+    {
+     "group": "Operational",
+     "term": "M&V protocol",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-03-01",
+     "notes": "ISO 50006 metering. Quarterly reconciliation by independent auditor."
+    },
+    {
+     "group": "Operational",
+     "term": "Audit rights",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2025-11-28",
+     "notes": "Buyer right to audit books 30 days per year with 10-day notice."
+    },
+    {
+     "group": "Operational",
+     "term": "Regulatory reporting",
+     "status": "AGREED",
+     "party": "Seller",
+     "lastUpdated": "2026-02-05",
+     "notes": "Monthly RFNBO compliance report to competent authority."
+    }
+   ],
+   "proj_bremen_h2": [
+    {
+     "group": "Financial Terms",
+     "term": "Pricing & Indexation",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-02-14",
+     "notes": "CPI-linked with 3% cap. Annual reset in Q1."
+    },
+    {
+     "group": "Financial Terms",
+     "term": "Floor price mechanism",
+     "status": "AGREED",
+     "party": "Seller",
+     "lastUpdated": "2026-02-14",
+     "notes": "Floor at \u20ac55/MWh H2-equiv. Escalates 1.5%/yr."
+    },
+    {
+     "group": "Financial Terms",
+     "term": "Price cap",
+     "status": "PENDING",
+     "party": "Buyer",
+     "lastUpdated": "2026-01-20",
+     "notes": "Cap at \u20ac120/MWh. Buyer requesting \u20ac110 \u2014 under review."
+    },
+    {
+     "group": "Financial Terms",
+     "term": "Escalation formula",
+     "status": "DISPUTED",
+     "party": "Both",
+     "lastUpdated": "2025-12-05",
+     "notes": "Dispute: Seller prefers HHPPI; Buyer insists on CPI only."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Volume commitment (ToP %)",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2026-02-28",
+     "notes": "85% take-or-pay over contract year."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Make-good clause",
+     "status": "PENDING",
+     "party": "Seller",
+     "lastUpdated": "2025-11-30",
+     "notes": "Make-good window: 6 months post-shortfall event."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Outage protocol",
+     "status": "PENDING",
+     "party": "Both",
+     "lastUpdated": "2025-12-10",
+     "notes": "Force-majeure outages excluded from ToP obligation."
+    },
+    {
+     "group": "Delivery Terms",
+     "term": "Delivery point",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-01-08",
+     "notes": "Gate delivery at grid injection point / custody meter."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Force majeure definition",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-02-01",
+     "notes": "Includes grid curtailment >20% for >15 consecutive days."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Change-in-law clause",
+     "status": "PENDING",
+     "party": "Both",
+     "lastUpdated": "2025-11-15",
+     "notes": "Full pass-through to Buyer if direct regulatory impact."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Curtailment compensation",
+     "status": "DISPUTED",
+     "party": "Seller",
+     "lastUpdated": "2026-01-25",
+     "notes": "Seller claims 100% TOTSA compensation; under negotiation."
+    },
+    {
+     "group": "Risk Allocation",
+     "term": "Environmental indemnity",
+     "status": "PENDING",
+     "party": "Seller",
+     "lastUpdated": "2025-10-20",
+     "notes": "Covers soil contamination attributable to construction."
+    },
+    {
+     "group": "Security Package",
+     "term": "Step-in rights",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2026-02-10",
+     "notes": "Lender step-in triggered at 90-day payment default."
+    },
+    {
+     "group": "Security Package",
+     "term": "Cut-through provisions",
+     "status": "PENDING",
+     "party": "Both",
+     "lastUpdated": "2025-12-18",
+     "notes": "Direct agreement with senior lender pending legal sign-off."
+    },
+    {
+     "group": "Security Package",
+     "term": "Assignment consent",
+     "status": "PENDING",
+     "party": "Both",
+     "lastUpdated": "2026-01-12",
+     "notes": "Consent not to be unreasonably withheld within 20 business days."
+    },
+    {
+     "group": "Security Package",
+     "term": "Charge over accounts",
+     "status": "AGREED",
+     "party": "Buyer",
+     "lastUpdated": "2026-02-20",
+     "notes": "DSRA and Revenue account charged in favour of lender group."
+    },
+    {
+     "group": "Operational",
+     "term": "M&V protocol",
+     "status": "AGREED",
+     "party": "Both",
+     "lastUpdated": "2026-03-01",
+     "notes": "ISO 50006 metering. Quarterly reconciliation by independent auditor."
+    },
+    {
+     "group": "Operational",
+     "term": "Audit rights",
+     "status": "PENDING",
+     "party": "Buyer",
+     "lastUpdated": "2025-11-28",
+     "notes": "Buyer right to audit books 30 days per year with 10-day notice."
+    },
+    {
+     "group": "Operational",
+     "term": "Regulatory reporting",
+     "status": "AGREED",
+     "party": "Seller",
+     "lastUpdated": "2026-02-05",
+     "notes": "Monthly RFNBO compliance report to competent authority."
+    }
+   ]
+  }
+ },
+ {
+  "kind": "project_timeline",
+  "from": "features/finance/ProjectTimeline.tsx generateTimelineData()",
+  "data": {
+   "proj_le_havre_eng": {
+    "phases": [
+     {
+      "phase": "ADVISORY",
+      "status": "COMPLETED",
+      "milestones": [
+       {
+        "name": "LCA Protocol Locked",
+        "status": "COMPLETED",
+        "targetDate": "2025-Q1",
+        "owner": "DNV",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Offtake 92% Signed",
+        "status": "COMPLETED",
+        "targetDate": "2025-Q4",
+        "owner": "Commercial",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "BUILD",
+      "status": "COMPLETED",
+      "milestones": [
+       {
+        "name": "EPC Contract Executed",
+        "status": "COMPLETED",
+        "targetDate": "2025-Q2",
+        "owner": "PM",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Insurance CAR/DSU Placed",
+        "status": "COMPLETED",
+        "targetDate": "2025-Q3",
+        "owner": "Risk",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "CONSTRUCTION",
+      "status": "PLANNED",
+      "milestones": [
+       {
+        "name": "NTP Issued",
+        "status": "PLANNED",
+        "targetDate": "2026-Q3",
+        "owner": "PM",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Electrolyser Delivery",
+        "status": "PLANNED",
+        "targetDate": "2027-Q1",
+        "owner": "PM",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Methanation Unit FAT",
+        "status": "PLANNED",
+        "targetDate": "2027-Q4",
+        "owner": "PM",
+        "fundingTrigger": false
+       },
+       {
+        "name": "COD Commissioning",
+        "status": "PLANNED",
+        "targetDate": "2028-Q2",
+        "owner": "PM",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "OPERATIONS",
+      "status": "PLANNED",
+      "milestones": [
+       {
+        "name": "Commercial Operations",
+        "status": "PLANNED",
+        "targetDate": "2028-Q2",
+        "owner": "Operations",
+        "fundingTrigger": false
+       },
+       {
+        "name": "First GoO Issuance",
+        "status": "PLANNED",
+        "targetDate": "2028-Q3",
+        "owner": "Certification",
+        "fundingTrigger": false
+       }
+      ]
+     }
+    ]
+   },
+   "proj_bremen_h2": {
+    "phases": [
+     {
+      "phase": "ADVISORY",
+      "status": "COMPLETED",
+      "milestones": [
+       {
+        "name": "Feasibility Study",
+        "status": "COMPLETED",
+        "targetDate": "2024-Q2",
+        "owner": "Engineering",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Stakeholder MoU",
+        "status": "COMPLETED",
+        "targetDate": "2024-Q4",
+        "owner": "BD",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "BUILD",
+      "status": "IN_PROGRESS",
+      "milestones": [
+       {
+        "name": "EPC Tender Award",
+        "status": "COMPLETED",
+        "targetDate": "2025-Q2",
+        "owner": "PM",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Grid Connection Agreement",
+        "status": "IN_PROGRESS",
+        "targetDate": "2026-Q1",
+        "owner": "Grid Ops",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "CONSTRUCTION",
+      "status": "PLANNED",
+      "milestones": [
+       {
+        "name": "NTP Issued",
+        "status": "PLANNED",
+        "targetDate": "2027-Q1",
+        "owner": "PM",
+        "fundingTrigger": false
+       },
+       {
+        "name": "COD Commissioning",
+        "status": "PLANNED",
+        "targetDate": "2028-Q4",
+        "owner": "PM",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "OPERATIONS",
+      "status": "PLANNED",
+      "milestones": [
+       {
+        "name": "Commercial Operations",
+        "status": "PLANNED",
+        "targetDate": "2029-Q1",
+        "owner": "Operations",
+        "fundingTrigger": false
+       }
+      ]
+     }
+    ]
+   },
+   "proj_rotterdam_nh3": {
+    "phases": [
+     {
+      "phase": "ADVISORY",
+      "status": "IN_PROGRESS",
+      "milestones": [
+       {
+        "name": "Pre-Feasibility Study",
+        "status": "COMPLETED",
+        "targetDate": "2025-Q3",
+        "owner": "Engineering",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Site Selection",
+        "status": "IN_PROGRESS",
+        "targetDate": "2026-Q2",
+        "owner": "BD",
+        "fundingTrigger": false
+       },
+       {
+        "name": "Environmental Assessment",
+        "status": "PLANNED",
+        "targetDate": "2026-Q3",
+        "owner": "ESG",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "BUILD",
+      "status": "PLANNED",
+      "milestones": [
+       {
+        "name": "EPC Tender",
+        "status": "PLANNED",
+        "targetDate": "2027-Q1",
+        "owner": "PM",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "CONSTRUCTION",
+      "status": "PLANNED",
+      "milestones": [
+       {
+        "name": "NTP Issued",
+        "status": "PLANNED",
+        "targetDate": "2028-Q1",
+        "owner": "PM",
+        "fundingTrigger": false
+       }
+      ]
+     },
+     {
+      "phase": "OPERATIONS",
+      "status": "PLANNED",
+      "milestones": [
+       {
+        "name": "Commercial Operations",
+        "status": "PLANNED",
+        "targetDate": "2029-Q4",
+        "owner": "Operations",
+        "fundingTrigger": false
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "kind": "plant_builder_preset",
+  "from": "features/finance/PlantBuilder.tsx loadPecosI() \u2014 parameters verbatim; equipment chosen by its name rules, resolved to catalogue ids 2026-10-25",
+  "data": {
+   "proj_etf_pecos1": {
+    "molecule": "E_METHANOL",
+    "jurisdiction": "US",
+    "power_price_eur_mwh": 35.0,
+    "water_price_eur_m3": 2.0,
+    "labour_count": 80,
+    "labour_cost_eur_year": 85000,
+    "contingency_pct": 12,
+    "wacc_pct": 8.5,
+    "project_life_years": 25,
+    "target_market_price_eur_t": 470,
+    "equipment": [
+     {
+      "equipment_id": "PEM_ELEC_50MW",
+      "quantity": 3
+     },
+     {
+      "equipment_id": "MEOH_SYNTH_50KT",
+      "quantity": 1
+     }
+    ],
+    "notes": "150 MW PEM as 3 x 50 MW; ERCOT West power; ~$510/t at 1.09 USD/EUR (Gabillon forward, 2027 delivery)"
+   }
+  }
+ }
+]

@@ -11,208 +11,25 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from app.core.capacity_units import capacity_mtpd_to_mt_year
 from app.core.db_backend import domain_connection, domain_is_postgres
 from app.core.project_registry import (
-    PROJECT_ACCESS_PROFILES,
     ProjectAccessProfile,
+    all_project_profiles,
     company_slug,
     get_effective_context,
-    visible_project_ids_for_company,
 )
 
 router = APIRouter()
 
-# ── Static metadata that mirrors the frontend CUSTOMER_PROJECTS shape ───────
-# Extend this as projects are added to PROJECT_ACCESS_PROFILES.
+# Project data comes from PostgreSQL only: `projects` for the headline fields,
+# `project_profile` (alembic 068) for the rest. The _PROJECT_META dictionary
+# that stood here — a second, disagreeing copy of the frontend's data — was
+# deleted on 2026-10-25 (JML: PostgreSQL is the reference).
 
-_PROJECT_META: dict[str, dict] = {
-    # ── ETFuels SA portfolio ─────────────────────────────────────────────
-    "proj_etf_pecos1": {
-        "name": "ETFuels Pecos I",
-        "molecule": "e-Methanol",
-        "location": "Pecos County, Texas",
-        "country": "US",
-        "lat": 31.42, "lng": -103.49,
-        "capacity_mtpd": 329,
-        "capex_eur": 562_000_000,
-        "status": "construction",
-        "phase": "FEED Class 3 — Structurally Bankable",
-        "completion_date": "2027-Q4",
-        "description": "340 MW wind, 150 MW PEM electrolysis, 120,000 t/yr e-methanol.",
-    },
-    "etfuels_us_tx_rattlesnake_gap": {
-        "name": "Rattlesnake Gap",
-        "molecule": "e-Methanol",
-        "location": "West Texas (Christoval / Schleicher County)",
-        "country": "US",
-        "lat": 31.20, "lng": -100.50,
-        "capacity_mtpd": 342,
-        "capex_eur": 0,
-        "status": "development",
-        "phase": "FEED underway — FID target end-2026",
-        "completion_date": "2030-Q1",
-        "description": "500 MW behind-the-meter wind+solar, 125,000 t/yr e-methanol. Public-source seed.",
-    },
-    "etfuels_fi_ranua_naataaapa": {
-        "name": "Ranua Näätäaapa e-Methanol",
-        "molecule": "e-Methanol",
-        "location": "Ranua, Lapland",
-        "country": "FI",
-        "lat": 65.93, "lng": 26.13,
-        "capacity_mtpd": 301,
-        "capex_eur": 800_000_000,
-        "status": "development",
-        "phase": "Pre-FEED — tax credit awarded",
-        "completion_date": "2031-Q4",
-        "description": "300 MW wind, 110,000 t/yr e-methanol. Business Finland tax credit €118.6M.",
-    },
-    "etfuels_uk_skyfuel_teesside": {
-        "name": "Project SkyFuel Teesside",
-        "molecule": "SAF",
-        "location": "Redcar, Teesside",
-        "country": "GB",
-        "lat": 54.62, "lng": -1.07,
-        "capacity_mtpd": 90,
-        "capex_eur": 0,
-        "status": "development",
-        "phase": "AFF-supported development — FEED progressing",
-        "completion_date": "2032-Q4",
-        "description": "33,000 t/yr e-SAF via Methanol-to-Jet. £5M UK AFF grant. Public-source seed.",
-    },
-    # ── Other companies ──────────────────────────────────────────────────
-    "proj_rheinwerk_prosumer": {
-        "name": "RheinWerk Duisburg H₂ (Prosumer)",
-        "molecule": "H2",
-        "location": "Duisburg, NRW",
-        "country": "DE",
-        "lat": 51.43, "lng": 6.76,
-        "capacity_mtpd": 55,
-        "capex_eur": 210_000_000,
-        "status": "development",
-        "phase": "Corporate FID preparation — balance-sheet funded",
-        "completion_date": "2028-Q2",
-        "description": "Industrial prosumer: 120 MW electrolysis for own steel-finishing decarbonisation. HYBRID power, balance-sheet funded, internal self-offtake.",
-    },
-    "proj_bremen_h2": {
-        "name": "Bremen Green Hydrogen Plant",
-        "molecule": "H2",
-        "location": "Bremen, Germany",
-        "country": "DE",
-        "lat": 53.0793, "lng": 8.8017,
-        "capacity_mtpd": 120,
-        "capex_eur": 220_000_000,
-        "status": "construction",
-        "phase": "Construction",
-        "completion_date": "2027-Q2",
-        "description": "Grid-scale green hydrogen for Bremerhaven industrial corridor.",
-    },
-    "proj_rotterdam_nh3": {
-        "name": "Rotterdam Green Ammonia Terminal",
-        "molecule": "NH3",
-        "location": "Rotterdam, Netherlands",
-        "country": "NL",
-        "lat": 51.9244, "lng": 4.4777,
-        "capacity_mtpd": 300,
-        "capex_eur": 380_000_000,
-        "status": "development",
-        "phase": "Advisory",
-        "completion_date": "2028-Q4",
-        "description": "Export-grade green ammonia hub, Maasvlakte II.",
-    },
-    "proj_sansebastian_emethanol": {
-        "name": "Project Helios e-Methanol",
-        "molecule": "e-Methanol",
-        "location": "San Sebastian, Spain",
-        "country": "ES",
-        "lat": 43.3183, "lng": -1.9812,
-        "capacity_mtpd": 80,
-        "capex_eur": 165_000_000,
-        "status": "construction",
-        "phase": "Commercial",
-        "completion_date": "2026-Q4",
-        "description": "Basque Country e-methanol for maritime bunkering.",
-    },
-    "proj_wales_saf": {
-        "name": "Celtic Green SAF Complex",
-        "molecule": "SAF",
-        "location": "Neath Port Talbot, Wales",
-        "country": "GB",
-        "lat": 51.6598, "lng": -3.8025,
-        "capacity_mtpd": 200,
-        "capex_eur": 290_000_000,
-        "status": "development",
-        "phase": "Advisory",
-        "completion_date": "2029-Q1",
-        "description": "UK SAF mandate-aligned facility targeting Heathrow uplift.",
-    },
-    "proj_lehavre_eng": {
-        "name": "Le Havre e-Gas Hub",
-        "molecule": "e-NG",
-        "location": "Le Havre, France",
-        "country": "FR",
-        "lat": 49.4944, "lng": 0.1079,
-        "capacity_mtpd": 150,
-        "capex_eur": 195_000_000,
-        "status": "operating",
-        "phase": "Operations",
-        "completion_date": "2025-Q1",
-        "description": "Normandy offshore wind-to-gas pilot, now in operations.",
-    },
-    "proj_hamburgone_emethanol": {
-        "name": "HamburgOne e-Methanol Plant",
-        "molecule": "e-Methanol",
-        "location": "Hamburg, Germany",
-        "country": "DE",
-        "lat": 53.5753, "lng": 10.0153,
-        "capacity_mtpd": 90,
-        "capex_eur": 185_000_000,
-        "status": "development",
-        "phase": "Structuring",
-        "completion_date": "2027-Q3",
-        "description": "Port of Hamburg e-methanol for North Sea shipping lanes.",
-    },
-    "proj_madrid2_sansebastian": {
-        "name": "Madrid2 San-Sebastian e-Methanol",
-        "molecule": "e-Methanol",
-        "location": "San Sebastian, Spain",
-        "country": "ES",
-        "lat": 43.3000, "lng": -2.0000,
-        "capacity_mtpd": 75,
-        "capex_eur": 155_000_000,
-        "status": "development",
-        "phase": "Advisory",
-        "completion_date": "2028-Q2",
-        "description": "Madrid2 Iberian e-methanol export corridor.",
-    },
-}
-
-_PROJECT_PROFILE_INTELLIGENCE: dict[str, dict] = {
-    "proj_etf_pecos1": {
-        "record_id": "profile_intel_proj_etf_pecos1_public_v1",
-        "narrative": (
-            "340 MW wind, 150 MW PEM electrolysis, 120,000 t/yr e-methanol. "
-            "Primary offtake: RFOcean (binding 10-year fixed-price from 2030, bankable contract). "
-            "Secondary: ETFuels SA (5-year ToP, 70,000 t/yr, CIF Rotterdam — related-party, unverified). "
-            "Indicative: Lufthansa Cargo SAF pool (30,000 t/yr — non-binding). "
-            "Certification: 45V active (Tier 1 pathway), RFNBO under temporal correlation review. "
-            "IRA incentives: ~$1.5B secured. Construction start 2027, production 2030."
-        ),
-        "source_scope": "GEX_PUBLIC_PREFILL",
-        "access_tier": "STAKEHOLDER",
-        "backend_store": "project_profile_intelligence",
-        "linked_records": [
-            "project:proj_etf_pecos1",
-            "offtake:rfocean_2030_fixed_10y",
-            "offtake:etfuels_sa_related_party",
-            "certification:45v_tier1",
-        ],
-        "updated_at": "2026-05-21",
-    }
-}
 
 
 class VisibleProject(BaseModel):
@@ -236,6 +53,9 @@ class VisibleProject(BaseModel):
     owner_company: str
     associated_companies: list[str]
     jurisdiction: str
+    # The rest of the project record (project_profile.profile) and its state.
+    profile: Optional[dict] = None
+    profile_verification: Optional[str] = None
 
 
 class ProjectProfileIntelligence(BaseModel):
@@ -251,30 +71,18 @@ class ProjectProfileIntelligence(BaseModel):
 
 def _profile_to_visible(profile: ProjectAccessProfile) -> VisibleProject | None:
     """
-    Render a project for the map/list.
-
-    Static demo projects come from _PROJECT_META. Runtime projects have no
-    entry there — before the collision was resolved they were simply dropped,
-    so a project created through /projects/new never appeared in the very list
-    it was created for. They are now built from the canonical PostgreSQL row,
-    which carries name/molecule/location/country/capacity/capex/status.
+    Render a project for the map/list from PostgreSQL: the `projects` row for
+    the headline fields, `project_profile` for the rest. A project with no
+    profile (one created through /projects/new) still renders: lat/lng stay
+    None rather than 0/0, which would drop a pin in the Gulf of Guinea.
     """
-    meta = _PROJECT_META.get(profile.project_id)
-    if meta:
-        return VisibleProject(
-            id=profile.project_id,
-            owner_company=profile.owner_company_name,
-            associated_companies=list(profile.associated_company_names),
-            jurisdiction=profile.jurisdiction,
-            capacity_mt_year=capacity_mtpd_to_mt_year(meta["capacity_mtpd"]),
-            **meta,
-        )
-
-    from app.core.projects_store import fetch_project
+    from app.core.projects_store import fetch_project, fetch_project_profile
 
     row = fetch_project(profile.project_id)
     if not row:
         return None
+    record = fetch_project_profile(profile.project_id)
+    extra = (record or {}).get("profile") or {}
     capacity = float(row.get("capacity_mtpd") or 0.0)
     ctx = get_effective_context(profile.project_id)
     return VisibleProject(
@@ -283,50 +91,31 @@ def _profile_to_visible(profile: ProjectAccessProfile) -> VisibleProject | None:
         molecule=row.get("molecule") or "",
         location=row.get("location") or "",
         country=row.get("country") or "",
+        lat=extra.get("lat"),
+        lng=extra.get("lng"),
         capacity_mtpd=capacity,
         capacity_mt_year=capacity_mtpd_to_mt_year(capacity),
         capex_eur=float(row.get("capex_eur") or 0.0),
         status=row.get("status") or "development",
-        phase=ctx.phase if ctx else "development",
+        phase=extra.get("phase") or (ctx.phase if ctx else "development"),
+        completion_date=str(row.get("completion_date") or ""),
+        description=extra.get("description") or "",
         owner_company=profile.owner_company_name,
         associated_companies=list(profile.associated_company_names),
         jurisdiction=profile.jurisdiction,
+        profile=extra or None,
+        profile_verification=(record or {}).get("verification_state"),
     )
 
 
 def _visible_ids_from_jwt(payload: dict) -> list[str]:
-    """Derive visible project IDs from a decoded JWT payload."""
-    company_name = payload.get("company_name", "")
-    company_type = payload.get("company_type", "")
-    capabilities = payload.get("capabilities") or []
-    is_platform_admin = payload.get("is_platform_admin", False)
-
-    if is_platform_admin:
-        return list(PROJECT_ACCESS_PROFILES.keys())
-
-    company_id = company_slug(company_name)
-    visible: list[str] = []
-    for pid, profile in PROJECT_ACCESS_PROFILES.items():
-        is_owner = profile.owner_company_id == company_id
-        is_associated = company_id in profile.shared_with_company_ids
-
-        if company_type == "PRODUCER" or "PRODUCE" in capabilities:
-            if is_owner:
-                visible.append(pid)
-                continue
-        if is_associated:
-            visible.append(pid)
-
-    # Runtime-created projects owned by this company. The loop above only walks
-    # the STATIC registry, so without this a project created through the
-    # on-ramp was invisible to its own creator.
-    from app.core.projects_store import project_ids_owned_by
-
-    for pid in project_ids_owned_by(company_id):
-        if pid not in visible:
-            visible.append(pid)
-
-    return visible
+    """Visible project ids for a decoded JWT: GEX sees all; a company sees the
+    projects it owns and those it is a stakeholder of (PostgreSQL only)."""
+    profiles = all_project_profiles()
+    if payload.get("is_platform_admin", False):
+        return [p.project_id for p in profiles]
+    company_id = company_slug(payload.get("company_name", ""))
+    return [p.project_id for p in profiles if company_id in p.stakeholder_company_ids]
 
 
 @router.get("/{project_id}/risk-flags")
@@ -759,43 +548,6 @@ async def create_project_endpoint(
     )
 
 
-def _runtime_visible_projects(company_id: str, is_admin: bool) -> list[VisibleProject]:
-    """
-    Runtime-created projects (the /projects/new on-ramp) as VisibleProject rows.
-
-    Reads the CANONICAL PostgreSQL `projects` table. This previously queried the
-    SQLite copy and swallowed sqlite3.Error into an empty list — so after that
-    table was retired, every runtime project silently vanished from the list it
-    had just been created for, with no error anywhere. The store logs its own
-    failures; this no longer hides them.
-    """
-    from app.core.project_registry import get_effective_context
-    from app.core.projects_store import list_projects
-
-    out: list[VisibleProject] = []
-    for r in list_projects(owner_tenant_id=None if is_admin else company_id):
-        cap = float(r.get("capacity_mtpd") or 0.0)
-        ctx = get_effective_context(r["project_id"])
-        out.append(VisibleProject(
-            id=r["project_id"],
-            name=r["project_name"],
-            molecule=r.get("molecule") or "",
-            location=r.get("location") or "",
-            country=r.get("country") or "",
-            # lat/lng stay None: the on-ramp never collected coordinates. The
-            # old code sent 0.0/0.0, which puts a map pin in the Gulf of Guinea.
-            capacity_mtpd=cap,
-            capacity_mt_year=capacity_mtpd_to_mt_year(cap),
-            capex_eur=float(r.get("capex_eur") or 0.0),
-            status=r.get("status") or "development",
-            phase=ctx.phase if ctx else (r.get("status") or "development"),
-            owner_company=r.get("owner_company_name") or "",
-            associated_companies=[],
-            jurisdiction=r.get("country") or "",
-        ))
-    return out
-
-
 @router.get("/visible", response_model=list[VisibleProject])
 async def get_visible_projects(
     authorization: str | None = Header(default=None),
@@ -836,24 +588,12 @@ async def get_visible_projects(
             raise HTTPException(status_code=401, detail="Invalid or expired token")
         return []
 
-    visible_ids = _visible_ids_from_jwt(payload)
+    by_id = {p.project_id: p for p in all_project_profiles()}
     result: list[VisibleProject] = []
-    seen: set[str] = set()
-    for pid in visible_ids:
-        profile = PROJECT_ACCESS_PROFILES.get(pid)
-        if profile:
-            vp = _profile_to_visible(profile)
-            if vp:
-                result.append(vp)
-                seen.add(pid)
-
-    # Runtime-created projects (the on-ramp) — owned by the caller's company.
-    company_id = company_slug(payload.get("company_name", ""))
-    is_admin = bool(payload.get("is_platform_admin"))
-    for vp in _runtime_visible_projects(company_id, is_admin):
-        if vp.id not in seen:
+    for pid in _visible_ids_from_jwt(payload):
+        vp = _profile_to_visible(by_id[pid]) if pid in by_id else None
+        if vp:
             result.append(vp)
-            seen.add(vp.id)
     return result
 
 
@@ -885,9 +625,53 @@ async def get_project_profile_intelligence(
     if project_id not in _visible_ids_from_jwt(payload):
         raise HTTPException(status_code=403, detail="Project not visible for this user")
 
-    intel = _PROJECT_PROFILE_INTELLIGENCE.get(project_id)
-    if not intel:
+    # From PostgreSQL (project_profile_intelligence); the dictionary in code that
+    # held the one record was moved there on 2026-10-25.
+    from app.core.projects_store import _rows
+
+    rows = _rows("SELECT record_id, narrative, source_scope, access_tier, backend_store, linked_records, "
+                 "updated_at FROM project_profile_intelligence WHERE project_id = :pid "
+                 "ORDER BY updated_at DESC LIMIT 1", {"pid": project_id})
+    if not rows:
         raise HTTPException(status_code=404, detail="Project profile intelligence not found")
-    return ProjectProfileIntelligence(project_id=project_id, **intel)
+    intel = rows[0]
+    return ProjectProfileIntelligence(project_id=project_id, **{**intel, "updated_at": str(intel["updated_at"])[:10],
+                                                                "linked_records": intel["linked_records"] or []})
 
 
+
+
+# ── Per-project datasets the screens read (alembic 069/071) ─────────────────
+
+# The kinds the frontend reads. The backend kinds (deal_inputs, …) reach the
+# screens through their engines, not raw.
+SCREEN_DATASET_KINDS = frozenset({
+    "bankers_snapshot", "capital_stack", "cert_readiness", "cert_45v", "offtake_quality",
+    "insurance_schedule", "transfer_readiness", "ic_pack_config", "ic_pack_readiness", "demand_buyers",
+    "spend_wave", "drawdown_tranches", "drawdown_milestones", "term_sheet", "project_timeline", "plant_builder_preset",
+})
+
+
+@router.get("/{project_id}/datasets/{kind}")
+def get_project_dataset(project_id: str, kind: str, request: Request):
+    """One recorded dataset of a project, read in the caller's tenant (RLS: GEX
+    and the companies that can see the project). 404 NOT_RECORDED when there is
+    none — the screens show that; there is no default any more (2026-10-25)."""
+    from app.core.projects_store import _rows, resolve_alias
+    from app.core.request_tenant import company_from_payload, payload_from_request
+
+    tenant = company_from_payload(payload_from_request(request))
+    if not tenant:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if kind not in SCREEN_DATASET_KINDS:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset kind: {kind}")
+    pid = resolve_alias(project_id) or project_id
+    rows = _rows("SELECT payload, verification_state, verified_by, verified_at, source FROM project_dataset "
+                 "WHERE project_id = :pid AND kind = :kind", {"pid": pid, "kind": kind}, company_id=tenant)
+    if not rows:
+        raise HTTPException(status_code=404, detail={
+            "code": "NOT_RECORDED", "message": "Nothing is recorded for this project yet."})
+    r = rows[0]
+    return {"project_id": pid, "kind": kind, "payload": r["payload"],
+            "verification_state": r["verification_state"], "verified_by": r["verified_by"],
+            "verified_at": str(r["verified_at"]) if r["verified_at"] else None, "source": r["source"]}

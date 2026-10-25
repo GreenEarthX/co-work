@@ -30,7 +30,7 @@ logger = logging.getLogger("gex.css")
 
 _DB_PATH = settings.SQLITE_DB_PATH
 
-def _gov_conn(db_path: str):
+def _gov_conn(db_path: str, company_id: Optional[str] = None):
     """
     Slice-6b-4 connection — SQLite or PostgreSQL by configuration
     (GOVERNANCE_DB_BACKEND).
@@ -44,7 +44,9 @@ def _gov_conn(db_path: str):
     if governance_is_postgres():
         # Explicit admin: these rules are read WHILE deciding whether an
         # action is permitted, so they cannot be filtered by that decision.
-        return governance_connection(company_id=PLATFORM_ADMIN)
+        # company_id (2026-10-25): the caller's tenant, so RLS (the project's
+        # owner and companies with access) decides. Omitted: GEX bootstrap.
+        return governance_connection(company_id=company_id or PLATFORM_ADMIN)
     import sqlite3 as _s
 
     conn = _s.connect(db_path)
@@ -176,6 +178,7 @@ def sign_commitment(
     approval_request_id: Optional[str] = None,
     approver_snapshots: Optional[list[dict]] = None,
     db_path: str = _DB_PATH,
+    company_id: Optional[str] = None,
 ) -> SignedCommitment:
     """
     Create a signed commitment record for a binding action.
@@ -209,8 +212,10 @@ def sign_commitment(
     }
     record_hash = _hash_record(partial)
 
+    # Written as the caller's tenant; a failed write raises. It used to be
+    # logged and a signed record that does not exist returned anyway.
+    con = _gov_conn(db_path, company_id)
     try:
-        con = _gov_conn(db_path)
         cur = con.cursor()
         cur.execute(
             """INSERT INTO commitment_records
@@ -222,9 +227,8 @@ def sign_commitment(
              "SIGNED_BY_INITIATOR")
         )
         con.commit()
+    finally:
         con.close()
-    except Exception as exc:
-        logger.error("CSS DB write failed: %s", exc)
 
     logger.info("CSS signed: commitment=%s action=%s initiator=%s", commitment_id, action_type, initiator_user_id)
 
@@ -282,12 +286,12 @@ def countersign(
     return {"status": "COUNTERSIGNED", "commitment_id": commitment_id, "counterparty_signature": cp_sig}
 
 
-def verify_commitment(commitment_id: str, db_path: str = _DB_PATH) -> dict:
+def verify_commitment(commitment_id: str, db_path: str = _DB_PATH, company_id: Optional[str] = None) -> dict:
     """
     Verify all signatures and record hash for a commitment.
-    Used by CISO and audit trail views.
+    Used by CISO and audit trail views. `company_id`: the caller's tenant (RLS).
     """
-    con = _gov_conn(db_path)
+    con = _gov_conn(db_path, company_id)
     cur = con.cursor()
     cur.execute("SELECT * FROM commitment_records WHERE commitment_id = ?", (commitment_id,))
     rec = cur.fetchone()
@@ -322,17 +326,21 @@ def verify_commitment(commitment_id: str, db_path: str = _DB_PATH) -> dict:
         "stored_hash": rec["record_hash"],
         "action_type": rec["action_type"],
         "status": rec["status"],
+        "project_id": rec["project_id"],
         "initiator_user_id": rec["initiator_user_id"],
+        "initiator_company_id": rec["initiator_company_id"],
         "initiator_timestamp": rec["initiator_timestamp"],
         "counterparty_user_id": rec.get("counterparty_user_id"),
+        "counterparty_company_id": rec.get("counterparty_company_id"),
         "approvers": approvers,
         "algorithm": "HMAC-SHA256 (dev) — eIDAS QTSP integration: Tier 4",
     }
 
 
-def get_commitments_for_project(project_id: str, db_path: str = _DB_PATH) -> list[dict]:
+def get_commitments_for_project(project_id: str, company_id: str, db_path: str = _DB_PATH) -> list[dict]:
+    """The project's records the caller's company may see (RLS)."""
     try:
-        con = _gov_conn(db_path)
+        con = _gov_conn(db_path, company_id)
         cur = con.cursor()
         cur.execute(
             "SELECT * FROM commitment_records WHERE project_id = ? ORDER BY created_at DESC",

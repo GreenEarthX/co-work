@@ -124,31 +124,3 @@ export function AdjacencyCard({
   )
 }
 
-// Stub: derive adjacency from static project list until backend adjacency.py is live
-import type { CustomerProject } from '@/data/customerProjects'
-
-export function neighboursFromProjects(
-  focal: CustomerProject,
-  all: CustomerProject[],
-): AdjacencyNeighbour[] {
-  return all
-    .filter(p => p.id !== focal.id)
-    .map(p => {
-      const sameFuel = p.molecule === focal.molecule ? 0.4 : 0
-      const sameCountry = p.country === focal.country ? 0.2 : 0
-      const proximity = Math.min(1, 0.3 + sameFuel + sameCountry + Math.random() * 0.1)
-      const density = Math.min(1, (p.bankability?.overall_completion ?? 50) / 100)
-      return {
-        project_id: p.id,
-        project_name: p.name,
-        fuel_pathway: p.molecule,
-        jurisdiction: p.country,
-        certifier: 'TÜV SÜD',
-        proximity_score: parseFloat(proximity.toFixed(2)),
-        density_score: parseFloat(density.toFixed(2)),
-        cohort_credit: Math.round(proximity * 25),
-        shared_gates: [],
-      }
-    })
-    .sort((a, b) => b.proximity_score - a.proximity_score)
-}

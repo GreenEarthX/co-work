@@ -95,10 +95,10 @@ FALLBACK_COHORTS: dict[str, dict] = {
     "DEFAULT": {"cohort_n": 3, "cohort_dscr_p25": 1.10, "cohort_dscr_p50": 1.20, "cohort_dscr_p75": 1.35, "cohort_completion_rate": 0.40, "cohort_tie_p50": 3.2, "density_score": 0.35},
 }
 
-MOCK_PROJECTS: dict[str, dict] = {
-    "proj_etf_pecos1": {"molecule": "eMeOH", "jurisdiction": "US", "certifier_ecosystem": "ISCC_EU"},
-    "proj_demo_nh3": {"molecule": "eNH3", "jurisdiction": "DE", "certifier_ecosystem": "TUV_SUD"},
-}
+# Project metadata comes from PostgreSQL: `projects` (molecule, country) and the
+# adjacency_profile dataset (certifier ecosystem, alembic 069). MOCK_PROJECTS and
+# the invented fallback (eMeOH / US / ISCC_EU) were removed on 2026-10-25; a fact
+# not recorded is UNKNOWN, which the matching below already scores as no match.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -148,28 +148,24 @@ def _percentile(data: list[float], pct: float) -> float:
     return round(data[f] + (k - f) * (data[c] - data[f]), 2)
 
 
+def _meta_from_row(row: dict) -> dict:
+    from app.core.projects_store import fetch_dataset
+
+    profile = fetch_dataset(row["project_id"], "adjacency_profile")
+    return {
+        "molecule": row.get("molecule") or "UNKNOWN",
+        "jurisdiction": row.get("country") or "UNKNOWN",
+        "certifier_ecosystem": ((profile or {}).get("payload") or {}).get("certifier_ecosystem") or "UNKNOWN",
+    }
+
+
 def _lookup_project_metadata(project_id: str) -> dict:
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM projects WHERE project_id=?", (project_id,)).fetchone()
-        if row:
-            keys = row.keys()
-            result = {
-                "molecule": row["molecule"] if "molecule" in keys and row["molecule"] else (row["fuel_type"] if "fuel_type" in keys else "eMeOH"),
-                "jurisdiction": row["country"] if "country" in keys and row["country"] else (row["location"] if "location" in keys else "US"),
-                "certifier_ecosystem": row["certifier"] if "certifier" in keys and row["certifier"] else "ISCC_EU",
-            }
-            conn.close()
-            return result
-        conn.close()
-    except Exception:
-        pass
+    from app.core.projects_store import fetch_project
 
-    if project_id in MOCK_PROJECTS:
-        return MOCK_PROJECTS[project_id]
-
-    return {"molecule": "eMeOH", "jurisdiction": "UNKNOWN", "certifier_ecosystem": "UNKNOWN"}
+    row = fetch_project(project_id)
+    if row is None:
+        return {"molecule": "UNKNOWN", "jurisdiction": "UNKNOWN", "certifier_ecosystem": "UNKNOWN"}
+    return _meta_from_row(row)
 
 
 def _compute_dimension_matches(meta: dict, cohort_key: str) -> DimensionMatches:
@@ -190,24 +186,11 @@ def _proximity(a: dict, b: dict) -> float:
     return matches / 3.0
 
 
-def _get_all_project_metas(conn: sqlite3.Connection) -> dict[str, dict]:
-    metas: dict[str, dict] = {}
-    try:
-        rows = conn.execute("SELECT * FROM projects").fetchall()
-        for r in rows:
-            keys = r.keys()
-            pid = r["project_id"]
-            metas[pid] = {
-                "molecule": r["molecule"] if "molecule" in keys and r["molecule"] else "UNKNOWN",
-                "jurisdiction": r["country"] if "country" in keys and r["country"] else "UNKNOWN",
-                "certifier_ecosystem": r["certifier"] if "certifier" in keys and r["certifier"] else "UNKNOWN",
-            }
-    except Exception:
-        pass
-    for pid, m in MOCK_PROJECTS.items():
-        if pid not in metas:
-            metas[pid] = m
-    return metas
+def _get_all_project_metas(conn=None) -> dict[str, dict]:
+    """Every active project's metadata, from PostgreSQL (the conn argument is unused)."""
+    from app.core.projects_store import list_projects
+
+    return {r["project_id"]: _meta_from_row(r) for r in list_projects()}
 
 
 def _get_evidence_completion(conn: sqlite3.Connection, project_id: str) -> bool:

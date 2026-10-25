@@ -896,8 +896,9 @@ export const pricingAPI = {
 export const approvalsAPI = {
   health: () => fetchAPI("/approvals/health"),
 
+  // The initiator, approver and signer are the signed-in account (server-side,
+  // from the token) — never a field of the request.
   evaluate: (params: {
-    initiator_user_id: string;
     action_type: string;
     resource_id?: string;
     project_id?: string;
@@ -910,7 +911,7 @@ export const approvalsAPI = {
       body: JSON.stringify(params),
     }),
 
-  getPending: (params?: { company_id?: string; project_id?: string }) => {
+  getPending: (params?: { project_id?: string }) => {
     const query = new URLSearchParams(params as any).toString();
     return fetchAPI(`/approvals/pending${query ? `?${query}` : ""}`);
   },
@@ -920,7 +921,6 @@ export const approvalsAPI = {
   decide: (
     requestId: string,
     params: {
-      approver_user_id: string;
       decision: "APPROVE" | "REJECT";
       reason_text?: string;
     },
@@ -946,30 +946,19 @@ export const commitmentsAPI = {
   health: () => fetchAPI("/commitments/health"),
 
   sign: (params: {
-    initiator_user_id: string;
-    initiator_company_id: string;
     action_type: string;
     project_id: string;
     payload: Record<string, any>;
     approval_request_id?: string;
-    approver_snapshots?: Record<string, any>[];
   }) =>
     fetchAPI("/commitments/sign", {
       method: "POST",
       body: JSON.stringify(params),
     }),
 
-  countersign: (
-    commitmentId: string,
-    params: {
-      counterparty_user_id: string;
-      counterparty_company_id: string;
-    },
-  ) =>
-    fetchAPI(`/commitments/${commitmentId}/countersign`, {
-      method: "POST",
-      body: JSON.stringify(params),
-    }),
+  // The counterparty is the signed-in account (server-side, from the token).
+  countersign: (commitmentId: string) =>
+    fetchAPI(`/commitments/${commitmentId}/countersign`, { method: "POST" }),
 
   verify: (commitmentId: string) =>
     fetchAPI(`/commitments/${commitmentId}/verify`),
@@ -1070,8 +1059,6 @@ export const plantDataAPI = {
     const query = new URLSearchParams(params as any).toString();
     return fetchAPI(`/plant-data/data/${projectId}${query ? `?${query}` : ""}`);
   },
-
-  getDemoData: (projectId: string) => fetchAPI(`/plant-data/demo/${projectId}`),
 
   listGateways: (projectId?: string) => {
     const query = projectId ? `?project_id=${projectId}` : "";

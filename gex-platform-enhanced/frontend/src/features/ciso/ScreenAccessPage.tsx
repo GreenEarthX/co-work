@@ -41,8 +41,9 @@ const COLUMN_ORDER: BusinessFunction[] = [
 const k = (screenId: string, fn: string) => `${screenId}|${fn}`
 
 export function ScreenAccessPage() {
-  const { role } = useUserRole()
-  const cisoSession = typeof window !== 'undefined' && sessionStorage.getItem('gex_ciso_session') === 'true'
+  const { role, sessionTier } = useUserRole()
+  // Signed-in accounts read; the server lets EXECUTIVE or GEX staff write.
+  const cisoSession = sessionTier === 'authenticated'
 
   const [saved, setSaved] = useState<Map<string, ScreenRuleEffect>>(new Map())
   const [draft, setDraft] = useState<Map<string, ScreenRuleEffect>>(new Map())
@@ -122,7 +123,7 @@ export function ScreenAccessPage() {
     return (
       <div className="mx-auto max-w-xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-sm">
         <div className="flex items-center gap-2 font-bold text-[var(--text-primary)]"><Lock className="h-4 w-4" /> CISO administration</div>
-        <p className="mt-2 text-[var(--text-secondary)]">Open this screen from the CISO menu after entering the company security password.</p>
+        <p className="mt-2 text-[var(--text-secondary)]">Sign in to open this screen.</p>
       </div>
     )
   }

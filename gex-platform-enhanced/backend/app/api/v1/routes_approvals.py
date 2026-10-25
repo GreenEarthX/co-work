@@ -3,12 +3,20 @@ WAE Approval Queue API
 ========================
 Endpoints for approval workflow management.
 Consumed by ApprovalQueuePage (Finance, Executive) and ApprovalBanner (all workspaces).
+
+Identity comes from the signed-in token only (2026-10-25). Until then the
+initiator and approver were taken from the x-demo-user header or the request
+body, so anyone could approve as anyone; and the pending list returned every
+company's requests, whatever company was named. Requests are now read and
+written in the caller's tenant (RLS: the project's owner and companies with
+access); a decision must come from someone other than the initiator, of the
+initiator's company, once.
 """
 
 from __future__ import annotations
 
 from typing import Optional
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app.core.wae import (
@@ -38,13 +46,31 @@ class EvaluateRequest(BaseModel):
     payload: dict = {}
     amount: Optional[float] = None
     volume: Optional[float] = None
-    initiator_user_id: Optional[str] = None  # fallback if x-demo-user header absent
 
 
 class DecideRequest(BaseModel):
     decision: str   # APPROVE | REJECT
     reason_text: Optional[str] = None
-    approver_user_id: Optional[str] = None  # fallback if x-demo-user header absent
+
+
+# ─── Caller ──────────────────────────────────────────────────────────────────
+
+def _caller(request: Request) -> tuple[str, str, dict]:
+    """(user_id, tenant, payload) from the verified token; 401 without one."""
+    from app.core.request_tenant import company_from_payload, payload_from_request, user_from_payload
+
+    payload = payload_from_request(request) or {}
+    user_id, tenant = user_from_payload(payload), company_from_payload(payload)
+    if not user_id or not tenant:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user_id, tenant, payload
+
+
+def _company_of(user_id: str) -> Optional[str]:
+    from app.core.projects_store import _rows
+
+    rows = _rows("SELECT company_id FROM auth_users WHERE user_id = :u", {"u": user_id})
+    return rows[0]["company_id"] if rows else None
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
@@ -55,24 +81,27 @@ def approvals_health():
 
 
 @router.post("/evaluate")
-def evaluate(
-    body: EvaluateRequest,
-    x_demo_user: Optional[str] = Header(default=None),
-):
+def evaluate(body: EvaluateRequest, request: Request):
     """
     Evaluate whether an action requires approval.
     Returns IMMEDIATE or PENDING_APPROVAL + request_id.
     """
-    user_id = x_demo_user or body.initiator_user_id or "unknown_user"
-    decision = evaluate_authorization(
-        initiator_user_id=user_id,
-        action_type=body.action_type,
-        resource_id=body.resource_id,
-        project_id=body.project_id,
-        payload=body.payload,
-        amount=body.amount,
-        volume=body.volume,
-    )
+    user_id, tenant, _ = _caller(request)
+    try:
+        decision = evaluate_authorization(
+            initiator_user_id=user_id,
+            action_type=body.action_type,
+            resource_id=body.resource_id,
+            project_id=body.project_id,
+            payload=body.payload,
+            amount=body.amount,
+            volume=body.volume,
+            company_id=tenant,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=403, detail="You cannot raise an approval request on this project.")
 
     if decision.outcome == AuthorizationOutcome.PENDING_APPROVAL:
         notify_approval_requested(
@@ -97,45 +126,40 @@ def evaluate(
 
 
 @router.get("/pending")
-def list_pending(
-    project_id: Optional[str] = None,
-    company_id: Optional[str] = None,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """All pending approval requests. Filtered by project and/or company."""
-    resolved_company = x_demo_company or company_id
-    items = get_pending_approvals(
-        company_id=resolved_company,
-        project_id=project_id,
-    )
+def list_pending(request: Request, project_id: Optional[str] = None):
+    """Pending approval requests the caller's company may see."""
+    _, tenant, _ = _caller(request)
+    items = get_pending_approvals(company_id=tenant, project_id=project_id)
     return {"total": len(items), "items": items}
 
 
 @router.get("/{request_id}")
-def get_approval_request(
-    request_id: str,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    req = get_request(request_id)
+def get_approval_request(request_id: str, request: Request):
+    _, tenant, _ = _caller(request)
+    req = get_request(request_id, company_id=tenant)
     if not req:
         raise HTTPException(status_code=404, detail="Approval request not found")
     return req
 
 
 @router.post("/{request_id}/decide")
-def decide(
-    request_id: str,
-    body: DecideRequest,
-    x_demo_user: Optional[str] = Header(default=None),
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """Record an APPROVE or REJECT decision."""
+def decide(request_id: str, body: DecideRequest, request: Request):
+    """Record an APPROVE or REJECT decision by the signed-in account."""
+    approver, tenant, payload = _caller(request)
     try:
         decision_enum = ApprovalDecision(body.decision.upper())
     except ValueError:
         raise HTTPException(status_code=422, detail="Decision must be APPROVE or REJECT")
 
-    approver = x_demo_user or body.approver_user_id or "unknown_approver"
+    req = get_request(request_id, company_id=tenant)
+    if not req:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    # A countersignature is the initiator's own company's (GEX staff excepted):
+    # a lender seeing the project does not approve the producer's spending.
+    if not payload.get("is_platform_admin") and _company_of(approver) != _company_of(req["initiator_user_id"]):
+        raise HTTPException(status_code=403, detail={
+            "code": "OTHER_COMPANY", "message": "Only the initiator's company decides its approval requests."})
+
     result = record_decision(
         request_id=request_id,
         approver_user_id=approver,
@@ -144,29 +168,24 @@ def decide(
     )
 
     if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
+        status = 403 if result.get("code") == "SOD_SELF_APPROVAL" else 409 if result.get("code") else 400
+        raise HTTPException(status_code=status, detail={"code": result.get("code"), "message": result["error"]})
 
-    # Notify Matrix room
-    req = get_request(request_id)
-    if req:
-        notify_approval_decided(
-            project_id=req.get("project_id") or "unknown",
-            request_id=request_id,
-            decision=body.decision,
-            approver_user_id=approver,
-            new_status=result["new_status"],
-        )
-
+    notify_approval_decided(
+        project_id=req.get("project_id") or "unknown",
+        request_id=request_id,
+        decision=body.decision,
+        approver_user_id=approver,
+        new_status=result["new_status"],
+    )
     return result
 
 
 @router.get("/audit-trail/{resource_id}")
-def audit_trail(
-    resource_id: str,
-    x_demo_company: Optional[str] = Header(default=None),
-):
-    """Approval audit trail for a specific resource."""
-    entries = get_audit_trail(resource_id)
+def audit_trail(resource_id: str, request: Request):
+    """Approval audit trail for a specific resource, as far as the caller may see."""
+    _, tenant, _ = _caller(request)
+    entries = get_audit_trail(resource_id, company_id=tenant)
     return {"resource_id": resource_id, "total": len(entries), "entries": entries}
 
 

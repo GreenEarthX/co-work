@@ -83,26 +83,10 @@ class ResidencyDecision:
     reason: Optional[str] = None
 
 
-# ═══════════════════════════════════════════════════════════════
-# DEFAULT POLICIES (seed — overrideable per company in DB)
-# ═══════════════════════════════════════════════════════════════
-
-# company_id → data_category → required_jurisdiction
-DEFAULT_POLICIES: dict[str, dict[str, str]] = {
-    "bp_global_energy": {
-        DataCategory.PERSONAL.value:        "EU",
-        DataCategory.CONTRACT.value:        "EU",
-        DataCategory.FINANCIAL_MODEL.value: "EU",
-        DataCategory.CERTIFICATION.value:   "EU",
-        DataCategory.COMMS_METADATA.value:  "EU",
-    },
-    "totsa_total_energy": {
-        DataCategory.PERSONAL.value:        "CH",
-        DataCategory.CONTRACT.value:        "EU",
-        DataCategory.FINANCIAL_MODEL.value: "EU",
-        DataCategory.CERTIFICATION.value:   "EU",
-    },
-}
+# No built-in per-company policies (2026-10-25). DEFAULT_POLICIES used to
+# enforce residency for two sample companies ("bp_global_energy",
+# "totsa_total_energy") that are not GEX clients. A company's policy is what it
+# recorded in data_residency_policies; with none recorded, ALWAYS_EU still holds.
 
 # Zone → accepted jurisdiction
 ZONE_JURISDICTION: dict[str, str] = {
@@ -192,20 +176,15 @@ def check_residency(
     policy = _get_policy(company_id, data_category, db_path)
 
     if policy is None:
-        # Fall back to built-in defaults
-        co_defaults = DEFAULT_POLICIES.get(company_id, {})
-        required_juris = co_defaults.get(data_category)
-        if required_juris is None:
-            # No policy → allowed (permissive default)
-            return ResidencyDecision(
-                outcome=ResidencyOutcome.ALLOWED,
-                data_category=data_category,
-                company_id=company_id,
-                requested_zone=target_zone,
-                reason="No residency policy — permissive default",
-            )
-    else:
-        required_juris = policy.get("required_jurisdiction")
+        # No recorded policy → allowed (permissive default)
+        return ResidencyDecision(
+            outcome=ResidencyOutcome.ALLOWED,
+            data_category=data_category,
+            company_id=company_id,
+            requested_zone=target_zone,
+            reason="No residency policy recorded — permissive default",
+        )
+    required_juris = policy.get("required_jurisdiction")
 
     zone_juris = ZONE_JURISDICTION.get(target_zone, "UNKNOWN")
 
@@ -310,20 +289,19 @@ def upsert_policy(
 
 def get_residency_audit(company_id: str, db_path: str = _DB_PATH) -> dict:
     """
-    Return summary of data categories vs required jurisdictions for CISO audit view.
-    """
-    policies = get_policies(company_id, db_path)
-    defaults = DEFAULT_POLICIES.get(company_id, {})
+    Recorded required jurisdiction per data category, for the CISO view.
 
-    result = {}
-    for cat in DataCategory:
-        policy_entry = next((p for p in policies if p["data_category"] == cat.value), None)
-        required = (policy_entry["required_jurisdiction"] if policy_entry
-                    else defaults.get(cat.value, "ANY"))
-        result[cat.value] = {
-            "required_jurisdiction": required,
-            "current_zone": "eu-west-1",  # placeholder — real impl reads from infra config
-            "status": "COMPLIANT",         # TODO: compare current_zone vs required
-            "policy_source": "DB" if policy_entry else ("DEFAULT" if cat.value in defaults else "NONE"),
-        }
-    return {"company_id": company_id, "categories": result}
+    Where the data actually sits is not measured, so nothing is claimed about it
+    (2026-10-25: this used to report every category stored in "eu-west-1" and
+    COMPLIANT — a placeholder — and fill gaps from sample company defaults).
+    """
+    policies = {p["data_category"]: p for p in get_policies(company_id, db_path)}
+    return {"company_id": company_id, "storage_checked": False, "categories": {
+        cat.value: {
+            "required_jurisdiction": ("EU" if cat.value in ALWAYS_EU else
+                                      policies[cat.value]["required_jurisdiction"] if cat.value in policies else None),
+            "policy_source": ("ALWAYS_EU" if cat.value in ALWAYS_EU else
+                              "RECORDED" if cat.value in policies else "NONE"),
+            "current_zone": None,
+            "status": "NOT_CHECKED",
+        } for cat in DataCategory}}

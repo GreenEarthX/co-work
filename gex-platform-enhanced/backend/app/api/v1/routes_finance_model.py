@@ -483,56 +483,9 @@ async def dscr_heatmap(
 # project (qualified finance role + relationship, or active FINANCE_REVIEW grant).
 # Unauthorized / unknown project → 403 (no sensitive detail leaks).
 
-_DRAWDOWN_DEFAULT = {
-    "financial_close": {
-        "phase": "FINANCIAL_CLOSE", "status": "PLANNED",
-        "milestones": [
-            {"name": "Term Sheet", "status": "PLANNED", "targetDate": "2027-Q3", "owner": "CFO", "fundingTrigger": True, "drawdownAmount": 95_000_000},
-            {"name": "FID Decision", "status": "PLANNED", "targetDate": "2027-Q4", "owner": "Board", "fundingTrigger": False},
-            {"name": "Facility Agreement", "status": "PLANNED", "targetDate": "2028-Q1", "owner": "Legal", "fundingTrigger": True, "drawdownAmount": 40_000_000},
-        ],
-    },
-    "drawdowns": [
-        {"phase": "FINANCIAL_CLOSE", "name": "Term Sheet", "targetDate": "2027-Q3", "drawdownAmount": 95_000_000},
-        {"phase": "FINANCIAL_CLOSE", "name": "Facility Agreement", "targetDate": "2028-Q1", "drawdownAmount": 40_000_000},
-        {"phase": "CONSTRUCTION", "name": "NTP Issued", "targetDate": "2028-Q1", "drawdownAmount": 45_000_000},
-    ],
-}
-
-_DRAWDOWN_BY_PROJECT: dict[str, dict] = {
-    "proj_le_havre_eng": {
-        "financial_close": {
-            "phase": "FINANCIAL_CLOSE", "status": "IN_PROGRESS",
-            "milestones": [
-                {"name": "IE Final Signoff", "status": "IN_PROGRESS", "targetDate": "2026-Q2", "owner": "IE (Mott MacDonald)", "fundingTrigger": False},
-                {"name": "BPI+EIB Term Sheet", "status": "IN_PROGRESS", "targetDate": "2026-Q2", "owner": "CFO", "fundingTrigger": True, "drawdownAmount": 210_000_000},
-                {"name": "Credit Committee", "status": "PLANNED", "targetDate": "2026-Q3", "owner": "BPI", "fundingTrigger": False},
-                {"name": "FID Decision", "status": "PLANNED", "targetDate": "2026-Q3", "owner": "Board", "fundingTrigger": False},
-                {"name": "Facility Agreement", "status": "PLANNED", "targetDate": "2026-Q3", "owner": "Legal", "fundingTrigger": True, "drawdownAmount": 42_000_000},
-            ],
-        },
-        "drawdowns": [
-            {"phase": "FINANCIAL_CLOSE", "name": "BPI+EIB Term Sheet", "targetDate": "2026-Q2", "drawdownAmount": 210_000_000},
-            {"phase": "FINANCIAL_CLOSE", "name": "Facility Agreement", "targetDate": "2026-Q3", "drawdownAmount": 42_000_000},
-            {"phase": "CONSTRUCTION", "name": "NTP Issued", "targetDate": "2026-Q3", "drawdownAmount": 85_000_000},
-            {"phase": "CONSTRUCTION", "name": "Electrolyser Delivery", "targetDate": "2027-Q1", "drawdownAmount": 55_000_000},
-            {"phase": "CONSTRUCTION", "name": "Methanation Unit FAT", "targetDate": "2027-Q4", "drawdownAmount": 28_000_000},
-        ],
-    },
-    "proj_bremen_h2": {
-        "financial_close": {
-            "phase": "FINANCIAL_CLOSE", "status": "PLANNED",
-            "milestones": [
-                {"name": "KfW Term Sheet", "status": "PLANNED", "targetDate": "2026-Q3", "owner": "CFO", "fundingTrigger": True, "drawdownAmount": 120_000_000},
-                {"name": "FID Decision", "status": "PLANNED", "targetDate": "2026-Q4", "owner": "Board", "fundingTrigger": False},
-            ],
-        },
-        "drawdowns": [
-            {"phase": "FINANCIAL_CLOSE", "name": "KfW Term Sheet", "targetDate": "2026-Q3", "drawdownAmount": 120_000_000},
-            {"phase": "CONSTRUCTION", "name": "NTP Issued", "targetDate": "2027-Q1", "drawdownAmount": 60_000_000},
-        ],
-    },
-}
+# The layer itself lives in PostgreSQL (project_dataset, kind drawdown_layer,
+# alembic 069). _DRAWDOWN_BY_PROJECT and _DRAWDOWN_DEFAULT (invented milestones
+# served to every other project) were removed on 2026-10-25.
 
 
 @router.get(
@@ -546,5 +499,12 @@ async def drawdown_timeline(project_id: str):
     projects). Returns the FINANCIAL_CLOSE phase + per-milestone drawdown
     amounts that are deliberately NOT shipped in the frontend bundle.
     """
-    layer = _DRAWDOWN_BY_PROJECT.get(project_id, _DRAWDOWN_DEFAULT)
-    return {"project_id": project_id, **layer}
+    from app.core.projects_store import fetch_dataset
+
+    record = fetch_dataset(project_id, "drawdown_layer")
+    if record is None:   # nothing recorded: the same shape, empty — no invented milestones
+        return {"project_id": project_id, "recorded": False,
+                "financial_close": {"phase": "FINANCIAL_CLOSE", "status": "NOT_RECORDED", "milestones": []},
+                "drawdowns": []}
+    return {"project_id": project_id, "recorded": True,
+            "verification_state": record["verification_state"], **record["payload"]}

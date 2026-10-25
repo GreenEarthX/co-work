@@ -4,7 +4,8 @@
  * Assembles and previews IC packs for lender submission, with section
  * completeness tracking, readiness scoring, and export controls.
  */
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
+import { useProjectDataset, UnverifiedBadge } from './useProjectDataset'
 import {
   FileText, Download, Eye, AlertCircle, CheckCircle, XCircle,
   ChevronDown, ChevronUp, Zap, Clock, Lock, Share2, Hash,
@@ -103,90 +104,22 @@ function buildSubItems(sectionId: string, status: SectionStatus, note?: string):
 
 type ProjectSectionConfig = Record<string, { status: SectionStatus; note?: string }>
 
-const PROJECT_CONFIGS: Record<string, ProjectSectionConfig> = {
-  proj_le_havre_eng: {
-    S1: { status: 'AUTO' },
-    S2: { status: 'AUTO' },
-    S3: { status: 'AUTO' },
-    S4: { status: 'AUTO' },
-    S5: { status: 'AUTO' },
-    S6: { status: 'PARTIAL', note: 'Insurance schedule needs endorsements' },
-    S7: { status: 'PARTIAL', note: 'CPs not yet cleared' },
-    S8: { status: 'AUTO' },
-    S9: { status: 'AUTO' },
-  },
-  proj_bremen_h2: {
-    S1: { status: 'AUTO' },
-    S2: { status: 'AUTO' },
-    S3: { status: 'PARTIAL' },
-    S4: { status: 'PARTIAL' },
-    S5: { status: 'PARTIAL', note: 'Grid connection agreement pending' },
-    S6: { status: 'PARTIAL' },
-    S7: { status: 'MISSING' },
-    S8: { status: 'AUTO' },
-    S9: { status: 'PARTIAL' },
-  },
-  proj_helios_solar: {
-    S1: { status: 'AUTO' },
-    S2: { status: 'PARTIAL' },
-    S3: { status: 'PARTIAL' },
-    S4: { status: 'PARTIAL' },
-    S5: { status: 'PARTIAL' },
-    S6: { status: 'PARTIAL' },
-    S7: { status: 'PARTIAL' },
-    S8: { status: 'PARTIAL' },
-    S9: { status: 'PARTIAL' },
-  },
-  proj_rotterdam_nh3: {
-    S1: { status: 'PARTIAL' },
-    S2: { status: 'PARTIAL' },
-    S3: { status: 'MISSING' },
-    S4: { status: 'MISSING' },
-    S5: { status: 'PARTIAL' },
-    S6: { status: 'MISSING' },
-    S7: { status: 'MISSING' },
-    S8: { status: 'PARTIAL' },
-    S9: { status: 'PARTIAL' },
-  },
-}
-
-function getProjectConfig(projectId: string): ProjectSectionConfig {
-  if (PROJECT_CONFIGS[projectId]) return PROJECT_CONFIGS[projectId]
-  // Wales / default — very early stage
-  return {
-    S1: { status: 'PARTIAL' },
-    S2: { status: 'MISSING' },
-    S3: { status: 'MISSING' },
-    S4: { status: 'MISSING' },
-    S5: { status: 'MISSING' },
-    S6: { status: 'MISSING' },
-    S7: { status: 'MISSING' },
-    S8: { status: 'MISSING' },
-    S9: { status: 'PARTIAL' },
-  }
-}
-
 const READINESS_WEIGHTS: Record<SectionStatus, number> = {
   AUTO: 1,
   PARTIAL: 0.5,
   MISSING: 0,
 }
 
-const READINESS_OVERRIDES: Record<string, number> = {
-  proj_le_havre_eng: 78,
-  proj_bremen_h2: 52,
-  proj_helios_solar: 38,
-  proj_rotterdam_nh3: 21,
-}
-
-function computeReadiness(projectId: string, sections: ICSection[]): number {
-  if (READINESS_OVERRIDES[projectId] !== undefined) return READINESS_OVERRIDES[projectId]
+function computeReadiness(override: number | null, sections: ICSection[]): number {
+  if (override !== null) return override
   const score = sections.reduce((s, sec) => s + READINESS_WEIGHTS[sec.status], 0)
   return Math.round((score / sections.length) * 100)
 }
 
-function buildSections(projectId: string): ICSection[] {
-  const cfg = getProjectConfig(projectId)
+// The section states and readiness live in PostgreSQL since 2026-10-25
+// (project_dataset ic_pack_config / ic_pack_readiness), UNVERIFIED. Nothing
+// recorded → every section MISSING; the "early stage" default is gone.
+function buildSections(cfg: ProjectSectionConfig): ICSection[] {
   return BASE_SECTIONS.map(base => {
     const c = cfg[base.id] ?? { status: 'MISSING' as SectionStatus }
     return {
@@ -195,21 +128,6 @@ function buildSections(projectId: string): ICSection[] {
       subItems: buildSubItems(base.id, c.status, c.note),
     }
   })
-}
-
-// ─────────────────────────────── Helpers ─────────────────────────────────────
-
-function generatePackHash(projectId: string): string {
-  // Deterministic-looking hex based on projectId
-  const seed = projectId.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
-  const chars = '0123456789abcdef'
-  let hash = ''
-  let n = seed * 1_234_567 + 98765
-  for (let i = 0; i < 64; i++) {
-    n = (n * 6364136223846793005 + 1442695040888963407) >>> 0
-    hash += chars[n % 16]
-  }
-  return hash
 }
 
 function lenderTier(readiness: number): { label: string; color: string; bg: string } {
@@ -275,10 +193,20 @@ export function ICPackBuilder() {
   const project = visibleProjects.find(p => p.id === selectedProjectId)
   const projectId = selectedProjectId ?? 'unknown'
 
-  const sections = useMemo(() => buildSections(projectId), [projectId])
-  const readiness = useMemo(() => computeReadiness(projectId, sections), [projectId, sections])
+  const cfgDs = useProjectDataset<ProjectSectionConfig>('ic_pack_config', selectedProjectId)
+  const readinessDs = useProjectDataset<number>('ic_pack_readiness', selectedProjectId)
+  const sections = useMemo(() => buildSections(cfgDs.data ?? {}), [cfgDs.data])
+  const readiness = useMemo(() => computeReadiness(readinessDs.data ?? null, sections), [readinessDs.data, sections])
   const tier = lenderTier(readiness)
-  const packHash = useMemo(() => generatePackHash(projectId), [projectId])
+  // A real SHA-256 of the pack's section contents. It used to be hex generated
+  // from the project id that only looked like a hash.
+  const [packHash, setPackHash] = useState('')
+  useEffect(() => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ projectId, sections }))
+    crypto.subtle.digest('SHA-256', bytes)
+      .then(d => setPackHash(Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2, '0')).join('')))
+      .catch(() => setPackHash(''))
+  }, [projectId, sections])
 
   const missingSections = sections.filter(s => s.status === 'MISSING')
 
@@ -297,7 +225,10 @@ export function ICPackBuilder() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">IC Pack Builder</h1>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">IC Pack Builder <UnverifiedBadge verification={cfgDs.verification} /></h1>
+          {cfgDs.notRecorded && !cfgDs.loading && (
+            <p className="mt-1 text-xs text-amber-700">No section assessment is recorded for this project — every section shows as missing.</p>
+          )}
           <p className="text-sm text-gray-500 mt-1">
             {project?.name ?? projectId} — Investment Committee Pack Assembly
           </p>

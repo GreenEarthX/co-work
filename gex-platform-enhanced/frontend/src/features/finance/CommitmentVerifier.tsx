@@ -49,7 +49,6 @@ export function CommitmentVerifier({ projectId: projectIdProp }: { projectId?: s
   const [verifying, setVerifying] = useState(false)
 
   // Countersign form state
-  const [csForm, setCsForm] = useState({ user_id: '', company_id: '' })
   const [csLoading, setCsLoading] = useState(false)
   const [csResult, setCsResult] = useState<string | null>(null)
 
@@ -84,12 +83,11 @@ export function CommitmentVerifier({ projectId: projectIdProp }: { projectId?: s
     if (!selected) return
     setCsLoading(true)
     try {
-      const result = await commitmentsAPI.countersign(selected.commitment_id, {
-        counterparty_user_id: csForm.user_id,
-        counterparty_company_id: csForm.company_id,
-      })
+      // Signed as the signed-in account (2026-10-25: the user and company
+      // used to be typed in, and the server signed in that name).
+      const result = await commitmentsAPI.countersign(selected.commitment_id)
       setCsResult(result.counterparty_signature || 'Countersigned')
-      setSelected({ ...selected, status: 'COUNTERSIGNED', counterparty_user_id: csForm.user_id })
+      setSelected({ ...selected, status: 'COUNTERSIGNED' })
     } catch (e: any) {
       setCsResult(`Error: ${e.message}`)
     } finally {
@@ -200,23 +198,10 @@ export function CommitmentVerifier({ projectId: projectIdProp }: { projectId?: s
           {selected.status === 'SIGNED_BY_INITIATOR' && !csResult && (
             <div className="mt-4 pt-4 border-t border-green-200">
               <h4 className="text-sm font-medium text-gray-700 mb-3">Counterparty Acceptance</h4>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <input
-                  className="border border-gray-200 rounded px-2 py-1.5 text-sm"
-                  placeholder="Counterparty user ID"
-                  value={csForm.user_id}
-                  onChange={(e) => setCsForm({ ...csForm, user_id: e.target.value })}
-                />
-                <input
-                  className="border border-gray-200 rounded px-2 py-1.5 text-sm"
-                  placeholder="Counterparty company ID"
-                  value={csForm.company_id}
-                  onChange={(e) => setCsForm({ ...csForm, company_id: e.target.value })}
-                />
-              </div>
+              <p className="text-xs text-gray-500 mb-3">You countersign as yourself, for your company.</p>
               <button
                 onClick={handleCountersign}
-                disabled={!csForm.user_id || !csForm.company_id || csLoading}
+                disabled={csLoading}
                 className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-sm rounded hover:bg-teal-700 disabled:opacity-50"
               >
                 <Users size={14} />

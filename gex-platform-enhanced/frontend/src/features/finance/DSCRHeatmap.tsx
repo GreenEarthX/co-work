@@ -5,7 +5,7 @@ import { AlertTriangle, TrendingDown, Shield, Info, RefreshCw, Database, Calenda
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
 import { useSelectedProject } from '@/contexts/ProjectContext'
-import { CUSTOMER_PROJECTS } from '@/data/customerProjects'
+import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import type { CustomerProject } from '@/data/customerProjects'
 import { financeModelAPI } from '@/lib/api'
 
@@ -450,7 +450,8 @@ function PreCodReadiness({ project }: { project: CustomerProject }) {
 
 export function DSCRHeatmap() {
   const { selectedProjectId } = useSelectedProject()
-  const project = CUSTOMER_PROJECTS.find(p => p.id === selectedProjectId) ?? null
+  const { projects } = useVisibleProjects()
+  const project = projects.find(p => p.id === selectedProjectId) ?? null
   const isPreCod = project?.status === 'development' || project?.status === 'construction'
 
   const codDateStr = project?.completion_date ?? null

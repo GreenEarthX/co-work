@@ -140,6 +140,29 @@ Alembic rebuild**, a dump restore already carries it): `ehb_premium` base 0.40 -
 (new row, valid from 10-20), and `debt_gearing` 0.65 approved with OIES kept. Versions 1-3;
 three rows remain `proposed` (IEA capex ROW and CN, 45V).
 
+**2026-10-25 (part 3): head is 071** — `project_dataset` takes the 16 kinds the screens held in
+code; `GET /api/v1/projects/{id}/datasets/{kind}`. **After an Alembic rebuild also run
+`move_frontend_datasets_20261025.py --execute`** (last). WAE and CSS now act as the token's
+account in its tenant. Handoff §8 item 51. 145 tables, 138 FORCED.
+
+**2026-10-25 (earlier): head is 070** — `information_barrier` for the CISO workspace, which now
+serves real data only; **145** tables, **138** FORCED. GEX staff open a client's CISO view with
+header `x-ciso-company` (never `x-demo-company`: the fetch bridge sets that on every request).
+Handoff §8 item 50.
+
+**2026-10-25 (later): head is 069** — `project_dataset` and `project_id_alias`; **144** tables,
+**137** FORCED. Add `move_project_datasets_20261025.py` to the after-rebuild list below (last).
+A project with no recorded dataset gets none: deal-killers active, structuring 404
+`STRUCTURING_CONTEXT_NOT_RECORDED`. Handoff §8 item 49.
+
+**2026-10-25: head is 068.** 067 records who confirmed a Marketplace record; 068 adds
+`project_profile` (jsonb) and `project_risk_flag`. **142** tables, **135** FORCED. Project data is
+PostgreSQL only — no backend dictionary, no frontend array (a TEST fixture lives in
+`frontend/src/test/fixtures/`). **After an Alembic rebuild run, in order:**
+`load_marketplace_unverified_20261023.py`, `apply_marketplace_decisions_20261025.py`,
+`move_project_registry_20261025.py`, `move_project_profiles_20261025.py` (all `--execute`,
+idempotent; a dump restore carries their rows). Handoff §8 item 48.
+
 **2026-10-23 (late): head is 066** — Marketplace records (`project_sales_detail`,
 `project_input_line`, `input_classification`, `tb_commodity.registry_pathway`), all UNVERIFIED.
 **140** tables, **133** FORCED. Rows come from
@@ -671,7 +694,18 @@ PostgreSQL-only divergence — see the comprehension fixture below.
 (`test_reference_registry_pg.py`, `test_reference_catalog.py`, `test_reference_routes.py`,
 two guardrails in `test_fuel_reference_slice.py`). The same 18 skips, read with `-rs`.
 
-**2026-10-23 (last): 1088 pass, 18 skip, 0 fail** at head 066. 1084 + 4
+**2026-10-25 (part 3): 1115 pass, 18 skip, 0 fail** at head 071; frontend 227/227. +8
+`test_governance_identity_pg.py`, +5 `test_frontend_datasets_pg.py`.
+
+**2026-10-25 (CISO): 1102 pass, 18 skip, 0 fail** at head 070; frontend 227/227. The CISO seed
+test was replaced by `test_ciso_real_data_pg.py` (12).
+
+**2026-10-25 (earlier): 1098 pass, 18 skip, 0 fail** at head 069; frontend 227/227.
+
+**2026-10-25 (earlier): 1094 pass, 18 skip, 0 fail** at head 068. 1088 + 6
+(`test_project_records.py`). Frontend 227/227.
+
+**2026-10-23 (earlier): 1088 pass, 18 skip, 0 fail** at head 066. 1084 + 4
 (`test_marketplace_records_pg.py`).
 
 **2026-10-23 (before that): 1084 pass, 18 skip, 0 fail** at head 065. 1051 + 25

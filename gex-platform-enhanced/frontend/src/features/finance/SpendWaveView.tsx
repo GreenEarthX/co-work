@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { Banknote, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { useSelectedProject } from '@/contexts/ProjectContext'
+import { useProjectDataset, DatasetNotice, UnverifiedBadge } from './useProjectDataset'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -49,27 +50,6 @@ const LAYER_ORDER: CapitalLayer[] = [
 ]
 
 // ═══════════════════════════════════════════════════════════════
-// MOCK DATA — ETFuels Pecos I pre-FID spend profile (€M)
-// ═══════════════════════════════════════════════════════════════
-
-const MOCK_SPEND: Record<string, YearSpend[]> = {
-  proj_etf_pecos1: [
-    { year: 2025, layers: { EQUITY_SEED: 4.2, GRANT: 1.8 } },
-    { year: 2026, layers: { EQUITY_SEED: 6.1, EQUITY_SPONSOR: 3.5, GRANT: 5.2, BRIDGE: 2.0 } },
-    { year: 2027, layers: { EQUITY_SPONSOR: 12.4, GRANT: 8.6, BRIDGE: 6.8, CONCESSIONAL: 4.0 } },
-    { year: 2028, layers: { EQUITY_SPONSOR: 18.0, GRANT: 3.2, BRIDGE: 9.5, CONCESSIONAL: 14.2 } },
-    { year: 2029, layers: { EQUITY_SPONSOR: 8.0, BRIDGE: 3.0, CONCESSIONAL: 7.8 } },
-  ],
-  default: [
-    { year: 2025, layers: { EQUITY_SEED: 2.0, GRANT: 1.0 } },
-    { year: 2026, layers: { EQUITY_SEED: 3.5, EQUITY_SPONSOR: 5.0, GRANT: 4.0, BRIDGE: 1.5 } },
-    { year: 2027, layers: { EQUITY_SPONSOR: 10.0, GRANT: 6.0, BRIDGE: 4.5, CONCESSIONAL: 3.0 } },
-    { year: 2028, layers: { EQUITY_SPONSOR: 14.0, GRANT: 2.0, BRIDGE: 7.0, CONCESSIONAL: 10.0 } },
-    { year: 2029, layers: { EQUITY_SPONSOR: 6.0, BRIDGE: 2.0, CONCESSIONAL: 5.0 } },
-  ],
-}
-
-// ═══════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
 
@@ -91,9 +71,16 @@ function fmt(n: number): string {
 
 export function SpendWaveView() {
   const { selectedProjectId } = useSelectedProject()
+  // project_dataset spend_wave (PostgreSQL since 2026-10-25), UNVERIFIED. Every
+  // other project used to be shown a default profile.
+  const ds = useProjectDataset<YearSpend[]>('spend_wave', selectedProjectId)
+  if (!ds.data) return <DatasetNotice ds={ds} what="pre-FID spend profile" />
+  return <SpendWaveBody data={ds.data} verification={ds.verification} />
+}
+
+function SpendWaveBody({ data, verification }: { data: YearSpend[]; verification: string | null }) {
   const [detailOpen, setDetailOpen] = useState(false)
 
-  const data = MOCK_SPEND[selectedProjectId] ?? MOCK_SPEND['default']
   const totalPreFID = data.reduce((s, y) => s + yearTotal(y), 0)
   const maxYear = Math.max(...data.map(yearTotal))
   const seniorPresent = hasSeniorDebtPreFID(data)
@@ -118,7 +105,7 @@ export function SpendWaveView() {
               <Banknote className="w-4 h-4 text-gray-400" />
               <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Pre-FID Spend Wave</span>
             </div>
-            <h1 className="text-2xl font-black text-white">Annual Capital Deployment</h1>
+            <h1 className="text-2xl font-black text-white flex items-center gap-2">Annual Capital Deployment <UnverifiedBadge verification={verification} /></h1>
             <p className="text-sm text-gray-400 mt-0.5">Stacked by capital layer, pre-Financial Investment Decision</p>
           </div>
           <div className="flex items-center gap-2 mt-2">

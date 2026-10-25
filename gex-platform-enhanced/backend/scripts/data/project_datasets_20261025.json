@@ -1,0 +1,489 @@
+{
+ "_about": "Per-project datasets the backend held in code until 2026-10-25, extracted verbatim by importing the dictionaries (no value retyped). Defaults (DEFAULT_PROJECT_TRUTH, _DEFAULT_CTX, _DRAWDOWN_DEFAULT) were NOT moved; MOCK_PROJECTS' proj_demo_nh3 is not a project and was dropped. Load source only. Loaded by scripts/move_project_datasets_20261025.py.",
+ "datasets": [
+  {
+   "project_id": "proj_bremen_h2",
+   "kind": "deal_inputs",
+   "payload": {
+    "offtake_binding_pct": 72,
+    "epc_contract_executed": true,
+    "ie_appointed": true,
+    "financial_model_status": "IE_REVIEWED",
+    "insurance_fully_placed": false,
+    "rfnbo_pathway_viable": true,
+    "dscr_p90": 1.26,
+    "grid_connection_firm": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_bremen_h2",
+   "kind": "task_router_inputs",
+   "payload": {
+    "snapshot_viewed_within_7_days": true,
+    "evidence_confirmed_pct": 68.0,
+    "capital_stack_committed": false,
+    "requirement_defined": true,
+    "qualified_offers_count": 2,
+    "pricing_reference_ready": false,
+    "shortlist_count": 1,
+    "evidence_audited_count": 4,
+    "evidence_total_count": 12,
+    "plant_configured": true,
+    "next_gate_missing_items": 2,
+    "g8_is_audit_grade": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_rotterdam_nh3",
+   "kind": "deal_inputs",
+   "payload": {
+    "offtake_binding_pct": 20,
+    "epc_contract_executed": false,
+    "ie_appointed": false,
+    "financial_model_status": "SELF_ASSESSED",
+    "insurance_fully_placed": false,
+    "rfnbo_pathway_viable": true,
+    "dscr_p90": 1.02,
+    "grid_connection_firm": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_rotterdam_nh3",
+   "kind": "task_router_inputs",
+   "payload": {
+    "snapshot_viewed_within_7_days": false,
+    "evidence_confirmed_pct": 31.0,
+    "capital_stack_committed": false,
+    "requirement_defined": false,
+    "qualified_offers_count": 0,
+    "pricing_reference_ready": false,
+    "shortlist_count": 0,
+    "evidence_audited_count": 1,
+    "evidence_total_count": 15,
+    "plant_configured": false,
+    "next_gate_missing_items": 6,
+    "g8_is_audit_grade": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_sansebastian_emethanol",
+   "kind": "deal_inputs",
+   "payload": {
+    "offtake_binding_pct": 60,
+    "epc_contract_executed": true,
+    "ie_appointed": true,
+    "financial_model_status": "IE_REVIEWED",
+    "insurance_fully_placed": false,
+    "rfnbo_pathway_viable": true,
+    "dscr_p90": 1.18,
+    "grid_connection_firm": true
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_sansebastian_emethanol",
+   "kind": "task_router_inputs",
+   "payload": {
+    "snapshot_viewed_within_7_days": true,
+    "evidence_confirmed_pct": 63.0,
+    "capital_stack_committed": false,
+    "requirement_defined": true,
+    "qualified_offers_count": 3,
+    "pricing_reference_ready": true,
+    "shortlist_count": 2,
+    "evidence_audited_count": 5,
+    "evidence_total_count": 14,
+    "plant_configured": true,
+    "next_gate_missing_items": 3,
+    "g8_is_audit_grade": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_wales_saf",
+   "kind": "deal_inputs",
+   "payload": {
+    "offtake_binding_pct": 15,
+    "epc_contract_executed": false,
+    "ie_appointed": false,
+    "financial_model_status": "SELF_ASSESSED",
+    "insurance_fully_placed": false,
+    "rfnbo_pathway_viable": false,
+    "dscr_p90": 0.98,
+    "grid_connection_firm": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_wales_saf",
+   "kind": "task_router_inputs",
+   "payload": {
+    "snapshot_viewed_within_7_days": false,
+    "evidence_confirmed_pct": 22.0,
+    "capital_stack_committed": false,
+    "requirement_defined": false,
+    "qualified_offers_count": 0,
+    "pricing_reference_ready": false,
+    "shortlist_count": 0,
+    "evidence_audited_count": 1,
+    "evidence_total_count": 11,
+    "plant_configured": false,
+    "next_gate_missing_items": 7,
+    "g8_is_audit_grade": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_lehavre_eng",
+   "kind": "deal_inputs",
+   "payload": {
+    "offtake_binding_pct": 100,
+    "epc_contract_executed": true,
+    "ie_appointed": true,
+    "financial_model_status": "AUDIT_GRADE",
+    "insurance_fully_placed": true,
+    "rfnbo_pathway_viable": true,
+    "dscr_p90": 1.35,
+    "grid_connection_firm": true
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_lehavre_eng",
+   "kind": "task_router_inputs",
+   "payload": {
+    "snapshot_viewed_within_7_days": true,
+    "evidence_confirmed_pct": 91.0,
+    "capital_stack_committed": true,
+    "requirement_defined": true,
+    "qualified_offers_count": 5,
+    "pricing_reference_ready": true,
+    "shortlist_count": 3,
+    "evidence_audited_count": 8,
+    "evidence_total_count": 9,
+    "plant_configured": true,
+    "next_gate_missing_items": 1,
+    "g8_is_audit_grade": true
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_hamburgone_emethanol",
+   "kind": "deal_inputs",
+   "payload": {
+    "offtake_binding_pct": 30,
+    "epc_contract_executed": false,
+    "ie_appointed": true,
+    "financial_model_status": "IE_REVIEWED",
+    "insurance_fully_placed": false,
+    "rfnbo_pathway_viable": true,
+    "dscr_p90": 1.15,
+    "grid_connection_firm": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_hamburgone_emethanol",
+   "kind": "task_router_inputs",
+   "payload": {
+    "snapshot_viewed_within_7_days": false,
+    "evidence_confirmed_pct": 44.0,
+    "capital_stack_committed": false,
+    "requirement_defined": true,
+    "qualified_offers_count": 2,
+    "pricing_reference_ready": false,
+    "shortlist_count": 1,
+    "evidence_audited_count": 3,
+    "evidence_total_count": 13,
+    "plant_configured": true,
+    "next_gate_missing_items": 4,
+    "g8_is_audit_grade": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_madrid2_sansebastian",
+   "kind": "deal_inputs",
+   "payload": {
+    "offtake_binding_pct": 12,
+    "epc_contract_executed": false,
+    "ie_appointed": false,
+    "financial_model_status": "SELF_ASSESSED",
+    "insurance_fully_placed": false,
+    "rfnbo_pathway_viable": true,
+    "dscr_p90": 1.04,
+    "grid_connection_firm": true
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_madrid2_sansebastian",
+   "kind": "task_router_inputs",
+   "payload": {
+    "snapshot_viewed_within_7_days": false,
+    "evidence_confirmed_pct": 28.0,
+    "capital_stack_committed": false,
+    "requirement_defined": true,
+    "qualified_offers_count": 4,
+    "pricing_reference_ready": false,
+    "shortlist_count": 2,
+    "evidence_audited_count": 2,
+    "evidence_total_count": 17,
+    "plant_configured": true,
+    "next_gate_missing_items": 5,
+    "g8_is_audit_grade": false
+   },
+   "from": "core/project_truth.PROJECT_TRUTH"
+  },
+  {
+   "project_id": "proj_bremen_h2",
+   "kind": "structuring_context",
+   "payload": {
+    "jurisdiction": "DE",
+    "molecule": "H2",
+    "stage": "BUILDABLE",
+    "project_size_eur": 180000000,
+    "gate_scores": {
+     "G0": 95,
+     "G1": 88,
+     "G2": 72,
+     "G3": 90,
+     "G4": 78,
+     "G5": 45,
+     "G6": 0,
+     "G7": 55,
+     "G8": 68,
+     "G9": 92,
+     "G10": 0,
+     "G11": 0
+    },
+    "dscr_p50": 1.34,
+    "dscr_p90": 1.18,
+    "llcr": 1.41,
+    "wacc": 0.089,
+    "offtake_coverage_pct": 0.55,
+    "cert_readiness": 88,
+    "epc_status": "SHORTLISTING",
+    "insurance_status": "QUOTED",
+    "grid_status": "FIRM_OFFER"
+   },
+   "from": "api/v1/routes_structuring.DEMO_CONTEXTS"
+  },
+  {
+   "project_id": "proj_lehavre_eng",
+   "kind": "structuring_context",
+   "payload": {
+    "jurisdiction": "FR",
+    "molecule": "E_NG",
+    "stage": "OPERATIONAL",
+    "project_size_eur": 320000000,
+    "gate_scores": {
+     "G0": 100,
+     "G1": 100,
+     "G2": 98,
+     "G3": 95,
+     "G4": 100,
+     "G5": 100,
+     "G6": 95,
+     "G7": 100,
+     "G8": 98,
+     "G9": 100,
+     "G10": 100,
+     "G11": 95
+    },
+    "dscr_p50": 1.58,
+    "dscr_p90": 1.42,
+    "llcr": 1.65,
+    "wacc": 0.068,
+    "offtake_coverage_pct": 0.92,
+    "cert_readiness": 98,
+    "epc_status": "COMPLETE",
+    "insurance_status": "PLACED",
+    "grid_status": "CONNECTED"
+   },
+   "from": "api/v1/routes_structuring.DEMO_CONTEXTS"
+  },
+  {
+   "project_id": "proj_wales_saf",
+   "kind": "structuring_context",
+   "payload": {
+    "jurisdiction": "GB",
+    "molecule": "SAF",
+    "stage": "COMMERCIALLY_PLAUSIBLE",
+    "project_size_eur": 250000000,
+    "gate_scores": {
+     "G0": 60,
+     "G1": 40,
+     "G2": 30,
+     "G3": 50,
+     "G4": 20,
+     "G5": 10,
+     "G6": 0,
+     "G7": 15,
+     "G8": 25,
+     "G9": 45,
+     "G10": 0,
+     "G11": 0
+    },
+    "dscr_p50": 0.98,
+    "dscr_p90": 0.82,
+    "llcr": 0.95,
+    "wacc": 0.112,
+    "offtake_coverage_pct": 0.15,
+    "cert_readiness": 35,
+    "epc_status": "NOT_STARTED",
+    "insurance_status": "NOT_STARTED",
+    "grid_status": "APPLIED"
+   },
+   "from": "api/v1/routes_structuring.DEMO_CONTEXTS"
+  },
+  {
+   "project_id": "proj_lehavre_eng",
+   "kind": "drawdown_layer",
+   "payload": {
+    "financial_close": {
+     "phase": "FINANCIAL_CLOSE",
+     "status": "IN_PROGRESS",
+     "milestones": [
+      {
+       "name": "IE Final Signoff",
+       "status": "IN_PROGRESS",
+       "targetDate": "2026-Q2",
+       "owner": "IE (Mott MacDonald)",
+       "fundingTrigger": false
+      },
+      {
+       "name": "BPI+EIB Term Sheet",
+       "status": "IN_PROGRESS",
+       "targetDate": "2026-Q2",
+       "owner": "CFO",
+       "fundingTrigger": true,
+       "drawdownAmount": 210000000
+      },
+      {
+       "name": "Credit Committee",
+       "status": "PLANNED",
+       "targetDate": "2026-Q3",
+       "owner": "BPI",
+       "fundingTrigger": false
+      },
+      {
+       "name": "FID Decision",
+       "status": "PLANNED",
+       "targetDate": "2026-Q3",
+       "owner": "Board",
+       "fundingTrigger": false
+      },
+      {
+       "name": "Facility Agreement",
+       "status": "PLANNED",
+       "targetDate": "2026-Q3",
+       "owner": "Legal",
+       "fundingTrigger": true,
+       "drawdownAmount": 42000000
+      }
+     ]
+    },
+    "drawdowns": [
+     {
+      "phase": "FINANCIAL_CLOSE",
+      "name": "BPI+EIB Term Sheet",
+      "targetDate": "2026-Q2",
+      "drawdownAmount": 210000000
+     },
+     {
+      "phase": "FINANCIAL_CLOSE",
+      "name": "Facility Agreement",
+      "targetDate": "2026-Q3",
+      "drawdownAmount": 42000000
+     },
+     {
+      "phase": "CONSTRUCTION",
+      "name": "NTP Issued",
+      "targetDate": "2026-Q3",
+      "drawdownAmount": 85000000
+     },
+     {
+      "phase": "CONSTRUCTION",
+      "name": "Electrolyser Delivery",
+      "targetDate": "2027-Q1",
+      "drawdownAmount": 55000000
+     },
+     {
+      "phase": "CONSTRUCTION",
+      "name": "Methanation Unit FAT",
+      "targetDate": "2027-Q4",
+      "drawdownAmount": 28000000
+     }
+    ]
+   },
+   "from": "api/v1/routes_finance_model._DRAWDOWN_BY_PROJECT"
+  },
+  {
+   "project_id": "proj_bremen_h2",
+   "kind": "drawdown_layer",
+   "payload": {
+    "financial_close": {
+     "phase": "FINANCIAL_CLOSE",
+     "status": "PLANNED",
+     "milestones": [
+      {
+       "name": "KfW Term Sheet",
+       "status": "PLANNED",
+       "targetDate": "2026-Q3",
+       "owner": "CFO",
+       "fundingTrigger": true,
+       "drawdownAmount": 120000000
+      },
+      {
+       "name": "FID Decision",
+       "status": "PLANNED",
+       "targetDate": "2026-Q4",
+       "owner": "Board",
+       "fundingTrigger": false
+      }
+     ]
+    },
+    "drawdowns": [
+     {
+      "phase": "FINANCIAL_CLOSE",
+      "name": "KfW Term Sheet",
+      "targetDate": "2026-Q3",
+      "drawdownAmount": 120000000
+     },
+     {
+      "phase": "CONSTRUCTION",
+      "name": "NTP Issued",
+      "targetDate": "2027-Q1",
+      "drawdownAmount": 60000000
+     }
+    ]
+   },
+   "from": "api/v1/routes_finance_model._DRAWDOWN_BY_PROJECT"
+  },
+  {
+   "project_id": "proj_etf_pecos1",
+   "kind": "adjacency_profile",
+   "payload": {
+    "molecule": "eMeOH",
+    "jurisdiction": "US",
+    "certifier_ecosystem": "ISCC_EU"
+   },
+   "from": "api/v1/adjacency.MOCK_PROJECTS"
+  }
+ ],
+ "aliases": [
+  {
+   "alias": "proj_le_havre_eng",
+   "project_id": "proj_lehavre_eng"
+  },
+  {
+   "alias": "proj_helios_emethanol",
+   "project_id": "proj_sansebastian_emethanol"
+  }
+ ]
+}

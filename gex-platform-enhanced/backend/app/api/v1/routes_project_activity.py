@@ -32,10 +32,6 @@ from app.core.db_backend import evidence_connection, evidence_is_postgres
 router = APIRouter(prefix="/project-activity", tags=["project-activity"])
 
 DB_PATH = settings.SQLITE_DB_PATH
-PROJECT_ID_ALIASES = {
-    "proj_le_havre_eng": "proj_lehavre_eng",
-    "proj_helios_emethanol": "proj_sansebastian_emethanol",
-}
 
 
 class ProjectActivityEventOut(BaseModel):
@@ -63,7 +59,9 @@ class ProjectActivityOut(BaseModel):
 
 
 def _normalize_project_id(project_id: str) -> str:
-    return PROJECT_ID_ALIASES.get(project_id, project_id)
+    from app.core.project_registry import normalize_project_id   # project_id_alias in PostgreSQL
+
+    return normalize_project_id(project_id) or project_id
 
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
@@ -133,7 +131,10 @@ def _event(
 
 def _load_commitment_events(project_id: str, project_name: str) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    for row in get_commitments_for_project(project_id)[:5]:
+    from app.core.request_tenant import NO_TENANT_CONTEXT, current_company
+
+    # The bound caller's tenant, so RLS decides; no caller sees nothing.
+    for row in get_commitments_for_project(project_id, company_id=current_company() or NO_TENANT_CONTEXT)[:5]:
         is_countersigned = row.get("status") == "COUNTERSIGNED"
         timestamp = (
             row.get("counterparty_timestamp")

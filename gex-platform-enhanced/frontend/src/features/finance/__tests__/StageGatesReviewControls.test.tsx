@@ -17,7 +17,7 @@ vi.mock('@/contexts/ProjectContext', () => ({
   useSelectedProject: () => ({ selectedProjectId: 'proj_hamburgone_emethanol', setSelectedProjectId: vi.fn() }),
 }))
 vi.mock('@/hooks/useVisibleProjects', async () => {
-  const { CUSTOMER_PROJECTS: all } = await vi.importActual<typeof import('@/data/customerProjects')>('@/data/customerProjects')
+  const { CUSTOMER_PROJECTS: all } = await vi.importActual<typeof import('@/test/fixtures/customerProjects')>('@/test/fixtures/customerProjects')
   const hamburg = all.find(p => p.id === 'proj_hamburgone_emethanol')!
   return {
     useVisibleProjects: () => ({

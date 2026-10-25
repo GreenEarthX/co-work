@@ -5,8 +5,15 @@
  * Shows payload hash, record hash, and initiator signature on completion.
  *
  * Backend: POST /api/v1/commitments/sign
+ *
+ * The signer is the signed-in account and its company (server-side, from the
+ * token) — 2026-10-25. The form used to send a typed-in user and company
+ * (prefilled with a sample "usr_bp_01" / "bp_global_energy" on a non-existent
+ * "proj_breizh_saf" with an invented Air France trade), and the server signed
+ * in that name. The project is the selected one; the payload starts empty.
  */
 import { useState } from 'react'
+import { useSelectedProject } from '@/contexts/ProjectContext'
 import { FileSignature, CheckCircle, AlertCircle, Lock } from 'lucide-react'
 import { commitmentsAPI } from '@/api'
 import { ApprovalBanner } from '@/components/ApprovalBanner'
@@ -32,13 +39,11 @@ interface SignedResult {
 }
 
 export function CommitmentSigning() {
+  const { selectedProjectId } = useSelectedProject()
   const [form, setForm] = useState({
     action_type: 'SAF_FORWARD_SALE',
-    project_id: 'proj_breizh_saf',
-    initiator_user_id: 'usr_bp_01',
-    initiator_company_id: 'bp_global_energy',
     approval_request_id: '',
-    payload: '{\n  "volume_t": 10000,\n  "price_eur_t": 2200,\n  "counterparty": "Air France KLM",\n  "tenor_months": 24\n}',
+    payload: '{\n}',
   })
   const [payloadError, setPayloadError] = useState<string | null>(null)
   const [signing, setSigning] = useState(false)
@@ -58,13 +63,15 @@ export function CommitmentSigning() {
       return
     }
 
+    if (!selectedProjectId) {
+      setError('Select a project first.')
+      return
+    }
     setSigning(true)
     try {
       const res = await commitmentsAPI.sign({
-        initiator_user_id: form.initiator_user_id,
-        initiator_company_id: form.initiator_company_id,
         action_type: form.action_type,
-        project_id: form.project_id,
+        project_id: selectedProjectId,
         payload: parsedPayload,
         approval_request_id: form.approval_request_id || undefined,
       })
@@ -157,29 +164,14 @@ export function CommitmentSigning() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-600 block mb-1">Project ID</label>
-              <input
-                className="w-full border border-gray-200 rounded px-2 py-2 text-sm"
-                value={form.project_id}
-                onChange={(e) => setForm({ ...form, project_id: e.target.value })}
-              />
+              <label className="text-xs text-gray-600 block mb-1">Project</label>
+              <div className="w-full border border-gray-200 rounded px-2 py-2 text-sm font-mono bg-gray-50">
+                {selectedProjectId || 'Select a project first'}
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-gray-600 block mb-1">Initiator User ID</label>
-              <input
-                className="w-full border border-gray-200 rounded px-2 py-2 text-sm"
-                value={form.initiator_user_id}
-                onChange={(e) => setForm({ ...form, initiator_user_id: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 block mb-1">Company ID</label>
-              <input
-                className="w-full border border-gray-200 rounded px-2 py-2 text-sm"
-                value={form.initiator_company_id}
-                onChange={(e) => setForm({ ...form, initiator_company_id: e.target.value })}
-              />
-            </div>
+            <p className="col-span-2 text-xs text-gray-500">
+              You sign as yourself, for your company — the server takes both from your sign-in.
+            </p>
           </div>
           <div>
             <label className="text-xs text-gray-600 block mb-1">

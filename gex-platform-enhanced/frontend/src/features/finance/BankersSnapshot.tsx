@@ -2,6 +2,7 @@
 import { Printer, MapPin, Calendar, TrendingUp, AlertTriangle, XCircle, CheckCircle2, Zap } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
+import { useProjectDataset, DatasetNotice } from './useProjectDataset'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -53,138 +54,6 @@ interface SnapshotData {
   certReadiness: number
   criticalPath: string[]
   killSwitches: string[]
-}
-
-// ═══════════════════════════════════════════════════════════════
-// DEMO DATA
-// ═══════════════════════════════════════════════════════════════
-
-const SNAPSHOT_DATA: Record<string, SnapshotData> = {
-  proj_bremen_h2: {
-    bankabilityState: 'BUILDABLE',
-    trustScore: 72,
-    technology: '120MW PEM + DSO integration',
-    financials: { capex: 220, dscrP50: 1.34, dscrP90: 1.18, llcr: 1.41, wacc: 8.9, breakeven: 1.62 },
-    offtake: { contracted: 78, tenor: 15, buyerCredit: 'BBB+ (Vattenfall parent guarantee)', index: 'ICIS H2 NWE + logistics escalator', score: 79 },
-    financing: { seniorDebt: 145, ecaDfi: 'EIB indicative offer received', equity: 58, mezzEur: 17, termSheetTarget: 'Q4-2026', fidTarget: 'Q1-2027', codTarget: 'Q3-2028', concessionalShare: 0.53, blendedDebtCost: 4.83, catalyticRatio: 0.67, maxGracePeriod: 3 },
-    gates: [
-      { id: 'G0',  name: 'Site Rights',       status: 'PASS',        score: 95 },
-      { id: 'G1',  name: 'Grid Connection',   status: 'IN_PROGRESS', score: 67 },
-      { id: 'G2',  name: 'Certification',     status: 'IN_PROGRESS', score: 72 },
-      { id: 'G3',  name: 'Feedstock',         status: 'PASS',        score: 88 },
-      { id: 'G4',  name: 'Offtake',           status: 'IN_PROGRESS', score: 78 },
-      { id: 'G5',  name: 'EPC & Construction',status: 'IN_PROGRESS', score: 80 },
-      { id: 'G6',  name: 'IE Signoff',        status: 'PENDING',     score: 30 },
-      { id: 'G7',  name: 'Insurance',         status: 'IN_PROGRESS', score: 55 },
-      { id: 'G8',  name: 'Financial Model',   status: 'IN_PROGRESS', score: 68 },
-      { id: 'G9',  name: 'Permits',           status: 'PASS',        score: 92 },
-      { id: 'G10', name: 'Financial Close',   status: 'NOT_STARTED', score: 0  },
-      { id: 'G11', name: 'COD',               status: 'NOT_STARTED', score: 0  },
-    ],
-    certReadiness: 74,
-    criticalPath: ['Grid connection firm offer by Q3-2026', 'EPC full wrap by Q4-2026', 'RFNBO pre-audit Q1-2027'],
-    killSwitches: ['Grid slippage > 9 months voids offtake', 'PEM efficiency < 62% fails covenant', 'RFNBO additionality challenge'],
-  },
-  proj_rotterdam_nh3: {
-    bankabilityState: 'EARLY_DEV',
-    trustScore: 40,
-    technology: '80MW HB synthesis + NH3 cracker',
-    financials: { capex: 190, dscrP50: 1.05, dscrP90: 0.88, llcr: 1.08, wacc: 12.1, breakeven: 0.48 },
-    offtake: { contracted: 35, tenor: 10, buyerCredit: 'BB (Yara subsidiary)', index: 'Argus NH3 FOB Rotterdam', score: 38 },
-    financing: { seniorDebt: 110, ecaDfi: 'None secured', equity: 65, mezzEur: 15, termSheetTarget: 'Q2-2028', fidTarget: 'Q3-2028', codTarget: 'Q1-2030' },
-    gates: [
-      { id: 'G0',  name: 'Site Rights',       status: 'PASS',        score: 90 },
-      { id: 'G1',  name: 'Grid Connection',   status: 'PENDING',     score: 25 },
-      { id: 'G2',  name: 'Certification',     status: 'PENDING',     score: 20 },
-      { id: 'G3',  name: 'Feedstock',         status: 'IN_PROGRESS', score: 45 },
-      { id: 'G4',  name: 'Offtake',           status: 'IN_PROGRESS', score: 35 },
-      { id: 'G5',  name: 'EPC & Construction',status: 'NOT_STARTED', score: 0  },
-      { id: 'G6',  name: 'IE Signoff',        status: 'NOT_STARTED', score: 0  },
-      { id: 'G7',  name: 'Insurance',         status: 'NOT_STARTED', score: 0  },
-      { id: 'G8',  name: 'Financial Model',   status: 'PENDING',     score: 20 },
-      { id: 'G9',  name: 'Permits',           status: 'IN_PROGRESS', score: 40 },
-      { id: 'G10', name: 'Financial Close',   status: 'NOT_STARTED', score: 0  },
-      { id: 'G11', name: 'COD',               status: 'NOT_STARTED', score: 0  },
-    ],
-    certReadiness: 22,
-    criticalPath: ['Secure grid capacity reservation', 'Execute LOI with second NH3 offtaker', 'Commission independent IE review'],
-    killSwitches: ['No grid reservation blocks G1 indefinitely', 'Yara subsidiary credit insufficient alone', 'NH3 market price collapse below breakeven'],
-  },
-  proj_sansebastian_emethanol: {
-    bankabilityState: 'FUNDABLE',
-    trustScore: 51,
-    technology: '45MW electrolyser + CO2 capture + methanol synthesis',
-    financials: { capex: 165, dscrP50: 1.22, dscrP90: 1.04, llcr: 1.25, wacc: 10.2, breakeven: 320 },
-    offtake: { contracted: 60, tenor: 12, buyerCredit: 'A- (Maersk direct)', index: 'ICIS Methanol NWE + carbon premium', score: 62 },
-    financing: { seniorDebt: 98, ecaDfi: 'EKF pre-application submitted', equity: 52, mezzEur: 15, termSheetTarget: 'Q1-2027', fidTarget: 'Q2-2027', codTarget: 'Q4-2028' },
-    gates: [
-      { id: 'G0',  name: 'Site Rights',       status: 'PASS',        score: 88 },
-      { id: 'G1',  name: 'Grid Connection',   status: 'PASS',        score: 82 },
-      { id: 'G2',  name: 'Certification',     status: 'IN_PROGRESS', score: 65 },
-      { id: 'G3',  name: 'Feedstock',         status: 'IN_PROGRESS', score: 70 },
-      { id: 'G4',  name: 'Offtake',           status: 'IN_PROGRESS', score: 60 },
-      { id: 'G5',  name: 'EPC & Construction',status: 'PENDING',     score: 35 },
-      { id: 'G6',  name: 'IE Signoff',        status: 'NOT_STARTED', score: 0  },
-      { id: 'G7',  name: 'Insurance',         status: 'PENDING',     score: 20 },
-      { id: 'G8',  name: 'Financial Model',   status: 'IN_PROGRESS', score: 55 },
-      { id: 'G9',  name: 'Permits',           status: 'PASS',        score: 85 },
-      { id: 'G10', name: 'Financial Close',   status: 'NOT_STARTED', score: 0  },
-      { id: 'G11', name: 'COD',               status: 'NOT_STARTED', score: 0  },
-    ],
-    certReadiness: 58,
-    criticalPath: ['CO2 supply agreement with Repsol', 'EPC bidder shortlist by Q4-2026', 'DNV pre-audit for RED III compliance'],
-    killSwitches: ['CO2 sourcing interruption kills synthesis', 'Maersk shipping rerouting reduces volumes', 'RED III temporal matching non-compliance'],
-  },
-  proj_wales_saf: {
-    bankabilityState: 'EARLY_DEV',
-    trustScore: 30,
-    technology: '30MW Fischer-Tropsch SAF pathway',
-    financials: { capex: 120, dscrP50: 0.98, dscrP90: 0.81, llcr: 0.95, wacc: 15.5, breakeven: 2.85 },
-    offtake: { contracted: 20, tenor: 8, buyerCredit: 'B+ (regional airline LOI only)', index: 'Platts Jet + SAF premium', score: 22 },
-    financing: { seniorDebt: 0, ecaDfi: 'None', equity: 45, mezzEur: 0, termSheetTarget: 'Not set', fidTarget: 'Not set', codTarget: 'Not set' },
-    gates: [
-      { id: 'G0',  name: 'Site Rights',       status: 'IN_PROGRESS', score: 55 },
-      { id: 'G1',  name: 'Grid Connection',   status: 'NOT_STARTED', score: 0  },
-      { id: 'G2',  name: 'Certification',     status: 'PENDING',     score: 15 },
-      { id: 'G3',  name: 'Feedstock',         status: 'PENDING',     score: 20 },
-      { id: 'G4',  name: 'Offtake',           status: 'PENDING',     score: 20 },
-      { id: 'G5',  name: 'EPC & Construction',status: 'NOT_STARTED', score: 0  },
-      { id: 'G6',  name: 'IE Signoff',        status: 'NOT_STARTED', score: 0  },
-      { id: 'G7',  name: 'Insurance',         status: 'NOT_STARTED', score: 0  },
-      { id: 'G8',  name: 'Financial Model',   status: 'PENDING',     score: 10 },
-      { id: 'G9',  name: 'Permits',           status: 'PENDING',     score: 30 },
-      { id: 'G10', name: 'Financial Close',   status: 'NOT_STARTED', score: 0  },
-      { id: 'G11', name: 'COD',               status: 'NOT_STARTED', score: 0  },
-    ],
-    certReadiness: 18,
-    criticalPath: ['Secure site lease and grid reservation', 'Engage EPC for pre-FEED study', 'Execute binding offtake with tier-1 airline'],
-    killSwitches: ['DSCR below 1.0 — project not bankable as modelled', 'No grid connection path identified', 'SAF mandate risk if CORSIA rules shift'],
-  },
-  proj_lehavre_eng: {
-    bankabilityState: 'BANKABLE',
-    trustScore: 94,
-    technology: '200MW SOEC + methanation + pipeline injection',
-    financials: { capex: 310, dscrP50: 1.58, dscrP90: 1.42, llcr: 1.72, wacc: 7.2, breakeven: 95 },
-    offtake: { contracted: 92, tenor: 20, buyerCredit: 'AA- (GRTgaz regulated tariff)', index: 'TTF + green premium + capacity payment', score: 94 },
-    financing: { seniorDebt: 210, ecaDfi: 'BPI mandate letter + EIB co-finance', equity: 82, mezzEur: 18, termSheetTarget: 'Q2-2026', fidTarget: 'Q3-2026', codTarget: 'Q2-2028' },
-    gates: [
-      { id: 'G0',  name: 'Site Rights',       status: 'PASS',        score: 100 },
-      { id: 'G1',  name: 'Grid Connection',   status: 'PASS',        score: 98  },
-      { id: 'G2',  name: 'Certification',     status: 'PASS',        score: 95  },
-      { id: 'G3',  name: 'Feedstock',         status: 'PASS',        score: 97  },
-      { id: 'G4',  name: 'Offtake',           status: 'PASS',        score: 92  },
-      { id: 'G5',  name: 'EPC & Construction',status: 'PASS',        score: 88  },
-      { id: 'G6',  name: 'IE Signoff',        status: 'IN_PROGRESS', score: 82  },
-      { id: 'G7',  name: 'Insurance',         status: 'PASS',        score: 90  },
-      { id: 'G8',  name: 'Financial Model',   status: 'PASS',        score: 95  },
-      { id: 'G9',  name: 'Permits',           status: 'PASS',        score: 100 },
-      { id: 'G10', name: 'Financial Close',   status: 'IN_PROGRESS', score: 75  },
-      { id: 'G11', name: 'COD',               status: 'NOT_STARTED', score: 0   },
-    ],
-    certReadiness: 96,
-    criticalPath: ['IE final signoff due Q2-2026', 'BPI/EIB co-finance term sheet Q2-2026', 'NTP after FID Q3-2026'],
-    killSwitches: ['IE negative opinion delays financial close', 'GRTgaz injection licence delay > 6 months', 'SOEC supplier delivery slippage'],
-  },
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -342,7 +211,11 @@ export function BankersSnapshot() {
   // Until 16 Oct 2026 any project without a hand-written entry fell back to the
   // Le Havre sample, so a Speculative project was shown as "Bankable 94/100".
   // No entry → say so. An entry → label it as the fixed sample it is.
-  const data = SNAPSHOT_DATA[selectedProjectId]
+  // The entries live in PostgreSQL since 2026-10-25 (project_dataset
+  // bankers_snapshot), UNVERIFIED.
+  const ds = useProjectDataset<SnapshotData>('bankers_snapshot', selectedProjectId)
+  const data = ds.data
+  if (ds.loading || ds.error) return <DatasetNotice ds={ds} what="banker's snapshot" />
   if (!data) {
     return (
       <div className="mx-auto mt-8 max-w-xl rounded-xl border border-slate-200 bg-white p-6">
@@ -379,9 +252,9 @@ export function BankersSnapshot() {
       <div className="space-y-4 max-w-7xl mx-auto pb-8">
 
         <div className="no-print rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="font-semibold">Illustrative sample figures.</span>{' '}
-          This snapshot is a fixed demonstration set written for this project. It is not computed from the
-          project's verified evidence; the gate engine's result is on State &amp; Blockers.
+          <span className="font-semibold">Unverified figures.</span>{' '}
+          This snapshot is recorded for this project but nobody has confirmed it, and it is not computed from
+          the project's verified evidence; the gate engine's result is on State &amp; Blockers.
         </div>
 
         {/* ── HEADER BAR ─────────────────────────────────────────────── */}

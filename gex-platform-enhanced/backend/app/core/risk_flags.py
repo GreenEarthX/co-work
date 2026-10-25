@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
 
-from app.core.project_registry import PROJECT_ACCESS_PROFILES, company_slug
+from app.core.project_registry import company_slug, get_project_profile
 
 CLASSIFICATIONS = ("PUBLIC", "STAKEHOLDER", "CONFIDENTIAL", "RESTRICTED")
 
@@ -56,152 +56,21 @@ class RiskFlag:
         return d
 
 
-RISK_FLAGS: dict[str, list[RiskFlag]] = {
-    "proj_etf_pecos1": [
-        RiskFlag(
-            id="rf_etf_pecos1_capacity_overstatement",
-            project_id="proj_etf_pecos1",
-            claim="Capacity discrepancy: GEX showed 165k t/yr, public sources confirm 120k t/yr (27% overstatement corrected)",
-            severity="high", confidence="high",
-            category="capacity_claim", owner_function="COMMERCIAL",
-            classification="STAKEHOLDER",
-            source_ids=("SRC_ETFUELS_OUR_SOLUTION_2026", "SRC_ARGUS_RFOCEAN_2026_02_24", "SRC_CARBONSTORAGE_RATTLESNAKE"),
-            status="ACKNOWLEDGED",
-        ),
-        RiskFlag(
-            id="rf_etf_pecos1_45v_temporal",
-            project_id="proj_etf_pecos1",
-            claim="45V temporal matching rule: IRS guidance still pending — annual vs hourly conflict with RFNBO",
-            severity="high", confidence="medium",
-            category="certification", owner_function="COMPLIANCE_LEGAL",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_RATTLESNAKE_FEED_2025_10_27",),
-        ),
-        RiskFlag(
-            id="rf_etf_pecos1_related_party_offtake",
-            project_id="proj_etf_pecos1",
-            claim="ETFuels SA offtake (70k t/yr) is related-party — lenders may discount or exclude from bankability",
-            severity="critical", confidence="high",
-            category="offtake", owner_function="FINANCE_TREASURY",
-            classification="STAKEHOLDER",
-            source_ids=("SRC_GEX_INTERNAL_OFFTAKE_REVIEW",),
-        ),
-    ],
-    "etfuels_us_tx_rattlesnake_gap": [
-        RiskFlag(
-            id="rf_etf_rsg_capacity_conflict",
-            project_id="etfuels_us_tx_rattlesnake_gap",
-            claim="Capacity conflict: 125 kt (company current) vs 120 kt (trade press / third-party DB)",
-            severity="medium", confidence="high",
-            category="capacity_claim", owner_function="FINANCE_TREASURY",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_OUR_SOLUTION_2026", "SRC_ARGUS_RFOCEAN_2026_02_24", "SRC_CARBONSTORAGE_RATTLESNAKE"),
-        ),
-        RiskFlag(
-            id="rf_etf_rsg_electrolyser_mw_conflict",
-            project_id="etfuels_us_tx_rattlesnake_gap",
-            claim="Electrolyser MW conflict: 220 MW (Argus 2024) vs 500 MW (CarbonStorage DB)",
-            severity="high", confidence="medium",
-            category="site_permits", owner_function="ENGINEERING",
-            classification="PUBLIC",
-            source_ids=("SRC_ARGUS_2024_PIPELINE", "SRC_CARBONSTORAGE_RATTLESNAKE"),
-        ),
-        RiskFlag(
-            id="rf_etf_rsg_45v_qualification",
-            project_id="etfuels_us_tx_rattlesnake_gap",
-            claim="45V qualification not automatic — IRS guidance pending",
-            severity="high", confidence="medium",
-            category="certification", owner_function="COMPLIANCE_LEGAL",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_RATTLESNAKE_FEED_2025_10_27", "SRC_ARGUS_RFOCEAN_2026_02_24"),
-        ),
-        RiskFlag(
-            id="rf_etf_rsg_offtake_volume_private",
-            project_id="etfuels_us_tx_rattlesnake_gap",
-            claim="Offtake volume with RFOcean not publicly disclosed",
-            severity="medium", confidence="high",
-            category="offtake", owner_function="COMMERCIAL",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_RFOCEAN_2026_02_24", "SRC_ARGUS_RFOCEAN_2026_02_24"),
-        ),
-    ],
-    "etfuels_fi_ranua_naataaapa": [
-        RiskFlag(
-            id="rf_etf_ranua_capacity_conflict",
-            project_id="etfuels_fi_ranua_naataaapa",
-            claim="Capacity conflict: 110 kt (tax credit release) vs 100 kt (legacy page)",
-            severity="medium", confidence="high",
-            category="capacity_claim", owner_function="FINANCE_TREASURY",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23", "SRC_ETFUELS_OLD_PROJECTS"),
-        ),
-        RiskFlag(
-            id="rf_etf_ranua_tax_credit_not_cash",
-            project_id="etfuels_fi_ranua_naataaapa",
-            claim="Tax credit is NOT a cash grant — depends on tax eligibility and utilisation",
-            severity="high", confidence="high",
-            category="financing", owner_function="FINANCE_TREASURY",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23",),
-        ),
-        RiskFlag(
-            id="rf_etf_ranua_offtake_private",
-            project_id="etfuels_fi_ranua_naataaapa",
-            claim="Offtake not publicly disclosed",
-            severity="medium", confidence="high",
-            category="offtake", owner_function="COMMERCIAL",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23",),
-        ),
-        RiskFlag(
-            id="rf_etf_ranua_co2_counterparty",
-            project_id="etfuels_fi_ranua_naataaapa",
-            claim="CO₂ counterparty not public — certification risk",
-            severity="medium", confidence="medium",
-            category="certification", owner_function="COMPLIANCE_LEGAL",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23", "SRC_ETFUELS_OLD_PROJECTS"),
-        ),
-    ],
-    "etfuels_uk_skyfuel_teesside": [
-        RiskFlag(
-            id="rf_etf_skyfuel_aff_dev_support",
-            project_id="etfuels_uk_skyfuel_teesside",
-            claim="AFF grant is development support only — not full project finance",
-            severity="high", confidence="high",
-            category="financing", owner_function="FINANCE_TREASURY",
-            classification="PUBLIC",
-            source_ids=("SRC_GOVUK_AFF_WINNERS_2025_07_22", "SRC_RICARDO_AFF"),
-        ),
-        RiskFlag(
-            id="rf_etf_skyfuel_rcm_developing",
-            project_id="etfuels_uk_skyfuel_teesside",
-            claim="UK Revenue Certainty Mechanism details still developing (legislation May 2026)",
-            severity="high", confidence="medium",
-            category="policy", owner_function="COMPLIANCE_LEGAL",
-            classification="PUBLIC",
-            source_ids=("SRC_UK_SAF_TASK_FINISH_2026_04_27",),
-        ),
-        RiskFlag(
-            id="rf_etf_skyfuel_feedstock_dependency",
-            project_id="etfuels_uk_skyfuel_teesside",
-            claim="Feedstock dependency on external e-methanol pipeline (TX/FI)",
-            severity="medium", confidence="high",
-            category="supply_chain", owner_function="OPERATIONS",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_OUR_SOLUTION_2026", "SRC_ETFUELS_OLD_PROJECTS"),
-        ),
-        RiskFlag(
-            id="rf_etf_skyfuel_saf_cert_chain",
-            project_id="etfuels_uk_skyfuel_teesside",
-            claim="SAF testing/certification/distribution chain required",
-            severity="medium", confidence="high",
-            category="certification", owner_function="OPERATIONS",
-            classification="PUBLIC",
-            source_ids=("SRC_ETFUELS_SKYFUEL_GRANT_2025_07_23",),
-        ),
-    ],
-}
+def _flags(project_id: str) -> list[RiskFlag]:
+    """The project's flags from PostgreSQL (project_risk_flag, alembic 068).
+
+    Read as a bootstrap (PLATFORM_ADMIN, through projects_store): the
+    classification filter below is what decides what a caller sees. The
+    RISK_FLAGS dictionary that stood here was moved into that table by
+    scripts/move_project_profiles_20261025.py and deleted (JML, 2026-10-25).
+    """
+    from app.core.projects_store import _rows
+
+    rows = _rows("SELECT id, project_id, claim, severity, confidence, category, owner_function, "
+                 "classification, source_ids, status FROM project_risk_flag WHERE project_id = :pid "
+                 "ORDER BY seq, id", {"pid": project_id})
+    return [RiskFlag(**{**r, "source_ids": tuple(r["source_ids"] or ())}) for r in rows]
+
 
 
 def visible_risk_flags(project_id: str, payload: dict[str, Any]) -> list[RiskFlag] | None:
@@ -210,7 +79,7 @@ def visible_risk_flags(project_id: str, payload: dict[str, Any]) -> list[RiskFla
     caller has no access to the project at all (404, not an empty list —
     an empty list would leak that the project exists).
     """
-    profile = PROJECT_ACCESS_PROFILES.get(project_id)
+    profile = get_project_profile(project_id)
     if profile is None:
         return None
 
@@ -237,4 +106,4 @@ def visible_risk_flags(project_id: str, payload: dict[str, Any]) -> list[RiskFla
             return is_owner and business_function in ("EXECUTIVE", "FINANCE_TREASURY")
         return False
 
-    return [f for f in RISK_FLAGS.get(project_id, []) if can_see(f)]
+    return [f for f in _flags(project_id) if can_see(f)]

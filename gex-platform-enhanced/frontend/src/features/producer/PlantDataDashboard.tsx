@@ -3,7 +3,6 @@
  * Shows latest values from registered OT gateways for a project.
  * Falls back to demo data if no gateway is connected.
  *
- * Backend: GET /api/v1/plant-data/demo/{project_id} (demo)
  *          GET /api/v1/plant-data/data/{project_id}  (live)
  */
 import { useState, useEffect } from 'react'
@@ -59,9 +58,6 @@ const DATA_TYPE_CONFIG: Record<string, {
     valueKey: 'status',
   },
 }
-
-// Fallback when no project context is provided via ?project= or selectedProject.
-const FALLBACK_PROJECT_ID = 'proj_breizh_saf'
 
 function RecordCard({ record }: { record: PlantRecord }) {
   const config = DATA_TYPE_CONFIG[record.data_type]
@@ -140,17 +136,16 @@ function RecordCard({ record }: { record: PlantRecord }) {
 export function PlantDataDashboard() {
   const [records, setRecords] = useState<PlantRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [isDemo, setIsDemo] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   // Project context resolution order:
   //   1. ?project=<id> from URL (deep-link from ProjectProfile)
   //   2. global useSelectedProject() context
-  //   3. FALLBACK_PROJECT_ID for unauthenticated demo flow
+  //   (no fallback: it used to be a non-existent "proj_breizh_saf", 2026-10-25)
   const [searchParams] = useSearchParams()
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject()
   const queryProject = searchParams.get('project')
-  const projectId = queryProject || selectedProjectId || FALLBACK_PROJECT_ID
+  const projectId = queryProject || selectedProjectId || ''
 
   // Sync the query-string project into global context so other screens
   // the user navigates to next stay on the same project.
@@ -161,32 +156,20 @@ export function PlantDataDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryProject])
 
+  // Received readings only (2026-10-25). A plant with none used to be shown
+  // generated "demo" readings from /plant-data/demo.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const load = () => {
+    if (!projectId) { setRecords([]); setLoading(false); return }
     setLoading(true)
     plantDataAPI.getForProject(projectId)
       .then((data) => {
-        if (data.records && data.records.length > 0) {
-          setRecords(data.records)
-          setIsDemo(false)
-        } else {
-          return plantDataAPI.getDemoData(projectId).then((demo) => {
-            setRecords(demo.records || [])
-            setIsDemo(true)
-          })
-        }
+        setRecords(data.records || [])
+        setLoadError(null)
         setLastRefresh(new Date())
-        setLoading(false)
       })
-      .catch(() => {
-        plantDataAPI.getDemoData(projectId)
-          .then((demo) => {
-            setRecords(demo.records || [])
-            setIsDemo(true)
-            setLastRefresh(new Date())
-            setLoading(false)
-          })
-          .catch(() => setLoading(false))
-      })
+      .catch((e) => setLoadError(e.message || 'Plant data unavailable'))
+      .finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [projectId])
@@ -212,10 +195,10 @@ export function PlantDataDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {isDemo && (
+          {(loadError || (!loading && records.length === 0)) && (
             <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded">
               <AlertCircle size={12} />
-              Demo data — no gateway connected
+              {loadError ?? (projectId ? 'No readings received from this plant' : 'Select a project first')}
             </div>
           )}
           <button

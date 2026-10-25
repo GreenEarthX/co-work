@@ -1,6 +1,6 @@
 // Screen: All screens (root router)
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 import { ProjectProvider } from '@/contexts/ProjectContext'
 import { RequireAuth } from '@/components/RequireAuth'
 import { Layout } from '@/components/Layout'
@@ -278,6 +278,10 @@ function App() {
               <Route path="ciso-residency"      element={<ResidencyPolicies />} />
               <Route path="ciso-gateways"       element={<GatewayStatus />} />
             </Route>
+
+            {/* Unknown or retired addresses (e.g. the 15 unbuilt screens removed on
+                2026-10-23) go to the start page instead of rendering nothing. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </ProjectProvider>

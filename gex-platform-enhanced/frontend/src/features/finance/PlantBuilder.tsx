@@ -19,6 +19,7 @@ import { HELP } from '@/config/helpText';
 import { useSelectedProject } from '@/contexts/ProjectContext';
 import { useVisibleProjects } from '@/hooks/useVisibleProjects';
 import { getAuthHeader } from '@/lib/authToken';
+import { useProjectDataset } from './useProjectDataset'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -130,6 +131,21 @@ const DEFAULT_MARKET_PRICES: Record<string, number> = {
 };
 
 // ─── Main Component ───────────────────────────────────────────
+
+interface PlantPreset {
+  molecule: string
+  jurisdiction: string
+  power_price_eur_mwh: number
+  water_price_eur_m3: number
+  labour_count: number
+  labour_cost_eur_year: number
+  contingency_pct: number
+  wacc_pct: number
+  project_life_years: number
+  target_market_price_eur_t: number
+  equipment: { equipment_id: string; quantity: number }[]
+  notes?: string
+}
 
 export function PlantBuilder() {
   // Project context — threads real project_id through all API calls
@@ -336,113 +352,44 @@ export function PlantBuilder() {
     }
   };
 
-  const loadBreizh = async () => {
+  // The project's recorded plant configuration (project_dataset
+  // plant_builder_preset, UNVERIFIED) — 2026-10-25. Until then the Pecos I
+  // parameters were written into this screen, and a "Breizh SAF" reference (a
+  // plant that does not exist) could be loaded into any project.
+  const preset = useProjectDataset<PlantPreset>('plant_builder_preset', selectedProjectId)
+  const loadPreset = useCallback(async () => {
+    const p = preset.data
+    if (!p) return
+    setMolecule(p.molecule);
+    setJurisdiction(p.jurisdiction);
+    setPowerPrice(p.power_price_eur_mwh);
+    setWaterPrice(p.water_price_eur_m3);
+    setLabourCount(p.labour_count);
+    setLabourCost(p.labour_cost_eur_year);
+    setContingency(p.contingency_pct);
+    setWacc(p.wacc_pct);
+    setProjectLife(p.project_life_years);
+    setMarketPrice(p.target_market_price_eur_t);
     try {
-      const r = await fetch('/api/v1/plant-builder/breizh-reference');
-      const ref = await r.json();
-      setMolecule(ref.molecule);
-      setJurisdiction(ref.jurisdiction);
-      const op = ref.operating_parameters;
-      setPowerPrice(op.power_price_eur_mwh);
-      setWaterPrice(op.water_price_eur_m3);
-      setLabourCount(op.labour_count);
-      setLabourCost(op.labour_cost_eur_year);
-      setContingency(op.contingency_pct * 100);
-      setWacc(op.wacc_pct * 100);
-      setProjectLife(op.project_life_years);
-      setMarketPrice(op.target_market_price_eur_t);
-      // Hydrate config lines from catalog
-      const catalogR = await fetch('/api/v1/plant-builder/catalog');
-      const catalogData = await catalogR.json();
-      const itemMap: Record<string, EquipmentItem> = {};
-      (catalogData.items || []).forEach((i: EquipmentItem) => { itemMap[i.id] = i; });
-      setConfigLines(
-        ref.reference_configuration
-          .filter((l: any) => itemMap[l.equipment_id])
-          .map((l: any) => {
-            const item = itemMap[l.equipment_id];
-            return {
-              equipment_id: item.id,
-              name: item.name,
-              category: item.category,
-              quantity: l.quantity,
-              unit_price_eur: item.unit_price_eur,
-              installed_cost_eur: item.installed_cost_eur,
-            };
-          })
-      );
-    } catch (e) {
-      console.error('Breizh load failed', e);
-    }
-  };
-
-  // ── ETFuels Pecos I reference config (frontend preset — Option B) ─────────
-  // 340 MW wind → 150 MW PEM electrolysis → 165,000 t/yr e-methanol, Pecos County TX
-  const loadPecosI = useCallback(async () => {
-    setMolecule('E_METHANOL');
-    setJurisdiction('US');
-    setPowerPrice(35.0);      // ERCOT West: ~$35/MWh (West Texas surplus wind zone)
-    setWaterPrice(2.0);
-    setLabourCount(80);
-    setLabourCost(85000);     // US construction wages, Pecos County
-    setContingency(12);
-    setWacc(8.5);
-    setProjectLife(25);
-    setMarketPrice(470);      // ~$510/t at 1.09 USD/EUR (Gabillon forward, 2027 delivery)
-    try {
-      // Unfiltered catalogue: the e-methanol filter leaves out electrolysers, yet
-      // e-methanol is made from electrolytic hydrogen — the stacks must be costed.
       const r = await fetch('/api/v1/plant-builder/catalog');
       const data = await r.json();
-      const items: EquipmentItem[] = data.items || [];
-      const lines: ConfigLine[] = [];
-
-      // 150 MW of PEM electrolysis. The catalogue has no 25 MW stack, so the
-      // 6 × 25 MW design is costed as 3 × 50 MW (same installed capacity).
-      const pemItem =
-        items.find(i => i.category === 'ELECTROLYSER' && /pem/i.test(i.name) && /\b50 ?mw\b/i.test(i.name)) ??
-        items.find(i => i.category === 'ELECTROLYSER' && /pem/i.test(i.name));
-      const pemQty = pemItem && /\b50 ?mw\b/i.test(pemItem.name) ? 3 : 6;
-      if (pemItem) {
-        lines.push({
-          equipment_id: pemItem.id,
-          name: pemItem.name,
-          category: pemItem.category,
-          quantity: pemQty,
-          unit_price_eur: pemItem.unit_price_eur,
-          installed_cost_eur: pemItem.installed_cost_eur,
-        });
-      }
-
-      // Methanol synthesis reactor (CO₂ hydrogenation route)
-      const synItem =
-        items.find(i => i.name.toLowerCase().includes('methanol')) ??
-        items.find(i => i.category === 'REACTOR');
-      if (synItem) {
-        lines.push({
-          equipment_id: synItem.id,
-          name: synItem.name,
-          category: synItem.category,
-          quantity: 1,
-          unit_price_eur: synItem.unit_price_eur,
-          installed_cost_eur: synItem.installed_cost_eur,
-        });
-      }
-
-      if (lines.length > 0) setConfigLines(lines);
+      const byId: Record<string, EquipmentItem> = {};
+      (data.items || []).forEach((i: EquipmentItem) => { byId[i.id] = i; });
+      setConfigLines(p.equipment.filter(e => byId[e.equipment_id]).map(e => {
+        const item = byId[e.equipment_id];
+        return {
+          equipment_id: item.id, name: item.name, category: item.category, quantity: e.quantity,
+          unit_price_eur: item.unit_price_eur, installed_cost_eur: item.installed_cost_eur,
+        };
+      }));
     } catch (e) {
-      // Catalog unavailable — parameters set; equipment selection manual
-      console.warn('Pecos I catalog pre-load failed — parameters applied, add equipment manually', e);
-    }
-  }, []);
-
-  // Auto-load Pecos I config on first render when that project is selected
-  useEffect(() => {
-    if (selectedProjectId === 'proj_etf_pecos1') {
-      loadPecosI();
+      console.warn('Catalogue unavailable — parameters applied, add equipment manually', e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId]);
+  }, [preset.data]);
+
+  // Load the recorded configuration when the project has one.
+  useEffect(() => { if (preset.data) loadPreset(); }, [preset.data, loadPreset]);
 
   // ── Filtered catalog items ────────────────────────────────
   const filteredCatalog = (items: EquipmentItem[]) => {
@@ -483,24 +430,16 @@ export function PlantBuilder() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {selectedProject?.id === 'proj_etf_pecos1' && (
+          {preset.data && (
             <button
-              onClick={loadPecosI}
+              onClick={loadPreset}
               className="px-3 py-1.5 text-xs rounded border font-mono"
               style={{ borderColor: '#0ea5a0', color: '#0ea5a0' }}
-              title="Load ETFuels Rattlesnake Gap: 150 MW PEM electrolysis (3 × 50 MW) + methanol synthesis, West Texas power parameters"
+              title={preset.data.notes ?? 'The configuration recorded for this project (unverified)'}
             >
-              Load Rattlesnake Gap
+              Load recorded configuration
             </button>
           )}
-          <button
-            onClick={loadBreizh}
-            className="px-3 py-1.5 text-xs rounded border font-mono"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-            title="Load Breizh SAF Complex reference (GEX-BRZ-SAF-001)"
-          >
-            Load Breizh Reference
-          </button>
           {result && actionError && (
             <span className="text-xs text-red-700">{actionError}</span>
           )}

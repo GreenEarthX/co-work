@@ -169,42 +169,17 @@ async def full_recommendation(project_id: str):
 
 # ── Demo context (replace with DB queries in production) ──
 
-DEMO_CONTEXTS = {
-    "proj_bremen_h2": {
-        "jurisdiction": "DE", "molecule": "H2", "stage": "BUILDABLE",
-        "project_size_eur": 180_000_000,
-        "gate_scores": {"G0": 95, "G1": 88, "G2": 72, "G3": 90, "G4": 78, "G5": 45, "G6": 0, "G7": 55, "G8": 68, "G9": 92, "G10": 0, "G11": 0},
-        "dscr_p50": 1.34, "dscr_p90": 1.18, "llcr": 1.41, "wacc": 0.089,
-        "offtake_coverage_pct": 0.55, "cert_readiness": 88,
-        "epc_status": "SHORTLISTING", "insurance_status": "QUOTED", "grid_status": "FIRM_OFFER",
-    },
-    "proj_lehavre_eng": {
-        "jurisdiction": "FR", "molecule": "E_NG", "stage": "OPERATIONAL",
-        "project_size_eur": 320_000_000,
-        "gate_scores": {"G0": 100, "G1": 100, "G2": 98, "G3": 95, "G4": 100, "G5": 100, "G6": 95, "G7": 100, "G8": 98, "G9": 100, "G10": 100, "G11": 95},
-        "dscr_p50": 1.58, "dscr_p90": 1.42, "llcr": 1.65, "wacc": 0.068,
-        "offtake_coverage_pct": 0.92, "cert_readiness": 98,
-        "epc_status": "COMPLETE", "insurance_status": "PLACED", "grid_status": "CONNECTED",
-    },
-    "proj_wales_saf": {
-        "jurisdiction": "GB", "molecule": "SAF", "stage": "COMMERCIALLY_PLAUSIBLE",
-        "project_size_eur": 250_000_000,
-        "gate_scores": {"G0": 60, "G1": 40, "G2": 30, "G3": 50, "G4": 20, "G5": 10, "G6": 0, "G7": 15, "G8": 25, "G9": 45, "G10": 0, "G11": 0},
-        "dscr_p50": 0.98, "dscr_p90": 0.82, "llcr": 0.95, "wacc": 0.112,
-        "offtake_coverage_pct": 0.15, "cert_readiness": 35,
-        "epc_status": "NOT_STARTED", "insurance_status": "NOT_STARTED", "grid_status": "APPLIED",
-    },
-}
-
-# Default to Breizh SAF
-_DEFAULT_CTX = {
-    "jurisdiction": "FR", "molecule": "SAF", "stage": "BUILDABLE",
-    "project_size_eur": 285_000_000,
-    "gate_scores": {"G0": 95, "G1": 88, "G2": 72, "G3": 90, "G4": 78, "G5": 45, "G6": 0, "G7": 55, "G8": 68, "G9": 92, "G10": 0, "G11": 0},
-    "dscr_p50": 1.34, "dscr_p90": 1.18, "llcr": 1.41, "wacc": 0.089,
-    "offtake_coverage_pct": 0.55, "cert_readiness": 88,
-    "epc_status": "SHORTLISTING", "insurance_status": "QUOTED", "grid_status": "FIRM_OFFER",
-}
+# The structuring context of a project lives in PostgreSQL (project_dataset,
+# kind structuring_context, alembic 069). DEMO_CONTEXTS and its default — a
+# project that does not exist ("Breizh SAF") answering for every other one —
+# were removed on 2026-10-25.
 
 def _get_demo_context(project_id: str) -> dict:
-    return DEMO_CONTEXTS.get(project_id, _DEFAULT_CTX)
+    from app.core.projects_store import fetch_dataset
+
+    record = fetch_dataset(project_id, "structuring_context")
+    if record is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "STRUCTURING_CONTEXT_NOT_RECORDED",
+            "message": "No structuring context is recorded for this project, so no gaps or options are computed."})
+    return record["payload"]

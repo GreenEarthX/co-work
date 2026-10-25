@@ -43,36 +43,9 @@ export function ApprovalTrail({ resourceId, compact = false }: Props) {
         setLoading(false)
       })
       .catch(() => {
-        // Demo fallback trail
-        setEntries([
-          {
-            id: 'ae-001',
-            type: 'request',
-            timestamp: '2026-03-16T08:30:00Z',
-            action_type: 'SAF_FORWARD_SALE',
-            status: 'PENDING',
-            user_id: 'usr_bp_01',
-            request_id: 'req-001',
-          },
-          {
-            id: 'ae-002',
-            type: 'decision',
-            timestamp: '2026-03-16T09:15:00Z',
-            decision: 'APPROVED',
-            user_id: 'usr_risk_officer',
-            reason: 'Within approved trading limits',
-            request_id: 'req-001',
-          },
-          {
-            id: 'ae-003',
-            type: 'decision',
-            timestamp: '2026-03-16T10:02:00Z',
-            decision: 'APPROVED',
-            user_id: 'usr_treasury_head',
-            reason: 'Counterparty credit checked — OK',
-            request_id: 'req-001',
-          },
-        ])
+        // No invented trail (2026-10-25): a failed call used to show three
+        // approvals by sample users. A failure now reads as "no history".
+        setEntries([])
         setLoading(false)
       })
   }, [resourceId])

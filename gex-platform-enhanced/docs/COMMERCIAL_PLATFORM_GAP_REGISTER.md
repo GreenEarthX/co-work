@@ -93,8 +93,13 @@ refers to it. Details and next steps: `docs/CLAUDE_HANDOFF.md` §8 item 46.
 
 **Data held in code (audit of 2026-10-23, JML: "all variables and data points in PostgreSQL").**
 Fixed for the market screens (handoff §8 item 47): Marketplace records now in PostgreSQL as
-UNVERIFIED (066), placeholders and synthetic charts removed, Counterparties built. **Open, next
-task:** projects themselves — `frontend/src/data/customerProjects.ts` still supplies bankability,
+UNVERIFIED (066), placeholders and synthetic charts removed, Counterparties built. **Progress 2026-10-25 (handoff §8 item 48):** project access, profiles,
+context seeds, risk flags and profile intelligence moved to PostgreSQL (067/068); spot prices
+approved and Marketplace records confirmed. **Part 2 done (069, item 49):** project truth,
+structuring, drawdowns, adjacency, aliases. **Still open:** the frontend's own per-project data
+(about 15 screens) — **done 2026-10-25 (071, item 51)**: per-project datasets in PostgreSQL,
+UNVERIFIED, awaiting confirmation. **CISO workspace done (070, item 50):** real accounts, sign-ins, barriers;
+not-recorded where nothing is stored. **Was open:** projects themselves — `frontend/src/data/customerProjects.ts` still supplies bankability,
 gates and offtakes to most screens, and `project_registry.PROJECT_ACCESS_PROFILES` (owners,
 lenders) is code; vocabulary lists `trading_book/schemas.py` KNOWN_*. The match threshold and
 score weights stay in code by decision (method, not data).

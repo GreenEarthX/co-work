@@ -128,17 +128,8 @@ def init_ot_db(db_path: str = _DB_PATH) -> None:
             ON plant_data(data_type);
     """)
 
-    # Seed demo gateway for Breizh SAF
-    cur.execute("SELECT COUNT(*) FROM gateway_registry")
-    if cur.fetchone()[0] == 0:
-        cur.execute(
-            """INSERT OR IGNORE INTO gateway_registry
-               (id, project_id, gateway_name, cert_fingerprint, ip_allowlist)
-               VALUES (?,?,?,?,?)""",
-            ("gw-breizh-001", "proj_breizh_saf", "Breizh SAF OT Gateway",
-             "sha256:demo_cert_fingerprint_change_in_production",
-             json.dumps(["10.0.100.1", "10.0.100.2", "127.0.0.1"]))
-        )
+    # No seeded gateway (2026-10-25): one was registered for a project that
+    # does not exist ("proj_breizh_saf"). Gateways are registered, not seeded.
 
     con.commit()
     con.close()

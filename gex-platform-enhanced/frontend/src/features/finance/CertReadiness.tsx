@@ -6,6 +6,7 @@ import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { fetchCertificationGate, type CertificationGateResult } from '@/lib/certificationGateApi'
+import { useProjectDataset, UnverifiedBadge } from './useProjectDataset'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -52,252 +53,6 @@ interface ProjectCert {
   verifier: string
   nextAction: string
   gaps: GapRow[]
-}
-
-// ═══════════════════════════════════════════════════════════════
-// DEMO DATA
-// ═══════════════════════════════════════════════════════════════
-
-function makeGate(
-  id: string,
-  name: string,
-  description: string,
-  status: GateStatus,
-  score: number,
-  rawItems: string[]
-): CertGate {
-  return {
-    id,
-    name,
-    description,
-    status,
-    score,
-    evidence: rawItems.map(item => ({
-      text: item.replace(/^[✓✗] /, ''),
-      pass: item.startsWith('✓'),
-    })),
-  }
-}
-
-const CERT_DATA: Record<string, ProjectCert> = {
-  proj_le_havre_eng: {
-    overall: 96,
-    additionality: makeGate(
-      'additionality', 'Additionality', 'Is the renewable power source new and additional capacity?',
-      'PASS', 98,
-      ['✓ Dedicated 200MW offshore wind farm (new capacity)', '✓ PPA signed with commissioning date 2024', '✓ Additionality declaration from RTE confirmed', '✓ No grid injection — direct connection']
-    ),
-    temporal: makeGate(
-      'temporal', 'Temporal Correlation', 'Is H₂ production correlated hourly with renewable generation?',
-      'PASS', 95,
-      ['✓ Hourly matching protocol in place', '✓ SOEC can modulate down to 15% in <5min', '✓ Smart charging controller installed', '✓ Data logger: 15-min intervals, 99.7% uptime']
-    ),
-    geographical: makeGate(
-      'geographical', 'Geographical Correlation', 'Same bidding zone or direct physical connection?',
-      'PASS', 98,
-      ['✓ Same bidding zone (FR)', '✓ Direct cable connection confirmed', '✓ No cross-zone transfer required']
-    ),
-    lca: makeGate(
-      'lca', 'LCA Intensity', 'Lifecycle CO₂ below 3.4 kgCO₂e/kgH₂ threshold (RFNBO/RED III)?',
-      'PASS', 92,
-      ['✓ LCA: 0.82 kgCO₂e/kgH₂ (well below 3.4 threshold)', '✓ DNV LCA report completed', '✓ Methane slip: <0.1%', '✓ Electrolysis: SOEC 82% efficiency']
-    ),
-    track: 'PRE_AUDIT',
-    verifier: 'DNV — pre-audit scheduled Q2-2026',
-    nextAction: 'Submit pre-audit documentation package to DNV',
-    gaps: [],
-  },
-  proj_bremen_h2: {
-    overall: 74,
-    additionality: makeGate(
-      'additionality', 'Additionality', 'Is the renewable power source new and additional capacity?',
-      'PASS', 85,
-      ['✓ PPA with Vattenfall offshore wind (new build)', '✓ PPA commissioning date 2023', '✗ Additionality declaration from BNetzA pending', '✓ Grid-connected but RFNBO hourly rule applies']
-    ),
-    temporal: makeGate(
-      'temporal', 'Temporal Correlation', 'Is H₂ production correlated hourly with renewable generation?',
-      'PARTIAL', 72,
-      ['✓ Hourly matching controller installed', '✗ Periods of grid draw during low-wind — 12% of hours in Q1 2025', '✓ Dynamic modulation protocol in operation', '✗ Backup grid use not yet excluded from LCA boundary']
-    ),
-    geographical: makeGate(
-      'geographical', 'Geographical Correlation', 'Same bidding zone or direct physical connection?',
-      'PASS', 88,
-      ['✓ Same bidding zone (DE-LU)', '✓ Wind farm within 50km', '✓ No cross-zone transfer']
-    ),
-    lca: makeGate(
-      'lca', 'LCA Intensity', 'Lifecycle CO₂ below 3.4 kgCO₂e/kgH₂ threshold (RFNBO/RED III)?',
-      'PARTIAL', 65,
-      ['✓ Preliminary LCA: 2.1 kgCO₂e/kgH₂ (below 3.4)', '✗ Full LCA not yet commissioned', '✗ Backup grid emissions not excluded', '✓ PEM efficiency 68% confirmed by commissioning test']
-    ),
-    track: 'LCA_COMMISSION',
-    verifier: 'TÜV Rheinland — engagement letter under review',
-    nextAction: 'Commission full LCA study and exclude backup grid use from boundary',
-    gaps: [
-      { gate: 'Additionality', missing: 'BNetzA declaration pending', action: 'File additionality declaration with BNetzA', timeToClose: '4–6 weeks' },
-      { gate: 'Temporal',      missing: '12% grid draw hours unaccounted', action: 'Implement dynamic curtailment to eliminate grid draw', timeToClose: '2–3 months' },
-      { gate: 'LCA',           missing: 'Full LCA not commissioned', action: 'Commission TÜV Rheinland LCA — exclude backup grid boundary', timeToClose: '3–4 months' },
-    ],
-  },
-  proj_helios_emethanol: {
-    overall: 58,
-    additionality: makeGate(
-      'additionality', 'Additionality', 'Is the renewable power source new and additional capacity?',
-      'PARTIAL', 65,
-      ['✓ PPA with Iberdrola solar (new capacity)', '✗ Additionality confirmation from CNMC pending', '✗ PPA covers 80% of demand — 20% grid top-up not yet addressed', '✓ Direct connection planned for 2027']
-    ),
-    temporal: makeGate(
-      'temporal', 'Temporal Correlation', 'Is production correlated hourly with renewable generation?',
-      'PARTIAL', 55,
-      ['✗ Hourly matching protocol not yet implemented', '✓ Electrolyser can modulate to 20%', '✗ Control system upgrade needed for RFNBO compliance', '✗ 15-min data logging not yet operational']
-    ),
-    geographical: makeGate(
-      'geographical', 'Geographical Correlation', 'Same bidding zone or direct physical connection?',
-      'PASS', 82,
-      ['✓ Same bidding zone (ES)', '✓ Wind/solar within 100km', '✓ No cross-zone transfer']
-    ),
-    lca: makeGate(
-      'lca', 'LCA Intensity', 'Lifecycle CO₂ below 3.4 kgCO₂e/kgH₂ threshold (RFNBO/RED III)?',
-      'PARTIAL', 48,
-      ['✗ LCA not yet commissioned', '✓ Expected intensity: ~1.8 kgCO₂e/kgH₂ (estimate only)', '✗ CO₂ feedstock chain LCA required (methanol pathway)', '✗ No verifier engaged']
-    ),
-    track: 'PRE_ASSESSMENT',
-    verifier: 'None engaged',
-    nextAction: 'Commission LCA study and implement hourly matching protocol',
-    gaps: [
-      { gate: 'Additionality',  missing: 'CNMC declaration missing; 20% grid top-up not addressed', action: 'File with CNMC; negotiate additional PPA capacity', timeToClose: '4–8 weeks' },
-      { gate: 'Temporal',       missing: 'No hourly matching; control system upgrade required', action: 'Install 15-min data logger and dynamic control system', timeToClose: '3–5 months' },
-      { gate: 'LCA',            missing: 'LCA not commissioned; CO₂ feedstock chain missing', action: 'Engage verifier and scope full methanol pathway LCA', timeToClose: '5–7 months' },
-    ],
-  },
-  proj_rotterdam_nh3: {
-    overall: 22,
-    additionality: makeGate(
-      'additionality', 'Additionality', 'Is the renewable power source new and additional capacity?',
-      'FAIL', 20,
-      ['✗ No PPA signed', '✗ No additionality plan', '✗ Grid power only — disqualified for RFNBO under current structure', '✗ Wind farm site not identified']
-    ),
-    temporal: makeGate(
-      'temporal', 'Temporal Correlation', 'Is production correlated hourly with renewable generation?',
-      'FAIL', 10,
-      ['✗ No renewable power agreement', '✗ No modulation protocol', '✗ Grid-only operation not RFNBO compliant']
-    ),
-    geographical: makeGate(
-      'geographical', 'Geographical Correlation', 'Same bidding zone or direct physical connection?',
-      'FAIL', 15,
-      ['✗ No dedicated renewable generation', '✗ Grid power from NL bidding zone — mixed origin']
-    ),
-    lca: makeGate(
-      'lca', 'LCA Intensity', 'Lifecycle CO₂ below 3.4 kgCO₂e/kgH₂ threshold (RFNBO/RED III)?',
-      'FAIL', 18,
-      ['✗ No LCA commissioned', '✗ Grid power LCA: ~18 kgCO₂e/kgH₂ (well above 3.4 limit)', '✗ Project structurally non-compliant until power sourcing resolved']
-    ),
-    track: 'NOT_STARTED',
-    verifier: 'None',
-    nextAction: 'CRITICAL: Secure dedicated renewable PPA before any certification pathway can begin',
-    gaps: [
-      { gate: 'Additionality',  missing: 'No PPA, no additionality plan, grid-only structure', action: 'CRITICAL: Source and execute dedicated renewable PPA', timeToClose: '6–12 months' },
-      { gate: 'Temporal',       missing: 'No renewable agreement, no modulation', action: 'Cannot proceed until power sourcing resolved', timeToClose: '12+ months' },
-      { gate: 'Geographical',   missing: 'No dedicated generation in zone', action: 'Identify wind/solar asset within NL bidding zone', timeToClose: '6–12 months' },
-      { gate: 'LCA',            missing: 'LCA would fail (18 kgCO₂e/kgH₂ grid intensity)', action: 'LCA cannot pass until renewable power secured', timeToClose: '12+ months' },
-    ],
-  },
-  proj_wales_saf: {
-    overall: 18,
-    additionality: makeGate(
-      'additionality', 'Additionality', 'Is the renewable power source new and additional capacity?',
-      'FAIL', 15,
-      ['✗ No PPA executed', '✗ LOI with grid-balancing wind only', '✗ Additionality not established']
-    ),
-    temporal: makeGate(
-      'temporal', 'Temporal Correlation', 'Is production correlated hourly with renewable generation?',
-      'FAIL', 12,
-      ['✗ No hourly matching', '✗ Fischer-Tropsch cannot modulate on hourly basis', '✗ SAF pathway requires upstream H₂ hourly matching']
-    ),
-    geographical: makeGate(
-      'geographical', 'Geographical Correlation', 'Same bidding zone or direct physical connection?',
-      'PARTIAL', 35,
-      ['✓ Welsh offshore wind in same GB zone', '✗ No direct connection or firm capacity', '✗ Transmission constraints in Welsh grid identified']
-    ),
-    lca: makeGate(
-      'lca', 'LCA Intensity', 'Lifecycle CO₂ below 3.4 kgCO₂e/kgH₂ threshold (RFNBO/RED III)?',
-      'FAIL', 10,
-      ['✗ No LCA commissioned', '✗ F-T SAF pathway LCA complex — needs verifier', '✗ No efficiency data available']
-    ),
-    track: 'NOT_STARTED',
-    verifier: 'None',
-    nextAction: 'Project not cert-ready. Resolve power sourcing and offtake before certification planning.',
-    gaps: [
-      { gate: 'Additionality',  missing: 'No executed PPA; LOI insufficient', action: 'Execute dedicated offshore wind PPA', timeToClose: '9–12 months' },
-      { gate: 'Temporal',       missing: 'F-T process cannot hourly-match; no upstream H₂ matching', action: 'Redesign process to enable H₂ buffer and hourly matching', timeToClose: '12+ months' },
-      { gate: 'Geographical',   missing: 'No firm capacity; transmission constraint identified', action: 'Secure firm grid connection and resolve transmission constraint', timeToClose: '12–18 months' },
-      { gate: 'LCA',            missing: 'No data; F-T SAF LCA scope undefined', action: 'Commission verifier for SAF LCA once power sourcing resolved', timeToClose: '12+ months' },
-    ],
-  },
-  // ── ETFuels Pecos I — RFNBO / RED III track (partial: temporal review pending) ──
-  proj_etf_pecos1: {
-    overall: 61,
-    additionality: makeGate(
-      'additionality', 'Additionality', 'Is the renewable power source new and additional capacity?',
-      'PASS', 88,
-      ['✓ Dedicated 340 MW greenfield wind farm (new capacity)', '✓ PPA commissioning date: Q3 2026', '✓ No grid injection — direct cable connection to electrolysis plant', '✓ Additionality declaration submitted to DOE (H2Hubs programme)']
-    ),
-    temporal: makeGate(
-      'temporal', 'Temporal Correlation', 'Is H₂ production correlated hourly with renewable generation?',
-      'PARTIAL', 58,
-      ['✓ Annual matching: compliant under current IRS Notice 2023-29 (45V)', '✗ RFNBO hourly matching: not yet implemented — rule review pending', '✓ PEM electrolyser can modulate to 15% within 3 min', '✗ 15-min interval data logging: certification not yet issued']
-    ),
-    geographical: makeGate(
-      'geographical', 'Geographical Correlation', 'Same bidding zone or direct physical connection?',
-      'PASS', 91,
-      ['✓ ERCOT West zone — same interconnect as electrolysis plant', '✓ No cross-zone transfer required', '✓ Pecos County: surplus wind region, minimal grid congestion', '✓ DOE geographic mapping complete']
-    ),
-    lca: makeGate(
-      'lca', 'LCA Intensity', 'Lifecycle CO₂ below 3.4 kgCO₂e/kgH₂ threshold (RFNBO/RED III)?',
-      'PASS', 85,
-      ['✓ Preliminary LCA: 0.82 kgCO₂e/kgH₂ (well below 3.4 RFNBO threshold)', '✓ DNV pre-audit complete', '✓ Methanol synthesis chain emissions included', '✗ Final DNV certification report pending (Q3 2026)']
-    ),
-    track: 'PRE_AUDIT',
-    verifier: 'DNV — pre-audit complete; final report Q3 2026',
-    nextAction: 'Resolve RFNBO temporal matching (hourly vs annual) before EU certification filing',
-    gaps: [
-      { gate: 'Temporal', missing: 'RFNBO requires hourly matching; IRS annual rule conflicts', action: 'Elect 45V primary; use annual matching for 45V. Defer RFNBO hourly matching to post-IRS guidance update.', timeToClose: 'IRS guidance Q4 2026 (est.)' },
-      { gate: 'LCA',      missing: 'DNV final report not yet issued', action: 'Finalise DNV LCA report — on track Q3 2026', timeToClose: '2–3 months' },
-    ],
-  },
-}
-
-// ═══════════════════════════════════════════════════════════════
-// 45V (US CLEAN HYDROGEN PTC) GATE DATA
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * 45V gates for US projects. Keyed by project ID.
- * Backend: decision_twin.py FORTY_FIVE_V enum + V45_EvaluationRequest.
- * instrument_registry.py US_45V_PTC has explicit 45V+RFNBO conflict note.
- */
-const V45_DATA: Record<string, CertGate[]> = {
-  proj_etf_pecos1: [
-    makeGate(
-      'v45_ghg_tier', 'GHG Intensity — Tier 1', 'Well-to-gate lifecycle <0.45 kgCO₂e/kgH₂ → $3/kg PTC (max credit tier)',
-      'PASS', 92,
-      ['✓ Lifecycle emissions: 0.42 kgCO₂e/kgH₂ (below 0.45 Tier 1 threshold)', '✓ GREET model pathway verified by Argonne National Lab (pre-audit)', '✓ DNV Tier 1 determination letter received', '✗ Final IRS-compliant LCA report pending Q3 2026']
-    ),
-    makeGate(
-      'v45_prevailing_wage', 'Prevailing Wage & Apprenticeship', 'Davis-Bacon Act wage compliance + 15% apprenticeship ratio for construction',
-      'PARTIAL', 55,
-      ['✓ Davis-Bacon wage schedule filed with DOE H2Hubs', '✓ Payroll certification and tracking system operational', '✗ Apprenticeship ratio: 12% vs 15% required (ramp-up in progress)', '✗ Q2 2026 apprenticeship compliance filing pending with DOL']
-    ),
-    makeGate(
-      'v45_temporal', 'Temporal Matching (Annual)', 'IRS Notice 2023-29: annual matching currently permitted; hourly rule under review',
-      'PASS', 78,
-      ['✓ Annual matching: compliant under IRS Notice 2023-29 (current rule)', '✓ 340 MW wind operates surplus to PEM demand 74% of hours (annual average)', '✗ IRS final rule on hourly matching pending — risk flag (timing conflict with RFNBO)', '✓ GEX model parameterised for both annual and hourly scenarios']
-    ),
-    makeGate(
-      'v45_geography', 'Geographic RE Correlation', 'Renewable generation must be in the same region as hydrogen production facility',
-      'PASS', 88,
-      ['✓ Wind farm and electrolysis plant both in ERCOT West zone', '✓ No cross-zone transfer required', '✓ Pecos County geographic constraint met — surplus RE region', '✓ DOE technology-neutral geographic mapping complete']
-    ),
-  ],
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -472,7 +227,8 @@ function CertTrackBar({ current }: { current: CertTrack }) {
 
 function V45Section({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(true)
-  const gates = V45_DATA[projectId]
+  // project_dataset cert_45v (PostgreSQL since 2026-10-25), UNVERIFIED.
+  const gates = useProjectDataset<CertGate[]>('cert_45v', projectId).data
 
   // Compute overall 45V score
   const overall45v = gates
@@ -664,16 +420,14 @@ function LiveCertGatePanel({ projectId, molecule }: { projectId: string; molecul
 
 export function CertReadiness() {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject()
-  const [data, setData] = useState<ProjectCert | null>(null)
-
   const { projects: visibleProjects } = useVisibleProjects()
   const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
 
-  useEffect(() => {
-    // Demo data fallback — API not available
-    const d = CERT_DATA[selectedProjectId] ?? (visibleProjects[0] ? CERT_DATA[visibleProjects[0].id] : null)
-    setData(d)
-  }, [selectedProjectId])
+  // project_dataset cert_readiness (PostgreSQL since 2026-10-25), UNVERIFIED.
+  // It used to fall back to the FIRST visible project's dataset — another
+  // project's readiness shown under this one's name.
+  const ds = useProjectDataset<ProjectCert>('cert_readiness', selectedProjectId)
+  const data = ds.data
 
   // No sample dataset for this project — still render the LIVE panel. The
   // ledger-derived gate must never be hidden behind demo-data availability.
@@ -697,8 +451,8 @@ export function CertReadiness() {
           </p>
         )}
         <p className="text-xs" style={{ color: 'var(--text-muted, #94a3b8)' }}>
-          No sample readiness dataset exists for this project — only the live,
-          ledger-derived certification gate is shown.
+          {ds.loading ? 'Loading the recorded readiness…' : ds.error ? `Recorded readiness unavailable: ${ds.error}`
+            : 'No readiness assessment is recorded for this project — only the live, ledger-derived certification gate is shown.'}
         </p>
       </div>
     )
@@ -715,7 +469,7 @@ export function CertReadiness() {
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="mb-6">
-        <h1 className="text-xl font-bold mb-1">Certification Readiness</h1>
+        <h1 className="text-xl font-bold mb-1 flex items-center gap-2">Certification Readiness <UnverifiedBadge verification={ds.verification} /></h1>
         <p className="text-sm" style={{ color: 'var(--text-muted, #64748b)' }}>
           {TAB_DESCRIPTIONS.CERT_READINESS}
         </p>

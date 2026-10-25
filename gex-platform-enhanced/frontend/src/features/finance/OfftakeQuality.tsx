@@ -13,7 +13,7 @@ import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { HELP, TAB_DESCRIPTIONS } from "@/config/helpText";
 import { useSelectedProject } from "@/contexts/ProjectContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
-import type { CustomerProject } from "@/data/customerProjects";
+import { useProjectDataset, DatasetNotice, UnverifiedBadge } from "./useProjectDataset";
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -35,276 +35,6 @@ interface ProjectOfftake {
   redFlags: string[];
   remedies: string[];
 }
-
-// ═══════════════════════════════════════════════════════════════
-// DEMO DATA
-// ═══════════════════════════════════════════════════════════════
-
-const OFFTAKE_DATA: Record<string, ProjectOfftake> = {
-  proj_le_havre_eng: {
-    overall: 94,
-    tests: [
-      {
-        id: "TENOR",
-        label: "Tenor Match",
-        result: "PASS",
-        score: 100,
-        detail:
-          "20y offtake exceeds 15y debt by 5 years. Extension option included.",
-      },
-      {
-        id: "CREDIT",
-        label: "Counterparty Credit",
-        result: "PASS",
-        score: 98,
-        detail:
-          "GRTgaz AA- regulated utility + state backstop. Best-in-class counterparty.",
-      },
-      {
-        id: "VOLUME_FIRMNESS",
-        label: "Volume Firmness",
-        result: "PASS",
-        score: 95,
-        detail:
-          "92% contracted. Take-or-pay with force majeure curtailment protocol. Storage buffer confirmed.",
-      },
-      {
-        id: "PRICING_INDEXATION",
-        label: "Pricing & Indexation",
-        result: "PASS",
-        score: 90,
-        detail:
-          "TTF + green premium + capacity payment. Floor covers DSCR at P90. Reopener at year 10.",
-      },
-      {
-        id: "CURTAILMENT_SHAPE",
-        label: "Curtailment Shape",
-        result: "PASS",
-        score: 88,
-        detail:
-          "Pipeline injection with 8h buffer tank. Curtailment compensation clause at €0.85/kg.",
-      },
-    ],
-    redFlags: [],
-    remedies: [],
-  },
-  proj_bremen_h2: {
-    overall: 79,
-    tests: [
-      {
-        id: "TENOR",
-        label: "Tenor Match",
-        result: "PASS",
-        score: 95,
-        detail:
-          "15y offtake matches 15y debt. 2-year extension option recommended.",
-      },
-      {
-        id: "CREDIT",
-        label: "Counterparty Credit",
-        result: "PASS",
-        score: 88,
-        detail:
-          "Vattenfall BBB+ + parent guarantee. Acceptable for senior lender.",
-      },
-      {
-        id: "VOLUME_FIRMNESS",
-        label: "Volume Firmness",
-        result: "PASS_WITH_NOTE",
-        score: 72,
-        detail:
-          "78% contracted. Take-or-pay but no make-good clause. Second offtaker for remaining 22% needed.",
-      },
-      {
-        id: "PRICING_INDEXATION",
-        label: "Pricing & Indexation",
-        result: "PASS",
-        score: 82,
-        detail:
-          "ICIS H₂ NWE + logistics escalator. Floor at €1.55/kg covers DSCR minimum.",
-      },
-      {
-        id: "CURTAILMENT_SHAPE",
-        label: "Curtailment Shape",
-        result: "PASS_WITH_NOTE",
-        score: 58,
-        detail:
-          "No dedicated H₂ storage on-site. Port tank access via off-take agreement — acceptable but fragile.",
-      },
-    ],
-    redFlags: [
-      "78% contracted below 85% target — second offtaker required",
-      "No make-good clause — add to next offtake amendment",
-      "Storage dependency on port operator creates single point of failure",
-    ],
-    remedies: [
-      "Execute binding LOI with industrial H₂ user (refinery or transport hub) for remaining 22%",
-      "Add make-good clause and outage protocol in next amendment",
-      "Negotiate dedicated H₂ storage slot at port or install 500kg buffer tank",
-    ],
-  },
-  proj_helios_emethanol: {
-    overall: 62,
-    tests: [
-      {
-        id: "TENOR",
-        label: "Tenor Match",
-        result: "PASS",
-        score: 85,
-        detail:
-          "12y Maersk contract vs 15y debt — 3-year tail exposure. Recommend extension or balloon.",
-      },
-      {
-        id: "CREDIT",
-        label: "Counterparty Credit",
-        result: "PASS",
-        score: 88,
-        detail:
-          "Maersk A- direct. Strong counterparty but shipping demand is volume-cyclical.",
-      },
-      {
-        id: "VOLUME_FIRMNESS",
-        label: "Volume Firmness",
-        result: "PASS_WITH_NOTE",
-        score: 55,
-        detail:
-          "60% contracted. Maersk shipping volumes subject to route changes. Need volume firmness clause.",
-      },
-      {
-        id: "PRICING_INDEXATION",
-        label: "Pricing & Indexation",
-        result: "PASS_WITH_NOTE",
-        score: 60,
-        detail:
-          "ICIS Methanol NWE with carbon premium — good structure but premium schedule not fixed.",
-      },
-      {
-        id: "CURTAILMENT_SHAPE",
-        label: "Curtailment Shape",
-        result: "PASS_WITH_NOTE",
-        score: 22,
-        detail:
-          "No curtailment compensation clause. CO₂ feedstock interruption creates double exposure. Critical gap.",
-      },
-    ],
-    redFlags: [
-      "Offtake tenor 3 years short of debt — balloon risk",
-      "60% contracted — exactly at the 60% coverage bar, no headroom for a buyer default",
-      "No curtailment compensation — gas methanol synthesis cannot ramp quickly",
-      "Carbon premium schedule undefined — revenue uncertainty in model",
-    ],
-    remedies: [
-      "Add 3-year extension option to Maersk contract aligned with debt amortization tail",
-      "Engage Shell Chemicals or HELM as second offtaker for 20–25%",
-      "Insert curtailment compensation at €180/tonne missed delivery",
-      "Fix carbon premium schedule: ICIS Methanol + €120/tonne CO₂ certificate",
-    ],
-  },
-  proj_rotterdam_nh3: {
-    overall: 38,
-    tests: [
-      {
-        id: "TENOR",
-        label: "Tenor Match",
-        result: "FAIL",
-        score: 30,
-        detail:
-          "10y contract vs 15y debt — 5-year unsecured tail. Unacceptable for senior lending.",
-      },
-      {
-        id: "CREDIT",
-        label: "Counterparty Credit",
-        result: "PASS_WITH_NOTE",
-        score: 55,
-        detail:
-          "Yara subsidiary BB — below BBB- threshold. Parent guarantee not yet confirmed.",
-      },
-      {
-        id: "VOLUME_FIRMNESS",
-        label: "Volume Firmness",
-        result: "FAIL",
-        score: 20,
-        detail:
-          "35% contracted. No take-or-pay. LOI only — not binding. Cannot be modelled as revenue.",
-      },
-      {
-        id: "PRICING_INDEXATION",
-        label: "Pricing & Indexation",
-        result: "PASS_WITH_NOTE",
-        score: 48,
-        detail:
-          "Argus NH₃ FOB Rotterdam — market index acceptable but no floor or collar in place.",
-      },
-      {
-        id: "CURTAILMENT_SHAPE",
-        label: "Curtailment Shape",
-        result: "FAIL",
-        score: 15,
-        detail:
-          "No curtailment provisions. NH₃ cannot be vented — storage critical but not costed.",
-      },
-    ],
-    redFlags: [
-      "Offtake tenor 5 years below debt — cannot be financed as structured",
-      "35% contracted — project cannot reach financial close",
-      "Yara subsidiary credit insufficient — need Yara AG parent guarantee",
-      "No NH₃ storage plan — curtailment creates safety + liability exposure",
-      "No pricing floor — full NH₃ price risk passed to model",
-    ],
-    remedies: [],
-  },
-  proj_wales_saf: {
-    overall: 22,
-    tests: [
-      {
-        id: "TENOR",
-        label: "Tenor Match",
-        result: "FAIL",
-        score: 15,
-        detail: "8y LOI vs undefined debt tenor. Cannot be structured.",
-      },
-      {
-        id: "CREDIT",
-        label: "Counterparty Credit",
-        result: "FAIL",
-        score: 20,
-        detail:
-          "Regional airline B+ credit. No parent guarantee. LOI non-binding.",
-      },
-      {
-        id: "VOLUME_FIRMNESS",
-        label: "Volume Firmness",
-        result: "FAIL",
-        score: 10,
-        detail:
-          "20% contracted, LOI only. Project cannot reach financial close at this coverage level.",
-      },
-      {
-        id: "PRICING_INDEXATION",
-        label: "Pricing & Indexation",
-        result: "PASS_WITH_NOTE",
-        score: 35,
-        detail:
-          "Platts Jet + SAF premium is the right index. But no binding pricing terms — LOI only.",
-      },
-      {
-        id: "CURTAILMENT_SHAPE",
-        label: "Curtailment Shape",
-        result: "FAIL",
-        score: 5,
-        detail:
-          "No curtailment plan. SAF Fischer-Tropsch cannot modulate quickly. No storage defined.",
-      },
-    ],
-    redFlags: [
-      "Project not bankable at current offtake coverage (20%)",
-      "No binding offtake — all LOIs",
-      "DSCR 0.98 at base case — below covenant minimum before any offtake stress",
-      "No major airline or fuel buyer engaged",
-    ],
-    remedies: [],
-  },
-};
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
@@ -333,114 +63,6 @@ const RESULT_META: Record<
     icon: <XCircle size={14} className="text-red-600" />,
   },
 };
-
-const BLOCKING_ITEM_LABELS: Record<string, string> = {
-  signed_offtake_agreement: "Signed offtake agreement is still missing",
-  volume_commitment_letter: "Volume commitment letter has not been secured",
-  gabillon_pricing_agreed: "Gabillon-based pricing reference is not yet agreed",
-  offtake_term_sheet: "Offtake term sheet is still open",
-  spot_reference: "Spot pricing reference is still missing",
-};
-
-const BLOCKING_ITEM_REMEDIES: Record<string, string> = {
-  signed_offtake_agreement:
-    "Convert the current commercial discussion into a signed offtake agreement with delivery and default language.",
-  volume_commitment_letter:
-    "Obtain a volume commitment letter that fixes minimum annual lift and take-or-pay coverage.",
-  gabillon_pricing_agreed:
-    "Agree a Gabillon curve and fallback spot mechanism so treasury can defend the price structure.",
-  offtake_term_sheet:
-    "Close the offtake term sheet before credit discussion and lender model review.",
-  spot_reference:
-    "Add a clean spot reference and escalation logic to remove pricing ambiguity.",
-};
-
-function toResult(score: number): TestResult {
-  if (score >= 80) return "PASS";
-  if (score >= 50) return "PASS_WITH_NOTE";
-  return "FAIL";
-}
-
-function clampScore(score: number) {
-  return Math.max(5, Math.min(100, Math.round(score)));
-}
-
-function deriveOfftakeData(project: CustomerProject): ProjectOfftake {
-  const offtakeGate = project.bankability.gates.find(
-    (gate) => gate.id === "G4_OFFTAKE_BANKABLE",
-  );
-  const offtakeScore =
-    offtakeGate?.completion_pct ??
-    Math.round(project.bankability.overall_completion * 0.7);
-  const overall = clampScore(
-    offtakeGate ? offtakeScore : project.bankability.overall_completion * 0.8,
-  );
-
-  const tests: OfftakeTest[] = [
-    {
-      id: "TENOR",
-      label: "Tenor Match",
-      score: clampScore(offtakeScore + 18),
-      result: toResult(clampScore(offtakeScore + 18)),
-      detail: `${project.name} is still in ${project.phase}. The offtake tenor package needs to align with debt tenor before the project can be presented as fully bankable.`,
-    },
-    {
-      id: "CREDIT",
-      label: "Counterparty Credit",
-      score: clampScore(project.bankability.overall_completion + 12),
-      result: toResult(clampScore(project.bankability.overall_completion + 12)),
-      detail: `Counterparty quality is linked to the current commercial package. Lenders will expect credit support, guarantee structure, and buyer obligation strength to be evidenced in the offtake package.`,
-    },
-    {
-      id: "VOLUME_FIRMNESS",
-      label: "Volume Firmness",
-      score: clampScore(offtakeScore),
-      result: toResult(clampScore(offtakeScore)),
-      detail:
-        offtakeGate?.description ??
-        "Volume coverage is not yet firm enough to be treated as contracted revenue.",
-    },
-    {
-      id: "PRICING_INDEXATION",
-      label: "Pricing & Indexation",
-      score: clampScore(offtakeScore - 5),
-      result: toResult(clampScore(offtakeScore - 5)),
-      detail:
-        project.bankability.risk_alerts.find((alert) =>
-          /pricing|spot|gabillon/i.test(alert),
-        ) ??
-        "Pricing still needs a defendable indexation and fallback mechanism before financial close.",
-    },
-    {
-      id: "CURTAILMENT_SHAPE",
-      label: "Curtailment Shape",
-      score: clampScore(project.bankability.overall_completion - 10),
-      result: toResult(clampScore(project.bankability.overall_completion - 10)),
-      detail: `The current offtake structure still needs clearer outage, delivery shortfall, and curtailment language for ${project.molecule} offtake obligations.`,
-    },
-  ];
-
-  const redFlags = [
-    ...(offtakeGate?.blocking_items.map(
-      (item) => BLOCKING_ITEM_LABELS[item] ?? item.replace(/_/g, " "),
-    ) ?? []),
-    ...project.bankability.risk_alerts,
-  ].slice(0, 5);
-
-  const remedies =
-    offtakeGate?.blocking_items.map(
-      (item) =>
-        BLOCKING_ITEM_REMEDIES[item] ??
-        `Resolve ${item.replace(/_/g, " ")} before lender review.`,
-    ) ?? [];
-
-  return {
-    overall,
-    tests,
-    redFlags,
-    remedies,
-  };
-}
 
 function scoreColor(score: number) {
   if (score >= 75) return "#22c55e";
@@ -591,7 +213,11 @@ function TestCard({ test }: { test: OfftakeTest }) {
 
 export function OfftakeQuality() {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
-  const [data, setData] = useState<ProjectOfftake | null>(null);
+  // project_dataset offtake_quality (PostgreSQL since 2026-10-25), UNVERIFIED.
+  // It used to fall back to the first visible project's dataset, and then to
+  // scores invented from gate completion (+18, +12, −5 …).
+  const ds = useProjectDataset<ProjectOfftake>("offtake_quality", selectedProjectId);
+  const data = ds.data;
   const { projects: visibleProjects } = useVisibleProjects();
 
   // ABAC: only show projects the current user has rights to
@@ -609,17 +235,6 @@ export function OfftakeQuality() {
     }
   }, [visibleProjects, selectedProjectId, setSelectedProjectId]);
 
-  useEffect(() => {
-    // Demo data fallback — API not available
-    const fallbackProject =
-      visibleProjects.find((p) => p.id === selectedProjectId) ??
-      visibleProjects[0];
-    const d =
-      OFFTAKE_DATA[selectedProjectId] ??
-      (fallbackProject ? OFFTAKE_DATA[fallbackProject.id] : null) ??
-      (fallbackProject ? deriveOfftakeData(fallbackProject) : null);
-    setData(d ?? null);
-  }, [selectedProjectId, visibleProjects]);
 
   // No visible projects → access denied state
   if (visibleProjects.length === 0) {
@@ -648,6 +263,8 @@ export function OfftakeQuality() {
     );
   }
 
+  if (ds.loading || ds.error) return <DatasetNotice ds={ds} what="offtake quality assessment" />;
+
   if (!data) {
     return (
       <div
@@ -666,7 +283,7 @@ export function OfftakeQuality() {
             className="text-sm"
             style={{ color: "var(--text-muted, #64748b)" }}
           >
-            No offtake quality dataset is available for the current project.
+            No offtake quality assessment is recorded for this project yet.
           </p>
         </div>
       </div>
@@ -686,7 +303,7 @@ export function OfftakeQuality() {
     >
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="mb-6">
-        <h1 className="text-xl font-bold mb-1">Offtake Quality Assessment</h1>
+        <h1 className="text-xl font-bold mb-1 flex items-center gap-2">Offtake Quality Assessment <UnverifiedBadge verification={ds.verification} /></h1>
         <p className="text-sm" style={{ color: "var(--text-muted, #64748b)" }}>
           {TAB_DESCRIPTIONS.OFFTAKE_QUALITY}
         </p>

@@ -3,6 +3,7 @@
 # Prefix: /api/v1/risk-pricing
 # ════════════════════════════════════════════════════════════
 
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Query
 
 risk_pricing_router = APIRouter(prefix="/api/v1/risk-pricing", tags=["risk-pricing"])
@@ -32,26 +33,31 @@ async def get_spread(
     }
 
 
+class CapexLayer(BaseModel):
+    name: str
+    amount: float
+    component_type: str
+    maturity: str
+    debt_ratio: float
+    etv_premium_pct: float = 0.0
+
+
 @risk_pricing_router.post("/layer-wacc")
 async def compute_layer_wacc(
+    body: list[CapexLayer],
     jurisdiction: str = Query("FR"),
     traditional_wacc: float = Query(0.090),
 ):
+    """Layer-blended WACC for the capex layers GIVEN. It used to price five
+    invented "Breizh SAF" layers for every caller (removed 2026-10-25)."""
     from app.core.risk_pricing import get_risk_pricing_db, ComponentType
+    if not body:
+        raise HTTPException(status_code=422, detail="Give the project's capex layers.")
     db = get_risk_pricing_db()
-    # Breizh SAF default layers
-    layers = [
-        {"name": "L1: Site & Entitlements", "amount": 42_000_000,
-         "component_type": ComponentType.SITE_ENTITLEMENTS, "maturity": "PROVEN", "debt_ratio": 0.25, "etv_premium_pct": 0.0},
-        {"name": "L2: Electrolyser + BoP", "amount": 103_000_000,
-         "component_type": ComponentType.PEM_ELECTROLYSER, "maturity": "FIRST_OF_KIND", "debt_ratio": 0.60, "etv_premium_pct": 0.042},
-        {"name": "L3: Fischer-Tropsch", "amount": 82_000_000,
-         "component_type": ComponentType.FT_REACTOR, "maturity": "FIRST_OF_KIND", "debt_ratio": 0.55, "etv_premium_pct": 0.018},
-        {"name": "L4: Infrastructure", "amount": 30_000_000,
-         "component_type": ComponentType.PORT_INFRASTRUCTURE, "maturity": "PROVEN", "debt_ratio": 0.70, "etv_premium_pct": 0.0},
-        {"name": "L5: GEX Platform", "amount": 3_500_000,
-         "component_type": ComponentType.DCS_SCADA, "maturity": "PROVEN", "debt_ratio": 0.20, "etv_premium_pct": 0.12},
-    ]
+    try:
+        layers = [{**l.model_dump(), "component_type": ComponentType(l.component_type)} for l in body]
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     result = db.compute_layer_wacc(jurisdiction, layers, traditional_wacc)
     return {
         "jurisdiction": jurisdiction,

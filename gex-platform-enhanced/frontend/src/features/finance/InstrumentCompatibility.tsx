@@ -74,85 +74,6 @@ interface CompatibilityData {
   }
 }
 
-// ── Seed fallback data ──
-
-const SEED_COMPATIBILITY: CompatibilityData = {
-  project_id: 'proj_bremen_h2',
-  project_state: 'BUILDABLE',
-  jurisdiction: 'DE',
-  molecule: 'H2',
-  total_instruments: 25,
-  eligible_count: 14,
-  ineligible_count: 11,
-  active_killers: [
-    { id: 'DK_G5_NO_EPC', gate: 'G5', severity: 'FATAL', plain_language: 'No EPC or EPCM contract has been executed — construction cannot proceed without a signed engineering, procurement, and construction agreement.', resolution_action: 'Execute an EPC, EPCM, or hybrid EPC contract with an approved contractor.', resolution_page: '/finance/stage-gates' },
-    { id: 'DK_G6_NO_IE', gate: 'G6', severity: 'FATAL', plain_language: 'No independent engineer has been appointed — lenders require an IE to certify CAPEX estimates.', resolution_action: 'Appoint a named, lender-accepted independent engineer.', resolution_page: '/finance/stage-gates' },
-    { id: 'DK_G8_NO_AUDIT_MODEL', gate: 'G8', severity: 'FATAL', plain_language: 'The financial model has not been verified to audit grade.', resolution_action: 'Commission a financial model audit from a named firm.', resolution_page: '/finance/bankability' },
-    { id: 'DK_G7_NO_INSURANCE', gate: 'G7', severity: 'CRITICAL', plain_language: 'The insurance programme has not been fully placed.', resolution_action: 'Bind all required insurance lines.', resolution_page: '/finance/insurance' },
-  ],
-  committee_readiness: 'NOT_READY',
-  price_context: { forward_price_eur_t: 5620, financing_spread_eur_t: 148, molecule: 'H2' },
-  families: {
-    'Grants & Subsidies': {
-      eligible: [
-        { id: 'EU_INNOVATION_FUND', name: 'EU Innovation Fund', type: 'GRANT', provider: 'European Commission', rate_reduction_bps: 0, coverage: 0.60, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [] },
-        { id: 'ADEME_H2_GRANT', name: 'ADEME Hydrogen Grant', type: 'GRANT', provider: 'ADEME', rate_reduction_bps: 0, coverage: 0.40, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [] },
-      ],
-      ineligible: [
-        { id: 'US_45V_PTC', name: 'US 45V Tax Credit', type: 'TAX_CREDIT', provider: 'US Treasury', rate_reduction_bps: 120, coverage: 1.0, status: 'INELIGIBLE', reasons: ['Jurisdiction DE not covered — US only'], proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [] },
-      ],
-    },
-    'Concessional / DFI Debt': {
-      eligible: [
-        { id: 'KFW_H2_PROGRAMME', name: 'KfW Hydrogen Programme', type: 'CONCESSIONAL_LOAN', provider: 'KfW', rate_reduction_bps: 90, coverage: 0.50, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [], remedy_eur_t: 50.58 },
-        { id: 'EBRD_GREEN_FINANCE', name: 'EBRD Green Finance', type: 'CONCESSIONAL_LOAN', provider: 'EBRD', rate_reduction_bps: 70, coverage: 0.35, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [] },
-      ],
-      ineligible: [],
-    },
-    'Green Bonds (Use of Proceeds)': {
-      eligible: [],
-      ineligible: [
-        { id: 'GREEN_BOND_ICMA', name: 'Green Bond — ICMA GBP', type: 'GREEN_BOND', provider: 'Capital markets', rate_reduction_bps: 25, coverage: 0.44, status: 'INELIGIBLE', reasons: ['Stage BUILDABLE not eligible — requires: FINANCEABLE, OPERATIONAL'], proceeds_type: 'USE_OF_PROCEEDS', bond_framework: 'ICMA_GBP_2021', required_audit_nodes: ['SPO_PROVIDER'], esg_metrics: [] },
-        { id: 'GREEN_PROJECT_BOND', name: 'Green Project Bond', type: 'GREEN_PROJECT_BOND', provider: 'Capital markets', rate_reduction_bps: 35, coverage: 0.35, status: 'INELIGIBLE', reasons: ['Stage BUILDABLE not eligible — requires: CREDIT_APPROVED, FINANCEABLE', 'Missing: Independent Engineer sign-off (G6)', 'Missing: Audit-grade financial model (G8)'], proceeds_type: 'USE_OF_PROCEEDS', bond_framework: 'ICMA_GBP_2021', required_audit_nodes: ['IE', 'SPO_PROVIDER', 'MODEL_AUDITOR'], esg_metrics: [], blocked_by_killers: [{ id: 'DK_G6_NO_IE', gate: 'G6', severity: 'FATAL', plain_language: 'No independent engineer has been appointed — lenders require an IE to certify CAPEX estimates.', resolution_action: 'Appoint a named IE.', resolution_page: '/finance/stage-gates' }, { id: 'DK_G8_NO_AUDIT_MODEL', gate: 'G8', severity: 'FATAL', plain_language: 'Financial model not audit-grade.', resolution_action: 'Commission model audit.', resolution_page: '/finance/bankability' }] },
-        { id: 'GREEN_REVENUE_BOND', name: 'Green Revenue Bond', type: 'GREEN_REVENUE_BOND', provider: 'Capital markets', rate_reduction_bps: 30, coverage: 0.40, status: 'INELIGIBLE', reasons: ['Stage BUILDABLE not eligible — requires: FINANCEABLE, OPERATIONAL'], proceeds_type: 'REVENUE_BACKED', bond_framework: 'ICMA_GBP_2021', required_audit_nodes: ['SPO_PROVIDER', 'IMPACT_AUDITOR'], esg_metrics: [] },
-      ],
-    },
-    'ESG-Linked (General Purpose)': {
-      eligible: [
-        { id: 'ESG_LINKED_BOND_GENERIC', name: 'ESG-Linked Bond — SLB', type: 'ESG_LINKED_BOND', provider: 'Capital markets', rate_reduction_bps: 15, coverage: 0.50, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'ICMA_SLB', required_audit_nodes: [], esg_metrics: [{ kpi_name: 'GHG Intensity Reduction', target_value: 50.0, target_unit: '% vs 2020 baseline', penalty_bps: 25, verification_agent: 'DNV' }], remedy_eur_t: 8.43 },
-        { id: 'SLL_MARGIN_RATCHET', name: 'Sustainability-Linked Loan', type: 'SLL', provider: 'Commercial banks', rate_reduction_bps: 20, coverage: 0.60, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'LMA_SLLP', required_audit_nodes: [], esg_metrics: [{ kpi_name: 'Renewable Energy Share', target_value: 95.0, target_unit: '%', penalty_bps: 15, verification_agent: 'S&P Global' }], remedy_eur_t: 11.24 },
-      ],
-      ineligible: [],
-    },
-    'Guarantees & Credit Enhancement': {
-      eligible: [
-        { id: 'EIB_PROJECT_BOND', name: 'EIB Project Bond Enhancement', type: 'PARTIAL_CREDIT', provider: 'EIB', rate_reduction_bps: 60, coverage: 0.20, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [], remedy_eur_t: 33.72 },
-        { id: 'OEM_PERFORMANCE_WRAP', name: 'OEM Performance Guarantee', type: 'PERFORMANCE_GUARANTEE', provider: 'OEM', rate_reduction_bps: 30, coverage: 0.15, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [], blocked_by_killers: [{ id: 'DK_G5_NO_EPC', gate: 'G5', severity: 'FATAL', plain_language: 'No EPC contract executed.', resolution_action: 'Execute EPC contract.', resolution_page: '/finance/stage-gates' }] },
-      ],
-      ineligible: [],
-    },
-    'Offtake & Revenue Support': {
-      eligible: [
-        { id: 'EU_H2_BANK_AUCTION', name: 'EU Hydrogen Bank CFD', type: 'CFD', provider: 'European Commission', rate_reduction_bps: 80, coverage: 1.0, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [], remedy_eur_t: 44.96 },
-        { id: 'H2GLOBAL_AUCTION', name: 'H2Global Offtake Guarantee', type: 'OFFTAKE_GUARANTEE', provider: 'H2Global Foundation', rate_reduction_bps: 100, coverage: 1.0, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [], remedy_eur_t: 56.2 },
-      ],
-      ineligible: [],
-    },
-    Insurance: {
-      eligible: [
-        { id: 'INSURANCE_CAR_DSU', name: 'CAR + DSU Insurance', type: 'CAR_INSURANCE', provider: 'Commercial insurers', rate_reduction_bps: 25, coverage: 1.0, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [], blocked_by_killers: [{ id: 'DK_G5_NO_EPC', gate: 'G5', severity: 'FATAL', plain_language: 'No EPC contract executed.', resolution_action: 'Execute EPC contract.', resolution_page: '/finance/stage-gates' }] },
-      ],
-      ineligible: [],
-    },
-    'Export Credit & Political Risk': {
-      eligible: [
-        { id: 'MIGA_PRI', name: 'MIGA Political Risk Insurance', type: 'PRI', provider: 'World Bank / MIGA', rate_reduction_bps: 40, coverage: 0.90, status: 'ELIGIBLE', proceeds_type: 'GENERAL_PURPOSE', bond_framework: 'NONE', required_audit_nodes: [], esg_metrics: [] },
-      ],
-      ineligible: [],
-    },
-  },
-}
-
 // ── Family icons ──
 
 const FAMILY_ICONS: Record<string, typeof Shield> = {
@@ -179,6 +100,7 @@ export function InstrumentCompatibility({ compact = false }: { compact?: boolean
   const [data, setData] = useState<CompatibilityData | null>(null)
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -191,8 +113,11 @@ export function InstrumentCompatibility({ compact = false }: { compact?: boolean
         setData(d)
         setLoading(false)
       })
-      .catch(() => {
-        setData({ ...SEED_COMPATIBILITY, project_id: selectedProjectId })
+      .catch((e) => {
+        // No fallback (2026-10-25): Bremen H2's compatibility, killers and
+        // prices used to be shown under whichever project was selected.
+        setData(null)
+        setLoadError(e.message)
         setLoading(false)
       })
   }, [selectedProjectId])
@@ -210,7 +135,11 @@ export function InstrumentCompatibility({ compact = false }: { compact?: boolean
     )
   }
 
-  if (!data) return null
+  if (!data) return (
+    <div className="m-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      Instrument compatibility unavailable{loadError ? `: ${loadError}` : ''}.
+    </div>
+  )
 
   const families = Object.entries(data.families)
   const displayFamilies = compact

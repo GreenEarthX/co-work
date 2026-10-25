@@ -17,6 +17,7 @@ import { WorkflowActions } from '@/components/workflow/WorkflowActions'
 import { CommitmentStatusBadge } from '@/components/finance/CommitmentStatusBadge'
 import { packagesAPI } from '@/api'
 import { UnlockChainPanel } from './UnlockChainPanel'
+import { useProjectDataset, DatasetNotice, UnverifiedBadge } from './useProjectDataset'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -160,86 +161,6 @@ interface DeRiskingInstrument {
   rateSavingBps: number       // bps reduction on guaranteed tranche
   premiumPct: number          // annual premium on guaranteed amount
   available: boolean
-}
-
-// ═══════════════════════════════════════════════════════════════
-// DEMO DATA
-// ═══════════════════════════════════════════════════════════════
-
-const CAPITAL_DATA: Record<string, ProjectCapitalData> = {
-  proj_le_havre_eng: {
-    blendedWacc: 7.2,
-    tranches: [
-      { type: 'GRANT',        source: 'H2Global + EU IH2',        amount: 18,  cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'CONCESSIONAL', source: 'BPI France',                amount: 95,  cost: 3.2,  tenor: 20,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 3, dfiProvider: 'BPI', isConcessional: true },
-      { type: 'ECA/DFI',      source: 'EIB Project Finance',       amount: 115, cost: 3.8,  tenor: 18,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 2, dfiProvider: 'EIB', isConcessional: true },
-      { type: 'SENIOR',       source: 'Credit Agricole CIB lead',  amount: 0,   cost: 0,    tenor: 0,    phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'EQUITY',       source: 'Project sponsors',          amount: 82,  cost: 12.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'MEZZ',         source: 'GreenFin Mezz Fund',        amount: 18,  cost: 8.5,  tenor: 12,   phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
-    ],
-    concessional: { concessionalShare: 0.64, catalyticRatio: 0.86, blendedDebtCost: 3.53, maxGracePeriod: 3 },
-  },
-  // Alias for canonical ID in customerProjects
-  proj_lehavre_eng: {
-    blendedWacc: 7.2,
-    tranches: [
-      { type: 'GRANT',        source: 'H2Global + EU IH2',        amount: 18,  cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'CONCESSIONAL', source: 'BPI France',                amount: 95,  cost: 3.2,  tenor: 20,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 3, dfiProvider: 'BPI', isConcessional: true },
-      { type: 'ECA/DFI',      source: 'EIB Project Finance',       amount: 115, cost: 3.8,  tenor: 18,   phase: 'FINANCIAL_CLOSE', status: 'MANDATE', gracePeriod: 2, dfiProvider: 'EIB', isConcessional: true },
-      { type: 'SENIOR',       source: 'Credit Agricole CIB lead',  amount: 0,   cost: 0,    tenor: 0,    phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'EQUITY',       source: 'Project sponsors',          amount: 82,  cost: 12.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'MEZZ',         source: 'GreenFin Mezz Fund',        amount: 18,  cost: 8.5,  tenor: 12,   phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
-    ],
-    concessional: { concessionalShare: 0.64, catalyticRatio: 0.86, blendedDebtCost: 3.53, maxGracePeriod: 3 },
-  },
-  proj_bremen_h2: {
-    blendedWacc: 8.9,
-    tranches: [
-      { type: 'GRANT',        source: 'IPCEI H2 + BMWK',      amount: 22, cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'CONCESSIONAL', source: 'EIB (indicative)',       amount: 80, cost: 4.1,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE', gracePeriod: 3, dfiProvider: 'EIB', isConcessional: true },
-      { type: 'EQUITY',       source: 'Project sponsors',       amount: 58, cost: 14.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'CONCESSIONAL', source: 'KfW Climate Action',    amount: 17, cost: 7.2,  tenor: 10,   phase: 'CONSTRUCTION',    status: 'PIPELINE', gracePeriod: 2, dfiProvider: 'KfW', isConcessional: true },
-      { type: 'SENIOR',       source: 'DZ Bank syndicate',      amount: 65, cost: 5.2,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-    ],
-    concessional: { concessionalShare: 0.53, catalyticRatio: 0.67, blendedDebtCost: 4.83, maxGracePeriod: 3 },
-  },
-  proj_helios_emethanol: {
-    blendedWacc: 10.2,
-    tranches: [
-      { type: 'GRANT',   source: 'CEF + Spanish IDAE',          amount: 12, cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'ECA/DFI', source: 'EKF Denmark (pre-app)',        amount: 55, cost: 4.5,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'EQUITY',  source: 'Project sponsors',             amount: 52, cost: 15.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'MEZZ',    source: 'TBD',                          amount: 15, cost: 10.0, tenor: 8,    phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
-      { type: 'SENIOR',  source: 'Banco Santander (unsolicited)',amount: 43, cost: 5.8,  tenor: 12,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-    ],
-  },
-  // Alias for canonical ID
-  proj_sansebastian_emethanol: {
-    blendedWacc: 10.2,
-    tranches: [
-      { type: 'GRANT',   source: 'CEF + Spanish IDAE',          amount: 12, cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'ECA/DFI', source: 'EKF Denmark (pre-app)',        amount: 55, cost: 4.5,  tenor: 15,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'EQUITY',  source: 'Project sponsors',             amount: 52, cost: 15.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'MEZZ',    source: 'TBD',                          amount: 15, cost: 10.0, tenor: 8,    phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
-      { type: 'SENIOR',  source: 'Banco Santander (unsolicited)',amount: 43, cost: 5.8,  tenor: 12,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-    ],
-  },
-  proj_rotterdam_nh3: {
-    blendedWacc: 12.1,
-    tranches: [
-      { type: 'GRANT',  source: 'NL RVO IPCEI',           amount: 8,  cost: 0,    tenor: null, phase: 'ADVISORY',        status: 'PIPELINE'  },
-      { type: 'EQUITY', source: 'Project sponsors',        amount: 65, cost: 18.0, tenor: null, phase: 'ADVISORY',        status: 'COMMITTED' },
-      { type: 'SENIOR', source: 'ING/Rabobank (no mandate)',amount:40, cost: 6.5,  tenor: 10,   phase: 'FINANCIAL_CLOSE', status: 'PIPELINE'  },
-      { type: 'MEZZ',   source: 'None',                    amount: 15, cost: 12.0, tenor: 8,    phase: 'CONSTRUCTION',    status: 'PIPELINE'  },
-    ],
-  },
-  proj_wales_saf: {
-    blendedWacc: 15.5,
-    tranches: [
-      { type: 'EQUITY', source: 'Project sponsors',      amount: 45, cost: 22.0, tenor: null, phase: 'ADVISORY', status: 'COMMITTED' },
-      { type: 'GRANT',  source: 'UK JETCO (applied)',    amount: 10, cost: 0,    tenor: null, phase: 'ADVISORY', status: 'PIPELINE'  },
-    ],
-  },
 }
 
 // GCGC instruments (applicable to all projects, availability varies by project maturity)
@@ -970,11 +891,21 @@ export function CapitalStack() {
   // the on-ramp). Do NOT borrow another project's tranches — that would show a
   // worked term sheet that isn't this project's. Show the live, governed
   // gate→tranche view derived from this project's own packages and gates.
-  const data: ProjectCapitalData | undefined = CAPITAL_DATA[selectedProjectId]
-  if (!data) {
+  // The modelled stacks live in PostgreSQL since 2026-10-25 (project_dataset
+  // capital_stack), UNVERIFIED.
+  const ds = useProjectDataset<ProjectCapitalData>('capital_stack', selectedProjectId)
+  if (ds.loading || ds.error) return <DatasetNotice ds={ds} what="capital stack" />
+  if (!ds.data) {
     return <CapitalStackUnmodelled projectId={selectedProjectId} projectName={project?.name} location={project?.location} />
   }
+  return <CapitalStackModelled data={ds.data} project={project} verification={ds.verification} />
+}
 
+function CapitalStackModelled({ data, project, verification }: {
+  data: ProjectCapitalData
+  project: ReturnType<typeof useVisibleProjects>['projects'][number] | undefined
+  verification: string | null
+}) {
   const { tranches, blendedWacc } = data
 
   // Totals
@@ -1007,6 +938,7 @@ export function CapitalStack() {
             <div className="flex items-center gap-2 mb-1">
               <Layers className="w-4 h-4 text-gray-400" />
               <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Capital Stack</span>
+              <UnverifiedBadge verification={verification} />
             </div>
             <h1 className="text-2xl font-black text-white">{project?.name ?? 'Project'}</h1>
             <p className="text-sm text-gray-400 mt-0.5">{project?.location ?? '—'}</p>

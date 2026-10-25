@@ -2,7 +2,8 @@
 /**
  * ApprovalQueuePage — WAE pending approvals table.
  * Used in both Finance and Executive workspaces.
- * Shows PENDING requests; lets authorised users APPROVE or REJECT.
+ * Shows the PENDING requests the signed-in company may see; the server decides
+ * who may APPROVE or REJECT (never the initiator, never twice).
  *
  * Backend: GET /api/v1/approvals/pending
  *          POST /api/v1/approvals/{id}/decide
@@ -36,48 +37,6 @@ const ACTION_LABELS: Record<string, string> = {
   COUNTERPARTY_NDA: 'Counterparty NDA',
 }
 
-const DEMO_REQUESTS: ApprovalRequest[] = [
-  {
-    id: 'req-001',
-    action_type: 'SAF_FORWARD_SALE',
-    project_id: 'proj_breizh_saf',
-    initiator_user_id: 'usr_bp_01',
-    status: 'PENDING',
-    required_roles: ['RISK_OFFICER', 'TREASURY_HEAD'],
-    min_approvers: 2,
-    approvals_received: 1,
-    payload_json: { volume_t: 10000, price_eur_t: 2200, counterparty: 'Air France KLM', tenor_months: 24 },
-    created_at: '2026-03-16T08:30:00Z',
-    expires_at: '2026-03-17T08:30:00Z',
-  },
-  {
-    id: 'req-002',
-    action_type: 'FINANCING_DRAWDOWN',
-    project_id: 'proj_wales_saf',
-    initiator_user_id: 'usr_bp_02',
-    status: 'PENDING',
-    required_roles: ['RISK_OFFICER', 'CFO', 'LEGAL_COUNSEL'],
-    min_approvers: 3,
-    approvals_received: 0,
-    payload_json: { amount_eur: 45000000, facility: 'ING Green Infrastructure Loan', tranche: 'A' },
-    created_at: '2026-03-15T14:00:00Z',
-    expires_at: '2026-03-16T14:00:00Z',
-  },
-  {
-    id: 'req-003',
-    action_type: 'PPA_EXECUTION',
-    project_id: 'proj_rotterdam_nh3',
-    initiator_user_id: 'usr_bp_03',
-    status: 'PENDING',
-    required_roles: ['COMMERCIAL_LEAD', 'RISK_OFFICER'],
-    min_approvers: 2,
-    approvals_received: 2,
-    payload_json: { energy_mwh: 50000, price_eur_mwh: 68, supplier: 'Ørsted A/S', years: 10 },
-    created_at: '2026-03-14T10:00:00Z',
-    expires_at: '2026-03-21T10:00:00Z',
-  },
-]
-
 export function ApprovalQueuePage() {
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
   const [loading, setLoading] = useState(true)
@@ -88,15 +47,17 @@ export function ApprovalQueuePage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
   useEffect(() => {
+    // Real requests only (2026-10-25): it used to read `data.requests` (the
+    // server answers `items`, so the queue was always empty) and fall back to
+    // three invented requests whenever the call failed.
     approvalsAPI.getPending()
       .then((data) => {
-        setRequests(data.requests || [])
+        setRequests(data.items || [])
         setLoading(false)
       })
-      .catch(() => {
-        setRequests(DEMO_REQUESTS)
+      .catch((e) => {
         setLoading(false)
-        setError('Backend offline — showing demo queue')
+        setError(`Approval queue unavailable: ${e.message || 'no answer from the server'}`)
       })
   }, [])
 
@@ -104,7 +65,6 @@ export function ApprovalQueuePage() {
     setDeciding(requestId)
     try {
       await approvalsAPI.decide(requestId, {
-        approver_user_id: 'usr_current_user',
         decision,
         reason_text: reasonText || undefined,
       })

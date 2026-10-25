@@ -10,8 +10,8 @@ interface DeliveryContract {
   contracted_volume_mt: number
   delivered_mt: number
   delivery_pct: number
-  quality_purity: number
-  quality_certification: string
+  quality_purity: number | null
+  quality_certification: string | null
   status: string
   delivery_start: string
   delivery_end: string
@@ -35,16 +35,18 @@ export function SettlementPage() {
         .filter((c: any) => c.status === 'active' || c.status === 'executed' || c.status === 'delivering')
         .map((c: any) => {
           const contracted = c.volume || c.volume_mt || c.contracted_volume || 0
-          const delivered = c.delivered_mt || c.delivered || Math.floor(contracted * (Math.random() * 0.6 + 0.1))
+          // Recorded deliveries only (2026-10-25): a contract with none used to
+          // be shown a RANDOM 10–70 % delivered, 99.97 % purity and RFNBO.
+          const delivered = c.delivered_mt || c.delivered || 0
           return {
             id: c.id,
-            counterparty: c.counterparty || c.buyer || c.seller || 'Counterparty',
-            product: c.molecule || c.product || 'H2',
+            counterparty: c.counterparty || c.buyer || c.seller || '—',
+            product: c.molecule || c.product || '—',
             contracted_volume_mt: contracted,
             delivered_mt: delivered,
             delivery_pct: contracted > 0 ? Math.round((delivered / contracted) * 100) : 0,
-            quality_purity: c.purity || 99.97,
-            quality_certification: c.certification || 'RFNBO',
+            quality_purity: c.purity ?? null,
+            quality_certification: c.certification ?? null,
             status: c.delivery_status || (delivered > 0 ? 'delivering' : 'pending'),
             delivery_start: c.delivery_start || c.start_date || '—',
             delivery_end: c.delivery_end || c.end_date || '—',
@@ -168,13 +170,13 @@ export function SettlementPage() {
                     {/* Quality */}
                     <div>
                       <div className="text-xs font-bold text-gray-500 uppercase mb-1">Purity</div>
-                      <div className="text-xl font-black text-gray-900">{contract.quality_purity}%</div>
+                      <div className="text-xl font-black text-gray-900">{contract.quality_purity != null ? `${contract.quality_purity}%` : '—'}</div>
                     </div>
 
                     {/* Certification */}
                     <div>
                       <div className="text-xs font-bold text-gray-500 uppercase mb-1">Certification</div>
-                      <div className="text-sm font-bold text-gray-900">{contract.quality_certification}</div>
+                      <div className="text-sm font-bold text-gray-900">{contract.quality_certification ?? '—'}</div>
                     </div>
                   </div>
 

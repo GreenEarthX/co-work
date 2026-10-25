@@ -13,6 +13,7 @@ import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
+import { useProjectDataset, DatasetNotice, UnverifiedBadge } from './useProjectDataset'
 
 // ─────────────────────────────── Types ───────────────────────────────────────
 
@@ -42,264 +43,6 @@ interface TransferData {
   gooPorts: SubScore
   consentMatrix: ConsentRow[]
   timeToTransfer: string
-}
-
-// ─────────────────────────────── Demo data ────────────────────────────────────
-
-const TRANSFER_DATA: Record<string, TransferData> = {
-  proj_lehavre_eng: {
-    overall: 88,
-    assignable: {
-      label: 'Assignable Contracts %',
-      score: 92,
-      badge: 'HIGH',
-      evidence: [
-        'Offtake TOTSA: Assignment clause present',
-        'EPC Technip Energies: Yes (consent required, 20-day notice)',
-        'Grid connection RTE: Yes — automatic upon lender notification',
-        'Insurance AXA XL: Fully transferable with 10-day notice',
-      ],
-      notes: '92% of contracts by value carry explicit assignment provisions. Only the TOTSA offtake requires written consent (non-waivable).',
-    },
-    dscrPostTransfer: {
-      label: 'DSCR Post-Transfer',
-      score: 85,
-      badge: 'STABLE',
-      evidence: [
-        'Base case DSCR: 1.58x',
-        'Transfer WACC premium applied: +0.8pp',
-        'Post-transfer DSCR estimate: 1.44x',
-        'Minimum covenant: 1.20x — headroom maintained',
-      ],
-      notes: 'Transfer premium of +0.8pp WACC applied. DSCR headroom of 24bp above covenant floor. No waiver required.',
-    },
-    warrantyTail: {
-      label: 'Warranty Tail Coverage',
-      score: 90,
-      badge: 'STRONG',
-      evidence: [
-        'SOEC stack OEM warranty: 10 years from COD',
-        'Years remaining at transfer date: 6 years',
-        'EPC defects liability period: 2 years remaining',
-        'Performance guarantee: 92% efficiency floor maintained',
-      ],
-      notes: 'OEM SOEC warranty 10 years. 6 years remaining at transfer date. Warranty survives asset change of ownership under current terms.',
-    },
-    gooPorts: {
-      label: 'GoO / PoS Portability',
-      score: 82,
-      badge: 'GOOD',
-      evidence: [
-        'GRTgaz injection licence: 5 business days transfer',
-        'AIB GoO registry update: 8 business days',
-        'RFNBO certification: Transferable — new holder notification to TÜV Rheinland',
-        'French green gas tariff scheme: Assignment subject to CRE approval (30 days)',
-      ],
-      notes: 'GRTgaz injection licence: 5 days transfer. GoO registry update: 8 days. CRE approval is longest path at 30 days.',
-    },
-    consentMatrix: [
-      { asset: 'Offtake — TOTSA TotalEnergies', assignmentClause: 'Yes', counterpartyConsent: 'Written consent required', status: 'CONDITIONAL', timeToClear: '10–20 business days' },
-      { asset: 'EPC Contract — Technip Energies', assignmentClause: 'Yes (with consent)', counterpartyConsent: 'Not to be unreasonably withheld', status: 'CLEAR', timeToClear: '5 business days' },
-      { asset: 'Grid Connection — RTE', assignmentClause: 'Yes', counterpartyConsent: 'Automatic on lender notification', status: 'CLEAR', timeToClear: '2 business days' },
-      { asset: 'Insurance — AXA XL', assignmentClause: 'Fully transferable', counterpartyConsent: 'Endorsement update only', status: 'CLEAR', timeToClear: '3 business days' },
-      { asset: 'PPA — EDF Renouvelables', assignmentClause: 'Yes', counterpartyConsent: 'Consent not unreasonably withheld', status: 'CLEAR', timeToClear: '10 business days' },
-    ],
-    timeToTransfer: '6–8 weeks',
-  },
-
-  proj_bremen_h2: {
-    overall: 55,
-    assignable: {
-      label: 'Assignable Contracts %',
-      score: 60,
-      badge: 'PARTIAL',
-      evidence: [
-        'Vattenfall offtake: Consent required — counterparty discretionary',
-        'EPC Linde Engineering: No explicit assignment clause',
-        'Grid connection TenneT: Conditional on regulator sign-off',
-        'Insurance Munich Re: Transferable',
-      ],
-      notes: '60% of contracts carry assignment provisions. EPC contract gap is material for lender comfort.',
-    },
-    dscrPostTransfer: {
-      label: 'DSCR Post-Transfer',
-      score: 52,
-      badge: 'STRESSED',
-      evidence: [
-        'Base case DSCR: 1.34x',
-        'Transfer WACC premium applied: +1.0pp',
-        'Post-transfer DSCR estimate: 1.18x',
-        'Minimum covenant: 1.20x — covenant breach on transfer',
-      ],
-      notes: 'Post-transfer DSCR of 1.18x falls below 1.20x covenant floor after WACC premium. Requires covenant waiver from lender group.',
-    },
-    warrantyTail: {
-      label: 'Warranty Tail Coverage',
-      score: 58,
-      badge: 'LIMITED',
-      evidence: [
-        'PEM electrolyser OEM warranty: 8 years from COD',
-        'Years remaining at transfer date: 4 years',
-        'Stack degradation risk increases post year 5',
-        'EPC defects liability: expired',
-      ],
-      notes: 'PEM warranty 8y — 4y remaining. Stack degradation risk post-transfer increases buyer exposure. No wrap insurance placed.',
-    },
-    gooPorts: {
-      label: 'GoO / PoS Portability',
-      score: 45,
-      badge: 'SLOW',
-      evidence: [
-        'BNetzA hydrogen registry transfer: 15 business days',
-        'Custom port setup at Hamburg terminal: 22 business days',
-        'RFNBO certification re-notification: Required to Dena',
-        'German Green H2 subsidies: Subject to BMWK review on transfer',
-      ],
-      notes: 'BNetzA registry transfer: 15 days. Custom port setup: 22 days. BMWK review path is longest — not yet tested.',
-    },
-    consentMatrix: [
-      { asset: 'Offtake — Vattenfall Energy', assignmentClause: 'Requires consent', counterpartyConsent: 'Counterparty discretionary', status: 'REQUIRED', timeToClear: '20–30 business days' },
-      { asset: 'EPC Contract — Linde Engineering', assignmentClause: 'Not present', counterpartyConsent: 'Renegotiation required', status: 'MISSING', timeToClear: 'TBD — material gap' },
-      { asset: 'Grid Connection — TenneT', assignmentClause: 'Conditional', counterpartyConsent: 'BNetzA regulator sign-off', status: 'REQUIRED', timeToClear: '15–25 business days' },
-      { asset: 'Insurance — Munich Re', assignmentClause: 'Transferable', counterpartyConsent: 'Endorsement update', status: 'CLEAR', timeToClear: '3 business days' },
-      { asset: 'PPA — Vattenfall Wind', assignmentClause: 'Consent required', counterpartyConsent: 'Discretionary', status: 'CONDITIONAL', timeToClear: '15 business days' },
-    ],
-    timeToTransfer: '3–4 months',
-  },
-
-  proj_sansebastian_emethanol: {
-    overall: 42,
-    assignable: {
-      label: 'Assignable Contracts %',
-      score: 45,
-      badge: 'PARTIAL',
-      evidence: [
-        'Maersk offtake: Assignment clause missing',
-        'EPC contract: Consent required, terms unclear',
-        'Grid: Conditional on Spanish regulator',
-      ],
-      notes: 'Assignment provisions are incomplete. Significant renegotiation likely required before transfer.',
-    },
-    dscrPostTransfer: {
-      label: 'DSCR Post-Transfer',
-      score: 40,
-      badge: 'AT RISK',
-      evidence: [
-        'Base case DSCR: 1.22x',
-        'Transfer WACC premium: +1.2pp estimated',
-        'Post-transfer DSCR: ~1.05x',
-        'Covenant floor: 1.20x — breach likely',
-      ],
-      notes: 'Slim DSCR headroom pre-transfer leaves insufficient buffer for any WACC premium. Equity injection or debt restructuring likely required.',
-    },
-    warrantyTail: {
-      label: 'Warranty Tail Coverage',
-      score: 44,
-      badge: 'LIMITED',
-      evidence: [
-        'Electrolyser OEM warranty: 5 years remaining',
-        'Fischer-Tropsch reactor: 3 years remaining',
-        'No wrap insurance placed',
-      ],
-      notes: 'Multiple warranty components near expiry. Buyer will face elevated technical risk without new OEM wrap agreements.',
-    },
-    gooPorts: {
-      label: 'GoO / PoS Portability',
-      score: 38,
-      badge: 'SLOW',
-      evidence: [
-        'Spanish MITECO registry: 20+ business days',
-        'Maersk fuel blending certification: Transfer protocol undefined',
-        'RFNBO re-audit required on change of owner',
-      ],
-      notes: 'Spanish regulatory pathway for GoO transfer is undefined for e-Methanol. Likely requires pilot process with MITECO.',
-    },
-    consentMatrix: [
-      { asset: 'Offtake — Maersk', assignmentClause: 'Not present', counterpartyConsent: 'Full renegotiation', status: 'MISSING', timeToClear: 'TBD' },
-      { asset: 'EPC Contract', assignmentClause: 'Requires consent', counterpartyConsent: 'Terms unclear', status: 'REQUIRED', timeToClear: '30+ days' },
-      { asset: 'Grid — REE', assignmentClause: 'Conditional', counterpartyConsent: 'Spanish regulator sign-off', status: 'REQUIRED', timeToClear: '20–30 days' },
-    ],
-    timeToTransfer: '5–7 months',
-  },
-
-  proj_rotterdam_nh3: {
-    overall: 20,
-    assignable: {
-      label: 'Assignable Contracts %',
-      score: 22,
-      badge: 'WEAK',
-      evidence: [
-        'Most contracts still in term-sheet stage',
-        'Assignment provisions not yet negotiated',
-      ],
-      notes: 'At early development stage, assignment provisions have not been inserted. This is a critical gap to address in final contract drafts.',
-    },
-    dscrPostTransfer: {
-      label: 'DSCR Post-Transfer',
-      score: 18,
-      badge: 'NOT MODELLED',
-      evidence: [
-        'Financial model not yet at audit-grade',
-        'Offtake terms not finalised — DSCR highly uncertain',
-      ],
-      notes: 'Insufficient model maturity to estimate post-transfer DSCR. Gate G8 completion required before this metric is meaningful.',
-    },
-    warrantyTail: {
-      label: 'Warranty Tail Coverage',
-      score: 20,
-      badge: 'NOT PLACED',
-      evidence: ['EPC contractor not selected', 'OEM warranty terms not negotiated'],
-      notes: 'Technology vendor not locked. Warranty tail coverage cannot be assessed until EPC/OEM contracts are executed.',
-    },
-    gooPorts: {
-      label: 'GoO / PoS Portability',
-      score: 22,
-      badge: 'NOT MAPPED',
-      evidence: ['Netherlands ACM registry onboarding not initiated', 'GoO framework for NH3 under development at AIB'],
-      notes: 'No GoO registry enrolment initiated. NH3 PoS framework still being defined at EU level.',
-    },
-    consentMatrix: [
-      { asset: 'Offtake (term sheet only)', assignmentClause: 'Not yet drafted', counterpartyConsent: 'N/A at this stage', status: 'MISSING', timeToClear: 'Requires FID' },
-      { asset: 'EPC (vendor not selected)', assignmentClause: 'Not yet drafted', counterpartyConsent: 'N/A', status: 'MISSING', timeToClear: 'Requires EPC award' },
-    ],
-    timeToTransfer: '>12 months (post-FID)',
-  },
-
-  proj_wales_saf: {
-    overall: 8,
-    assignable: {
-      label: 'Assignable Contracts %',
-      score: 8,
-      badge: 'NOT APPLICABLE',
-      evidence: ['Project at pre-FID stage', 'No bankable contracts executed'],
-      notes: 'Transfer readiness not applicable at current development stage. No executed contracts in place.',
-    },
-    dscrPostTransfer: {
-      label: 'DSCR Post-Transfer',
-      score: 5,
-      badge: 'NOT MODELLED',
-      evidence: ['No audit-grade financial model', 'Offtake discussions at MOU stage only'],
-      notes: 'Transfer scenario analysis deferred until G8 (Audit-Grade Model) is complete.',
-    },
-    warrantyTail: {
-      label: 'Warranty Tail Coverage',
-      score: 10,
-      badge: 'NOT PLACED',
-      evidence: ['Fischer-Tropsch licensor selected but no wrap', 'OEM warranty negotiations not commenced'],
-      notes: 'Technology wrap insurance not placed. License agreement only.',
-    },
-    gooPorts: {
-      label: 'GoO / PoS Portability',
-      score: 8,
-      badge: 'NOT MAPPED',
-      evidence: ['UK RTFO / SAF mandate registry undefined for transfer', 'No GoO registry enrolment'],
-      notes: 'UK post-Brexit RTFO pathway for SAF GoO transfer not yet established. Regulatory engagement required.',
-    },
-    consentMatrix: [
-      { asset: 'All contracts', assignmentClause: 'Not yet drafted', counterpartyConsent: 'N/A', status: 'MISSING', timeToClear: 'Requires FID + 18 months' },
-    ],
-    timeToTransfer: 'Not applicable — pre-FID',
-  },
 }
 
 // ─────────────────────────────── Helpers ─────────────────────────────────────
@@ -429,8 +172,17 @@ function SubScoreCard({ sub, icon: Icon }: { sub: SubScore; icon: React.ElementT
 export function TransferReadiness() {
   const { selectedProjectId } = useSelectedProject()
   const { projects: visibleProjects } = useVisibleProjects()
-  const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
-  const data = TRANSFER_DATA[project.id] ?? TRANSFER_DATA['proj_wales_saf']
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
+  // project_dataset transfer_readiness (PostgreSQL since 2026-10-25), UNVERIFIED.
+  // Every project without an entry used to be shown Wales SAF's evaluation.
+  const ds = useProjectDataset<TransferData>('transfer_readiness', project?.id)
+  if (!project || !ds.data) return <DatasetNotice ds={{ ...ds, loading: ds.loading && !!project }} what="transfer readiness evaluation" />
+  return <TransferReadinessBody project={project} data={ds.data} verification={ds.verification} />
+}
+
+function TransferReadinessBody({ project, data, verification }: {
+  project: ReturnType<typeof useVisibleProjects>['projects'][number]; data: TransferData; verification: string | null
+}) {
 
   const subScores: SubScore[] = [data.assignable, data.dscrPostTransfer, data.warrantyTail, data.gooPorts]
 
@@ -445,6 +197,7 @@ export function TransferReadiness() {
               <ArrowRightLeft className="w-6 h-6 text-[var(--brand)]" />
               Transfer Readiness
             </h1>
+            <UnverifiedBadge verification={verification} />
             <WorkflowBadge state="COMPUTED" />
           </div>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.name} · Secondary Market Exit Evaluation</p>

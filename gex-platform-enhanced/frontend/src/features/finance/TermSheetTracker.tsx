@@ -12,6 +12,7 @@ import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { WorkflowBadge } from '@/components/workflow/WorkflowBadge'
 import { WorkflowActions } from '@/components/workflow/WorkflowActions'
+import { useProjectDataset, DatasetNotice, UnverifiedBadge } from './useProjectDataset'
 
 // ─────────────────────────────── Types ───────────────────────────────────────
 
@@ -25,77 +26,6 @@ interface TermItem {
   party: Party
   lastUpdated: string
   notes: string
-}
-
-// ─────────────────────────────── Data ────────────────────────────────────────
-
-function buildTerms(projectId: string): TermItem[] {
-  const isLeHavre = projectId === 'proj_lehavre_eng'
-  const isBremen = projectId === 'proj_bremen_h2'
-
-  function t(
-    group: string,
-    term: string,
-    leHavre: TermStatus,
-    bremen: TermStatus,
-    other: TermStatus,
-    party: Party,
-    lastUpdated: string,
-    notes: string,
-  ): TermItem {
-    const status = isLeHavre ? leHavre : isBremen ? bremen : other
-    return { group, term, status, party, lastUpdated, notes }
-  }
-
-  return [
-    // Financial Terms
-    t('Financial Terms', 'Pricing & Indexation', 'AGREED', 'AGREED', 'PENDING',
-      'Both', '2026-02-14', 'CPI-linked with 3% cap. Annual reset in Q1.'),
-    t('Financial Terms', 'Floor price mechanism', 'AGREED', 'AGREED', 'PENDING',
-      'Seller', '2026-02-14', 'Floor at €55/MWh H2-equiv. Escalates 1.5%/yr.'),
-    t('Financial Terms', 'Price cap', 'AGREED', 'PENDING', 'PENDING',
-      'Buyer', '2026-01-20', 'Cap at €120/MWh. Buyer requesting €110 — under review.'),
-    t('Financial Terms', 'Escalation formula', 'AGREED', 'DISPUTED', 'PENDING',
-      'Both', '2025-12-05', 'Dispute: Seller prefers HHPPI; Buyer insists on CPI only.'),
-
-    // Delivery Terms
-    t('Delivery Terms', 'Volume commitment (ToP %)', 'AGREED', 'AGREED', 'PENDING',
-      'Buyer', '2026-02-28', '85% take-or-pay over contract year.'),
-    t('Delivery Terms', 'Make-good clause', 'AGREED', 'PENDING', 'PENDING',
-      'Seller', '2025-11-30', 'Make-good window: 6 months post-shortfall event.'),
-    t('Delivery Terms', 'Outage protocol', 'AGREED', 'PENDING', 'PENDING',
-      'Both', '2025-12-10', 'Force-majeure outages excluded from ToP obligation.'),
-    t('Delivery Terms', 'Delivery point', 'AGREED', 'AGREED', 'PENDING',
-      'Both', '2026-01-08', 'Gate delivery at grid injection point / custody meter.'),
-
-    // Risk Allocation
-    t('Risk Allocation', 'Force majeure definition', 'AGREED', 'AGREED', 'DISPUTED',
-      'Both', '2026-02-01', 'Includes grid curtailment >20% for >15 consecutive days.'),
-    t('Risk Allocation', 'Change-in-law clause', 'AGREED', 'PENDING', 'PENDING',
-      'Both', '2025-11-15', 'Full pass-through to Buyer if direct regulatory impact.'),
-    t('Risk Allocation', 'Curtailment compensation', 'AGREED', 'DISPUTED', 'PENDING',
-      'Seller', '2026-01-25', 'Seller claims 100% TOTSA compensation; under negotiation.'),
-    t('Risk Allocation', 'Environmental indemnity', 'AGREED', 'PENDING', 'PENDING',
-      'Seller', '2025-10-20', 'Covers soil contamination attributable to construction.'),
-
-    // Security Package
-    t('Security Package', 'Step-in rights', 'AGREED', 'AGREED', 'PENDING',
-      'Buyer', '2026-02-10', 'Lender step-in triggered at 90-day payment default.'),
-    t('Security Package', 'Cut-through provisions', 'AGREED', 'PENDING', 'PENDING',
-      'Both', '2025-12-18', 'Direct agreement with senior lender pending legal sign-off.'),
-    t('Security Package', 'Assignment consent', 'AGREED', 'PENDING', 'PENDING',
-      'Both', '2026-01-12', 'Consent not to be unreasonably withheld within 20 business days.'),
-    t('Security Package', 'Charge over accounts', 'AGREED', 'AGREED', 'PENDING',
-      'Buyer', '2026-02-20', 'DSRA and Revenue account charged in favour of lender group.'),
-
-    // Operational
-    t('Operational', 'M&V protocol', 'AGREED', 'AGREED', 'PENDING',
-      'Both', '2026-03-01', 'ISO 50006 metering. Quarterly reconciliation by independent auditor.'),
-    t('Operational', 'Audit rights', 'AGREED', 'PENDING', 'PENDING',
-      'Buyer', '2025-11-28', 'Buyer right to audit books 30 days per year with 10-day notice.'),
-    t('Operational', 'Regulatory reporting', 'AGREED', 'AGREED', 'PENDING',
-      'Seller', '2026-02-05', 'Monthly RFNBO compliance report to competent authority.'),
-  ]
 }
 
 // ─────────────────────────────── Status helpers ───────────────────────────────
@@ -136,10 +66,14 @@ const TERM_GROUPS = [
 export function TermSheetTracker() {
   const { selectedProjectId } = useSelectedProject()
   const { projects: visibleProjects } = useVisibleProjects()
-  const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
+  const project = visibleProjects.find(p => p.id === selectedProjectId)
   const [filterStatus, setFilterStatus] = useState<TermStatus | 'ALL'>('ALL')
 
-  const allTerms = buildTerms(project.id)
+  // project_dataset term_sheet (PostgreSQL since 2026-10-25), UNVERIFIED. Every
+  // project but Le Havre and Bremen used to be shown a column of PENDING terms.
+  const ds = useProjectDataset<TermItem[]>('term_sheet', project?.id)
+  if (!project || !ds.data) return <DatasetNotice ds={{ ...ds, loading: ds.loading && !!project }} what="term sheet" />
+  const allTerms = ds.data
   const agreedCount = allTerms.filter(t => t.status === 'AGREED').length
   const pendingCount = allTerms.filter(t => t.status === 'PENDING').length
   const disputedCount = allTerms.filter(t => t.status === 'DISPUTED').length
@@ -157,6 +91,7 @@ export function TermSheetTracker() {
               <FileSignature className="w-6 h-6 text-[var(--brand)]" />
               Term Sheet Tracker
             </h1>
+            <UnverifiedBadge verification={ds.verification} />
             <WorkflowBadge state="DRAFT" />
           </div>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.name} · Playbook Annex B Checklist</p>

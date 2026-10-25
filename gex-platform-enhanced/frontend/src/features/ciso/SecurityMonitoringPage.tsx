@@ -1,5 +1,11 @@
 // Screen: Security monitoring / access monitor screen (/ciso-access-monitor)
+/**
+ * Sign-in attempts by the company's accounts, from the account history
+ * (2026-10-25). It used to show a generated feed of access decisions under a
+ * sample company's name. Access decisions are not recorded yet; the server says so.
+ */
 import { useState, useEffect, useMemo } from 'react';
+import { cisoCall } from './cisoApi';
 import { Search, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -10,8 +16,9 @@ interface AccessEvent {
   user_id: string;
   user_name: string;
   company_id: string;
-  project_id: string;
-  project_name: string;
+  project_id: string | null;
+  project_name: string | null;
+  ip_address?: string | null;
   resource_type: string;
   action: string;
   decision: 'ALLOW' | 'DENY';
@@ -48,6 +55,8 @@ export function SecurityMonitoringPage() {
   const [events, setEvents]       = useState<AccessEvent[]>([]);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [note, setNote]           = useState('');
+  const [error, setError]         = useState<string | null>(null);
 
   const [search, setSearch]       = useState('');
   const [filterDecision, setFilterDecision] = useState<'ALL' | 'ALLOW' | 'DENY'>('ALL');
@@ -61,14 +70,10 @@ export function SecurityMonitoringPage() {
     if (filterUser)    params.set('user_id', filterUser);
     if (filterProject) params.set('project_id', filterProject);
 
-    fetch(`/api/v1/ciso/access-log?${params}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d?.events) setEvents(d.events);
-        setLoading(false);
-        setRefreshing(false);
-      })
-      .catch(() => { setLoading(false); setRefreshing(false); });
+    cisoCall(`/ciso/access-log?${params}`)
+      .then(d => { setEvents(d.events ?? []); setNote(d.note ?? ''); setError(null); })
+      .catch(e => setError(e.message))
+      .finally(() => { setLoading(false); setRefreshing(false); });
   };
 
   useEffect(() => { load(); }, []);
@@ -77,7 +82,7 @@ export function SecurityMonitoringPage() {
     const q = search.toLowerCase();
     return events.filter(e => {
       if (q && !e.user_name.toLowerCase().includes(q) &&
-               !e.project_name.toLowerCase().includes(q) &&
+               !(e.project_name ?? '').toLowerCase().includes(q) &&
                !e.resource_type.toLowerCase().includes(q) &&
                !e.action.toLowerCase().includes(q)) return false;
       if (filterDecision !== 'ALL' && e.decision !== filterDecision) return false;
@@ -98,7 +103,7 @@ export function SecurityMonitoringPage() {
         <div>
           <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">Access Monitor</h1>
           <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
-            Real-time ABAC access event log — BP Global Energy
+            {error ? `Unavailable: ${error}` : note}
           </p>
         </div>
         <button

@@ -7,7 +7,6 @@ One project-aware endpoint for the dashboard front door.
 from __future__ import annotations
 
 import os
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +28,6 @@ router = APIRouter(prefix="/project-truth", tags=["project-truth"])
 deal_killer_engine = DealKillerEngine()
 instrument_registry = get_instrument_registry()
 
-PLATFORM_DB_PATH = settings.SQLITE_DB_PATH
 
 GATE_DEFS: dict[str, dict[str, Any]] = {
     "G0": {"name": "Site Rights & Social License", "owners": ["Producer", "Executive"]},
@@ -63,64 +61,9 @@ SERVICE_ROLE_MAP = {
     "LEGAL": "REGULATOR",
 }
 
-FALLBACK_PROJECT_META: dict[str, dict[str, Any]] = {
-    "proj_bremen_h2": {
-        "project_name": "Bremen Green Hydrogen Plant",
-        "molecule": "H2",
-        "location": "Bremen, Germany",
-        "status": "construction",
-        "capex_eur": 220_000_000,
-        "jurisdiction": "DE",
-    },
-    "proj_rotterdam_nh3": {
-        "project_name": "Rotterdam Green Ammonia Terminal",
-        "molecule": "NH3",
-        "location": "Rotterdam, Netherlands",
-        "status": "development",
-        "capex_eur": 380_000_000,
-        "jurisdiction": "NL",
-    },
-    "proj_sansebastian_emethanol": {
-        "project_name": "Project Helios e-Methanol",
-        "molecule": "e-Methanol",
-        "location": "San Sebastian, Spain",
-        "status": "construction",
-        "capex_eur": 165_000_000,
-        "jurisdiction": "ES",
-    },
-    "proj_wales_saf": {
-        "project_name": "Celtic Green SAF Complex",
-        "molecule": "SAF",
-        "location": "Neath Port Talbot, Wales",
-        "status": "development",
-        "capex_eur": 290_000_000,
-        "jurisdiction": "GB",
-    },
-    "proj_lehavre_eng": {
-        "project_name": "Le Havre e-Gas Hub",
-        "molecule": "e-NG",
-        "location": "Le Havre, France",
-        "status": "operating",
-        "capex_eur": 195_000_000,
-        "jurisdiction": "FR",
-    },
-    "proj_hamburgone_emethanol": {
-        "project_name": "HamburgOne e-Methanol Plant",
-        "molecule": "e-Methanol",
-        "location": "Hamburg, Germany",
-        "status": "development",
-        "capex_eur": 185_000_000,
-        "jurisdiction": "DE",
-    },
-    "proj_madrid2_sansebastian": {
-        "project_name": "Madrid2 San-Sebastian e-Methanol",
-        "molecule": "e-Methanol",
-        "location": "Madrid / San Sebastian, Spain",
-        "status": "development",
-        "capex_eur": 260_000_000,
-        "jurisdiction": "ES",
-    },
-}
+# Project facts come from PostgreSQL (`projects`) only. The FALLBACK_PROJECT_META
+# dictionary that stood here — a third copy of project data in code — and the
+# SQLite `capacities` read that preferred it were removed on 2026-10-25.
 
 STAGE_BY_STATUS = {
     "development": "BUILDABLE",
@@ -213,48 +156,19 @@ def _scope_readiness(active_killers: list[Any]) -> str:
 
 
 def _load_project_meta(project_id: str) -> dict[str, Any]:
-    fallback = FALLBACK_PROJECT_META.get(project_id, {}).copy()
+    """The project's headline facts from PostgreSQL; a fact not recorded is None."""
+    from app.core.projects_store import fetch_project
+
+    row = fetch_project(project_id) or {}
     profile = get_project_profile(project_id)
-    if profile:
-        fallback.setdefault("project_name", profile.project_name)
-        fallback.setdefault("jurisdiction", profile.jurisdiction)
-
-    db_file = Path(PLATFORM_DB_PATH)
-    if not db_file.exists():
-        return fallback
-
-    conn = sqlite3.connect(db_file)
-    conn.row_factory = sqlite3.Row
-    try:
-        table = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='capacities'"
-        ).fetchone()
-        if not table:
-            return fallback
-
-        row = conn.execute(
-            """
-            SELECT id, project_name, molecule, location, capex_eur, status
-            FROM capacities
-            WHERE id = ? OR project_name = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (project_id, fallback.get("project_name", "")),
-        ).fetchone()
-        if not row:
-            return fallback
-
-        return {
-            "project_name": row["project_name"] or fallback.get("project_name", project_id),
-            "molecule": row["molecule"] or fallback.get("molecule", "H2"),
-            "location": row["location"] or fallback.get("location", "Unknown"),
-            "status": row["status"] or fallback.get("status", "development"),
-            "capex_eur": row["capex_eur"] or fallback.get("capex_eur", 200_000_000),
-            "jurisdiction": fallback.get("jurisdiction", "DE"),
-        }
-    finally:
-        conn.close()
+    return {
+        "project_name": row.get("project_name"),
+        "molecule": row.get("molecule"),
+        "location": row.get("location"),
+        "status": row.get("status"),
+        "capex_eur": float(row["capex_eur"]) if row.get("capex_eur") is not None else None,
+        "jurisdiction": profile.jurisdiction if profile and profile.jurisdiction else None,
+    }
 
 
 def _owner_load(visible_gates: list[str], blockers_in_scope: list[Any]) -> list[dict[str, Any]]:
@@ -297,10 +211,15 @@ def _gate_scope_items(visible_gates: list[str], blockers_in_scope: list[Any]) ->
 
 
 def _eligible_instruments(meta: dict[str, Any]) -> list[dict[str, Any]]:
-    molecule = MOLECULE_MAP.get(meta.get("molecule", "H2"), "H2")
-    stage = STAGE_BY_STATUS.get(meta.get("status", "development"), "BUILDABLE")
-    jurisdiction = meta.get("jurisdiction", "DE")
-    project_size_eur = int(meta.get("capex_eur") or 200_000_000)
+    # Eligibility needs the project's real jurisdiction, size and molecule. When
+    # one is not recorded there is no answer — never a guessed one (it used to
+    # assume DE, 200M EUR and H2).
+    molecule = MOLECULE_MAP.get(meta.get("molecule") or "")
+    jurisdiction = meta.get("jurisdiction")
+    if not (molecule and jurisdiction and meta.get("capex_eur")):
+        return []
+    stage = STAGE_BY_STATUS.get(meta.get("status") or "development", "BUILDABLE")
+    project_size_eur = int(meta["capex_eur"])
 
     results = instrument_registry.get_eligible_for_project(
         jurisdiction=jurisdiction,
@@ -406,10 +325,10 @@ async def get_project_truth_view(
 
     return {
         "project_id": project_id,
-        "project_name": meta.get("project_name", truth.get("project_name", project_id)),
-        "molecule": meta.get("molecule", truth.get("molecule", "H2")),
-        "location": meta.get("location", "Unknown"),
-        "status": meta.get("status", "development"),
+        "project_name": meta.get("project_name") or truth.get("project_name") or project_id,
+        "molecule": meta.get("molecule") or truth.get("molecule") or "",
+        "location": meta.get("location") or "Not recorded",
+        "status": meta.get("status") or "Not recorded",
         "objective": flow.objective,
         "scope_readiness": _scope_readiness(scoped_killers),
         "overall_readiness": deal_killer_engine.committee_ready(project_data)["status"],

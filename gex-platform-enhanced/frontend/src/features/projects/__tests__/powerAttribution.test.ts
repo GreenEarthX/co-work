@@ -12,10 +12,8 @@
 //     line between separate legal entities is still a PPA
 import { describe, it, expect } from "vitest";
 import { detectContradictions } from "../ProjectProfilePage";
-import {
-  CUSTOMER_PROJECTS,
-  type CustomerProject,
-} from "@/data/customerProjects";
+import type { CustomerProject } from "@/data/customerProjects";
+import { CUSTOMER_PROJECTS } from "@/test/fixtures/customerProjects";
 
 const BASE = CUSTOMER_PROJECTS.find((p) => p.id === "proj_etf_pecos1")!;
 

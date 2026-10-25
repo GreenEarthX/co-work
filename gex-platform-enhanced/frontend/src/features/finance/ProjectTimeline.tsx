@@ -7,6 +7,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { ChevronUp, ChevronDown, Euro, Calendar, User, Flag, CheckCircle, Clock, AlertCircle, Circle } from 'lucide-react'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
+import { useProjectDataset, DatasetNotice, UnverifiedBadge } from './useProjectDataset'
 
 // ─────────────────────────────── Types ───────────────────────────────────────
 
@@ -35,104 +36,6 @@ interface TimelineData {
 
 type SortKey = 'name' | 'phase' | 'targetDate' | 'status' | 'owner' | 'drawdownAmount'
 type SortDir = 'asc' | 'desc'
-
-// ─────────────────────────── Non-sensitive demo data ─────────────────────────
-//
-// R1 (Ticket 1a): the frontend bundle ships ONLY non-sensitive project
-// milestones (inception → development → permitting → FEED/EPC → construction →
-// commissioning → COD → operations). It contains NO drawdownAmount, NO funding
-// triggers, NO FINANCIAL_CLOSE phase, and NO term-sheet / lender / covenant /
-// CP detail. That sensitive layer is served by the protected backend endpoint
-// GET /api/v1/finance-model/drawdown-timeline/{project_id} (403 if unauthorized).
-
-function generateTimelineData(projectId: string): TimelineData {
-  if (projectId === 'proj_le_havre_eng') {
-    return {
-      phases: [
-        { phase: 'ADVISORY', status: 'COMPLETED', milestones: [
-          { name: 'LCA Protocol Locked', status: 'COMPLETED', targetDate: '2025-Q1', owner: 'DNV', fundingTrigger: false },
-          { name: 'Offtake 92% Signed', status: 'COMPLETED', targetDate: '2025-Q4', owner: 'Commercial', fundingTrigger: false },
-        ]},
-        { phase: 'BUILD', status: 'COMPLETED', milestones: [
-          { name: 'EPC Contract Executed', status: 'COMPLETED', targetDate: '2025-Q2', owner: 'PM', fundingTrigger: false },
-          { name: 'Insurance CAR/DSU Placed', status: 'COMPLETED', targetDate: '2025-Q3', owner: 'Risk', fundingTrigger: false },
-        ]},
-        { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-          { name: 'NTP Issued', status: 'PLANNED', targetDate: '2026-Q3', owner: 'PM', fundingTrigger: false },
-          { name: 'Electrolyser Delivery', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: false },
-          { name: 'Methanation Unit FAT', status: 'PLANNED', targetDate: '2027-Q4', owner: 'PM', fundingTrigger: false },
-          { name: 'COD Commissioning', status: 'PLANNED', targetDate: '2028-Q2', owner: 'PM', fundingTrigger: false },
-        ]},
-        { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-          { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2028-Q2', owner: 'Operations', fundingTrigger: false },
-          { name: 'First GoO Issuance', status: 'PLANNED', targetDate: '2028-Q3', owner: 'Certification', fundingTrigger: false },
-        ]},
-      ],
-    }
-  }
-
-  if (projectId === 'proj_bremen_h2') {
-    return {
-      phases: [
-        { phase: 'ADVISORY', status: 'COMPLETED', milestones: [
-          { name: 'Feasibility Study', status: 'COMPLETED', targetDate: '2024-Q2', owner: 'Engineering', fundingTrigger: false },
-          { name: 'Stakeholder MoU', status: 'COMPLETED', targetDate: '2024-Q4', owner: 'BD', fundingTrigger: false },
-        ]},
-        { phase: 'BUILD', status: 'IN_PROGRESS', milestones: [
-          { name: 'EPC Tender Award', status: 'COMPLETED', targetDate: '2025-Q2', owner: 'PM', fundingTrigger: false },
-          { name: 'Grid Connection Agreement', status: 'IN_PROGRESS', targetDate: '2026-Q1', owner: 'Grid Ops', fundingTrigger: false },
-        ]},
-        { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-          { name: 'NTP Issued', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: false },
-          { name: 'COD Commissioning', status: 'PLANNED', targetDate: '2028-Q4', owner: 'PM', fundingTrigger: false },
-        ]},
-        { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-          { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2029-Q1', owner: 'Operations', fundingTrigger: false },
-        ]},
-      ],
-    }
-  }
-
-  if (projectId === 'proj_helios_solar' || projectId === 'proj_rotterdam_nh3') {
-    return {
-      phases: [
-        { phase: 'ADVISORY', status: 'IN_PROGRESS', milestones: [
-          { name: 'Pre-Feasibility Study', status: 'COMPLETED', targetDate: '2025-Q3', owner: 'Engineering', fundingTrigger: false },
-          { name: 'Site Selection', status: 'IN_PROGRESS', targetDate: '2026-Q2', owner: 'BD', fundingTrigger: false },
-          { name: 'Environmental Assessment', status: 'PLANNED', targetDate: '2026-Q3', owner: 'ESG', fundingTrigger: false },
-        ]},
-        { phase: 'BUILD', status: 'PLANNED', milestones: [
-          { name: 'EPC Tender', status: 'PLANNED', targetDate: '2027-Q1', owner: 'PM', fundingTrigger: false },
-        ]},
-        { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-          { name: 'NTP Issued', status: 'PLANNED', targetDate: '2028-Q1', owner: 'PM', fundingTrigger: false },
-        ]},
-        { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-          { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2029-Q4', owner: 'Operations', fundingTrigger: false },
-        ]},
-      ],
-    }
-  }
-
-  // Wales / default (PRE_ADVISORY)
-  return {
-    phases: [
-      { phase: 'ADVISORY', status: 'PLANNED', milestones: [
-        { name: 'Initial Screening', status: 'PLANNED', targetDate: '2026-Q3', owner: 'BD', fundingTrigger: false },
-        { name: 'Concept Note', status: 'PLANNED', targetDate: '2026-Q4', owner: 'Engineering', fundingTrigger: false },
-      ]},
-      { phase: 'BUILD', status: 'PLANNED', milestones: [
-        { name: 'EPC Tender', status: 'PLANNED', targetDate: '2028-Q1', owner: 'PM', fundingTrigger: false },
-      ]},
-      { phase: 'CONSTRUCTION', status: 'PLANNED', milestones: [
-        { name: 'NTP Issued', status: 'PLANNED', targetDate: '2029-Q1', owner: 'PM', fundingTrigger: false },
-      ]},
-      { phase: 'OPERATIONS', status: 'PLANNED', milestones: [
-        { name: 'Commercial Operations', status: 'PLANNED', targetDate: '2030-Q3', owner: 'Operations', fundingTrigger: false },
-      ]},
-    ],
-  }
-}
 
 // Sensitive layer fetched from the protected backend endpoint.
 interface DrawdownLayer {
@@ -702,7 +605,10 @@ export function ProjectTimeline() {
 
   const { projects: visibleProjects } = useVisibleProjects()
   const project = visibleProjects.find(p => p.id === selectedProjectId)
-  const rawData = generateTimelineData(selectedProjectId ?? '')
+  // project_dataset project_timeline (PostgreSQL since 2026-10-25), UNVERIFIED.
+  // Every project without a branch here used to get a "Wales / default" plan.
+  const ds = useProjectDataset<TimelineData>('project_timeline', selectedProjectId)
+  const rawData: TimelineData = ds.data ?? { phases: [] }
 
   // Fetch the PROTECTED sensitive layer. The endpoint 403s unauthorized callers;
   // success === authorized for this project. The sensitive data is never in the
@@ -735,7 +641,8 @@ export function ProjectTimeline() {
     <div className="p-6 max-w-6xl mx-auto">
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Project Timeline</h1>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">Project Timeline <UnverifiedBadge verification={ds.verification} /></h1>
+        {!ds.data && <DatasetNotice ds={ds} what="milestone plan" />}
         <p className="text-sm text-gray-500 mt-1">
           {project?.name ?? selectedProjectId ?? 'Select a project'} — Milestone{financeEntitled ? ' & Drawdown' : ''} Schedule
         </p>

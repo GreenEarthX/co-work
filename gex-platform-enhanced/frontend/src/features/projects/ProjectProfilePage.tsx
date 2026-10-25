@@ -11,10 +11,8 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import {
-  CUSTOMER_PROJECTS,
-  type CustomerProject,
-} from "@/data/customerProjects";
+import { type CustomerProject } from "@/data/customerProjects";
+import { useVisibleProjects } from "@/hooks/useVisibleProjects";
 import { renderNarrative, type RenderedNarrative } from "@/lib/narrative";
 import { useUserRole } from "@/contexts/UserRoleContext";
 import {
@@ -1750,11 +1748,12 @@ export function ProjectProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const project = useMemo(
-    () => CUSTOMER_PROJECTS.find((p) => p.id === id),
-    [id],
-  );
+  const { projects, isLoading } = useVisibleProjects();
+  const project = useMemo(() => projects.find((p) => p.id === id), [projects, id]);
 
+  if (!project && isLoading) {
+    return <div className="max-w-3xl mx-auto py-12 text-center text-sm text-[var(--text-muted)]">Loading…</div>;
+  }
   if (!project) {
     return (
       <div className="max-w-3xl mx-auto py-12 text-center">

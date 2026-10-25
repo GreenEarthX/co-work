@@ -459,7 +459,7 @@ export function CommunicationPage() {
             Secure Communications Monitor
           </h1>
           <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
-            Matrix / Synapse · E2EE · ABAC-governed rooms · BP Global Energy
+            Matrix / Synapse · E2EE · ABAC-governed rooms
           </p>
         </div>
         <div className="flex items-center gap-2">

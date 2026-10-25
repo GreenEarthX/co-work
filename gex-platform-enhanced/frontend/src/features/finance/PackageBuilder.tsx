@@ -5,33 +5,25 @@
 // Zone: STRUCTURE (teal)
 // API: GET /api/v1/structuring/{project_id}/recommend
 // ──────────────────────────────────────────────────────────
- 
-// Save as: src/features/finance/PackageBuilder.tsx
- 
 
-import { useState, useEffect } from 'react';
+// Save as: src/features/finance/PackageBuilder.tsx
+
+
+import { useProjectResource } from './useProjectResource';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
 
 export function PackageBuilder() {
-  const [recommendation, setRecommendation] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [projectId] = useState('proj_bremen_h2');
- 
-  useEffect(() => {
-    fetch(`/api/v1/structuring/${projectId}/recommend`)
-      .then(r => r.json())
-      .then(data => { setRecommendation(data); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [projectId]);
- 
+  const { data: recommendation, loading, error } = useProjectResource<any>((pid) => `/api/v1/structuring/${pid}/recommend`);
+
   if (loading) return <div className="p-6 text-center text-gray-500">Computing optimal package...</div>;
+  if (error) return <div role="alert" className="p-6 text-center text-sm text-[var(--text-secondary)]">{error}</div>;
   if (!recommendation) return <div className="p-6 text-center text-red-400">Failed to load recommendation</div>;
- 
+
   const pkg = recommendation.package || {};
   const before = recommendation.before_metrics || {};
   const after = recommendation.after_metrics || {};
- 
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -42,20 +34,20 @@ export function PackageBuilder() {
           {TAB_DESCRIPTIONS.PACKAGE_BUILDER}
         </p>
       </div>
- 
+
       <div className="border-l-4 border-teal-500 bg-teal-900/10 px-4 py-2 rounded-r-lg">
         <span className="text-xs font-bold uppercase tracking-wider text-teal-400">
           Structure Zone
         </span>
       </div>
- 
+
       {/* Summary banner */}
       <div className="shadow-card rounded-2xl p-6 bg-gradient-to-r from-teal-900/20 to-blue-900/20 border border-teal-500/30">
         <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
           {recommendation.summary}
         </p>
       </div>
- 
+
       {/* Before / After comparison */}
       <div className="grid grid-cols-2 gap-6">
         <div className="shadow-card rounded-2xl p-5">
@@ -98,7 +90,7 @@ export function PackageBuilder() {
           </div>
         </div>
       </div>
- 
+
       {/* Package items */}
       <div>
         <h2 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>
@@ -131,7 +123,7 @@ export function PackageBuilder() {
           ))}
         </div>
       </div>
- 
+
       {/* Warnings */}
       {(pkg.stackability_warnings || []).length > 0 && (
         <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-4">
@@ -144,4 +136,3 @@ export function PackageBuilder() {
     </div>
   );
 }
- 

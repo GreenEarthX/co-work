@@ -12,7 +12,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import BankabilityScorePage from '../BankabilityScorePage'
-import { CUSTOMER_PROJECTS, type CustomerProject } from '@/data/customerProjects'
+import type { CustomerProject } from '@/data/customerProjects'
+import { CUSTOMER_PROJECTS } from '@/test/fixtures/customerProjects'
 import { engineRoutes, speculativeReadout, stubFetch } from '@/test/engineReadoutFixture'
 
 const visible = vi.hoisted(() => ({ projects: [] as CustomerProject[] }))

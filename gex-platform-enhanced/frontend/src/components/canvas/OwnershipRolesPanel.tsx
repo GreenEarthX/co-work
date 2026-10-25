@@ -114,25 +114,23 @@ export interface ComponentOwnership {
 const STORAGE_KEY_TEAM = "gex_team_members";
 const STORAGE_KEY_OWNERSHIP = "gex_component_ownership";
 
-const SEED_TEAM: TeamMember[] = [
-  { user_id: "u-001", name: "Jan van der Berg", email: "jan@greenearthx.com", global_role: "Head of Engineering", organization: "", is_active: true },
-  { user_id: "u-002", name: "Sophie Müller", email: "sophie.muller@greenearthx.com", global_role: "Manager", organization: "", is_active: true },
-  { user_id: "u-003", name: "Ahmed El-Sayed", email: "ahmed@greenearthx.com", global_role: "Engineer", organization: "", is_active: true },
-  { user_id: "u-004", name: "Lena Johansson", email: "lena@greenearthx.com", global_role: "Technician", organization: "", is_active: true },
-  { user_id: "u-005", name: "Carlos Ferreira", email: "carlos@dnv.com", global_role: "External Partner", organization: "DNV GL", is_active: true },
-];
+// The five people this panel used to seed (2026-10-25: they do not exist).
+// Removed from a browser that still holds them; nothing is seeded any more.
+const RETIRED_SEED_IDS = new Set(["u-001", "u-002", "u-003", "u-004", "u-005"]);
 
 function loadTeam(): TeamMember[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_TEAM);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) {
+        const real = parsed.filter((m: TeamMember) => !RETIRED_SEED_IDS.has(m.user_id));
+        if (real.length !== parsed.length) localStorage.setItem(STORAGE_KEY_TEAM, JSON.stringify(real));
+        return real;
+      }
     }
   } catch { /* ignore */ }
-  // Auto-seed team members so assignment works everywhere
-  localStorage.setItem(STORAGE_KEY_TEAM, JSON.stringify(SEED_TEAM));
-  return SEED_TEAM;
+  return [];
 }
 
 function loadOwnership(componentId: string): ComponentOwnership {

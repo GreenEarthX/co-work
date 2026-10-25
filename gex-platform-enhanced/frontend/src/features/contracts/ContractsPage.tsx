@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FileText, Filter, RefreshCw } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { contractsAPI } from '@/lib/api'
-import { CUSTOMER_PROJECTS, type CustomerProject } from '@/data/customerProjects'
+import type { CustomerProject } from '@/data/customerProjects'
 import { type UserRole, useUserRole } from '@/contexts/UserRoleContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 
@@ -121,13 +121,19 @@ function humanize(value?: string | null): string {
     .replace(/\b\w/g, char => char.toUpperCase())
 }
 
-const PROJECTS_BY_ID = new Map<string, CustomerProject>(
-  CUSTOMER_PROJECTS.map(project => [project.id, project]),
-)
+// Projects come from the server (useVisibleProjects), so the lookups are built
+// per render from what the caller may see — never from a list in code.
+interface ProjectLookup {
+  byId: Map<string, CustomerProject>
+  byName: Map<string, CustomerProject>
+}
 
-const PROJECTS_BY_NAME = new Map<string, CustomerProject>(
-  CUSTOMER_PROJECTS.map(project => [normalizeKey(project.name), project]),
-)
+function projectLookup(projects: CustomerProject[]): ProjectLookup {
+  return {
+    byId: new Map(projects.map(project => [project.id, project])),
+    byName: new Map(projects.map(project => [normalizeKey(project.name), project])),
+  }
+}
 
 function toStatusGroup(status?: string): StatusGroup {
   const value = (status ?? '').trim().toLowerCase()
@@ -154,12 +160,12 @@ function extractContracts(payload: unknown): RawContract[] {
   return []
 }
 
-function linkProject(contract: RawContract): CustomerProject | null {
-  if (contract.project_id && PROJECTS_BY_ID.has(contract.project_id)) {
-    return PROJECTS_BY_ID.get(contract.project_id) ?? null
+function linkProject(contract: RawContract, lookup: ProjectLookup): CustomerProject | null {
+  if (contract.project_id && lookup.byId.has(contract.project_id)) {
+    return lookup.byId.get(contract.project_id) ?? null
   }
 
-  const byName = PROJECTS_BY_NAME.get(normalizeKey(contract.project_name ?? contract.project))
+  const byName = lookup.byName.get(normalizeKey(contract.project_name ?? contract.project))
   return byName ?? null
 }
 
@@ -426,6 +432,7 @@ export function ContractsPage() {
     }
   }
 
+  const lookup = useMemo(() => projectLookup(visibleProjects), [visibleProjects])
   const normalizedContracts = useMemo<ContractView[]>(() => {
     return contracts
       .map(contract => {
@@ -433,7 +440,7 @@ export function ContractsPage() {
         if (statusGroup === 'archived') return null
         const activeStatusGroup: Exclude<StatusGroup, 'archived'> = statusGroup
 
-        const linkedProject = linkProject(contract)
+        const linkedProject = linkProject(contract, lookup)
         const agreement = deriveAgreementType(contract, linkedProject, role)
         const { summary: qualitySummary, issues: qualityIssues } = deriveQuality(contract, linkedProject)
         const issues = deriveIssues(contract, linkedProject, activeStatusGroup, qualityIssues)

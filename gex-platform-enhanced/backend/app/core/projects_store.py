@@ -51,8 +51,8 @@ def _rows(sql: str, params: dict, company_id: str = PLATFORM_ADMIN) -> list[dict
             return [dict(r) for r in conn.execute(text(sql), params).mappings()]
     except Exception as exc:  # noqa: BLE001
         # The registry is consulted on hot paths (ABAC, JWT scope). A database
-        # blip must degrade to "no runtime projects", not 500 every request —
-        # the static seed profiles still answer. Logged, never silent.
+        # blip must degrade to "no projects" (fail closed), not 500 every
+        # request. There is no static fallback since 2026-10-25. Logged.
         logger.warning("projects_store read failed (%s): %s", sql.split()[0], exc)
         return []
 
@@ -101,6 +101,43 @@ def list_projects(owner_tenant_id: Optional[str] = None) -> list[dict[str, Any]]
         "ORDER BY p.project_id",
         params,
     )
+
+
+def fetch_project_access(project_id: Optional[str] = None) -> list[dict[str, Any]]:
+    """Access rows with the company NAME — one project, or every project when None.
+
+    The access rules themselves (owner, stakeholders, mandated lenders and
+    insurers), read as a bootstrap: they decide who may see what, so they are
+    read before any caller-scoped query. Since 2026-10-25 this is their only
+    source — the PROJECT_ACCESS_PROFILES dictionary in code is gone.
+    """
+    where, params = ("WHERE a.project_id = :pid", {"pid": project_id}) if project_id else ("", {})
+    return _rows(
+        "SELECT a.project_id, a.company_id, t.company_name, a.access_role "
+        f"FROM project_access a JOIN tenants t ON t.company_id = a.company_id {where} "
+        "ORDER BY a.project_id, a.id",
+        params,
+    )
+
+
+def fetch_project_profile(project_id: str) -> Optional[dict[str, Any]]:
+    """The rich project record (alembic 068) — bankability snapshot, offtakes, ..."""
+    rows = _rows("SELECT profile, verification_state FROM project_profile WHERE project_id = :pid",
+                 {"pid": project_id})
+    return rows[0] if rows else None
+
+
+def fetch_dataset(project_id: str, kind: str) -> Optional[dict[str, Any]]:
+    """A per-project dataset (alembic 069) — payload and verification state, or None."""
+    rows = _rows("SELECT payload, verification_state FROM project_dataset WHERE project_id = :pid "
+                 "AND kind = :kind", {"pid": project_id, "kind": kind})
+    return rows[0] if rows else None
+
+
+def resolve_alias(project_id: str) -> Optional[str]:
+    """The current id for a retired one (project_id_alias), or None."""
+    rows = _rows("SELECT project_id FROM project_id_alias WHERE alias = :a", {"a": project_id})
+    return rows[0]["project_id"] if rows else None
 
 
 def project_ids_owned_by(company_id: str) -> list[str]:

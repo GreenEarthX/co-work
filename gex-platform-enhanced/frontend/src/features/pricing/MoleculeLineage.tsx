@@ -19,6 +19,7 @@ import {
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { useUserRole } from '@/contexts/UserRoleContext'
+import { useProjectDataset } from '@/features/finance/useProjectDataset'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -102,32 +103,6 @@ const MOLECULE_ENUM: Record<string, string> = {
 function toEngineEnum(molecule: string | undefined): string {
   if (!molecule) return 'H2'
   return MOLECULE_ENUM[molecule] ?? (MOLECULE_META[molecule] ? molecule : 'H2')
-}
-
-// Demo pricing context per molecule. Subsidies are €/kg — the engine converts
-// ×1000 to €/t — so they must be scaled to each molecule's price level
-// (45V ≈ $3/kg applies to HYDROGEN; derived molecules only inherit the
-// embedded-H2 share per tonne of product). Production tonnage sizes the
-// €/t insurance allocation realistically per plant scale.
-const DEMO_CONTEXT: Record<string, { subsidies: Record<string, number>; production_tpa: number }> = {
-  H2:         { subsidies: { '45V': 3.0, 'RED_III': 0.5 },  production_tpa: 18_250 },
-  NH3:        { subsidies: { '45V': 0.5, 'RED_III': 0.06 }, production_tpa: 60_000 },
-  E_METHANOL: { subsidies: { '45V': 0.55, 'RED_III': 0.05 }, production_tpa: 125_000 },
-  SAF:        { subsidies: { 'RED_III': 0.25 },             production_tpa: 33_000 },
-  E_NG:       { subsidies: { 'RED_III': 0.015 },            production_tpa: 80_000 },
-  HVO:        { subsidies: { 'RED_III': 0.12 },             production_tpa: 250_000 },
-}
-
-// Sign-only tone — the single semantic colour a waterfall carries.
-// Adds-to-cost (debit) vs reduces-cost (credit). Category is encoded by the
-// row label + section grouping, NOT by background (Hidalgo: colour = sign).
-// The United States clean hydrogen production credit (45V) is paid only on
-// hydrogen produced in the United States. Projects anywhere else must not
-// carry it in their price breakdown, so it is stripped by jurisdiction.
-function subsidiesFor(molecule: string, country: string | undefined): Record<string, number> {
-  const base = (DEMO_CONTEXT[molecule] ?? DEMO_CONTEXT.H2).subsidies
-  if ((country ?? '').toUpperCase() === 'US') return base
-  return Object.fromEntries(Object.entries(base).filter(([k]) => k !== '45V'))
 }
 
 function signTone(value: number): { band: string; bar: string } {
@@ -400,6 +375,27 @@ interface Props {
   compact?: boolean
 }
 
+interface RecordedTranche { source: string; type: string; amount: number; cost: number; tenor: number | null }
+
+/** Recorded tranches (amounts in €M, cost in %) → the engine's financing inputs. */
+function engineFinancing(stack: { tranches: RecordedTranche[] }) {
+  const sum = (types: string[]) => stack.tranches.filter(t => types.includes(t.type))
+    .reduce((s, t) => s + t.amount * 1_000_000, 0)
+  return {
+    tranches: stack.tranches
+      .filter(t => ['SENIOR', 'MEZZ', 'CONCESSIONAL', 'ECA/DFI'].includes(t.type))
+      .map(t => ({
+        name: t.source,
+        tranche_type: t.type === 'SENIOR' || t.type === 'MEZZ' ? 'senior' : 'concessional',
+        amount: t.amount * 1_000_000,
+        rate: t.cost / 100,
+        tenor: t.tenor,   // every recorded debt tranche carries one (checked 2026-10-25)
+      })),
+    equity_amount: sum(['EQUITY']),
+    grants_amount: sum(['GRANT']),
+  }
+}
+
 export default function MoleculeLineage({ molecule: moleculeProp, compact }: Props) {
   const { selectedProjectId } = useSelectedProject()
   const { projects: visibleProjects } = useVisibleProjects()
@@ -419,9 +415,14 @@ export default function MoleculeLineage({ molecule: moleculeProp, compact }: Pro
     if (!moleculeProp && project?.molecule) setMolecule(toEngineEnum(project.molecule))
   }, [moleculeProp, project?.molecule])
 
+  // project_dataset capital_stack (UNVERIFIED): the financing structure the
+  // decomposition is computed with. None recorded → no decomposition.
+  const stack = useProjectDataset<{ tranches: RecordedTranche[] }>('capital_stack', project?.id)
+
   // Load decomposition
   useEffect(() => {
     let cancelled = false
+    if (!stack.data || !project?.capacity_mtpd) { setData(null); setLoading(stack.loading); return }
     setLoading(true)
 
     async function load() {
@@ -441,20 +442,15 @@ export default function MoleculeLineage({ molecule: moleculeProp, compact }: Pro
             project_id: pid,
             molecule,
             tenor_months: 12,
-            // Demo DFI financing structure (generic concessional + senior stack)
-            tranches: [
-              { name: 'EIB Concessional', tranche_type: 'concessional', amount: 80_000_000, rate: 0.041, tenor: 15, grace_period_years: 3, dfi_provider: 'EIB' },
-              { name: 'KfW Climate Action', tranche_type: 'concessional', amount: 17_000_000, rate: 0.072, tenor: 10, grace_period_years: 2, dfi_provider: 'KFW' },
-              { name: 'DZ Bank Senior', tranche_type: 'senior', amount: 65_000_000, rate: 0.052, tenor: 15 },
-            ],
-            equity_amount: 58_000_000,
-            grants_amount: 22_000_000,
-            // Molecule-scaled subsidy + production context (see DEMO_CONTEXT)
-            subsidies: subsidiesFor(molecule, project?.country),
-            insurance_annual_eur: 1_000_000,
-            insurance_provider: 'Allianz GCS',
-            annual_production_tonnes: (DEMO_CONTEXT[molecule] ?? DEMO_CONTEXT.H2).production_tpa,
-            certifications: (project?.country ?? '').toUpperCase() === 'US' ? ['RED_III', 'RFNBO', '45V'] : ['RED_III', 'RFNBO'],
+            // The project's RECORDED financing structure (2026-10-25). Every
+            // project used to be priced with one invented stack — EIB €80M,
+            // KfW €17M, DZ Bank €65M, €58M equity, €22M grants, Allianz €1M —
+            // and per-molecule subsidy and production figures.
+            ...engineFinancing(stack.data!),
+            subsidies: {},
+            insurance_annual_eur: 0,
+            annual_production_tonnes: Math.round((project?.capacity_mtpd ?? 0) * 365),
+            certifications: [],
           }),
         })
         if (res.ok) {
@@ -481,7 +477,7 @@ export default function MoleculeLineage({ molecule: moleculeProp, compact }: Pro
 
     load().finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [molecule, token, project?.id, project?.country])
+  }, [molecule, token, project?.id, project?.capacity_mtpd, stack.data, stack.loading])
 
   const meta = MOLECULE_META[molecule] || MOLECULE_META.H2
 
@@ -496,6 +492,10 @@ export default function MoleculeLineage({ molecule: moleculeProp, compact }: Pro
             <div className="text-xs max-w-md mx-auto">
               {!token
                 ? 'Price decomposition is finance-restricted — sign in with a finance role to view it.'
+                : !stack.data
+                ? 'No financing structure is recorded for this project, so its price cannot be decomposed.'
+                : !project?.capacity_mtpd
+                ? 'No nameplate capacity is recorded for this project, so its price cannot be decomposed.'
                 : 'The price breakdown could not be produced right now. The pricing service did not answer or returned an incomplete result; try again shortly.'}
             </div>
           </>
