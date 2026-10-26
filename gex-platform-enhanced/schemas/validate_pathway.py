@@ -26,7 +26,7 @@ It runs two passes:
     · each gate.approval → models.ApprovalRequirement
 
 Exit 0 on PASS, 1 on FAIL. Usage:
-    python schemas/validate_pathway.py schemas/examples/breizh_emethanol.pathway.yaml
+    python schemas/validate_pathway.py schemas/examples/example_emethanol.pathway.yaml
 """
 from __future__ import annotations
 

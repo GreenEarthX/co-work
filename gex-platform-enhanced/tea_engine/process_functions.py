@@ -138,8 +138,8 @@ _E_SAF = ProcessFunction(
     ],
     version="0.2",
     ascertained=False,
-    note="First-pass canonical e-SAF (RFNBO Fischer-Tropsch) train, matching the Breizh SAF "
-         "workbook (PEM electrolyser upstream + FT). Sizing/stoichiometry are illustrative, "
+    note="First-pass canonical e-SAF (RFNBO Fischer-Tropsch) train (PEM electrolyser "
+         "upstream + FT). Sizing/stoichiometry are illustrative, "
          "tuned at 50 kt/yr; IE to verify FT/upgrading train, yield, and H2:CO2 ratios. NOTE: "
          "this is the E-FUEL SAF route — biogenic SAF (HEFA / bio-FT) is a different "
          "pathway_class (ADVANCED_BIOFUEL) with a different train and RED III regime.",

@@ -201,7 +201,7 @@ fiction.
 
 See [`schemas/gex_pathway.schema.yaml`](../../schemas/gex_pathway.schema.yaml) and the
 worked e-methanol example
-[`schemas/examples/breizh_emethanol.pathway.yaml`](../../schemas/examples/breizh_emethanol.pathway.yaml).
+[`schemas/examples/example_emethanol.pathway.yaml`](../../schemas/examples/example_emethanol.pathway.yaml).
 
 Design rules:
 

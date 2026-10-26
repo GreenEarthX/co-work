@@ -21,7 +21,7 @@ kind: gex.pathway
 # 0. METADATA  (pathway-spec: metadata + functional unit)
 # ----------------------------------------------------------------------------
 metadata:
-  pathway_id:        str          # stable id, e.g. "PW-BREIZH-EMEOH-001"
+  pathway_id:        str          # stable id, e.g. "PW-EXAMPLE-EMEOH-001"
   project_id:        str          # FK → truth-stack CanonicalLedgerEntry.project_id
   title:             str
   fuel_id:           enum         # MUST be an id in gex_fuel_catalog.json (e.g. E_METHANOL)

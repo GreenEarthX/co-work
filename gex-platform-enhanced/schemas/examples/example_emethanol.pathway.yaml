@@ -2,10 +2,10 @@
 # WORKED EXAMPLE · GEX canonical pathway · e-methanol (FEED Class 3 client)
 # Validates against ../gex_pathway.schema.yaml — run:
 #   ./backend/venv/bin/python schemas/validate_pathway.py \
-#       schemas/examples/breizh_emethanol.pathway.yaml
+#       schemas/examples/example_emethanol.pathway.yaml
 # -----------------------------------------------------------------------------
-# Illustrative numbers, modelled on the Breizh reference plant but re-cast for
-# E_METHANOL (matches the live client: e-methanol, offtake-gated capital).
+# ILLUSTRATIVE ONLY — invented numbers, no real project. Do not seed, load or
+# quote as a GEX output. Cast for E_METHANOL (e-methanol, offtake-gated capital).
 #
 # CANONICAL VOCABULARY: every node id and claim_type below is drawn from the
 # truth-stack registry (efuel_truth_stack.projectors.NODES), so the pathway
@@ -14,9 +14,9 @@
 # =============================================================================
 
 metadata:
-  pathway_id:       PW-BREIZH-EMEOH-001
-  project_id:       GEX-BRZ-EMEOH-001
-  title:            Breizh e-Methanol Complex — Base Case
+  pathway_id:       PW-EXAMPLE-EMEOH-001
+  project_id:       EXAMPLE-EMEOH-001
+  title:            Example e-Methanol Plant — Illustrative
   fuel_id:          E_METHANOL            # ← gex_fuel_catalog.json
   functional_unit:  1 t e-methanol at plant gate
   jurisdiction:     FR

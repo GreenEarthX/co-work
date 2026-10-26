@@ -223,8 +223,6 @@ async def get_catalog_item(item_id: str):
 async def configure_plant(req: PlantConfigRequest):
     """
     Submit a plant configuration and receive full CAPEX/OPEX/levelised cost/cert result.
-
-    Reference: Breizh SAF Complex — GEX-BRZ-SAF-001, €285M CAPEX.
     """
     builder = get_plant_builder()
 
