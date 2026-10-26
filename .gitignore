@@ -36,3 +36,8 @@ gex-platform-enhanced/backend/data/package_docs/
 
 # Operational artefacts from a specific migration run — not source, not a release
 **/db_backups/
+
+# Frontend build output — rebuilt by `npm run build` / Dockerfile.frontend.prod.
+# A committed copy (11 Aug 2026) carried demo fallbacks removed from source
+# on 25 Oct 2026; never commit a build again.
+**/frontend/dist/
