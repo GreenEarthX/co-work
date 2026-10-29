@@ -21,6 +21,10 @@ const STATUS_CONFIG: Record<
   CREDIT_APPROVED:{ label: 'Credit Approved', bg: 'bg-violet-50',  text: 'text-violet-700', border: 'border-violet-300',step: 3 },
   LEGAL_COMPLETE: { label: 'Legal Complete',  bg: 'bg-emerald-50', text: 'text-emerald-700',border: 'border-emerald-300',step: 4 },
   DRAWN:          { label: 'Drawn',           bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-400', step: 5 },
+  // The engine's answer: whether the evidence makes the decision eligible.
+  // It is not a lender step, so it sits at step 0 of the commitment ladder.
+  DECISION_ELIGIBLE: { label: 'Decision eligible', bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-300', step: 0 },
+  NOT_YET_ELIGIBLE:  { label: 'Not yet eligible',  bg: 'bg-gray-100', text: 'text-gray-500', border: 'border-gray-200', step: 0 },
 }
 
 const TOTAL_STEPS = 5

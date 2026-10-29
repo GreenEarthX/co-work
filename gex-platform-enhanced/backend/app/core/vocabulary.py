@@ -350,6 +350,19 @@ COMMITMENT_OBJECT_ROLES: dict[str, dict[str, str]] = {
                 "Owns eligibility, conflicts_with and stacking/cumulation rules.",
         "not_for": "Offtake. It has no volume, no price formula and no delivery conditions.",
     },
+    "app.core.contract_tokens": {
+        "family": "NEITHER",
+        "role": "The token of each contract BEHIND a project's commitment cards (alembic 078): "
+                "versions and the counterparty's (or appointed reviewer's) confirmations, hash-"
+                "chained. Decides which card terms reach the gate engine's C1–C10 checks.",
+        "not_for": "Trading. It is not the trading book's contract token (tb_contract), which "
+                   "carries a traded deal; an offtake that is traded keeps both until M2–M6 merge them.",
+    },
+    "app.api.v1.routes_contract_tokens": {
+        "family": "NEITHER",
+        "role": "Route surface of app.core.contract_tokens: register a counterparty, confirm or dispute.",
+        "not_for": "Signing (that is css) or trading.",
+    },
     "app.core.css": {
         "family": "NEITHER",
         "role": "Commitment SIGNATURE service — eIDAS non-repudiation over a governance "

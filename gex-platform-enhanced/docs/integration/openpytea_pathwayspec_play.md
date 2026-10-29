@@ -48,7 +48,7 @@ class PlantSummary(BaseModel):           # "Subset of plant data the engine need
 ```
 
 Today `capex_eur` / `opex_eur_per_year` arrive as hand-entered numbers (from the
-`public.plants` table / `_docs/Breizh_SAF_Project_Workbook`). That is precisely
+`public.plants` table / a project finance workbook). That is precisely
 the spreadsheet-as-black-box problem GEX exists to kill. **OpenPyTEA's three-tier
 output is exactly these three fields** — equipment costing → plant CAPEX
 (ISBL/OSBL/engineering/contingency) → OPEX → LCOP. So the integration is not a
@@ -201,7 +201,7 @@ fiction.
 
 See [`schemas/gex_pathway.schema.yaml`](../../schemas/gex_pathway.schema.yaml) and the
 worked e-methanol example
-[`schemas/examples/example_emethanol.pathway.yaml`](../../schemas/examples/example_emethanol.pathway.yaml).
+[`schemas/examples/breizh_emethanol.pathway.yaml`](../../schemas/examples/breizh_emethanol.pathway.yaml).
 
 Design rules:
 

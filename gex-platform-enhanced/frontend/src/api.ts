@@ -353,10 +353,17 @@ export interface Commodity {
 export interface SpotPrice {
   molecule: string;
   value_base: number;
-  unit: string;
+  unit: string;             // EUR/t, EUR/kg or EUR/MWh — NOT interchangeable
   currency: string;
   state: string;            // registry state: approved | proposed
   source_name: string;
+  /** `value_base` normalised to EUR per tonne by the backend, where the fuel's
+   *  energy content is known. NULL when the conversion cannot be made — never a
+   *  guess. Use THIS for anything per-tonne; `value_base` is the raw registry row
+   *  and is only per-tonne when `unit` says so. */
+  eur_per_t: number | null;
+  /** How `eur_per_t` was derived, or why it could not be. */
+  eur_per_t_basis: string;
 }
 export interface SalesDetailRecord {
   project_id: string;

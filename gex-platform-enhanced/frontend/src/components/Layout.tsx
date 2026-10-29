@@ -2,6 +2,7 @@
 import { Outlet } from 'react-router-dom';
 import { TopBar } from './TopBar';
 import { MenuAccessGuard } from './MenuAccessGuard';
+import { ScreenGateLine } from './ScreenGateLine';
 import { useUserRole } from '@/contexts/UserRoleContext';
 import { useScreenAccessRules } from '@/lib/screenAccess';
 
@@ -15,6 +16,7 @@ export function Layout() {
       <TopBar />
       <main className="w-full max-w-[1680px] mx-auto px-6 py-6">
         <MenuAccessGuard rulesReady={ready}>
+          <ScreenGateLine />
           <Outlet />
         </MenuAccessGuard>
       </main>

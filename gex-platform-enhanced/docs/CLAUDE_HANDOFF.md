@@ -2621,6 +2621,76 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     the bundle; 16 kinds of UNVERIFIED datasets await JML's confirmation; subsidy and insurance inputs
     to the price decomposition are not recorded anywhere (MoleculeLineage now sends none).
 
+52. **28 Oct 2026 — closing the loopholes in the gate pathway (JML).** After reviewing the
+    loophole list against "The Twelve Bankability Gates" (3.0.0), JML decided: premises need a
+    document AND a second party; for contracts the counterparty's confirmation on the contract
+    token verifies (an independent verifier may exist but is not required; studies, opinions and
+    audits still need one); "satisfied" with unrunnable checks becomes UNRESOLVED; every premise
+    or term change re-evaluates and reports to designated executives (in-app, push + pull);
+    fixes first, then a clean "GEX Process" document. Memory `project_gates_pathway_decisions`.
+    **1. Gate figures from the engine only.** ~22 screens read `project_profile.bankability`, typed
+    by hand (HamburgOne: G0 100 %, 52 % overall; engine: 0 %; a DOE grant "DRAWN"). Now
+    `/projects/visible` serves `bankability` from the engine snapshot (`app/core/engine_view.py`),
+    scoped to a persona derived from the TOKEN (it was a query parameter: `?persona=EXECUTIVE`
+    showed anyone all 12 gates; a bank asking for EXECUTIVE now gets 403 `PERSONA_NOT_YOURS`), with
+    the scope stated ("covers all 12 gates; you see the 5 that concern your role"). The 12 hand-typed
+    blocks were removed from `project_profile` and archived verbatim
+    (`scripts/remove_profile_assessments_20261028.py`, `data/archive_profile_assessments_20261028.json`).
+    BankersSnapshot shows the engine's state, gates and verified share (its stored "BUILDABLE",
+    trust score and gate scores are no longer shown); ICPackBuilder no longer lets a stored
+    readiness override the computation. Capital lines read DECISION_ELIGIBLE / NOT_YET_ELIGIBLE.
+    **2. UNRESOLVED (engine rules 4.2.0, PF engine).** A gate whose items are all verified but whose
+    C-checks cannot run is UNRESOLVED, not SATISFIED, and does not count toward the ladder; it names
+    the missing card fields. The engine test that asserted "missing data never blocks"
+    (OPERATIONAL) now asserts the hold. Engine suite 241 pass.
+    **3. Re-evaluation and reports.** One path, `routes_bankability_proxy.reevaluate`: evidence
+    write, document upload (it can lower a state), card change, premise change, rules change (on
+    read). It records `bankability.reevaluated` in the ledger; an engine failure WITHDRAWS the
+    stored state (fail closed). Snapshots had been stale since March (Bremen). Migration **076**:
+    `project_report_recipient` (default: the owner's ACTIVE EXECUTIVE accounts) and
+    `bankability_notification` (push when the state or a gate moves). Routes:
+    `/api/v1/projects/{id}/report` (pull: state + every open item side by side — evidence,
+    commitment, contradiction, missing data, trigger — with owner, due date, what it holds back),
+    `/report-recipients`, `/api/v1/bankability-updates`. Screen: **Project Report**
+    (`/project-report`). The stray `default` snapshot (GET /evaluate's old default) was deleted;
+    `project_id` is now required.
+    **4. Premises (077).** `project_premise_change` / `project_premise_document`. A change that
+    removes evidence (to BALANCE_SHEET; any power-model change) stays PENDING until a supporting
+    document is on file and a SECOND party confirms (another project party or GEX); any party may
+    contest with a document, which restores the protective premise for the engine at once until
+    GEX decides. PATCH `/projects/{id}/context` refuses such changes (409). The 10 premises in force
+    before the rule are recorded `PRE_RULE_DECLARATION`, undocumented, contestable (incl.
+    Rheinwerk BALANCE_SHEET and the four ETFuels OFF_GRID_BTM). Routes `/api/v1/premises/...`.
+    **5. Contract tokens (078).** Every card field belongs to a contract kind (offtake, ppa, supply,
+    epc, licence — the counterparty confirms; technical (G5), model (G8) — an appointed reviewer).
+    A card save appends a VERSION to the token (hash-chained, append-only); only values in the
+    latest CONFIRMED version reach the engine, so unconfirmed edits hold the checks UNRESOLVED.
+    Adverse facts (insolvency, PPA/support revoked, certification suspended) apply at once. A
+    counterparty confirmation verifies the contract's instrument evidence (independence checked,
+    document required). GEX never confirms. Routes `/api/v1/contract-tokens/...`; panel on the
+    report. The TEST comprehension fixture's three cards were given token versions
+    (TEST_FIXTURE_COMPREHENSION); its `--verify` still matches the answer key.
+    **6.** Screen locks removed (GatedRoute/GateLock/useGateAccess deleted; 21 routes unwrapped;
+    the menu shows no gate badges). `/api/v1/project-ratings` (letter rating from caller-asserted
+    gate flags) and its unrouted screen removed; the rating engines stay (open interest uses them).
+    Tests: `test_engine_view_and_reports_pg.py` (15), `test_premises_pg.py` (5),
+    `test_contract_tokens_pg.py` (8), engine +2; each rule negative-verified. Head **078**.
+    Suite, both URLs exported, run alone: **1202 pass, 15 skip, 0 fail**; PF engine 241 pass.
+    **Screen gate line (later 10-28).** Each screen that does a gate's work shows, above the page,
+    "Feeds G4 Binding Offtake — 0 of 10 items verified · blocked: …" with a link to the open items
+    (`components/ScreenGateLine.tsx`, mounted in `Layout`). Engine figures, persona-scoped; locks
+    nothing. One map only: `GATE_SCREENS` in `routes_gate_registry.py`, served list-valued by
+    `/api/v1/gates/screen-gates`; the menu's `gate_prerequisite` copy is deleted and banned by
+    `test_no_screen_lock…`; `/projects` is no longer mapped (the list page is no gate's work).
+    `export_gex_process.py --json` + `scripts/gex_process_docx.cjs` (needs the `docx` npm package on
+    NODE_PATH) build `docs/GEX_Process.docx` from the same page.
+    `backend/scripts/export_gex_process.py` generates `docs/GEX_Process.html` (the stable client
+    explanation) from the engine, `abac.REVIEWER_GATES` and `contract_tokens`; re-run it after a rules change.
+    **Open:** an offtake that is traded has both this token and the trading book's (merge in
+    M2–M6); the LoginPage still lists demo accounts with
+    their shared password; nobody is appointed as a reviewer yet, so technical/model terms cannot be
+    confirmed on any real project.
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce

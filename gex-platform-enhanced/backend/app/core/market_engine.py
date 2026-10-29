@@ -227,6 +227,56 @@ def commodities() -> list[dict]:
         conn.close()
 
 
+def _normalise_spot_to_per_tonne(prices: dict) -> None:
+    """Add `eur_per_t` to every spot row, in place, with how it was derived.
+
+    An energy-priced molecule needs the fuel's specific energy to reach a per-tonne
+    basis. Where that is unknown the field is None and `eur_per_t_basis` says why —
+    a screen must be able to tell "no price" from "price in another unit".
+    """
+    try:
+        from app.core.fuel_catalog import get_fuel
+    except Exception:                                    # noqa: BLE001
+        get_fuel = None                                  # type: ignore
+
+    for molecule, row in prices.items():
+        unit = (row.get("unit") or "").strip()
+        base = row.get("value_base")
+        row["eur_per_t"] = None
+        if base is None:
+            row["eur_per_t_basis"] = "no value"
+            continue
+        if unit in ("EUR/t",):
+            row["eur_per_t"] = float(base)
+            row["eur_per_t_basis"] = "already per tonne"
+            continue
+        if unit in ("EUR/kg",):
+            row["eur_per_t"] = float(base) * 1000.0
+            row["eur_per_t_basis"] = "x1000 from EUR/kg"
+            continue
+        if unit in ("EUR/MWh", "EUR/kWh"):
+            mwh_per_t = None
+            if get_fuel is not None:
+                try:
+                    # kWh/kg is numerically identical to MWh/t, no factor needed
+                    f = get_fuel(molecule) or {}
+                    sev = (f.get("measures") or {}).get("specific_energy_value")
+                    if sev:
+                        mwh_per_t = float(sev)
+                except Exception:                              # noqa: BLE001
+                    mwh_per_t = None
+            if mwh_per_t:
+                per_mwh = float(base) * (1000.0 if unit == "EUR/kWh" else 1.0)
+                row["eur_per_t"] = per_mwh * mwh_per_t
+                row["eur_per_t_basis"] = (
+                    f"{per_mwh:g} EUR/MWh x {mwh_per_t:g} MWh/t specific energy")
+            else:
+                row["eur_per_t_basis"] = (
+                    f"cannot convert {unit}: no specific_energy_value for {molecule}")
+            continue
+        row["eur_per_t_basis"] = f"unrecognised unit {unit!r}"
+
+
 def project_economics(party: Party) -> dict:
     """The Marketplace records (alembic 066), read AS THE CALLER — RLS returns only
     the projects its company may see. Every record carries its verification
@@ -247,6 +297,19 @@ def project_economics(party: Party) -> dict:
         prices: dict = {}
         for r in spot:                               # an approved price wins over a proposal
             prices.setdefault(r["molecule"], r)
+        # Normalise to EUR per tonne HERE, where the fuel's energy content is reachable.
+        #
+        # `market_spot_price` is EUR/t but `market_spot_price_energy` is EUR/MWh (e-NG),
+        # and both land in this one field. The Marketplace screen read `spot.value_base`
+        # and discarded `unit`, so a 120 EUR/MWh e-NG price was used as 120 EUR/t:
+        # measured 2026-10-23 on proj_lehavre_eng, a displayed margin of -1694 EUR/MT
+        # where 120 x 13.9 kWh/kg gives about +1668. Converting in the SCREEN would have
+        # repeated the mistake one layer up; the fix belongs where the energy content is.
+        #
+        # value_base and unit are left untouched — a consumer that wants the raw row
+        # still has it. `eur_per_t` is the normalised figure with its own provenance, and
+        # is None (never a guess) when the conversion cannot be made.
+        _normalise_spot_to_per_tonne(prices)
         sales = _rows(conn, "SELECT * FROM project_sales_detail")
         lines = _rows(conn, "SELECT * FROM project_input_line ORDER BY project_id, seq")
         classes = _rows(conn, "SELECT * FROM input_classification")

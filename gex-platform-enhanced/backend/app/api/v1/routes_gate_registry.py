@@ -54,11 +54,14 @@ GATE_PREREQUISITES: dict[str, list[str]] = {
     "G11_COD_STABILIZATION":       ["G10_FINANCIAL_CLOSE_CP"],
 }
 
-# ── Screen linkage: which frontend routes are gated by each gate ──
+# ── Screen linkage: the screens where each gate's work is done ──
+# Information only (JML 2026-10-28): a screen shows which gate it feeds and how far
+# the engine has that gate. Nothing is locked on it — a lock here blocked the very
+# screens that produce a gate's evidence. This is the one copy; the menu holds none.
 
 GATE_SCREENS: dict[str, list[str]] = {
-    "G0_SITE_RIGHTS":              ["/projects"],
-    "G1_GRID_UTILITIES_REALITY":   ["/projects"],
+    "G0_SITE_RIGHTS":              [],
+    "G1_GRID_UTILITIES_REALITY":   [],
     "G2_CERTIFICATION_PATH_LOCKED":["/cert-readiness"],
     "G3_INPUTS_SECURED":           ["/offtaker-supply"],
     "G4_OFFTAKE_BANKABLE":         ["/offtake-quality", "/term-sheet", "/contracts"],
@@ -67,7 +70,8 @@ GATE_SCREENS: dict[str, list[str]] = {
     "G7_INSURANCE_BOUND":          ["/insurance-schedule", "/insurance-coverage", "/insurance-assets"],
     "G8_AUDIT_GRADE_MODEL":        ["/dscr-sensitivity", "/covenants", "/bankability-snapshot"],
     "G9_PERMITS_SAFE":             ["/regulator-dashboard"],
-    "G10_FINANCIAL_CLOSE_CP":      ["/ic-pack", "/approval-queue", "/commitment-signing", "/data-room"],
+    "G10_FINANCIAL_CLOSE_CP":      ["/ic-pack", "/approval-queue", "/commitment-signing", "/data-room",
+                                    "/finance/drawdown-timeline"],
     "G11_COD_STABILIZATION":       ["/production", "/plant-data", "/capacity"],
 }
 
@@ -119,10 +123,10 @@ async def get_gate(gate_id: str) -> GateRegistryEntry:
 
 
 @router.get("/screen-gates")
-async def get_screen_gate_map() -> dict[str, str]:
-    """Reverse map: screen path -> gate ID that must be satisfied."""
-    result: dict[str, str] = {}
+async def get_screen_gate_map() -> dict[str, list[str]]:
+    """Reverse map: screen path -> the gates whose work is done there. Not a lock."""
+    result: dict[str, list[str]] = {}
     for gate_id, screens in GATE_SCREENS.items():
         for screen in screens:
-            result[screen] = gate_id
+            result.setdefault(screen, []).append(gate_id)
     return result

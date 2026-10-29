@@ -31,6 +31,13 @@ UNIT_FAMILIES: dict[str, tuple[str, ...]] = {
     "AVAILABILITY":      ("fraction",),
     "FRACTION_OF_TOTAL": ("fraction",),
     "RATE_PER_YEAR":     ("fraction/yr",),
+    # Not monetary: an FX rate is a ratio of two currencies, so a row in it carries
+    # no `currency` / `price_base_date` (see MONETARY_FAMILIES below). The frontend
+    # allows USD/EUR, EUR/USD and GBP/EUR; only the pair GEX prices in is used here.
+    "EXCHANGE_RATE":     ("EUR/USD",),
+    # A relative standard deviation is a ratio of a quantity to itself, so it carries no
+    # unit. Deliberately NOT FRACTION_OF_TOTAL: these are not a share of any total.
+    "DIMENSIONLESS":     ("-",),
 }
 
 # Families whose values are money: a row in one must carry currency + price date.
@@ -90,6 +97,29 @@ PARAMETERS: dict[str, ParameterDef] = {
     "market_spot_price": ParameterDef("COST_PER_MASS", "Market spot reference price of the molecule"),
     "market_spot_price_energy": ParameterDef(
         "COST_PER_ENERGY", "Market spot reference price of an energy-priced molecule (e-NG)"),
+    # TEA engine cost basis. OpenPyTEA's correlations are USD; this is the multiplier
+    # that puts a capex into the project's base currency, and it sets the midpoint of
+    # the +/-5% band a CFO override must sit inside. It was a hardcoded constant in
+    # tea_engine/integrity.py (USD_TO_BASE) until 2026-10-26, so changing the rate
+    # moved every priced capex with nothing proposing or approving it.
+    "tea_fx_usd_to_eur": ParameterDef(
+        "EXCHANGE_RATE", "USD->EUR multiplier applied to OpenPyTEA's USD cost "
+        "correlations, and the benchmark a CFO FX override is bounded against"),
+    # A BAND, not a point: consumers read value_low / value_high. An LCOP outside it is
+    # flagged implausible and the result is downgraded to IMPLAUSIBLE, which blocks
+    # promotion to a verified model_base_case — so widening it loosens a release gate,
+    # which is exactly why it should take two people.
+    "tea_lcop_plausible_band": ParameterDef(
+        "COST_PER_MASS", "Plausible levelised cost of product. An LCOP outside "
+        "[value_low, value_high] is flagged as a likely unit or scale error"),
+    # Monte Carlo sampling policy. The default sigma sets the width of every band GEX
+    # reports; the max is the refusal ceiling for a caller-supplied sigma.
+    "tea_mc_default_rel_std": ParameterDef(
+        "DIMENSIONLESS", "Default relative standard deviation applied to variable-OPEX "
+        "prices, capacity factor and project lifetime in a TEA Monte Carlo run"),
+    "tea_mc_max_rel_std": ParameterDef(
+        "DIMENSIONLESS", "Largest relative standard deviation a caller may request "
+        "before the Monte Carlo run is refused"),
 }
 
 

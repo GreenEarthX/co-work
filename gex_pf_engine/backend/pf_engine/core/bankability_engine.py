@@ -85,6 +85,11 @@ from typing import Optional
 #                      accepted. (6) Every item carries lenses (PRODUCER,
 #                      OFFTAKER, CAPITAL, CERTIFIER); OFFTAKER becomes a persona.
 #                      (7) G1 renamed "Power, Utilities & Technology Basis".
+#   4.2.0 (2026-10-28) STRICTER — can lower a state. JML: a gate whose items are
+#                      all verified but whose cross-contract checks cannot run
+#                      for lack of data is UNRESOLVED, not SATISFIED, and does
+#                      not count toward the ladder. `unresolved_reasons` names
+#                      the missing card fields. Only a FAIL used to hold a gate.
 #   4.1.0 (2026-09-29) STRICTER — can lower a state. Evidence:
 #                      docs/master-reconciliation/00_market_evidence_gate_timing.md
 #                      in the platform repo. (1) COMMERCIALLY_PLAUSIBLE now also
@@ -99,7 +104,7 @@ from typing import Optional
 #                      approval, financial close and drawdown, and conditional
 #                      commitments lapse. The identifier is unchanged.
 
-EVIDENCE_RULES_VERSION = "4.1.0"
+EVIDENCE_RULES_VERSION = "4.2.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2024,8 +2029,15 @@ def evaluate(project_id: str, evidence: list[dict],
             + [f"{c['id']} failed: {c['detail']}" for c in ev["coherence_checks"] if c["status"] == "FAIL"]
             + [f"{t['id']} {t['title']}" for t in ev["triggers"]]
         )
+        # 4.2.0: a cross-contract check that cannot run for lack of data is not a
+        # pass. It holds the gate UNRESOLVED and names what is missing — the
+        # gate used to read SATISFIED with every check unevaluated.
+        unresolved = [c for c in ev["coherence_checks"] if c["status"] == "NOT_EVALUABLE"]
+        ev["unresolved_reasons"] = [
+            f"{c['id']} cannot be checked: missing {', '.join(c.get('missing') or ['data'])}" for c in unresolved]
         ev["items_complete"] = ev["is_complete"]
-        ev["is_complete"] = ev["is_complete"] and not blocked_reasons and gid not in waived_gates
+        ev["is_complete"] = (ev["is_complete"] and not blocked_reasons and not unresolved
+                             and gid not in waived_gates)
         ev["blocked_reasons"] = blocked_reasons
         # One explicit outcome per gate. A waived gate counts toward the ladder
         # but is never presented as satisfied by evidence: WAIVED is its own
@@ -2037,6 +2049,8 @@ def evaluate(project_id: str, evidence: list[dict],
             ev["determination"] = "SATISFIED"
         elif ev["has_deal_killer_block"] or blocked_reasons:
             ev["determination"] = "BLOCKED"
+        elif ev["items_complete"] and unresolved:
+            ev["determination"] = "UNRESOLVED"
         else:
             ev["determination"] = "INCOMPLETE"
         gate_evals.append(ev)

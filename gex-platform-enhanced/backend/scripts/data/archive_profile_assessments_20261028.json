@@ -1,0 +1,1547 @@
+{
+ "etfuels_fi_ranua_naataaapa": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac118.6M (max)",
+     "commitment_status": "CREDIT_APPROVED",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Business Finland Tax Credit",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "TBD",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity (not yet structured)",
+     "progress_pct": 0,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "TBD",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G6_IE_SIGNOFF",
+      "G7_INSURANCE_BOUND",
+      "G8_AUDIT_GRADE_MODEL"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt (not yet structured)",
+     "progress_pct": 0,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [
+      "LAND_CONTROL",
+      "PERMITTING_STATUS"
+     ],
+     "completion_pct": 25,
+     "description": "Ranua / N\u00e4\u00e4t\u00e4aapa site \u2014 land control and Finnish permitting required",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": false,
+     "name": "Site Rights & Land Access",
+     "total_evidence": 4,
+     "verified_count": 1
+    },
+    {
+     "blocking_items": [
+      "btm_generation_asset_evidence",
+      "generation_yield_study",
+      "backup_construction_power_plan",
+      "water_source_plan"
+     ],
+     "completion_pct": 13,
+     "description": "OFF_GRID_BTM \u2014 300 MW wind BTM: generation asset evidence, yield study, backup power and water source plan outstanding",
+     "id": "G1_GRID_UTILITIES_REALITY",
+     "is_complete": false,
+     "name": "Power, Water & Critical Utility Access",
+     "total_evidence": 8,
+     "verified_count": 1
+    },
+    {
+     "blocking_items": [
+      "ELECTROLYSER_SELECTION",
+      "CO2_SUPPLY_CONTRACT"
+     ],
+     "completion_pct": 15,
+     "description": "Renewable-hydrogen-based e-methanol \u2014 technology details sparse in public domain",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Technology Vendor Locked",
+     "total_evidence": 4,
+     "verified_count": 0
+    },
+    {
+     "blocking_items": [
+      "OFFTAKE_NOT_PUBLIC"
+     ],
+     "completion_pct": 0,
+     "description": "Target: European maritime + industrial \u2014 no offtake publicly disclosed",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Offtake Agreement",
+     "total_evidence": 5,
+     "verified_count": 0
+    },
+    {
+     "blocking_items": [
+      "RFNBO_PRE_ASSESSMENT",
+      "RED_III_COMPLIANCE"
+     ],
+     "completion_pct": 10,
+     "description": "EU RFNBO + RED III + FuelEU Maritime + Finnish clean transition targets",
+     "id": "G11_COD_STABILIZATION",
+     "is_complete": false,
+     "name": "GHG Pathway Verified",
+     "total_evidence": 4,
+     "verified_count": 0
+    }
+   ],
+   "next_milestone": "Secure land control and wind power evidence; begin RFNBO pre-assessment",
+   "overall_completion": 22,
+   "risk_alerts": [
+    "Capacity conflict: 110 kt (tax credit release) vs 100 kt (legacy page)",
+    "Tax credit is NOT a cash grant \u2014 depends on tax eligibility and utilisation",
+    "Offtake not publicly disclosed",
+    "CO\u2082 counterparty not public \u2014 certification risk"
+   ],
+   "risk_flags": [
+    {
+     "category": "capacity_claim",
+     "claim": "Capacity conflict: 110 kt (tax credit release) vs 100 kt (legacy page)",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_ranua_capacity_conflict",
+     "owner_function": "FINANCE_TREASURY",
+     "severity": "medium",
+     "source_ids": [
+      "SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23",
+      "SRC_ETFUELS_OLD_PROJECTS"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "financing",
+     "claim": "Tax credit is NOT a cash grant \u2014 depends on tax eligibility and utilisation",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_ranua_tax_credit_not_cash",
+     "owner_function": "FINANCE_TREASURY",
+     "severity": "high",
+     "source_ids": [
+      "SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "offtake",
+     "claim": "Offtake not publicly disclosed",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_ranua_offtake_private",
+     "owner_function": "COMMERCIAL",
+     "severity": "medium",
+     "source_ids": [
+      "SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "certification",
+     "claim": "CO\u2082 counterparty not public \u2014 certification risk",
+     "classification": "PUBLIC",
+     "confidence": "medium",
+     "id": "rf_etf_ranua_co2_counterparty",
+     "owner_function": "COMPLIANCE_LEGAL",
+     "severity": "medium",
+     "source_ids": [
+      "SRC_ETFUELS_FINLAND_TAX_CREDIT_2026_02_23",
+      "SRC_ETFUELS_OLD_PROJECTS"
+     ],
+     "status": "OPEN"
+    }
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ },
+ "etfuels_uk_skyfuel_teesside": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u00a35M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "UK Advanced Fuels Fund",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "TBD",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE",
+      "G3_INPUTS_SECURED"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity (not yet structured)",
+     "progress_pct": 0,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "TBD",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE",
+      "G3_INPUTS_SECURED"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt (not yet structured)",
+     "progress_pct": 0,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [
+      "TEESSIDE_LAND_CONTROL"
+     ],
+     "completion_pct": 20,
+     "description": "Redcar site \u2014 land control evidence required",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": false,
+     "name": "Site Rights & Land Access",
+     "total_evidence": 4,
+     "verified_count": 0
+    },
+    {
+     "blocking_items": [
+      "MtJ_TECHNOLOGY_LICENCE",
+      "GREEN_H2_PARTNERSHIP_CONTRACT",
+      "CO2_CONTRACT"
+     ],
+     "completion_pct": 35,
+     "description": "Johnson Matthey MtJ + Protium H\u2082 \u2014 partnership contracts pending",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Technology Vendor Locked",
+     "total_evidence": 5,
+     "verified_count": 1
+    },
+    {
+     "blocking_items": [
+      "OFFTAKE_NOT_PUBLIC",
+      "BLENDING_ROUTE"
+     ],
+     "completion_pct": 0,
+     "description": "Target: UK + EU aviation \u2014 no offtake publicly disclosed",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Offtake Agreement",
+     "total_evidence": 5,
+     "verified_count": 0
+    },
+    {
+     "blocking_items": [
+      "SAF_CERTIFICATION_PATHWAY",
+      "ASTM_BLENDING",
+      "RCM_ELIGIBILITY"
+     ],
+     "completion_pct": 15,
+     "description": "UK SAF Mandate + Revenue Certainty Mechanism + CORSIA + ASTM approval chain",
+     "id": "G11_COD_STABILIZATION",
+     "is_complete": false,
+     "name": "GHG / SAF Certification",
+     "total_evidence": 5,
+     "verified_count": 0
+    }
+   ],
+   "next_milestone": "Secure Teesside land control and green H\u2082 partnership contract",
+   "overall_completion": 18,
+   "risk_alerts": [
+    "AFF grant is development support only \u2014 not full project finance",
+    "UK Revenue Certainty Mechanism details still developing (legislation May 2026)",
+    "Feedstock dependency on external e-methanol pipeline (TX/FI)",
+    "SAF testing/certification/distribution chain required"
+   ],
+   "risk_flags": [
+    {
+     "category": "financing",
+     "claim": "AFF grant is development support only \u2014 not full project finance",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_skyfuel_aff_dev_support",
+     "owner_function": "FINANCE_TREASURY",
+     "severity": "high",
+     "source_ids": [
+      "SRC_GOVUK_AFF_WINNERS_2025_07_22",
+      "SRC_RICARDO_AFF"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "policy",
+     "claim": "UK Revenue Certainty Mechanism details still developing (legislation May 2026)",
+     "classification": "PUBLIC",
+     "confidence": "medium",
+     "id": "rf_etf_skyfuel_rcm_developing",
+     "owner_function": "COMPLIANCE_LEGAL",
+     "severity": "high",
+     "source_ids": [
+      "SRC_UK_SAF_TASK_FINISH_2026_04_27"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "supply_chain",
+     "claim": "Feedstock dependency on external e-methanol pipeline (TX/FI)",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_skyfuel_feedstock_dependency",
+     "owner_function": "OPERATIONS",
+     "severity": "medium",
+     "source_ids": [
+      "SRC_ETFUELS_OUR_SOLUTION_2026",
+      "SRC_ETFUELS_OLD_PROJECTS"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "certification",
+     "claim": "SAF testing/certification/distribution chain required",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_skyfuel_saf_cert_chain",
+     "owner_function": "OPERATIONS",
+     "severity": "medium",
+     "source_ids": [
+      "SRC_ETFUELS_SKYFUEL_GRANT_2025_07_23"
+     ],
+     "status": "OPEN"
+    }
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ },
+ "etfuels_us_tx_rattlesnake_gap": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "TBD",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G0_SITE_RIGHTS"
+     ],
+     "is_unlocked": false,
+     "name": "IRA / 45V Stack (potential)",
+     "progress_pct": 20,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "Undisclosed",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Development Equity",
+     "progress_pct": 100,
+     "type": "SEED_VC_ANGEL"
+    },
+    {
+     "amount": "TBD",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G6_IE_SIGNOFF",
+      "G7_INSURANCE_BOUND",
+      "G8_AUDIT_GRADE_MODEL"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt (not yet structured)",
+     "progress_pct": 10,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [
+      "LAND_CONTROL_EVIDENCE",
+      "WATER_RIGHTS"
+     ],
+     "completion_pct": 30,
+     "description": "West Texas site \u2014 land control and water rights evidence required",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": false,
+     "name": "Site Rights & Land Access",
+     "total_evidence": 4,
+     "verified_count": 1
+    },
+    {
+     "blocking_items": [
+      "btm_generation_asset_evidence",
+      "generation_yield_study",
+      "grid_independence_note",
+      "water_permit_pathway_memo"
+     ],
+     "completion_pct": 25,
+     "description": "OFF_GRID_BTM \u2014 BTM generation asset spec, P90 yield study, grid-independence note and water permit pathway outstanding",
+     "id": "G1_GRID_UTILITIES_REALITY",
+     "is_complete": false,
+     "name": "Power, Water & Critical Utility Access",
+     "total_evidence": 8,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "ELECTROLYSER_SUPPLY_AGREEMENT",
+      "METHANOL_TECH_LICENCE"
+     ],
+     "completion_pct": 60,
+     "description": "John Cockerill electrolyser + JM eMERALD selected; S&B FEED engineer; supply agreements pending",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Technology Vendor Locked",
+     "total_evidence": 5,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "OFFTAKE_REDACTED_TERMS",
+      "VOLUME_COMMITMENT"
+     ],
+     "completion_pct": 45,
+     "description": "RFOcean binding fixed-price from 2030 \u2014 volume and redacted terms not yet filed",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Offtake Agreement",
+     "total_evidence": 5,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "45V_RFNBO_PRE_ASSESSMENT",
+      "FUELEU_COMPLIANCE_NOTE"
+     ],
+     "completion_pct": 20,
+     "description": "45V + RFNBO + FuelEU Maritime certification targets \u2014 pre-assessment required",
+     "id": "G11_COD_STABILIZATION",
+     "is_complete": false,
+     "name": "GHG Pathway Verified",
+     "total_evidence": 4,
+     "verified_count": 1
+    }
+   ],
+   "next_milestone": "Complete FEED package and secure FID (target end-2026)",
+   "overall_completion": 35,
+   "risk_alerts": [
+    "Capacity conflict: 125 kt (company current) vs 120 kt (trade press / third-party DB)",
+    "Electrolyser MW conflict: 220 MW (Argus 2024) vs 500 MW (CarbonStorage DB)",
+    "45V qualification not automatic \u2014 IRS guidance pending",
+    "Offtake volume with RFOcean not publicly disclosed"
+   ],
+   "risk_flags": [
+    {
+     "category": "capacity_claim",
+     "claim": "Capacity conflict: 125 kt (company current) vs 120 kt (trade press / third-party DB)",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_rsg_capacity_conflict",
+     "owner_function": "FINANCE_TREASURY",
+     "severity": "medium",
+     "source_ids": [
+      "SRC_ETFUELS_OUR_SOLUTION_2026",
+      "SRC_ARGUS_RFOCEAN_2026_02_24",
+      "SRC_CARBONSTORAGE_RATTLESNAKE"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "site_permits",
+     "claim": "Electrolyser MW conflict: 220 MW (Argus 2024) vs 500 MW (CarbonStorage DB)",
+     "classification": "PUBLIC",
+     "confidence": "medium",
+     "id": "rf_etf_rsg_electrolyser_mw_conflict",
+     "owner_function": "ENGINEERING",
+     "severity": "high",
+     "source_ids": [
+      "SRC_ARGUS_2024_PIPELINE",
+      "SRC_CARBONSTORAGE_RATTLESNAKE"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "certification",
+     "claim": "45V qualification not automatic \u2014 IRS guidance pending",
+     "classification": "PUBLIC",
+     "confidence": "medium",
+     "id": "rf_etf_rsg_45v_qualification",
+     "owner_function": "COMPLIANCE_LEGAL",
+     "severity": "high",
+     "source_ids": [
+      "SRC_ETFUELS_RATTLESNAKE_FEED_2025_10_27",
+      "SRC_ARGUS_RFOCEAN_2026_02_24"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "offtake",
+     "claim": "Offtake volume with RFOcean not publicly disclosed",
+     "classification": "PUBLIC",
+     "confidence": "high",
+     "id": "rf_etf_rsg_offtake_volume_private",
+     "owner_function": "COMMERCIAL",
+     "severity": "medium",
+     "source_ids": [
+      "SRC_ETFUELS_RFOCEAN_2026_02_24",
+      "SRC_ARGUS_RFOCEAN_2026_02_24"
+     ],
+     "status": "OPEN"
+    }
+   ],
+   "unlocked_capital": []
+  }
+ },
+ "proj_bremen_h2": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac12M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Grants & TA",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "\u20ac18M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Seed / VC",
+     "progress_pct": 100,
+     "type": "SEED_VC_ANGEL"
+    },
+    {
+     "amount": "\u20ac55M",
+     "commitment_status": "INDICATIVE",
+     "gating_gates": [
+      "G1_GRID_UTILITIES_REALITY"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity",
+     "progress_pct": 67,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "\u20ac135M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G5_EPC_RISK_PRICED",
+      "G1_GRID_UTILITIES_REALITY"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt",
+     "progress_pct": 73,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [],
+     "completion_pct": 100,
+     "description": "Land title and environmental permits",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": true,
+     "name": "Site Rights Secured",
+     "total_evidence": 4,
+     "verified_count": 4
+    },
+    {
+     "blocking_items": [
+      "grid_connection_cost_estimate",
+      "connection_date_cod_compatibility_memo",
+      "ppa_volume_load_coverage_analysis",
+      "ppa_tenor_debt_comparison",
+      "dispatch_load_factor_production_impact"
+     ],
+     "completion_pct": 58,
+     "description": "Grid-connected: PPA signed \u2713 \u00b7 interconnection study \u2713 \u00b7 queue position \u2713 \u00b7 curtailment assessed. Blocking: connection cost, COD compatibility, PPA coverage analysis",
+     "id": "G1_GRID_UTILITIES_REALITY",
+     "is_complete": false,
+     "name": "Power, Water & Critical Utility Access",
+     "total_evidence": 12,
+     "verified_count": 7
+    },
+    {
+     "blocking_items": [
+      "performance_guarantees"
+     ],
+     "completion_pct": 80,
+     "description": "Fixed-price EPC contract with performance guarantees",
+     "id": "G5_EPC_RISK_PRICED",
+     "is_complete": false,
+     "name": "EPC Risk Assessed",
+     "total_evidence": 5,
+     "verified_count": 4
+    }
+   ],
+   "next_milestone": "Finalise grid connection agreement (G1) to unlock Strategic Equity",
+   "overall_completion": 74,
+   "risk_alerts": [
+    "Grid connection agreement still pending utility sign-off"
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA",
+    "SEED_VC_ANGEL"
+   ]
+  }
+ },
+ "proj_etf_pecos1": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "$18M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "DOE H2Hubs Grant (TA component)",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "$32M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Development Equity",
+     "progress_pct": 100,
+     "type": "SEED_VC_ANGEL"
+    },
+    {
+     "amount": "$130M",
+     "commitment_status": "INDICATIVE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity (ING / BNP)",
+     "progress_pct": 55,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "$420M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G6_IE_SIGNOFF",
+      "G7_INSURANCE_BOUND",
+      "G8_AUDIT_GRADE_MODEL"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt \u2014 MLA Club",
+     "progress_pct": 33,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    },
+    {
+     "amount": "$120M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G5_EPC_RISK_PRICED",
+      "G6_IE_SIGNOFF"
+     ],
+     "is_unlocked": false,
+     "name": "US EXIM / OPIC Coverage",
+     "progress_pct": 20,
+     "type": "ECA"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [],
+     "completion_pct": 100,
+     "description": "Surface rights, mineral rights waiver, access road easements",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": true,
+     "name": "Site Rights & Land Access",
+     "total_evidence": 4,
+     "verified_count": 4
+    },
+    {
+     "blocking_items": [
+      "grid_independence_note",
+      "backup_construction_power_plan"
+     ],
+     "completion_pct": 75,
+     "description": "OFF_GRID_BTM \u00b7 500 MW wind+solar \u2014 generation asset \u2713, P90 yield study \u2713, water \u2713. Blocking: grid-independence design note, backup/construction power plan.",
+     "id": "G1_GRID_UTILITIES_REALITY",
+     "is_complete": false,
+     "name": "Power, Water & Critical Utility Access",
+     "total_evidence": 8,
+     "verified_count": 6
+    },
+    {
+     "blocking_items": [
+      "EPC_LUMP_SUM_SIGNED"
+     ],
+     "completion_pct": 75,
+     "description": "PEM electrolyser OEM selection, EPC contract, technology wrap",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Technology Vendor Locked",
+     "total_evidence": 4,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "CREDIT_SUPPORT_POSTED"
+     ],
+     "completion_pct": 78,
+     "description": "RFOcean: binding 10-year fixed-price (CONFIRMED, bankable contract from 2030). ETFuels SA: 70k t/yr 5-year ToP (related-party, UNVERIFIED). Lufthansa Cargo: 30k t/yr indicative (non-binding).",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Offtake Agreement",
+     "total_evidence": 8,
+     "verified_count": 6
+    },
+    {
+     "blocking_items": [
+      "CAR_EAR_POLICY_BOUND",
+      "DSU_POLICY_BOUND"
+     ],
+     "completion_pct": 40,
+     "description": "CAR/EAR, DSU, BI, and marine cargo insurance lines",
+     "id": "G7_INSURANCE_BOUND",
+     "is_complete": false,
+     "name": "Insurance Programme Bound",
+     "total_evidence": 5,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "INDEPENDENT_MODEL_AUDIT",
+      "LENDER_TECHNICAL_ADVISOR_SIGN_OFF"
+     ],
+     "completion_pct": 45,
+     "description": "IEA-compliant CFADS model, DSCR stress test, audited by Deloitte PF",
+     "id": "G8_AUDIT_GRADE_MODEL",
+     "is_complete": false,
+     "name": "Audit-Grade Financial Model",
+     "total_evidence": 4,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "SENIOR_DEBT_COMMITMENT_LETTER",
+      "EQUITY_FUNDING_CONFIRMATION"
+     ],
+     "completion_pct": 20,
+     "description": "All CPs for financial close \u2014 requires G4, G7, G8 complete",
+     "id": "G10_FINANCIAL_CLOSE_CP",
+     "is_complete": false,
+     "name": "Financial Close Conditions Precedent",
+     "total_evidence": 8,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "RFNBO_TEMPORAL_CORRELATION_DECLARATION"
+     ],
+     "completion_pct": 72,
+     "description": "45V Tier 1 LCA (0.42 kgCO\u2082e/MJ H\u2082) \u2014 DNV pre-audit complete. RFNBO hourly matching review pending.",
+     "id": "G11_COD_STABILIZATION",
+     "is_complete": false,
+     "name": "GHG Pathway Verified",
+     "total_evidence": 5,
+     "verified_count": 4
+    }
+   ],
+   "next_milestone": "Resolve capacity discrepancy (GEX 165k vs public 120k t/yr) \u2192 then complete G4 credit support",
+   "overall_completion": 58,
+   "risk_alerts": [
+    "Capacity discrepancy: GEX showed 165k t/yr, public sources confirm 120k t/yr (27% overstatement corrected)",
+    "45V temporal matching rule: IRS guidance still pending \u2014 annual vs hourly conflict with RFNBO",
+    "ETFuels SA offtake (70k t/yr) is related-party \u2014 lenders may discount or exclude from bankability"
+   ],
+   "risk_flags": [
+    {
+     "category": "capacity_claim",
+     "claim": "Capacity discrepancy: GEX showed 165k t/yr, public sources confirm 120k t/yr (27% overstatement corrected)",
+     "classification": "STAKEHOLDER",
+     "confidence": "high",
+     "id": "rf_etf_pecos1_capacity_overstatement",
+     "owner_function": "COMMERCIAL",
+     "severity": "high",
+     "source_ids": [
+      "SRC_ETFUELS_OUR_SOLUTION_2026",
+      "SRC_ARGUS_RFOCEAN_2026_02_24",
+      "SRC_CARBONSTORAGE_RATTLESNAKE"
+     ],
+     "status": "ACKNOWLEDGED"
+    },
+    {
+     "category": "certification",
+     "claim": "45V temporal matching rule: IRS guidance still pending \u2014 annual vs hourly conflict with RFNBO",
+     "classification": "PUBLIC",
+     "confidence": "medium",
+     "id": "rf_etf_pecos1_45v_temporal",
+     "owner_function": "COMPLIANCE_LEGAL",
+     "severity": "high",
+     "source_ids": [
+      "SRC_ETFUELS_RATTLESNAKE_FEED_2025_10_27"
+     ],
+     "status": "OPEN"
+    },
+    {
+     "category": "offtake",
+     "claim": "ETFuels SA offtake (70k t/yr) is related-party \u2014 lenders may discount or exclude from bankability",
+     "classification": "STAKEHOLDER",
+     "confidence": "high",
+     "id": "rf_etf_pecos1_related_party_offtake",
+     "owner_function": "FINANCE_TREASURY",
+     "severity": "critical",
+     "source_ids": [
+      "SRC_GEX_INTERNAL_OFFTAKE_REVIEW"
+     ],
+     "status": "OPEN"
+    }
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ },
+ "proj_hamburgone_emethanol": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac8M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Grants & TA",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "\u20ac45M",
+     "commitment_status": "INDICATIVE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity",
+     "progress_pct": 30,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "\u20ac30M",
+     "commitment_status": "INDICATIVE",
+     "gating_gates": [
+      "G0_SITE_RIGHTS",
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "NordLB LC / DFI",
+     "progress_pct": 45,
+     "type": "DFI_MEZZ_GUARANTEES"
+    },
+    {
+     "amount": "\u20ac102M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE",
+      "G7_INSURANCE_BOUND"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt",
+     "progress_pct": 20,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [],
+     "completion_pct": 100,
+     "description": "Hamburg port zone land lease signed",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": true,
+     "name": "Site Rights Secured",
+     "total_evidence": 4,
+     "verified_count": 4
+    },
+    {
+     "blocking_items": [
+      "ppa_register",
+      "ppa_signed_or_term_sheet_evidence",
+      "ppa_volume_load_coverage_analysis",
+      "ppa_tenor_debt_comparison",
+      "grid_connection_cost_estimate",
+      "connection_date_cod_compatibility_memo",
+      "curtailment_assessment",
+      "dispatch_load_factor_production_impact",
+      "water_permit_pathway_memo"
+     ],
+     "completion_pct": 17,
+     "description": "GRID_CONNECTED \u00b7 No PPA recorded \u2014 DEAL KILLER: electricity price unhedged, RFNBO/45V additionality cannot be evidenced. Grid interconnection study submitted.",
+     "id": "G1_GRID_UTILITIES_REALITY",
+     "is_complete": false,
+     "name": "Power, Water & Critical Utility Access",
+     "total_evidence": 12,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "epc_lump_sum_contract"
+     ],
+     "completion_pct": 75,
+     "description": "e-MeOH reactor OEM selected; EPC contract in negotiation",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Technology Vendor Locked",
+     "total_evidence": 4,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "signed_offtake_agreement",
+      "volume_commitment_letter"
+     ],
+     "completion_pct": 30,
+     "description": "BremenThree AG target: 3,000 MT/month \u2014 term sheet stage",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Offtake",
+     "total_evidence": 5,
+     "verified_count": 1
+    },
+    {
+     "blocking_items": [
+      "car_ear_bound",
+      "dsu_quote"
+     ],
+     "completion_pct": 20,
+     "description": "CAR/EAR/DSU to be placed on FEED completion",
+     "id": "G7_INSURANCE_BOUND",
+     "is_complete": false,
+     "name": "Insurance Bound",
+     "total_evidence": 3,
+     "verified_count": 0
+    }
+   ],
+   "next_milestone": "Complete FEED and secure DNV interim certification milestone",
+   "overall_completion": 52,
+   "risk_alerts": [
+    "CO\u2082 feedstock supply agreement not yet signed",
+    "Investor-ready documentation package still in preparation",
+    "BremenThree AG offtake LOI received \u2014 term sheet pending"
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ },
+ "proj_lehavre_eng": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac15M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Grants & TA",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "\u20ac20M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Seed / VC",
+     "progress_pct": 100,
+     "type": "SEED_VC_ANGEL"
+    },
+    {
+     "amount": "\u20ac60M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Strategic Equity",
+     "progress_pct": 100,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "\u20ac30M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "DFI Guarantees",
+     "progress_pct": 100,
+     "type": "DFI_MEZZ_GUARANTEES"
+    },
+    {
+     "amount": "\u20ac120M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Senior Debt",
+     "progress_pct": 100,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [],
+     "completion_pct": 100,
+     "description": "Port concession and grid injection permits",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": true,
+     "name": "Site Rights Secured",
+     "total_evidence": 4,
+     "verified_count": 4
+    },
+    {
+     "blocking_items": [],
+     "completion_pct": 100,
+     "description": "20-year grid injection contract with Engie",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": true,
+     "name": "Bankable Off-take Secured",
+     "total_evidence": 6,
+     "verified_count": 6
+    },
+    {
+     "blocking_items": [],
+     "completion_pct": 100,
+     "description": "Big-4 certified model, Q4 2025",
+     "id": "G8_AUDIT_GRADE_MODEL",
+     "is_complete": true,
+     "name": "Audit-Grade Financial Model",
+     "total_evidence": 5,
+     "verified_count": 5
+    },
+    {
+     "blocking_items": [
+      "iso_14064_verification_report",
+      "third_party_ghg_audit"
+     ],
+     "completion_pct": 60,
+     "description": "ISO-14064 GHG verification and registry issuance",
+     "id": "G11_COD_STABILIZATION",
+     "is_complete": false,
+     "name": "GHG Certification Verified",
+     "total_evidence": 5,
+     "verified_count": 3
+    }
+   ],
+   "next_milestone": "Certify ISO-14064 verification report (G11) to close DSRA escrow",
+   "overall_completion": 91,
+   "risk_alerts": [],
+   "unlocked_capital": [
+    "GRANTS_TA",
+    "SEED_VC_ANGEL",
+    "STRATEGIC_EQUITY",
+    "DFI_MEZZ_GUARANTEES",
+    "SENIOR_DEBT_COMMITMENT"
+   ]
+  }
+ },
+ "proj_madrid2_sansebastian": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac15M",
+     "commitment_status": "INDICATIVE",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Grants & TA (CEF/IDAE)",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "\u20ac12M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G0_SITE_RIGHTS"
+     ],
+     "is_unlocked": false,
+     "name": "Seed / Founders Capital",
+     "progress_pct": 40,
+     "type": "SEED_VC_ANGEL"
+    },
+    {
+     "amount": "\u20ac65M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE",
+      "G3_INPUTS_SECURED"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity",
+     "progress_pct": 15,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "\u20ac168M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE",
+      "G7_INSURANCE_BOUND"
+     ],
+     "is_unlocked": false,
+     "name": "ABN-AMRO Structured Debt",
+     "progress_pct": 10,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [
+      "environmental_impact_assessment"
+     ],
+     "completion_pct": 80,
+     "description": "Basque Country industrial zone \u2014 EIA in progress",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": false,
+     "name": "Site Rights Secured",
+     "total_evidence": 4,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "red_electrica_capacity",
+      "offgrid_ppa_signed"
+     ],
+     "completion_pct": 40,
+     "description": "Off-grid PPA preferred \u2014 Red El\u00e9ctrica capacity as backup",
+     "id": "G1_GRID_UTILITIES_REALITY",
+     "is_complete": false,
+     "name": "Grid Connection Secured",
+     "total_evidence": 3,
+     "verified_count": 1
+    },
+    {
+     "blocking_items": [
+      "epc_selection",
+      "co2_source_contract"
+     ],
+     "completion_pct": 50,
+     "description": "EngineSpain Spa shortlisted as EPC \u2014 MoU signed",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Technology Vendor Locked",
+     "total_evidence": 4,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "gabillon_pricing_agreed",
+      "offtake_term_sheet",
+      "spot_reference"
+     ],
+     "completion_pct": 15,
+     "description": "RotterdamOfftake4 AG: 10,000 MT/month. Pricing reference needed.",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Offtake",
+     "total_evidence": 5,
+     "verified_count": 1
+    }
+   ],
+   "next_milestone": "Execute CO\u2082 supply MOU with ArcelorMittal Gij\u00f3n and complete Pre-FEED",
+   "overall_completion": 28,
+   "risk_alerts": [
+    "CO\u2082 feedstock source (Green Carbon sub-project) not contractualised",
+    "Off-grid PPA with Iberdrola in early commercial stage",
+    "RotterdamOfftake4 AG requires Gabillon pricing reference before LOI",
+    "ABN-AMRO structured lending conditional on bankable offtake"
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ },
+ "proj_rheinwerk_prosumer": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac28M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "IPCEI / NRW Grants",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [],
+     "completion_pct": 100,
+     "description": "Owned industrial land \u2014 site control inherent",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": true,
+     "name": "Site Rights Secured",
+     "total_evidence": 3,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "generation_yield_study",
+      "water_permit_pathway_memo",
+      "ppa_volume_load_coverage_analysis"
+     ],
+     "completion_pct": 50,
+     "description": "HYBRID \u2014 both grid and BTM tracks apply. Internal sleeved PPA signed; yield study and water permits outstanding",
+     "id": "G1_GRID_UTILITIES_REALITY",
+     "is_complete": false,
+     "name": "Power, Water & Critical Utility Access",
+     "total_evidence": 16,
+     "verified_count": 8
+    },
+    {
+     "blocking_items": [
+      "logistics_concept_note"
+     ],
+     "completion_pct": 70,
+     "description": "On-site consumption \u2014 minimal logistics",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Key Inputs Secured",
+     "total_evidence": 3,
+     "verified_count": 2
+    }
+   ],
+   "next_milestone": "Complete BTM yield study and water permit pathway for corporate FID",
+   "overall_completion": 46,
+   "risk_alerts": [],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ },
+ "proj_rotterdam_nh3": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac20M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Grants & TA",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "\u20ac120M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity",
+     "progress_pct": 50,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "\u20ac45M",
+     "commitment_status": "INDICATIVE",
+     "gating_gates": [
+      "G0_SITE_RIGHTS",
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "DFI Guarantees",
+     "progress_pct": 62,
+     "type": "DFI_MEZZ_GUARANTEES"
+    },
+    {
+     "amount": "\u20ac195M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G8_AUDIT_GRADE_MODEL",
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt",
+     "progress_pct": 55,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [
+      "environmental_impact_assessment"
+     ],
+     "completion_pct": 75,
+     "description": "Land lease and port authority permits",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": false,
+     "name": "Site Rights Secured",
+     "total_evidence": 4,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "offtake_15_year_term",
+      "credit_support_deed"
+     ],
+     "completion_pct": 50,
+     "description": "Long-term take-or-pay with investment-grade counterparty",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Off-take Secured",
+     "total_evidence": 6,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "stress_test_certification",
+      "independent_engineer_sign_off"
+     ],
+     "completion_pct": 60,
+     "description": "Third-party verified model with stress tests",
+     "id": "G8_AUDIT_GRADE_MODEL",
+     "is_complete": false,
+     "name": "Audit-Grade Financial Model",
+     "total_evidence": 5,
+     "verified_count": 3
+    }
+   ],
+   "next_milestone": "Secure bankable off-take agreement (G4) to unlock \u20ac120M Strategic Equity",
+   "overall_completion": 52,
+   "risk_alerts": [
+    "Off-take term sheet received but 15-year tenor not yet confirmed",
+    "Environmental impact assessment delayed by 2 months"
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ },
+ "proj_sansebastian_emethanol": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac42M",
+     "commitment_status": "TERM_SHEET",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE",
+      "G7_INSURANCE_BOUND"
+     ],
+     "is_unlocked": false,
+     "name": "Project Equity",
+     "progress_pct": 79,
+     "type": "PROJECT_EQUITY"
+    },
+    {
+     "amount": "\u20ac98M",
+     "commitment_status": "INDICATIVE",
+     "gating_gates": [
+      "G8_AUDIT_GRADE_MODEL",
+      "G10_FINANCIAL_CLOSE_CP"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt",
+     "progress_pct": 53,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    },
+    {
+     "amount": "\u20ac25M",
+     "commitment_status": "CREDIT_APPROVED",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": true,
+     "name": "DFI Guarantees",
+     "progress_pct": 100,
+     "type": "DFI_MEZZ_GUARANTEES"
+    },
+    {
+     "amount": "\u20ac98M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G10_FINANCIAL_CLOSE_CP"
+     ],
+     "is_unlocked": false,
+     "name": "Debt Drawdown",
+     "progress_pct": 25,
+     "type": "DEBT_DRAWDOWN"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [
+      "offtake_contract_10_year_term"
+     ],
+     "completion_pct": 83,
+     "description": "Long-term take-or-pay with investment-grade counterparties",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Off-take Secured",
+     "total_evidence": 6,
+     "verified_count": 5
+    },
+    {
+     "blocking_items": [
+      "political_risk_insurance"
+     ],
+     "completion_pct": 75,
+     "description": "Comprehensive construction & operational insurance",
+     "id": "G7_INSURANCE_BOUND",
+     "is_complete": false,
+     "name": "Insurance Coverage Bound",
+     "total_evidence": 4,
+     "verified_count": 3
+    },
+    {
+     "blocking_items": [
+      "stress_test_certification"
+     ],
+     "completion_pct": 80,
+     "description": "Third-party verified model with stress testing",
+     "id": "G8_AUDIT_GRADE_MODEL",
+     "is_complete": false,
+     "name": "Audit-Grade Financial Model",
+     "total_evidence": 5,
+     "verified_count": 4
+    },
+    {
+     "blocking_items": [
+      "senior_debt_commitment",
+      "equity_funding_confirmed"
+     ],
+     "completion_pct": 25,
+     "description": "All funding commitments and legal docs ready",
+     "id": "G10_FINANCIAL_CLOSE_CP",
+     "is_complete": false,
+     "name": "Financial Close Ready",
+     "total_evidence": 8,
+     "verified_count": 2
+    }
+   ],
+   "next_milestone": "Complete G4 + G7 for \u20ac42M Project Equity unlock",
+   "overall_completion": 66,
+   "risk_alerts": [
+    "Take-or-pay contract needs 10-year term extension",
+    "Political risk insurance pending government approval"
+   ],
+   "unlocked_capital": [
+    "DFI_MEZZ_GUARANTEES"
+   ]
+  }
+ },
+ "proj_wales_saf": {
+  "bankability": {
+   "capital_status": [
+    {
+     "amount": "\u20ac8M",
+     "commitment_status": "DRAWN",
+     "gating_gates": [],
+     "is_unlocked": true,
+     "name": "Grants & TA",
+     "progress_pct": 100,
+     "type": "GRANTS_TA"
+    },
+    {
+     "amount": "\u20ac22M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G0_SITE_RIGHTS"
+     ],
+     "is_unlocked": false,
+     "name": "Seed / VC",
+     "progress_pct": 50,
+     "type": "SEED_VC_ANGEL"
+    },
+    {
+     "amount": "\u20ac90M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G0_SITE_RIGHTS",
+      "G3_INPUTS_SECURED",
+      "G4_OFFTAKE_BANKABLE"
+     ],
+     "is_unlocked": false,
+     "name": "Strategic Equity",
+     "progress_pct": 38,
+     "type": "STRATEGIC_EQUITY"
+    },
+    {
+     "amount": "\u20ac170M",
+     "commitment_status": "NONE",
+     "gating_gates": [
+      "G4_OFFTAKE_BANKABLE",
+      "G3_INPUTS_SECURED"
+     ],
+     "is_unlocked": false,
+     "name": "Senior Debt",
+     "progress_pct": 32,
+     "type": "SENIOR_DEBT_COMMITMENT"
+    }
+   ],
+   "gates": [
+    {
+     "blocking_items": [
+      "full_planning_permission",
+      "environmental_impact_assessment"
+     ],
+     "completion_pct": 50,
+     "description": "Brownfield site permitting and title transfer",
+     "id": "G0_SITE_RIGHTS",
+     "is_complete": false,
+     "name": "Site Rights Secured",
+     "total_evidence": 4,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "technology_licence_agreement",
+      "licensor_performance_guarantee",
+      "technology_wrap_insurance"
+     ],
+     "completion_pct": 40,
+     "description": "Fischer-Tropsch technology licence and wrap",
+     "id": "G3_INPUTS_SECURED",
+     "is_complete": false,
+     "name": "Technology Vendor Locked",
+     "total_evidence": 5,
+     "verified_count": 2
+    },
+    {
+     "blocking_items": [
+      "signed_offtake_contract",
+      "credit_support_deed",
+      "offtake_15_year_term",
+      "price_floor_mechanism"
+     ],
+     "completion_pct": 25,
+     "description": "Airline take-or-pay agreement and credit support",
+     "id": "G4_OFFTAKE_BANKABLE",
+     "is_complete": false,
+     "name": "Bankable Off-take Secured",
+     "total_evidence": 6,
+     "verified_count": 1
+    }
+   ],
+   "next_milestone": "Advance permitting (G0) and technology wrap (G5) to attract institutional equity",
+   "overall_completion": 38,
+   "risk_alerts": [
+    "UK SAF mandate trajectory still subject to parliamentary review",
+    "Power purchase agreement with National Grid not yet executed"
+   ],
+   "unlocked_capital": [
+    "GRANTS_TA"
+   ]
+  }
+ }
+}

@@ -63,6 +63,31 @@ class TEAComputeRequest(BaseModel):
     # explicit USD->base override (CFO/authorised); omitted → the dated default.
     base_currency:      str = "EUR"
     fx_usd_to_eur:      Optional[float] = None
+    # The GOVERNED benchmark, resolved from reference_parameter.tea_fx_usd_to_eur by the
+    # backend bridge and passed in because tea_engine is stateless. It lands in
+    # cost_basis_hash (which hashes the request), so a four-eye change to the rate
+    # changes the hash — the gap measured on 2026-09-24, when the rate moved capex
+    # -4.8% under a byte-identical hash. Absent -> the engine's dated default.
+    fx_benchmark_usd_to_eur: Optional[float] = None
+    fx_benchmark_ref_id:     Optional[str] = None
+    # Same mechanism for the rest of the governed engine policy (migration 073). Each is
+    # the registry's value, resolved by the bridge; absent -> the engine's own constant,
+    # reported as engine_default. All of them are inside cost_basis_hash because the
+    # hash hashes the request.
+    lcop_band_low:        Optional[float] = None   # tea_lcop_plausible_band value_low
+    lcop_band_high:       Optional[float] = None   # ... value_high
+    lcop_band_unit:       Optional[str]   = None   # must be EUR/kg or the engine refuses
+    lcop_band_ref_id:     Optional[str]   = None
+    mc_default_rel_std:   Optional[float] = None   # tea_mc_default_rel_std
+    mc_max_rel_std:       Optional[float] = None   # tea_mc_max_rel_std
+    mc_sigma_ref_ids:     Optional[dict]  = None   # {key: ref_id} for the artefact
+    # The GOVERNED equipment train (migration 075), resolved by the bridge from the
+    # approved rows in tea_equipment_spec. The engine is stateless, so it arrives in the
+    # request — which also means cost_basis_hash covers it, so an approved change to a
+    # base_param or a scale_exp reprices visibly instead of silently.
+    # Absent -> the code registry in process_functions.py, reported as `canonical`.
+    governed_train:         Optional[list] = None   # [{role,node,category,equipment_type,material,base_param,scale_exp}]
+    governed_train_version: Optional[str]  = None   # content hash of the approved set
     # passthrough for the real OpenPyTEA Plant constructor
     country:               str = "Netherlands"      # drives OpenPyTEA location factors
     plant_process_type:    str = "Fluids"
@@ -105,6 +130,12 @@ class TEAResult(BaseModel):
     plausibility:     list[str] = Field(default_factory=list)  # physically-implausible-output flags (unit/scale errors)
     # G5/G6 output-integrity: cost basis (currency/base-date, NOT FX-normalised) and
     # the calculation boundary (canonical battery limits vs an unverified caller train).
+    # The declared mass balance and what does not add up, reported SEPARATELY from
+    # `plausibility` on purpose: result_status turns any plausibility flag into
+    # IMPLAUSIBLE, and the undeclared reaction water is a known data gap on every
+    # pathway, not a per-project unit error. Marking every basis implausible would
+    # make the gate meaningless. Reported, visible, and not silently reclassifying.
+    mass_balance:         Optional[dict] = None
     cost_basis:           Optional[dict] = None
     calculation_boundary: Optional[dict] = None
     note:             str = ("Provisional cost basis. Promote to model_base_case "

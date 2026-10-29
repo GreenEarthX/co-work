@@ -181,12 +181,9 @@ except ImportError:
     HAS_FINANCE_MODEL = False
     print("⚠️  routes_finance_model not found - skipping")
 
-try:
-    from app.api.v1 import routes_project_ratings
-    HAS_PROJECT_RATINGS = True
-except ImportError:
-    HAS_PROJECT_RATINGS = False
-    print("⚠️  routes_project_ratings not found - skipping")
+# /api/v1/project-ratings was removed on 2026-10-28 (JML): it returned a letter
+# rating (AAA–D) from gate flags the CALLER asserted — a rating language outside
+# the gates. The rating engines stay; they are used by open interest.
 
 try:
     from app.api.v1 import routes_ciso
@@ -733,8 +730,7 @@ if HAS_GATE_REGISTRY:
 if HAS_FINANCE_MODEL:
     app.include_router(routes_finance_model.router, prefix="/api/v1/finance-model", tags=["Finance Model Proxy"])
 
-if HAS_PROJECT_RATINGS:
-    app.include_router(routes_project_ratings.router, prefix="/api/v1/project-ratings", tags=["Project Quality Rating"])
+
 
 # ── Security Architecture Extension ──
 if HAS_CISO:
@@ -766,6 +762,16 @@ if HAS_ECOSYSTEM:
 
 from app.api.v1.routes_projects import router as projects_router
 app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
+# Bankability reports (JML 2026-10-28): the pull report, designated executives
+# and the in-app notifications pushed on every re-evaluation that moves something.
+from app.api.v1.routes_bankability_reports import router as bankability_reports_router
+app.include_router(bankability_reports_router, prefix="/api/v1", tags=["Bankability reports"])
+# Project premises change only on a document and a second party (alembic 077).
+from app.api.v1.routes_premises import router as premises_router
+app.include_router(premises_router, prefix="/api/v1", tags=["Project premises"])
+# Contract tokens: only counterparty-confirmed terms reach the engine (alembic 078).
+from app.api.v1.routes_contract_tokens import router as contract_tokens_router
+app.include_router(contract_tokens_router, prefix="/api/v1", tags=["Contract tokens"])
 
 # Reviewer appointments — GEX staff appoint evidence reviewers on instruction (JML, 2026-10-21)
 from app.api.v1.routes_reviewer_appointments import router as reviewer_appointments_router

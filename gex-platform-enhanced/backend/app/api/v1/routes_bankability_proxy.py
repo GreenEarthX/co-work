@@ -380,11 +380,21 @@ def _physical_payload(project_id: str) -> dict:
         from app.core.project_registry import get_effective_context
         ctx = get_effective_context(project_id)
         if ctx:
-            return {
+            payload = {
                 "power_model": ctx.power_model,
                 "project_phase": ctx.phase,
                 "financing_model": ctx.financing_model,
             }
+            # A contested or rejected premise is not used: the engine gets the
+            # protective one (project finance; no power model = all items).
+            from app.core.premises import protective_overrides
+            try:
+                payload.update(protective_overrides(project_id))
+            except Exception as exc:  # noqa: BLE001 — fail closed: protective premises
+                logger.warning("premise overrides unreadable for %s (%s); using protective premises",
+                               project_id, exc)
+                payload.update({"power_model": None, "financing_model": "PROJECT_FINANCE"})
+            return payload
     except Exception:
         pass
     return {"power_model": None, "project_phase": None, "financing_model": None}
@@ -661,9 +671,22 @@ def _attach_assignments(snapshot: dict, evidence: list, actor: Optional[dict] = 
 
 
 def _load_terms(project_id: str) -> dict:
-    """The project's commitment cards as {card_type: terms}. Tolerant: a card that
-    cannot be read is absent, and the engine treats absent data as NOT_EVALUABLE
-    rather than failing the whole evaluation."""
+    """The terms the ENGINE may use: card fields whose value is the one confirmed
+    on their contract token (app/core/contract_tokens.py, JML 2026-10-28). Held-
+    back fields are absent, so the checks needing them read NOT_EVALUABLE and
+    their gate UNRESOLVED. An unreadable token store fails closed: no terms."""
+    from app.core.contract_tokens import confirmed_terms, engine_terms
+    try:
+        used, _ = engine_terms(_load_terms_raw(project_id), confirmed_terms(project_id))
+        return used
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("contract tokens unreadable for %s (%s): no terms reach the engine", project_id, exc)
+        return {}
+
+
+def _load_terms_raw(project_id: str) -> dict:
+    """The project's commitment cards as typed, {card_type: terms}. Tolerant: a
+    card that cannot be read is absent."""
     try:
         conn = _get_db()
         _ensure_tables(conn)
@@ -703,41 +726,172 @@ async def _call_engine(path, method="GET", json_data=None):
         raise HTTPException(status_code=504, detail="Bankability engine timeout")
 
 
-@router.get("/evaluate")
-async def evaluate_project(project_id: str = Query(default="default"),
-                           authorization: str | None = Header(default=None)):
-    evidence = _load_evidence(project_id)
-    previous_state = _get_project_state(project_id)
-    snapshot = await _call_engine("/evaluate", method="POST", json_data={
-        "project_id": project_id, "evidence": evidence, "previous_state": previous_state,
-        **_engine_context(project_id),
-    })
+# ── One re-evaluation path (JML, 2026-10-28) ──────────────────────────────────
+# Every change that can move a gate — evidence, a document, a premise, a
+# contract term — re-evaluates the project HERE, stores the engine's snapshot
+# and records what changed. A stored state that no longer matches its inputs
+# ("stale state") was one of the loopholes: other modules read the stored state.
+
+import time as _time
+
+_RULES_CACHE: dict = {"at": 0.0, "rules": None}
+
+
+async def engine_rules() -> dict:
+    """The engine's rules (version, persona gates …), cached for a minute."""
+    if _RULES_CACHE["rules"] is None or _time.monotonic() - _RULES_CACHE["at"] > 60:
+        _RULES_CACHE["rules"] = await _call_engine("/rules")
+        _RULES_CACHE["at"] = _time.monotonic()
+    return _RULES_CACHE["rules"]
+
+
+def stored_snapshot(project_id: str) -> tuple[Optional[dict], Optional[str]]:
+    """The last stored engine snapshot and when it was taken, or (None, None)."""
+    conn = _get_db()
+    _ensure_tables(conn)
+    row = conn.execute("SELECT snapshot_json, evaluated_at FROM bankability_snapshots WHERE project_id = ?",
+                       (project_id,)).fetchone()
+    conn.close()
+    if not row or not row["snapshot_json"]:
+        return None, None
+    try:
+        return json.loads(row["snapshot_json"]), str(row["evaluated_at"])
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _drop_snapshot(project_id: str) -> None:
+    conn = _get_db()
+    _ensure_tables(conn)
+    conn.execute("DELETE FROM bankability_snapshots WHERE project_id = ?", (project_id,))
+    conn.commit()
+    conn.close()
+
+
+def _changes(old: Optional[dict], new: dict) -> dict:
+    """State and per-gate determination changes between two snapshots."""
+    before = {g["gate_id"]: g.get("determination") for g in (old or {}).get("gate_evaluations", [])}
+    gates = [{"gate_id": g["gate_id"], "gate_name": g["gate_name"],
+              "from": before.get(g["gate_id"]), "to": g.get("determination")}
+             for g in new.get("gate_evaluations", []) if before.get(g["gate_id"]) != g.get("determination")]
+    return {"from_state": (old or {}).get("current_state"), "to_state": new.get("current_state"),
+            "state_changed": (old or {}).get("current_state") != new.get("current_state"),
+            "gates": gates if old else [], "first_evaluation": old is None}
+
+
+async def reevaluate(project_id: str, *, reason: str, actor: Optional[str] = None,
+                     evidence: Optional[list] = None) -> dict:
+    """Evaluate the project with the engine, store the snapshot, record changes.
+
+    Returns {"snapshot", "changes"}. The event goes to the ledger even when
+    nothing changed, so every re-evaluation and its cause can be traced.
+    """
+    old, _ = stored_snapshot(project_id)
+    evidence = _load_evidence(project_id) if evidence is None else evidence
+    try:
+        snapshot = await _call_engine("/evaluate", method="POST", json_data={
+            "project_id": project_id, "evidence": evidence,
+            "previous_state": (old or {}).get("current_state"),
+            **_engine_context(project_id),
+        })
+    except HTTPException:
+        # The inputs changed and cannot be judged now: the old state must not
+        # stand for them. Fail closed to "not evaluated"; the next read
+        # re-evaluates (fresh_snapshot).
+        _drop_snapshot(project_id)
+        logger.warning("re-evaluation of %s failed (%s); stored state withdrawn", project_id, reason)
+        raise
     _store_snapshot(project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
-    return _attach_assignments(snapshot, evidence, _optional_actor(authorization), project_id)
+    changes = _changes(old, snapshot)
+    try:
+        from app.core.event_store import append_event
+        append_event(event_type="bankability.reevaluated", aggregate_type="project", aggregate_id=project_id,
+                     data={"reason": reason, "rules_version": snapshot.get("rules_version"), **changes},
+                     user_id=actor)
+    except Exception as exc:  # noqa: BLE001 — the evaluation stands; the trace failure is logged
+        logger.warning("re-evaluation of %s not recorded in the ledger: %s", project_id, exc)
+    try:
+        from app.core.bankability_reports import notify_changes
+        notify_changes(project_id, changes, reason=reason, actor=actor, snapshot=snapshot)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("re-evaluation of %s: designated executives not notified: %s", project_id, exc)
+    return {"snapshot": snapshot, "changes": changes}
+
+
+async def fresh_snapshot(project_id: str) -> tuple[Optional[dict], Optional[str]]:
+    """The stored snapshot, re-evaluated first if there is none or it was taken
+    under other rules. On engine failure the stored one is returned as it is —
+    its `evaluated_at` and `rules_version` tell the reader how old it is."""
+    snap, at = stored_snapshot(project_id)
+    try:
+        current = (await engine_rules()).get("rules_version")
+        if snap is None or snap.get("rules_version") != current:
+            await reevaluate(project_id, reason="rules" if snap else "first_evaluation")
+            snap, at = stored_snapshot(project_id)
+    except HTTPException as exc:
+        logger.warning("engine unavailable while refreshing %s: %s", project_id, exc.detail)
+    return snap, at
+
+
+def _persona_or_403(project_id: str, payload: dict, requested: Optional[str], persona_gates: dict) -> str:
+    """The caller's persona from the TOKEN; a requested one only if it is narrower."""
+    from app.core.engine_view import narrower_or_equal, persona_for
+    from app.core.project_registry import get_project_profile
+
+    profile = get_project_profile(project_id)
+    allowed = persona_for(payload, profile.owner_company_id if profile else None)
+    if requested and requested.upper() != allowed:
+        if not narrower_or_equal(requested.upper(), allowed, persona_gates):
+            raise HTTPException(status_code=403, detail={
+                "code": "PERSONA_NOT_YOURS",
+                "message": f"You see this project as {allowed}; {requested.upper()} would show gates outside your role."})
+        return requested.upper()
+    return allowed
+
+
+@router.get("/evaluate")
+async def evaluate_project(project_id: str = Query(...),
+                           authorization: str | None = Header(default=None)):
+    # project_id is required: its old default, "default", stored a snapshot for
+    # a project that does not exist.
+    actor = _require_actor(authorization)
+    evidence = _load_evidence(project_id)
+    result = await reevaluate(project_id, reason="requested", actor=actor.get("user_id"), evidence=evidence)
+    return _attach_assignments(result["snapshot"], evidence, actor, project_id)
+
+
+async def _persona_view(project_id: str, requested: Optional[str], authorization: Optional[str]) -> dict:
+    """Persona-scoped evaluation. The persona comes from the token (2026-10-28):
+    it was a parameter, and ?persona=EXECUTIVE showed any caller all twelve gates."""
+    actor = _require_actor(authorization)
+    rules = await engine_rules()
+    persona = _persona_or_403(project_id, actor, requested, rules.get("persona_gates", {}))
+    evidence = _load_evidence(project_id)
+    view = await _call_engine("/evaluate/persona", method="POST", json_data={
+        "project_id": project_id, "evidence": evidence, "persona": persona,
+        "previous_state": _get_project_state(project_id), **_engine_context(project_id),
+    })
+    total = len(rules.get("persona_gates", {}).get("EXECUTIVE", []))
+    seen = len(view.get("gate_evaluations", []))
+    view["scope"] = {"persona": persona, "visible_gates": seen, "total_gates": total,
+                     "note": None if seen == total else
+                     f"The overall figure and the state cover all {total} gates; you see the {seen} that concern your role."}
+    return _attach_assignments(view, evidence, actor, project_id)
 
 
 @router.get("/evaluate/persona")
 async def evaluate_for_persona(
-    persona: str = Query(..., description="PRODUCER|FINANCE|REGULATOR|EXECUTIVE"),
-    project_id: str = Query(default="default"),
+    project_id: str = Query(...),
+    persona: Optional[str] = Query(default=None, description="Optional; only a persona narrower than yours"),
+    authorization: str | None = Header(default=None),
 ):
-    evidence = _load_evidence(project_id)
-    previous_state = _get_project_state(project_id)
-    return _attach_assignments(await _call_engine("/evaluate/persona", method="POST", json_data={
-        "project_id": project_id, "evidence": evidence, "persona": persona, "previous_state": previous_state,
-        **_engine_context(project_id),
-    }), evidence)
+    return await _persona_view(project_id, persona, authorization)
 
 
 @router.get("/projects/{project_id}/bankability/{persona}")
-async def get_project_bankability_for_persona(project_id: str, persona: str):
-    evidence = _load_evidence(project_id)
-    previous_state = _get_project_state(project_id)
-    return _attach_assignments(await _call_engine("/evaluate/persona", method="POST", json_data={
-        "project_id": project_id, "evidence": evidence,
-        "persona": persona.upper(), "previous_state": previous_state,
-        **_engine_context(project_id),
-    }), evidence)
+async def get_project_bankability_for_persona(project_id: str, persona: str,
+                                              authorization: str | None = Header(default=None)):
+    return await _persona_view(project_id, persona, authorization)
 
 
 @router.get("/executive/portfolio")
@@ -834,13 +988,9 @@ async def update_evidence(request: EvidenceUpdateRequest,
     _upsert_evidence(request.project_id, request.evidence_key, request.new_status, actor["user_id"],
                      request.notes, document_sha256=document, maturity=request.maturity)
     evidence = _load_evidence(request.project_id)
-    previous_state = _get_project_state(request.project_id)
-    snapshot = await _call_engine("/evaluate", method="POST", json_data={
-        "project_id": request.project_id, "evidence": evidence, "previous_state": previous_state,
-        **_engine_context(request.project_id),
-    })
-    _store_snapshot(request.project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
-    return _attach_assignments(snapshot, evidence, actor, request.project_id)
+    result = await reevaluate(request.project_id, actor=actor["user_id"], evidence=evidence,
+                              reason=f"evidence {request.evidence_key} -> {request.new_status}")
+    return _attach_assignments(result["snapshot"], evidence, actor, request.project_id)
 
 
 @router.get("/evidence")
@@ -1162,8 +1312,26 @@ async def put_commitment_terms(request: TermsWriteRequest,
             (request.project_id, request.card_type, old_json, new_json, who))
     conn.commit()
     conn.close()
+    reevaluation = None
+    if old_json != new_json:
+        # Every changed contract records a new VERSION on its token; until the
+        # counterparty (or appointed reviewer) confirms it, the changed fields do
+        # not reach the engine.
+        from app.core.contract_tokens import record_versions
+        try:
+            record_versions(request.project_id, _load_terms_raw(request.project_id), who, actor.get("company_id"))
+        except Exception as exc:  # noqa: BLE001 — fail closed: an unrecorded version is never confirmed
+            logger.warning("card saved for %s but its token version was not recorded: %s", request.project_id, exc)
+        # A term change can pass or fail a cross-contract check: re-evaluate now.
+        # The card is saved either way; an engine outage withdraws the stored
+        # state (fail closed) rather than leaving it standing for old terms.
+        try:
+            reevaluation = (await reevaluate(request.project_id, reason=f"terms {request.card_type}",
+                                             actor=who))["changes"]
+        except HTTPException as exc:
+            reevaluation = {"error": exc.detail, "state_withdrawn": True}
     return {"project_id": request.project_id, "card_type": request.card_type, "terms": clean,
-            "changed": old_json != new_json, "updated_by": who}
+            "changed": old_json != new_json, "updated_by": who, "reevaluation": reevaluation}
 
 
 @router.get("/terms/events")
@@ -1246,6 +1414,12 @@ async def upload_evidence_document(
     # Document arrival moves the item to SUBMITTED (never auto-VERIFIED —
     # verification is a separate, human transition).
     _upsert_evidence(project_id, evidence_key, "SUBMITTED", who, document_sha256=sha)
+    # A new document returns a verified item to SUBMITTED, which can lower the
+    # state: re-evaluate now, not at the next unrelated write.
+    try:
+        await reevaluate(project_id, reason=f"document {evidence_key}", actor=who)
+    except HTTPException as exc:
+        logger.warning("document stored for %s but re-evaluation failed: %s", project_id, exc.detail)
 
     return {
         "project_id": project_id,
@@ -1359,3 +1533,28 @@ async def health_check():
     except Exception: pass
     return {"status": "healthy" if db_ok and engine_ok else "degraded",
             "platform_db": "ok" if db_ok else "error", "engine": "ok" if engine_ok else "unreachable"}
+
+
+
+def verify_by_counterparty(project_id: str, keys: tuple, actor: dict, *, note: str) -> list[str]:
+    """The counterparty's confirmation on a contract token verifies the
+    contract's own instrument evidence (JML 2026-10-28): each key that was
+    SUBMITTED with a document on file, by someone independent of the
+    counterparty's company. Returns the keys verified."""
+    conn = _get_db()
+    _ensure_tables(conn)
+    rows = {r["evidence_key"]: dict(r) for r in conn.execute(
+        "SELECT evidence_key, status, submitted_by, document_hash FROM bankability_evidence WHERE project_id = ?",
+        (project_id,)).fetchall()}
+    conn.close()
+    done = []
+    for key in keys:
+        row = rows.get(key)
+        if not row or row["status"] != "SUBMITTED" or not row["document_hash"]:
+            continue
+        account = _account_directory([row["submitted_by"]]).get(row["submitted_by"]) if row["submitted_by"] else None
+        if _independence_refusal(actor, row["submitted_by"], account):
+            continue
+        _upsert_evidence(project_id, key, "VERIFIED", actor["user_id"], note, document_sha256=row["document_hash"])
+        done.append(key)
+    return done

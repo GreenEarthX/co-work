@@ -1,15 +1,13 @@
 // Screen: Shared layout component — all authenticated screens
 import { useMemo, useState } from 'react';
-import { Lock, ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useGateAccess } from '@/hooks/useGateAccess';
 
 interface DropdownItem {
   id: string;
   path: string;
   label: string;
   section: string;
-  gate_prerequisite?: string;
 }
 
 export function TopBarDropdown({
@@ -25,7 +23,6 @@ export function TopBarDropdown({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isScreenLocked, getGateRequirement } = useGateAccess();
 
   // Group items by section, preserving order. Blank-header items form the
   // always-visible "core" group; named sections become collapsible accordions.
@@ -60,24 +57,6 @@ export function TopBarDropdown({
   const toggle = (header: string) =>
     setOpenSections(prev => ({ ...prev, [header]: !prev[header] }));
 
-  // Business-state badge — derived ONLY from gate access at render time.
-  //   BLOCKED · Gx  → the prerequisite gate is not yet met
-  //   GATE READY    → the prerequisite gate IS met (access is open)
-  // Deliberately NOT "IC READY" / "Ready": gate access proves the door is open,
-  // not that the deliverable (e.g. a complete IC pack) is finished. Claiming
-  // readiness we haven't validated would be an acausal label.
-  function stateBadge(item: DropdownItem): { text: string; cls: string } | null {
-    if (!item.gate_prerequisite) return null;
-    if (isScreenLocked(item.path)) {
-      const req = getGateRequirement(item.path);
-      return {
-        text: `BLOCKED · ${req?.gateShortId ?? item.gate_prerequisite}`,
-        cls: 'border-l-amber-600 text-amber-800 dark:text-amber-300',
-      };
-    }
-    return { text: 'GATE READY', cls: 'border-l-emerald-600 text-emerald-800 dark:text-emerald-300' };
-  }
-
   if (items.length === 0) {
     return (
       <div
@@ -92,9 +71,9 @@ export function TopBarDropdown({
   }
 
   const renderItem = (item: DropdownItem) => {
-    const locked = item.gate_prerequisite ? isScreenLocked(item.path) : false;
-    const req = locked ? getGateRequirement(item.path) : null;
-    const badge = stateBadge(item);
+    // No screen locks or gate badges in the menu (JML 2026-10-28): what a user
+    // may do is decided by the server, and a client-side lock read hand-typed
+    // gate figures and blocked the very work that completes a gate.
     return (
       <button
         key={item.id}
@@ -102,22 +81,11 @@ export function TopBarDropdown({
         className="flex items-center justify-between gap-2 px-4 py-2 text-sm w-full text-left transition-colors cursor-pointer rounded-lg"
         style={location.pathname === item.path
           ? { color: 'var(--text-primary)', background: 'var(--surface-muted)' }
-          : locked
-            ? { color: 'var(--text-muted)', opacity: 0.7 }
-            : { color: 'var(--text-secondary)' }}
-        title={req ? `Requires ${req.gateShortId} at ${req.threshold}% (currently ${req.completionPct}%)` : undefined}
+          : { color: 'var(--text-secondary)' }}
       >
         <span className="flex items-center gap-1.5 min-w-0">
-          {locked && <Lock className="w-3 h-3 flex-shrink-0" />}
           <span className="truncate">{item.label}</span>
         </span>
-        {badge && (
-          <span
-            className={`shrink-0 inline-flex h-[15px] items-center border border-l-2 border-slate-300 bg-white dark:bg-slate-950 px-1 font-mono text-[8px] font-bold uppercase tracking-[0.06em] leading-none whitespace-nowrap ${badge.cls}`}
-          >
-            {badge.text}
-          </span>
-        )}
       </button>
     );
   };

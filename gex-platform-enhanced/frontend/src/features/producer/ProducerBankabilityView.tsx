@@ -159,6 +159,7 @@ function commitmentLabel(status: CommitmentStatus): { text: string; cls: string 
     case 'CREDIT_APPROVED':return { text: 'Credit approved', cls: 'gex-badge gex-badge-blue'    };
     case 'TERM_SHEET':     return { text: 'Term sheet',      cls: 'gex-badge gex-badge-amber'   };
     case 'INDICATIVE':     return { text: 'Indicative',      cls: 'gex-badge gex-badge-amber'   };
+    case 'DECISION_ELIGIBLE': return { text: 'Decision eligible', cls: 'gex-badge gex-badge-blue' };
     default:               return { text: 'No engagement',   cls: 'gex-badge gex-badge-default' };
   }
 }

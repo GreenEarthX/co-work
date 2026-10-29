@@ -3,9 +3,10 @@
  * useVisibleProjects — the projects this session may see, from PostgreSQL.
  *
  * GET /api/v1/projects/visible decides WHICH projects are visible and returns
- * each one's record: the headline fields from `projects` and the rest
- * (bankability snapshot, gates, offtakes, energy, certifications, incentives,
- * timeline, narrative) from `project_profile` (alembic 068).
+ * each one's record: the headline fields from `projects`, descriptive fields
+ * from `project_profile` (alembic 068), and `bankability` — gates, state and
+ * capital eligibility — from the ENGINE only, scoped to the caller's persona
+ * (2026-10-28; the profile's hand-typed figures are no longer served).
  *
  * There is no static fallback (JML, 2026-10-25: project data out of code,
  * PostgreSQL as reference). When the server cannot answer, the list is empty and
@@ -45,13 +46,18 @@ interface ServerProject {
   /** project_profile.profile — everything beyond the headline fields. */
   profile: Partial<CustomerProject> | null
   profile_verification: string | null
+  /** The engine's evaluation for this caller (null only from an old server). */
+  bankability: (CustomerProject['bankability'] & { overall_completion: number | null }) | null
 }
 
-const EMPTY_BANKABILITY: CustomerProject['bankability'] = {
+/** Not yet evaluated by the engine: no figures, and the screens say so. */
+export const NOT_EVALUATED: CustomerProject['bankability'] = {
+  evaluated: false,
+  source: 'engine',
   overall_completion: 0,
   gates: [],
   capital_status: [],
-  next_milestone: 'Declare project context and open Gate G1',
+  next_milestone: '',
   unlocked_capital: [],
   risk_alerts: [],
 }
@@ -79,7 +85,10 @@ export function serverToCustomerProject(sp: ServerProject): CustomerProject {
     description: sp.description || '',
     owner_company: sp.owner_company,
     associated_companies: sp.associated_companies ?? [],
-    bankability: profile.bankability ?? EMPTY_BANKABILITY,
+    bankability: sp.bankability
+      ? { ...sp.bankability, overall_completion: sp.bankability.overall_completion ?? 0,
+          capital_status: (sp.bankability.capital_status ?? []).map(c => ({ ...c, amount: c.amount ?? '' })) }
+      : NOT_EVALUATED,
   }
 }
 

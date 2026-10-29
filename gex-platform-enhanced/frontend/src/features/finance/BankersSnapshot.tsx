@@ -56,18 +56,6 @@ interface SnapshotData {
   killSwitches: string[]
 }
 
-// ═══════════════════════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════════════════════
-
-const BANKABILITY_STATE_STYLES: Record<BankabilityState, { bg: string; text: string; border: string; label: string }> = {
-  BANKABLE:    { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-300',  label: 'BANKABLE'    },
-  BUILDABLE:   { bg: 'bg-blue-100',   text: 'text-blue-800',   border: 'border-blue-300',   label: 'BUILDABLE'   },
-  FUNDABLE:    { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-300', label: 'FUNDABLE'    },
-  CERTIFIABLE: { bg: 'bg-amber-100',  text: 'text-amber-800',  border: 'border-amber-300',  label: 'CERTIFIABLE' },
-  EARLY_DEV:   { bg: 'bg-gray-100',   text: 'text-gray-700',   border: 'border-gray-300',   label: 'EARLY DEV'   },
-}
-
 const GATE_STATUS_STYLES: Record<GateStatus, { bar: string; text: string }> = {
   PASS:        { bar: 'bg-green-500', text: 'text-green-700' },
   IN_PROGRESS: { bar: 'bg-amber-400', text: 'text-amber-700' },
@@ -231,7 +219,18 @@ export function BankersSnapshot() {
     )
   }
 
-  const stateStyle = BANKABILITY_STATE_STYLES[data.bankabilityState]
+  // State, gates and the verified share are the ENGINE's (2026-10-28). The
+  // snapshot dataset's own bankabilityState, gate scores and trust score were
+  // typed by hand — Bremen read "BUILDABLE" while the engine said SPECULATIVE —
+  // and are not shown.
+  const engine = project?.bankability
+  const verifiedPct = Math.round(engine?.overall_completion ?? 0)
+  const engineGates: GateEntry[] = (engine?.gates ?? []).map(g => ({
+    id: g.id, name: g.name, score: Math.round(g.completion_pct),
+    status: (g.determination === 'SATISFIED' ? 'PASS'
+      : g.verified_count > 0 ? 'IN_PROGRESS'
+      : g.determination === 'BLOCKED' || g.determination === 'UNRESOLVED' ? 'PENDING' : 'NOT_STARTED') as GateStatus,
+  }))
   const molStyle = MOLECULE_STYLES[project?.molecule ?? 'H2'] ?? MOLECULE_STYLES['H2']
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
@@ -285,20 +284,18 @@ export function BankersSnapshot() {
                 {project?.molecule ?? '—'}
               </span>
 
-              {/* Bankability state badge */}
-              <span className={`text-xs font-black px-3 py-1.5 rounded-lg border ${stateStyle.bg} ${stateStyle.text} ${stateStyle.border}`}>
-                {stateStyle.label}
+              {/* Bankability state — the engine's */}
+              <span className="text-xs font-black px-3 py-1.5 rounded-lg border bg-gray-100 text-gray-800 border-gray-300"
+                title={engine?.state_label ?? undefined}>
+                {engine?.evaluated === false ? 'NOT YET EVALUATED' : (engine?.state ?? '—').replace(/_/g, ' ')}
               </span>
 
-              {/* Trust score pill */}
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
-                data.trustScore >= 70 ? 'bg-green-900/40 text-green-300' :
-                data.trustScore >= 45 ? 'bg-amber-900/40 text-amber-300' :
-                'bg-red-900/40 text-red-300'
-              }`}>
+              {/* Verified share of the evidence — the engine's */}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 text-gray-200"
+                title="Share of the required evidence verified, at the required maturity (GEX engine)">
                 <Zap className="w-3.5 h-3.5" />
-                <span className="text-sm font-black tabular-nums">{data.trustScore}</span>
-                <span className="text-xs opacity-70">/100</span>
+                <span className="text-sm font-black tabular-nums">{verifiedPct}%</span>
+                <span className="text-xs opacity-70">verified</span>
               </div>
 
               {/* Date */}
@@ -454,9 +451,13 @@ export function BankersSnapshot() {
             {/* 12-Gate chart */}
             <SectionCard title="12-Gate Progress — Bankability Pathway">
               <div className="space-y-1">
-                {data.gates.map(gate => (
+                {engineGates.length === 0 && (
+                  <p className="text-xs text-gray-500">Not yet evaluated by the GEX engine.</p>
+                )}
+                {engineGates.map(gate => (
                   <GateBar key={gate.id} gate={gate} />
                 ))}
+                {engine?.scope?.note && <p className="text-[10px] text-gray-400 mt-1">{engine.scope.note}</p>}
               </div>
               {/* Legend */}
               <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-100">
@@ -473,10 +474,10 @@ export function BankersSnapshot() {
             <div className="grid grid-cols-2 gap-4">
               {/* Trust score arc */}
               <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex flex-col items-center justify-center">
-                <h3 className="text-xs font-black uppercase tracking-widest text-gray-600 mb-2">Trust score (indicative)</h3>
-                <TrustArc score={data.trustScore} />
+                <h3 className="text-xs font-black uppercase tracking-widest text-gray-600 mb-2">Evidence verified</h3>
+                <TrustArc score={verifiedPct} />
                 <div className="text-xs text-gray-400 text-center mt-1">
-                  {data.trustScore >= 70 ? 'Strong confidence' : data.trustScore >= 45 ? 'Moderate confidence' : 'Low confidence — significant gaps'}
+                  Required evidence verified at the required maturity — GEX engine
                 </div>
               </div>
 

@@ -172,3 +172,9 @@ pages named above. Data: live database 2026-10-23 (counts above) and backup
 `gex_platform_2026-10-23_1124.dump`. Documents: `docs/MOLECULE_TO_ASSET_KILLER_PROMPT.md`,
 `docs/OBJECTIVE_LED_PRODUCT_PATHWAY.md`, the Vademecum v4.4, the technical reference v3 and the
 menu-architecture map.
+
+**2026-10-28 — gate pathway loopholes closed (handoff §8 item 52).** Displayed gate figures are the
+engine's only; unrunnable cross-checks hold a gate UNRESOLVED; every change re-evaluates and reports;
+premises need a document and a second party; contract terms count only once confirmed on the
+contract token by the counterparty (or an appointed reviewer). Open: merge with the trading-book
+token (M2–M6); appoint reviewers on real projects.

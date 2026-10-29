@@ -20,7 +20,7 @@ Stoichiometry is mass ratio per tonne of product, divided by a conversion yield.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace, field
 
 REFERENCE_NAMEPLATE_T_YR = 50_000.0      # coefficients are tuned at this scale
 DEFAULT_SCALE_EXP = 0.65                  # six-tenths-rule-ish equipment scaling
@@ -138,8 +138,8 @@ _E_SAF = ProcessFunction(
     ],
     version="0.2",
     ascertained=False,
-    note="First-pass canonical e-SAF (RFNBO Fischer-Tropsch) train (PEM electrolyser "
-         "upstream + FT). Sizing/stoichiometry are illustrative, "
+    note="First-pass canonical e-SAF (RFNBO Fischer-Tropsch) train "
+         "(PEM electrolyser upstream + FT). Sizing/stoichiometry are illustrative, "
          "tuned at 50 kt/yr; IE to verify FT/upgrading train, yield, and H2:CO2 ratios. NOTE: "
          "this is the E-FUEL SAF route — biogenic SAF (HEFA / bio-FT) is a different "
          "pathway_class (ADVANCED_BIOFUEL) with a different train and RED III regime.",
@@ -173,7 +173,13 @@ _BIO_SAF_HEFA = ProcessFunction(
     ],
     feedstocks=[   # PER TONNE OF TOTAL HEFA LIQUID PRODUCT (oil→paraffins, ~86% mass yield)
         FeedstockSpec("waste_lipid", 1.16, "feedstock_oil_eur_t"),   # UCO/tallow per t total product
-        FeedstockSpec("hydrogen",    0.035, "hydrogen_eur_t"),       # HDO + isomerisation, per t total
+        # Stoichiometric. Was 0.035 = 88.4% of the reaction requirement, i.e. an
+        # impossible 113.2% implied yield. Balanced 2026-10-26:
+        #   C57H104O6 + 15 H2 -> 3 C18H38 + C3H8 + 6 H2O  closes at 915.69 both
+        # sides, so H2 = 30.24/763.5 = 0.0396 per t of alkane product. Declaring
+        # stoichiometry matches every other pathway — conversion loss lives in
+        # yield_frac, never in the declared ratio.
+        FeedstockSpec("hydrogen",    0.0396, "hydrogen_eur_t"),       # HDO + isomerisation, per t total
         FeedstockSpec("electricity", None, "electricity_eur_mwh", mwh_per_t_product=0.30),
     ],
     version="0.2",
@@ -263,22 +269,37 @@ def total_product_per_primary(pf: ProcessFunction) -> float:
 def feedstock_per_t_primary(pf: ProcessFunction):
     """Yield (stream, qty_per_t_primary, is_energy, price_field).
 
-    MASS-BALANCE BASIS: for multi-product pathways (SAF etc.) the FeedstockSpec
-    ratios are stated PER TONNE OF TOTAL PRODUCT and scaled here to per-t-primary
-    by the total/primary multiplier — so carbon and mass conserve (SAF no longer
-    absorbs the whole plant's feed). Single-product molecules (methanol/methane)
-    have no co-products, so feed carries recycle/purge inefficiency via yield_frac
-    exactly as before — those pathways are unchanged.
+    ONE RULE, two orthogonal factors:
+
+        qty per t of PRIMARY product  =  declared  x  M  /  yield_frac
+
+      · declared    is per tonne of TOTAL product, and is raw STOICHIOMETRY.
+                    Verified 2026-10-26 against first principles: every declared
+                    ratio sits within 0.7% of theoretical (E_METHANOL H2 0.1875 vs
+                    0.18875; E_SAF CO2 3.14 vs 3.13745; E_AMMONIA H2 0.178 vs
+                    0.17756). So the declared numbers carry NO loss allowance.
+      · M           total product per primary. Handles the fact that SAF is one cut
+                    of a syncrude slate: 1 t of SAF arrives with 1.6 t of other cuts,
+                    so the feed for 1 t of SAF is the feed for 2.6 t of product.
+      · yield_frac  the conversion loss — unreacted feed purged or vented.
+
+    They are INDEPENDENT. M is a question about what you call the product; yield_frac
+    is a question about how much feed fails to become any product. Applying both is
+    not double-counting, precisely because the declared ratios are stoichiometric.
+
+    This replaced `scale = M if has_co else (1.0 / yield_frac)`, which applied one OR
+    the other. On a co-product pathway that discarded yield_frac entirely: E_SAF
+    published `yield_frac: 0.75` in its result meta while its price contained no
+    conversion loss at all. The engine asserted a conversion it had not applied.
+    Energy streams take M only — a MWh is not consumed by unreacted feed.
     """
     M = total_product_per_primary(pf)
-    has_co = bool(pf.co_products)
+    yield_frac = float(pf.yield_frac or 1.0)
     for fs in pf.feedstocks:
         if fs.t_per_t_product is not None:
-            scale = M if has_co else (1.0 / pf.yield_frac)
-            yield (fs.stream, fs.t_per_t_product * scale, False, fs.price_field)
+            yield (fs.stream, fs.t_per_t_product * M / yield_frac, False, fs.price_field)
         else:
-            scale = M if has_co else 1.0
-            yield (fs.stream, fs.mwh_per_t_product * scale, True, fs.price_field)
+            yield (fs.stream, fs.mwh_per_t_product * M, True, fs.price_field)
 
 
 def coproduct_revenue_per_t_primary(pf: ProcessFunction) -> float:
@@ -286,7 +307,70 @@ def coproduct_revenue_per_t_primary(pf: ProcessFunction) -> float:
     return sum(cp.mass_per_kg_primary * cp.eur_per_t for cp in pf.co_products)
 
 
-def build_process_function(fuel_id: str, nameplate_t_yr: float) -> dict:
+# Which base_param units carry rotating/electrical duty, and their factor to MW.
+_DUTY_UNIT_TO_MW = {"mwe": 1.0, "mw": 1.0, "kw": 0.001}
+
+
+def _installed_duty_mw(pf) -> float:
+    """Total rotating/electrical duty the train itself carries, in MW.
+
+    Read from the equipment's own base_param, whose unit comes from the OpenPyTEA
+    correlation (e.g. "electric power, MWe", "driver power, kW", "shaft power, kW").
+    An upper bound on consumption: rated duty is not drawn continuously.
+    """
+    try:
+        import os
+
+        import openpytea
+        import pandas as pd
+        cc = pd.read_csv(os.path.join(os.path.dirname(openpytea.__file__),
+                                     "data", "cost_correlations.csv"))
+    except Exception:                                     # pragma: no cover
+        return 0.0
+    total = 0.0
+    for e in pf.equipment:
+        m = cc[(cc["category"] == e.category) & (cc["type"] == e.type)]
+        if not len(m):
+            continue
+        unit = str(m.iloc[0]["units"]).lower()
+        for token, factor in _DUTY_UNIT_TO_MW.items():
+            # match the unit WORD, so "kw" does not match inside another token
+            if token in unit.replace(",", " ").split():
+                total += float(e.base_param) * factor
+                break
+    return total
+
+
+def _mass_in_per_t_primary(pf) -> float:
+    """Total declared MASS entering, per tonne of primary product. Energy streams are
+    not mass and are excluded."""
+    return sum(q for _s, q, is_energy, _pf in feedstock_per_t_primary(pf) if not is_energy)
+
+
+def _energy_reconciliation(pf, nameplate_t_yr: float, capacity_factor: float) -> dict:
+    """Both energy bases side by side, per tonne of PRIMARY product."""
+    mw = _installed_duty_mw(pf)
+    M = total_product_per_primary(pf)
+    declared = sum(f.mwh_per_t_product for f in pf.feedstocks if f.mwh_per_t_product) * M
+    cf = float(capacity_factor or 0.0)
+    annual_primary = max(nameplate_t_yr * cf, 1.0)
+    implied = (mw * 8760.0 * cf / annual_primary) if mw and cf else 0.0
+    return {
+        "installed_mw": round(mw, 3),
+        "capacity_factor": round(cf, 4),
+        "implied_from_train_mwh_per_t": round(implied, 4),
+        "declared_mwh_per_t": round(declared, 4),
+        "ratio": (round(implied / declared, 3) if declared else None),
+        "note": ("Installed duty is an UPPER BOUND on consumption (rated power is not "
+                 "drawn continuously, and a train may carry spares), so a ratio near 1 "
+                 "is expected. A large ratio means the two sides disagree; it does not "
+                 "say which is wrong."),
+    }
+
+
+def build_process_function(fuel_id: str, nameplate_t_yr: float,
+                           equipment: "list | None" = None,
+                           capacity_factor: float = 0.0) -> dict:
     """Instantiate a molecule's process function at the requested scale.
 
     Returns {process_units, variable_opex_inputs, meta} where process_units is a
@@ -297,6 +381,11 @@ def build_process_function(fuel_id: str, nameplate_t_yr: float) -> dict:
     pf = get(fuel_id)
     if pf is None:
         raise ValueError(f"No process function registered for molecule '{fuel_id}'.")
+    # A supplied train REPLACES the code registry's equipment — the governed set from
+    # tea_equipment_spec (migration 075). Everything else (the ratio, the stoichiometry,
+    # the meta) is unchanged, so the only thing that varies is the sizing basis.
+    if equipment:
+        pf = replace(pf, equipment=tuple(equipment))
     if not pf.equipment:
         raise ValueError(
             f"Process function for '{fuel_id}' is a SCAFFOLD (no costed equipment "
@@ -346,6 +435,33 @@ def build_process_function(fuel_id: str, nameplate_t_yr: float) -> dict:
         "co_products": [{"name": cp.name, "mass_per_kg_primary": cp.mass_per_kg_primary,
                          "eur_per_t": cp.eur_per_t} for cp in pf.co_products],
         "coproduct_revenue_per_t_primary": round(coproduct_revenue_per_t_primary(pf), 2),
+        # The mass balance, stated so it can be CHECKED rather than asserted.
+        # integrity.mass_balance_flags() reads these three numbers; a reader can check
+        # them with a calculator. `undeclared_outputs` is what the declared inputs
+        # exceed the declared products by — reaction water, purge and vent, none of
+        # which is declared today. It is reported, not hidden, and not treated as zero.
+        "mass_balance": {
+            "basis": "per tonne of PRIMARY product",
+            "rule": "declared x total_product_per_primary / yield_frac",
+            "inputs_t": round(_mass_in_per_t_primary(pf), 6),
+            "products_t": round(total_product_per_primary(pf), 6),
+            "undeclared_outputs_t": round(
+                max(_mass_in_per_t_primary(pf) - total_product_per_primary(pf), 0.0), 6),
+            "process_mass_intensity": (
+                round(_mass_in_per_t_primary(pf) / total_product_per_primary(pf), 4)
+                if total_product_per_primary(pf) else None),
+            "note": ("Inputs are stoichiometry / yield_frac. Outputs count the primary "
+                     "product and declared co-products only; reaction water, purge and "
+                     "vent are NOT declared, so closure is not yet computable."),
+        },
+        # The CAPEX side's energy against the OPEX side's. integrity.energy_balance_flags
+        # reads this; it deliberately does not pick a winner (see that function).
+        "energy_reconciliation": _energy_reconciliation(
+            pf, nameplate_t_yr, capacity_factor),
+        "mass_in_t_per_t_primary": round(_mass_in_per_t_primary(pf), 6),
+        "mass_out_t_per_t_primary": round(total_product_per_primary(pf), 6),
+        "undeclared_outputs_t_per_t_primary": round(
+            max(_mass_in_per_t_primary(pf) - total_product_per_primary(pf), 0.0), 6),
         "note": pf.note,
     }
     return {"process_units": units, "variable_opex_inputs": var_opex_skeleton, "meta": meta}

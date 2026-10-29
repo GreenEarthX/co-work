@@ -82,9 +82,25 @@ def cost_basis_hash(req: TEAComputeRequest) -> str:
     engine and its version are part of the basis, so an upgrade surfaces as a new
     hash instead of hiding inside the old one.
     """
+    # The engine VERSION is not enough: two installs of the same version can carry
+    # different cost data (a vendored tree, a patched wheel, a local build), and
+    # cepci_extension mutates the CEPCI series in memory. So the fingerprint of the
+    # data that actually priced the basis is hashed too — point 2 of the 2026-10-26
+    # plan. On the stub path there is no cost data, so there is nothing to pin.
+    from tea_engine.correlation_set import set_hash as _set_hash
+    # The escalation basis is part of the cost basis: a different target year or a
+    # different index provider prices the same equipment differently. Measured
+    # 2026-10-26 before this line existed: a 2025 cost base moved capex +3.2% under an
+    # unchanged hash.
+    _esc = None
+    if not _stub_allowed():
+        from tea_engine import escalation as _e
+        _esc = {"provider": _e.active_provider().name, "target_year": _e.target_year()}
     blob = json.dumps({"request": req.model_dump(),
                        "engine": engine_name(),
-                       "engine_version": _engine_version()},
+                       "engine_version": _engine_version(),
+                       "correlation_set": (None if _stub_allowed() else _set_hash()),
+                       "escalation": _esc},
                       sort_keys=True, default=str).encode()
     return "sha256:" + hashlib.sha256(blob).hexdigest()[:24]
 
@@ -119,7 +135,27 @@ def resolve_process_function(req: TEAComputeRequest):
         return list(req.process_units), var_opex, None
 
     nameplate_t_yr = _nameplate_t_per_year(req)
-    built = pfx.build_process_function(req.fuel_id, nameplate_t_yr)
+    # A governed train (migration 075) replaces the code registry's equipment. It
+    # arrives in the request because the engine is stateless, which also puts it inside
+    # cost_basis_hash — so an approved change to a base_param or a scale_exp reprices
+    # visibly rather than silently.
+    governed = None
+    if req.governed_train:
+        governed = [
+            pfx.EquipmentSpec(
+                role=str(e["role"]), node=str(e.get("node") or "synthesis"),
+                category=str(e["category"]), type=str(e["equipment_type"]),
+                material=str(e["material"]), base_param=float(e["base_param"]),
+                scale_exp=float(e.get("scale_exp") or pfx.DEFAULT_SCALE_EXP),
+            )
+            for e in req.governed_train
+        ]
+    built = pfx.build_process_function(req.fuel_id, nameplate_t_yr,
+                                       equipment=governed,
+                                       capacity_factor=a.capacity_factor)
+    if built.get("meta") is not None:
+        built["meta"]["train_basis"] = ("governed" if governed else "canonical_code")
+        built["meta"]["governed_train_version"] = req.governed_train_version
     units = [ProcessUnitSpec(**u) for u in built["process_units"]]
     # fill prices from assumptions into the stoichiometric skeleton
     var_opex = {}
@@ -130,14 +166,30 @@ def resolve_process_function(req: TEAComputeRequest):
 
 
 def _stub_numbers(req: TEAComputeRequest, units) -> tuple[float, float, float]:
-    """Deterministic, sizing-driven illustrative economics."""
+    """Deterministic, sizing-driven illustrative economics.
+
+    The nameplate is canonicalised FIRST. This used to divide by the raw
+    `req.nameplate_capacity` with its unit discarded, so the same physical plant
+    returned a different LCOP per spelling and in the wrong unit entirely — measured
+    2026-10-26 for one 50 kt/yr plant: 't_per_year' gave 5,967.16 where the correct
+    EUR/kg figure is 5.967 (ratio 1000), 'mtpd' was out by 365,000 (= 1000 kg/t x 365
+    d/yr) and 'kt_per_year' by 1,000,000. Capex was unaffected because it is driven by
+    the canonicalised equipment sizing, which is why the error showed up only in LCOP.
+
+    The stub's LCOP is handed to `plausibility_flags` as a EUR/kg value and is labelled
+    `engine="stub"`, so it must be on the same basis as the real path: EUR per kilogram
+    of product, over the canonical annual output in kilograms.
+    """
     total_sizing = sum(u.sizing for u in units) or 1.0
+    nameplate_t_yr = _nameplate_t_per_year(req)          # raises on an unknown unit
     capex = total_sizing * 6200.0 * (1 + req.assumptions.contingency_pct / 100.0)
-    opex = capex * 0.11 + req.assumptions.electricity_eur_mwh * req.nameplate_capacity * 1.2
-    annual_output = req.nameplate_capacity * req.assumptions.capacity_factor
+    # electricity term scales with annual tonnage, not with whatever magnitude the
+    # caller happened to spell the nameplate in
+    opex = capex * 0.11 + req.assumptions.electricity_eur_mwh * nameplate_t_yr * 1.2
+    annual_output_kg = nameplate_t_yr * 1000.0 * req.assumptions.capacity_factor
     crf = (req.assumptions.discount_rate_pct / 100.0)  # simplified capital recovery
-    lcop = ((capex * crf) + opex) / max(annual_output, 1.0)
-    return round(capex, 2), round(opex, 2), round(lcop, 2)
+    lcop = ((capex * crf) + opex) / max(annual_output_kg, 1.0)
+    return round(capex, 2), round(opex, 2), round(lcop, 4)
 
 
 def _nameplate_t_per_year(req: TEAComputeRequest) -> float:
@@ -205,6 +257,16 @@ def _build_plant(req: TEAComputeRequest, units, var_opex, extra_config: dict | N
 
     _validate_equipment(units)
 
+    # The cost base is passed EXPLICITLY. It used to be left to OpenPyTEA's own default
+    # of 2024 while integrity.OPENPYTEA_TARGET_CEPCI_YEAR labelled the basis separately:
+    # the two agreed by coincidence, so moving the GEX constant would have moved the
+    # LABEL while the arithmetic stood still. escalation.target_year() is now the single
+    # answer, and it refuses a year the escalation series does not cover rather than
+    # letting OpenPyTEA raise from inside inflation_adjustment without naming the year.
+    from tea_engine import escalation
+    escalation.apply()                     # a provider may supply years CEPCI lacks
+    _target_year = escalation.target_year()
+
     equipment = [
         Equipment(
             name=(u.id[:8] or f"EQ{i}").upper(),
@@ -213,6 +275,7 @@ def _build_plant(req: TEAComputeRequest, units, var_opex, extra_config: dict | N
             category=u.category,
             type=u.equipment_type,
             material=u.material,
+            target_year=_target_year,
         )
         for i, u in enumerate(units)
     ]
@@ -224,7 +287,8 @@ def _build_plant(req: TEAComputeRequest, units, var_opex, extra_config: dict | N
     # base currency via exchange_rate (a fixed dated rate, or the caller/CFO override).
     # exchange_rate touches only purchased/direct cost; variable OPEX (GEX's already-
     # base-currency feedstock prices) is untouched, so nothing is double-converted.
-    fx_rate = integrity.usd_to_base_rate(base_ccy, req.fx_usd_to_eur)
+    fx_rate = integrity.usd_to_base_rate(base_ccy, req.fx_usd_to_eur,
+                                         req.fx_benchmark_usd_to_eur)
     config = {
         "name": req.pathway_id,
         "country": req.country,
@@ -255,12 +319,27 @@ def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float
     return round(capex, 2), round(opex, 2), round(lcop, 4), base_ccy
 
 
+def _escalation_target_year() -> int:
+    """The cost base, from the same source the Equipment construction uses."""
+    from tea_engine import escalation
+    return escalation.target_year()
+
+
+def _correlation_set_block() -> dict:
+    """The fingerprint, trimmed for the artefact: the pin plus what identifies it."""
+    from tea_engine.correlation_set import fingerprint
+    f = fingerprint()
+    return {k: f[k] for k in ("hash", "openpytea_version", "correlations",
+                              "cepci_year_range", "gex_supplied_cepci_years")}
+
+
 def run_tea(req: TEAComputeRequest) -> TEAResult:
     from tea_engine import integrity
     _ensure_runnable()
     cbh = cost_basis_hash(req)
     nameplate_t = _nameplate_t_per_year(req)   # G2: validates the unit up front (→ 422 on unknown)
-    integrity.usd_to_base_rate((req.base_currency or "EUR").upper(), req.fx_usd_to_eur)  # G5: fx band (→ 422)
+    integrity.usd_to_base_rate((req.base_currency or "EUR").upper(), req.fx_usd_to_eur,
+                               req.fx_benchmark_usd_to_eur)   # G5: fx band (→ 422)
     units, var_opex, pf_meta = resolve_process_function(req)
 
     if _HAS_OPENPYTEA and not _stub_allowed():
@@ -289,18 +368,33 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
 
     # G2/G1: physically-implausible-output flags + input provenance → a result
     # status that tracks input QUALITY, not just that the arithmetic ran.
-    plausibility = integrity.plausibility_flags(capex, nameplate_t, lcop)
+    plausibility = integrity.plausibility_flags(
+        capex, nameplate_t, lcop,
+        governed_lcop_band=((req.lcop_band_low, req.lcop_band_high)
+                            if req.lcop_band_low is not None
+                            and req.lcop_band_high is not None else None),
+        governed_lcop_band_unit=req.lcop_band_unit)
     plausibility = plausibility + integrity.scaling_flags(pf_meta)   # G4: extreme scale extrapolation
     input_provenance = integrity.classify_inputs(req.assumptions)
+    # The input-side sibling of plausibility_flags. Kept off `plausibility` so it does
+    # not reclassify every basis as IMPLAUSIBLE (see TEAResult.mass_balance).
+    mass_balance = None
+    if pf_meta and pf_meta.get("mass_balance"):
+        mass_balance = {**pf_meta["mass_balance"],
+                        "flags": integrity.mass_balance_flags(pf_meta),
+                        "energy_reconciliation": pf_meta.get("energy_reconciliation"),
+                        "energy_flags": integrity.energy_balance_flags(pf_meta)}
     status = integrity.result_status(input_provenance, plausibility)
 
     # G5: currency / base-date basis. OpenPyTEA's USD costs are converted to the base
     # currency with a fixed dated rate (or the caller/CFO override); the rate carries
     # its own provenance (external_benchmark, or sponsor_assumption when overridden).
-    fx = None if is_stub else integrity.fx_meta(currency, req.fx_usd_to_eur)
+    fx = None if is_stub else integrity.fx_meta(
+        currency, req.fx_usd_to_eur, req.fx_benchmark_usd_to_eur, req.fx_benchmark_ref_id)
     cost_basis = integrity.cost_basis_block(
-        currency, None if is_stub else integrity.OPENPYTEA_TARGET_CEPCI_YEAR, is_stub, fx,
-        engine=engine_name(), engine_version=_engine_version())
+        currency, None if is_stub else _escalation_target_year(), is_stub, fx,
+        engine=engine_name(), engine_version=_engine_version(),
+        correlation_set=(None if is_stub else _correlation_set_block()))
     # G6: what the cost covers — canonical battery limits vs an unverified caller train.
     import tea_engine.process_functions as _pfx
     calc_boundary = integrity.calculation_boundary(
@@ -332,6 +426,7 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
             "result_status": status,
             "input_provenance": input_provenance,
             "plausibility": plausibility,
+            "mass_balance": mass_balance,
             "cost_basis": cost_basis,
             "calculation_boundary": calc_boundary,
         }),
@@ -339,6 +434,7 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
         regime=regime,
         result_status=status,
         input_provenance=input_provenance,
+        mass_balance=mass_balance,
         plausibility=plausibility,
         cost_basis=cost_basis,
         calculation_boundary=calc_boundary,
@@ -414,6 +510,9 @@ def run_sensitivity(req: TEAComputeRequest) -> TEASensitivityResult:
 # the band comes out falsely narrow — the false precision this endpoint exists to cure.
 MC_DEFAULT_REL_STD = 0.10
 MC_MAX_REL_STD = 0.50
+# Hard ceiling on any sigma, governed or not. The registry can move the
+# default and the refusal ceiling within this; it cannot escape it.
+MC_MAX_REL_STD_CEILING = 1.0
 # Monte Carlo needs OpenPyTEA >= 3.0 for two reasons, both load-bearing:
 #   · `random_seed` — 3.0 builds its own Generator per call. 2.x sampled through numpy's
 #     global RNG, which this service seeded under a lock; that no longer reproduces.
@@ -439,6 +538,37 @@ def _silence_progress_bars() -> None:
         import openpytea.analysis as _opa
         _opa.tqdm = functools.partial(_opa.tqdm, disable=True)
         _TQDM_SILENCED = True
+
+
+def _mc_default_sigma(req) -> float:
+    """The governed default relative sigma, else the engine constant.
+
+    Bounded here as a source invariant: a registry row is approved by two people, but
+    neither of them should be able to make every published band meaningless. 0 would
+    collapse the band to the point estimate and silently restate a Monte Carlo as a
+    deterministic run, which is the false precision this endpoint exists to cure.
+    """
+    v = getattr(req, "mc_default_rel_std", None)
+    if v is None:
+        return MC_DEFAULT_REL_STD
+    v = float(v)
+    if not (0 < v <= MC_MAX_REL_STD_CEILING):
+        raise ValueError(
+            f"governed tea_mc_default_rel_std={v} is outside (0, {MC_MAX_REL_STD_CEILING}] "
+            f"— a zero sigma would report a deterministic run as a distribution.")
+    return v
+
+
+def _mc_max_sigma(req) -> float:
+    """The governed refusal ceiling for a caller-supplied sigma, else the engine constant."""
+    v = getattr(req, "mc_max_rel_std", None)
+    if v is None:
+        return MC_MAX_REL_STD
+    v = float(v)
+    if not (0 < v <= MC_MAX_REL_STD_CEILING):
+        raise ValueError(
+            f"governed tea_mc_max_rel_std={v} is outside (0, {MC_MAX_REL_STD_CEILING}].")
+    return v
 
 
 def _is_constant(a) -> bool:
@@ -499,11 +629,12 @@ def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
         raise ValueError(f"price_rel_std names unknown stream(s) {sorted(unknown)}; "
                          f"streams in this run: {sorted(var_opex)}")
     for s, rel in req.price_rel_std.items():
-        if not (0 <= float(rel) <= MC_MAX_REL_STD):
-            raise ValueError(f"price_rel_std[{s!r}]={rel} must be within [0, {MC_MAX_REL_STD}]")
+        _max = _mc_max_sigma(req)
+        if not (0 <= float(rel) <= _max):
+            raise ValueError(f"price_rel_std[{s!r}]={rel} must be within [0, {_max}]")
     mc_opex = {
         stream: {**cfg, **_band(float(cfg["price"]),
-                                float(req.price_rel_std.get(stream, MC_DEFAULT_REL_STD)), lo=0.0)}
+                                float(req.price_rel_std.get(stream, _mc_default_sigma(req))), lo=0.0)}
         for stream, cfg in var_opex.items()
     }
     pu = dict(req.project_uncertainties)          # explicit OpenPyTEA spec wins
@@ -516,10 +647,10 @@ def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
         # accepted a request that /monte-carlo then rejected quoting an engine-internal
         # message that contradicted the caller's own input.
         pu["project_lifetime"] = _band(float(base_req.assumptions.project_life_years),
-                                       MC_DEFAULT_REL_STD, lo=MIN_PROJECT_LIFETIME_YEARS)
+                                       _mc_default_sigma(req), lo=MIN_PROJECT_LIFETIME_YEARS)
     if "plant_utilization" not in pu:
         rel = (req.capacity_factor_rel_std if req.capacity_factor_rel_std is not None
-               else MC_DEFAULT_REL_STD)
+               else _mc_default_sigma(req))
         pu["plant_utilization"] = _band(float(base_req.assumptions.capacity_factor), rel,
                                         lo=0.01, hi=1.0)
     plant, base_ccy = _build_plant(base_req, units, mc_opex,
@@ -559,6 +690,14 @@ def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
     gex_default = f"GEX default: {MC_DEFAULT_REL_STD:.0%} relative σ, truncated ±2σ"
     basis = []
     held_fixed = []
+    # Quantity risk is entirely absent from the band: yield_frac is not an OpenPyTEA
+    # input, so it appears in neither mc["inputs"] nor the loop below. Say so, rather
+    # than let the band imply it covered conversion uncertainty.
+    _yf = (pf_meta or {}).get("yield_frac")
+    if _yf is not None:
+        held_fixed.append(
+            f"conversion yield (yield_frac = {_yf}, sigma = 0, NOT sampled) — the band "
+            f"covers price, utilisation and lifetime risk only, not quantity risk")
     for name, arr in mc["inputs"].items():
         a = np.asarray(arr, dtype=float)
         if name == "Project lifetime":

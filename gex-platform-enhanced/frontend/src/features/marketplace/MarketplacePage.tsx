@@ -210,7 +210,13 @@ export function buildFeedstockSummary(p: CustomerProject, econ: ProjectEconomics
   const specs = (econ.input_lines[p.id] ?? []).map(toSpec)
   const annualOutput = Math.round(p.capacity_mtpd * 365)
   const spot = econ.spot_prices[p.molecule]
-  const outputPrice = spot ? spot.value_base : null
+  // Per-tonne, from the backend's normalised field — NOT `value_base`, which is
+  // EUR/MWh for an energy-priced molecule such as e-NG. Reading `value_base` here
+  // used a 120 EUR/MWh price as 120 EUR/t and showed proj_lehavre_eng a gross margin
+  // of -1694 EUR/MT where 120 x 13.9 kWh/kg gives about +1668. Null when the price
+  // cannot be put on a per-tonne basis, so the screen shows NO margin rather than a
+  // wrong one; `eur_per_t_basis` says why.
+  const outputPrice = spot ? spot.eur_per_t : null
 
   const lines: FeedstockLine[] = specs.map(s => {
     const annualVol = Math.round(annualOutput * s.ratio)

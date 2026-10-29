@@ -1,0 +1,412 @@
+<title>The GEX Process</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column with a sticky contents rail on wide screens; tables scroll in place. */
+:root {
+  --bg: #f4f6f3; --paper: #fbfcfa; --ink: #18211d; --muted: #5a665f; --rule: #d3dad4;
+  --accent: #0d6b57; --accent-soft: #e1efe9; --warn: #8a5a00; --stop: #a3261c;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1412; --paper: #151c19; --ink: #e4ebe7; --muted: #9aa8a0; --rule: #2a3631;
+  --accent: #52c2a4; --accent-soft: #173029; --warn: #e0b153; --stop: #f08a7e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1412; --paper: #151c19; --ink: #e4ebe7; --muted: #9aa8a0; --rule: #2a3631;
+  --accent: #52c2a4; --accent-soft: #173029; --warn: #e0b153; --stop: #f08a7e; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 400 17px/1.6 var(--body); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; }
+@media (min-width: 1000px) { .wrap { grid-template-columns: 220px minmax(0, 1fr); } }
+nav.toc { font: 500 13px/1.4 var(--display); display: none; }
+@media (min-width: 1000px) { nav.toc { display: flex; flex-direction: column; gap: 6px; position: sticky;
+  top: calc(24px + env(safe-area-inset-top, 0px)); align-self: start; max-height: calc(100vh - 48px); overflow: auto; } }
+nav.toc a { color: var(--muted); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+nav.toc .grp { margin-top: 12px; color: var(--ink); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+main { min-width: 0; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; }
+h1 { font-size: clamp(34px, 6vw, 56px); font-weight: 800; letter-spacing: -.02em; margin: 0 0 12px; }
+h2 { font-size: 26px; font-weight: 700; margin: 56px 0 12px; padding-top: 16px; border-top: 2px solid var(--ink); }
+h3 { font-size: 20px; font-weight: 700; margin: 0; }
+p, li { max-width: 68ch; }
+.lede { font-size: 20px; color: var(--muted); }
+.mantra { margin: 28px 0; padding: 18px 22px; background: var(--accent-soft); border-left: 4px solid var(--accent);
+  font: 600 21px/1.45 var(--body); max-width: 68ch; }
+.stamp { font: 400 12px/1.5 var(--mono); color: var(--muted); }
+.mono { font-family: var(--mono); font-size: .86em; }
+.muted { color: var(--muted); font-size: .9em; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font: 400 14.5px/1.45 var(--body); font-variant-numeric: tabular-nums; }
+th { text-align: left; font: 700 11px/1.3 var(--display); text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); border-bottom: 2px solid var(--rule); padding: 8px 10px; }
+td { border-bottom: 1px solid var(--rule); padding: 8px 10px; vertical-align: top; }
+ol.steps { padding-left: 1.4em; display: grid; gap: 10px; }
+ol.steps li::marker { font: 700 15px var(--display); color: var(--accent); }
+ul.mat { list-style: none; padding: 0; display: grid; gap: 6px; }
+.lvl { display: inline-block; min-width: 9.5em; color: var(--accent); font-weight: 600; }
+.det { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.det div { padding: 12px 14px; background: var(--paper); border: 1px solid var(--rule); }
+.det b { font-family: var(--display); letter-spacing: .03em; }
+.gate { margin: 28px 0 40px; padding: 20px; background: var(--paper); border: 1px solid var(--rule); }
+.gate-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px; }
+.gate-id { font-size: 15px; font-weight: 600; color: var(--accent); }
+.gate-kind { font: 600 11px var(--display); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+dl.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 20px; margin: 14px 0; }
+dl.facts dt { font: 700 11px var(--display); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+dl.facts dd { margin: 2px 0 0; }
+.note { font-size: 15px; color: var(--muted); margin: 6px 0; }
+.sev { font: 600 11px var(--display); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.sev-deal_killer { color: var(--stop); } .sev-warning { color: var(--warn); } .sev-advisory { color: var(--muted); }
+.never li { margin-bottom: 6px; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <span class="grp">The process</span>
+  <a href="#owners">Who owns what</a><a href="#path">The path of one item</a><a href="#maturity">Maturity</a>
+  <a href="#verify">Who verifies</a><a href="#determination">A gate's answer</a><a href="#premises">Project premises</a>
+  <a href="#terms">Contract terms</a><a href="#ladder">The ladder</a><a href="#backwards">Going backwards</a>
+  <a href="#reports">Reports and visibility</a><a href="#never">What GEX never does</a>
+  <span class="grp">The twelve gates</span><a href='#g0'><span class='mono'>G0</span> Site Rights &amp; Social License</a><a href='#g1'><span class='mono'>G1</span> Power, Utilities &amp; Technology Basis</a><a href='#g2'><span class='mono'>G2</span> Green Certification Pathway</a><a href='#g3'><span class='mono'>G3</span> Feedstock &amp; Logistics Terms</a><a href='#g4'><span class='mono'>G4</span> Binding Offtake</a><a href='#g5'><span class='mono'>G5</span> EPC Risk Priced</a><a href='#g6'><span class='mono'>G6</span> Independent Engineer Sign-off</a><a href='#g7'><span class='mono'>G7</span> Insurability Confirmed</a><a href='#g8'><span class='mono'>G8</span> Audit-Grade Financial Model</a><a href='#g9'><span class='mono'>G9</span> Permits Granted &amp; Appeal Risk Managed</a><a href='#g10'><span class='mono'>G10</span> Financial Close</a><a href='#g11'><span class='mono'>G11</span> COD &amp; Stabilization</a>
+</nav>
+<main>
+<h1>The GEX Process</h1>
+<p class="lede">How a green-fuel project becomes bankable on GreenEarthX: what is asked, who supplies it, who checks it,
+and what each step makes possible. For producers, offtakers, financiers, insurers, certifiers and verifiers.</p>
+<p class="mantra">Projects don't become bankable because the story is convincing. They become bankable when the evidence converges.</p>
+<p class="stamp">Generated from the running rules — evidence rules 4.2.0 · 12 gates ·
+93 evidence items · 31 maturity requirements · 9 states · 2026-10-28</p>
+
+<h2 id="owners">Who owns what</h2>
+<div class="scroll"><table>
+<thead><tr><th>Party</th><th>Owns</th><th>Never owns</th></tr></thead>
+<tbody>
+<tr><td><b>The client</b> (producer, and each party to its contracts)</td><td>The evidence, the milestones, the declaration of what each instrument is and how far it has progressed.</td><td>The verification of its own evidence.</td></tr>
+<tr><td><b>The counterparty</b> to a contract</td><td>Confirming, on the contract's token, the terms it agreed — which also verifies that contract.</td><td>Terms it has not confirmed.</td></tr>
+<tr><td><b>The independent reviewer</b></td><td>The assertion that a study, opinion, audit or the producer's own plan is authentic and is what it claims to be.</td><td>A commercial interest in the outcome, and the power to raise a declared maturity.</td></tr>
+<tr><td><b>GEX</b></td><td>The rule: what counts, at what maturity, with what severity; the scoring; and the record of who asserted what, and when.</td><td>The evidence, its verification, and the capital decision.</td></tr>
+<tr><td><b>The capital provider</b></td><td>The grant, investment, credit or drawdown decision.</td><td>Letting a GEX gate stand in for its own approval.</td></tr>
+</tbody></table></div>
+
+<h2 id="path">The path of one evidence item</h2>
+<ol class="steps">
+<li><b>Requested.</b> Each item is assigned to a named person at the company that owns the work, with what it blocks.</li>
+<li><b>Submitted.</b> The document is uploaded and its SHA-256 recorded; the submitter declares the instrument's maturity.
+A new document returns the item to submitted: what was verified was the earlier file.</li>
+<li><b>Verified.</b> By someone independent of the submitter and of the project owner — the contract's counterparty for a
+contract, an appointed independent reviewer for everything else. Verification names the document on file.</li>
+<li><b>Scored.</b> The engine counts an item only when it is verified at or above the maturity its gate requires.</li>
+<li><b>Judged.</b> Each gate gets one answer (below); satisfied gates set the project's state.</li>
+<li><b>Made eligible.</b> A state makes a capital decision eligible. The capital provider still decides.</li>
+</ol>
+
+<h2 id="maturity">Maturity</h2>
+<p>Verification answers whether a document is authentic. Maturity answers how far the instrument behind it has progressed —
+a letter of intent can be perfectly authentic. The submitter declares maturity; a reviewer may confirm or lower it, never raise
+it. An instrument with no declared maturity does not count.</p>
+<ul class="mat"><li><span class='mono lvl'>INTENT</span> Plan, mandate, letter of intent, MOU, strategy, or application in preparation.</li><li><span class='mono lvl'>INDICATIVE</span> Term sheet, quotation, indication of terms, or application submitted.</li><li><span class='mono lvl'>AGREED</span> Agreed-form document with all terms settled, not yet signed or granted.</li><li><span class='mono lvl'>EXECUTED</span> Signed, bound, granted, issued or passed.</li><li><span class='mono lvl'>EFFECTIVE</span> In force: conditions precedent satisfied, policy incepted, appeal period expired.</li></ul>
+
+<h2 id="verify">Who verifies</h2>
+<p>GEX verifies nothing. A contract is verified by its counterparty's confirmation on the contract's token; an independent
+reviewer may also take part, but is not required. Studies, analyses, opinions, audits and the producer's own plan need an
+independent reviewer, appointed by GEX staff on the instruction of a named party. Each reviewer role covers fixed gates:</p>
+<div class="scroll"><table><thead><tr><th>Reviewer</th><th>Gates</th></tr></thead><tbody>
+<tr><td>Certifier</td><td class='mono'>G2, G11</td></tr><tr><td>Independent engineer</td><td class='mono'>G0, G1, G3, G5, G6, G11</td></tr><tr><td>Lenders&#x27; adviser</td><td class='mono'>G0, G4, G7, G8, G9, G10</td></tr><tr><td>Insurer</td><td class='mono'>G7</td></tr><tr><td>Grant assessor</td><td class='mono'>G0</td></tr><tr><td>Seed investor&#x27;s adviser</td><td class='mono'>G1</td></tr><tr><td>Strategic investor&#x27;s adviser</td><td class='mono'>G3</td></tr>
+</tbody></table></div>
+<p>Never the submitter or its company, and never the project owner's company.</p>
+
+<h2 id="determination">A gate's answer</h2>
+<div class="det">
+<div><b>SATISFIED</b><br>Every applicable item verified at its maturity, every required commitment reached, every cross-contract check passed.</div>
+<div><b>BLOCKED</b><br>A deal-killer is missing, a commitment is below the level the gate needs, a cross-contract check failed, or an event undermines the gate.</div>
+<div><b>UNRESOLVED</b><br>The items are verified, but a cross-contract check cannot run because confirmed terms are missing. Missing data is never a pass.</div>
+<div><b>INCOMPLETE</b><br>Items are still to be verified.</div>
+<div><b>WAIVED</b><br>Not required for this financing model. Counts toward the ladder; never shown as satisfied by evidence.</div>
+</div>
+
+<h2 id="premises">Project premises</h2>
+<p>Two premises decide which evidence applies. The <b>financing model</b>: balance-sheet funding drops the items that only protect
+an external lender and waives the gates made only of them (G6, G8).
+The <b>power model</b> (grid-connected, off-grid behind the meter, hybrid): each drops the items that belong to the others.</p>
+<p>A change that removes evidence takes effect only when its supporting document is registered <i>and</i> a second party confirms
+it — another party to the project (a funder, the counterparty) or GEX staff, never the company that proposed it. Any party may
+register a document contesting a premise; while it is contested the protective premise applies (project finance, every power
+item), until GEX staff decide. A change that adds evidence back applies at once.</p>
+
+<h2 id="terms">Contract terms and the contract token</h2>
+<p>Documents can each satisfy a gate and still contradict one another. So the terms that matter — volumes, tenors, dates,
+specifications, damages caps — are recorded once, and the engine compares them across contracts. Every contract has a
+<b>token</b>: an append-only, hash-chained record of its versions and confirmations. A change to the terms is a new version on
+the token. Only terms in the latest version confirmed by the other party reach the engine; until then the checks that need them
+read UNRESOLVED.</p>
+<div class="scroll"><table><thead><tr><th>Contract</th><th>Who confirms</th><th>Its confirmation also verifies</th></tr></thead>
+<tbody><tr><td>Offtake</td><td>The counterparty company registered on the contract</td><td>Executed Offtake Agreement, Credit Support (parent guarantee / letter of credit)</td></tr><tr><td>Power purchase</td><td>The counterparty company registered on the contract</td><td>Signed PPA / Term Sheet / LOI Evidence</td></tr><tr><td>Feedstock supply</td><td>The counterparty company registered on the contract</td><td>Feedstock Supply Terms (volume, quality, tenor)</td></tr><tr><td>EPC</td><td>The counterparty company registered on the contract</td><td>EPC Contract — Fixed Price or Capped GMP (agreed form), EPC Security Package &amp; Damage Caps (performance bond, parent guarantee, retention)</td></tr><tr><td>Technology licence</td><td>The counterparty company registered on the contract</td><td>Technology Licensor Identified — Term Sheet, Technology Licence &amp; Process Performance Guarantee (or equivalent wrap)</td></tr><tr><td>Technical basis and schedule</td><td>An independent reviewer appointed for G5</td><td>—</td></tr><tr><td>Financial model</td><td>An independent reviewer appointed for G8</td><td>—</td></tr></tbody></table></div>
+<p class="note">A reported adverse event — the contractor insolvent, power or support revoked, certification suspended — applies at
+once and blocks the gates it undermines; clearing it needs a confirmation.</p>
+<div class="scroll"><table><thead><tr><th>Check</th><th>What is compared</th><th>Gate</th></tr></thead>
+<tbody><tr><td class='mono'>C1</td><td>First delivery after guaranteed completion plus commissioning allowance</td><td class='mono'>G4</td></tr><tr><td class='mono'>C2</td><td>Contracted volume within guaranteed capacity × availability</td><td class='mono'>G4</td></tr><tr><td class='mono'>C3</td><td>Offtake specification guaranteed by the EPC or licensor</td><td class='mono'>G4</td></tr><tr><td class='mono'>C4</td><td>Offtake delay exposure backed by EPC damages, contingency and sponsor support</td><td class='mono'>G5</td></tr><tr><td class='mono'>C5</td><td>Longstop covers permits, investment decision, construction and commissioning</td><td class='mono'>G4</td></tr><tr><td class='mono'>C6</td><td>Feedstock and power contracted for the offtake&#x27;s volume and tenor</td><td class='mono'>G4</td></tr><tr><td class='mono'>C7</td><td>Power and CO2 sourcing meet the certification the offtake requires</td><td class='mono'>G4</td></tr><tr><td class='mono'>C8</td><td>Producer certifies under the scheme the offtake requires</td><td class='mono'>G4</td></tr><tr><td class='mono'>C9</td><td>Force majeure aligned across offtake, EPC and supply contracts</td><td class='mono'>G10</td></tr><tr><td class='mono'>C10</td><td>Model inputs equal contract terms; offtake tenor covers debt</td><td class='mono'>G8</td></tr></tbody></table></div>
+<p class="note">Numeric equality allows 1 % for rounding in a model — not a margin for error.
+COMMERCIALLY PLAUSIBLE also needs offtake terms covering at least 60 % of planned output.</p>
+
+<h2 id="ladder">The ladder</h2>
+<p>Nine states, strictly in order: no state is reachable without every gate of every state before it.</p>
+<div class="scroll"><table><thead><tr><th>State</th><th>What must be satisfied</th><th>Capital decision made eligible</th></tr></thead>
+<tbody><tr><td><b>Speculative</b><br><span class='muted'>Idea stage — nothing can be committed yet</span></td><td>Entry state</td><td>—</td></tr><tr><td><b>Technically Plausible</b><br><span class='muted'>Site and technology basis confirmed</span></td><td><span class='mono'>G0</span> Site Rights &amp; Social License, <span class='mono'>G1</span> Power, Utilities &amp; Technology Basis</td><td>Grants &amp; TA, Seed / VC / Angel</td></tr><tr><td><b>Commercially Plausible</b><br><span class='muted'>Commercially defined — offtake term sheets cover most of the output</span></td><td><span class='mono'>G2</span> Green Certification Pathway, <span class='mono'>G3</span> Feedstock &amp; Logistics Terms</td><td>Strategic Equity</td></tr><tr><td><b>Buildable</b><br><span class='muted'>Commitment-ready — producer and offtaker can sign binding-with-conditions</span></td><td><span class='mono'>G4</span> Binding Offtake, <span class='mono'>G5</span> EPC Risk Priced</td><td>Project Equity</td></tr><tr><td><b>Structurally Bankable</b><br><span class='muted'>Independently validated</span></td><td><span class='mono'>G6</span> Independent Engineer Sign-off, <span class='mono'>G7</span> Insurability Confirmed</td><td>DFI / Mezz / Guarantees</td></tr><tr><td><b>Credit Approved</b><br><span class='muted'>Credit approved — conditional until financial close</span></td><td><span class='mono'>G8</span> Audit-Grade Financial Model</td><td>Senior Debt Credit Approval (conditional)</td></tr><tr><td><b>Financeable</b><br><span class='muted'>Committed — investment decision taken</span></td><td><span class='mono'>G9</span> Permits Granted &amp; Appeal Risk Managed, <span class='mono'>G10</span> Financial Close</td><td>Debt Drawdown</td></tr><tr><td><b>Operational</b><br><span class='muted'>Delivering — certified product accepted by the buyer</span></td><td><span class='mono'>G11</span> COD &amp; Stabilization</td><td>Refinance / Bonds / Infra</td></tr><tr><td><b>Refinancing Eligible</b><br><span class='muted'>Proven — refinancing possible</span></td><td>No gate defined yet — this state cannot be reached</td><td>—</td></tr></tbody></table></div>
+
+<h2 id="backwards">What moves a project backwards</h2>
+<ul>
+<li>A verified item replaced by a new document, rejected, or withdrawn.</li>
+<li>A cross-contract check that fails, or a term change not yet confirmed.</li>
+<li>A counterparty or reviewer disputing terms it had confirmed.</li>
+<li>A premise contested or rejected.</li>
+<li>An adverse event: insolvency, revoked power or support, suspended certification.</li>
+</ul>
+<p>Each names the gate responsible, and the capital eligibility it carried is withdrawn.</p>
+
+<h2 id="reports">Re-evaluation, reports and who sees what</h2>
+<p>Every change that can move a gate — evidence, a document, a premise, a contract term, a confirmation — re-evaluates the project
+at once. When the state or a gate's answer changes, the project's designated executives are notified; by default the owner's
+executives. Each project has a report showing its state, the share of evidence verified, and every open item side by side —
+evidence to verify, commitments not reached, contracts that disagree, data missing — each with its owner, due date and what it
+holds back.</p>
+<p>Each party sees the gates that concern its role. The project's state and overall figure always cover every gate, and the screen
+says so when a viewer sees fewer.</p>
+
+<h2 id="never">What GEX never does</h2>
+<ul class="never">
+<li>Verify a party's evidence, or confirm a party's terms.</li>
+<li>Commit, release or draw capital. A state makes a decision eligible; the capital provider decides.</li>
+<li>Let a gate stand in for a lender's, investor's or grant authority's own approval.</li>
+<li>Show a figure the engine did not compute from verified evidence.</li>
+</ul>
+
+<h2 id="gates">The twelve gates</h2>
+<p>Readiness gates test what can be true at their stage — indicative terms, a feasible pathway, confirmed insurability; every
+instrument they rely on must be executed at financial close. Achievement gates require the achievement itself.</p>
+
+<section class="gate" id="g0">
+  <header class="gate-head">
+    <span class="gate-id mono">G0</span>
+    <h3>Site Rights &amp; Social License</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Technically Plausible</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>Grants &amp; TA</dd></div>
+    <div><dt>Verified by</dt><dd>Independent engineer, Lenders&#x27; adviser, Grant assessor</dd></div>
+    <div><dt>Seen by</dt><dd>Producer, Executive and the owner's executives</dd></div>
+  </dl>
+  
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Land Option or Lease Executed</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Zoning Compatibility Memo</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Stakeholder Map v1</td><td><span class='sev sev-advisory'>Advisory</span></td><td class='mono'>—</td><td>Project</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Site Technical Suitability (major-hazard siting, geotechnics, logistics access)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g1">
+  <header class="gate-head">
+    <span class="gate-id mono">G1</span>
+    <h3>Power, Utilities &amp; Technology Basis</h3>
+    <span class="gate-kind">Readiness gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Technically Plausible</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>Seed / VC / Angel</dd></div>
+    <div><dt>Verified by</dt><dd>Independent engineer, Seed investor&#x27;s adviser</dd></div>
+    <div><dt>Seen by</dt><dd>Producer and the owner's executives</dd></div>
+  </dl>
+  
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Grid Interconnection Study</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Engineering</td><td>Grid Connected, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Grid Queue Position / Capacity Reservation</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>Grid Connected, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Grid Connection Cost &amp; Reinforcement Scope</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>Grid Connected, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Connection Date vs COD Compatibility Memo</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>Grid Connected, Hybrid</td><td>Independent reviewer</td></tr><tr><td>PPA Register (counterparty, MW, €/MWh, tenor)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Sales</td><td>Grid Connected, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Signed PPA / Term Sheet / LOI Evidence</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>INDICATIVE</td><td>Sales</td><td>Grid Connected, Hybrid</td><td>Counterparty (Power purchase)</td></tr><tr><td>PPA Volume vs Plant Load Coverage Analysis</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>Grid Connected, Hybrid</td><td>Independent reviewer</td></tr><tr><td>PPA Tenor vs Debt / Offtake Tenor Comparison</td><td><span class='sev sev-advisory'>Advisory</span></td><td class='mono'>—</td><td>Finance</td><td>Grid Connected, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Curtailment Assessment (grid node congestion + load profile)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Dispatch / Load Factor Impact on Production Volume</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Water Source Plan (volume, cost, seasonal availability)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Water Permit / Abstraction / Discharge Pathway</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>BTM Generation Asset Spec &amp; CAPEX</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Engineering</td><td>Off Grid Btm, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Generation Yield Study (P50/P90)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>Off Grid Btm, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Grid-Independence Design Note</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>Off Grid Btm, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Backup / Construction Power Plan</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Project</td><td>Off Grid Btm, Hybrid</td><td>Independent reviewer</td></tr><tr><td>Technology Maturity Dossier (readiness level, reference plants, operating hours, scale-up factor)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Technology Licensor Identified — Term Sheet</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>INDICATIVE</td><td>Engineering</td><td>All</td><td>Counterparty (Technology licence)</td></tr><tr><td>Integrated Mass &amp; Energy Balance at Design Basis (incl. hydrogen buffer and turndown vs power profile)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g2">
+  <header class="gate-head">
+    <span class="gate-id mono">G2</span>
+    <h3>Green Certification Pathway</h3>
+    <span class="gate-kind">Readiness gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Commercially Plausible</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>—</dd></div>
+    <div><dt>Verified by</dt><dd>Certifier</dd></div>
+    <div><dt>Seen by</dt><dd>Regulator, Offtaker and the owner's executives</dd></div>
+  </dl>
+  
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Certification Scheme Selected (RFNBO / RED III / 45V / ISCC)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Additionality Evidence (generator age, no state aid)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Temporal &amp; Geographic Correlation Alignment</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>GHG Methodology Memo</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>MRV Plan v1 (monitoring, reporting, verification)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Product Qualification Pathway (spec standard and annex status, e.g. ASTM D7566, ISO 6583)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g3">
+  <header class="gate-head">
+    <span class="gate-id mono">G3</span>
+    <h3>Feedstock &amp; Logistics Terms</h3>
+    <span class="gate-kind">Readiness gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Commercially Plausible</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>Strategic Equity</dd></div>
+    <div><dt>Verified by</dt><dd>Independent engineer, Strategic investor&#x27;s adviser</dd></div>
+    <div><dt>Seen by</dt><dd>Producer and the owner's executives</dd></div>
+  </dl>
+  
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Feedstock Supply Terms (volume, quality, tenor)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>INDICATIVE</td><td>Project</td><td>All</td><td>Counterparty (Feedstock supply)</td></tr><tr><td>Transport &amp; Logistics Study</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Storage Plan</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Feedstock Specification &amp; Eligibility Matched to Design Basis and Certification Scheme</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g4">
+  <header class="gate-head">
+    <span class="gate-id mono">G4</span>
+    <h3>Binding Offtake</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Buildable</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>Project Equity</dd></div>
+    <div><dt>Verified by</dt><dd>Lenders&#x27; adviser</dd></div>
+    <div><dt>Seen by</dt><dd>Finance, Offtaker and the owner's executives</dd></div>
+  </dl>
+  <p class="note">Also needs the offtake commitment at level <b>O4</b> or above.</p><p class="note">Cross-contract checks on this gate: <b>C1</b> First delivery after guaranteed completion plus commissioning allowance; <b>C2</b> Contracted volume within guaranteed capacity × availability; <b>C3</b> Offtake specification guaranteed by the EPC or licensor; <b>C5</b> Longstop covers permits, investment decision, construction and commissioning; <b>C6</b> Feedstock and power contracted for the offtake&#x27;s volume and tenor; <b>C7</b> Power and CO2 sourcing meet the certification the offtake requires; <b>C8</b> Producer certifies under the scheme the offtake requires.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Executed Offtake Agreement</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Sales</td><td>All</td><td>Counterparty (Offtake)</td></tr><tr><td>Offtaker Credit Assessment</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Credit Support (parent guarantee / letter of credit)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>EXECUTED</td><td>Finance</td><td>All</td><td>Counterparty (Offtake)</td></tr><tr><td>Take-or-Pay Floor</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Termination Payment Formula</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Assignment to Lenders</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Lender Step-in Rights</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Hedgeable Pricing Index</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Price Review / Reopener Mechanism</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Seller-Side Offtake Terms Reviewed (delivery, specification, delay and shortfall caps, certification warranty, longstop)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g5">
+  <header class="gate-head">
+    <span class="gate-id mono">G5</span>
+    <h3>EPC Risk Priced</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Buildable</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>—</dd></div>
+    <div><dt>Verified by</dt><dd>Independent engineer</dd></div>
+    <div><dt>Seen by</dt><dd>Producer, Executive, Offtaker and the owner's executives</dd></div>
+  </dl>
+  <p class="note">Also needs the epc commitment at level <b>E4</b> or above.</p><p class="note">Cross-contract checks on this gate: <b>C4</b> Offtake delay exposure backed by EPC damages, contingency and sponsor support.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>EPC Contract — Fixed Price or Capped GMP (agreed form)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>AGREED</td><td>Project</td><td>All</td><td>Counterparty (EPC)</td></tr><tr><td>Delay &amp; Performance Liquidated Damages</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Date-Certain Construction Schedule</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Project</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Performance Test Protocol</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Interface Matrix (EPC / OEM / balance of plant)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>OEM Warranties (agreed form)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>AGREED</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>EPC Contractor Due Diligence</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Project</td><td>All</td><td>Independent reviewer</td></tr><tr><td>FEED Complete — AACE Class 3 or Better</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Technology Licence &amp; Process Performance Guarantee (or equivalent wrap)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>AGREED</td><td>Engineering</td><td>All</td><td>Counterparty (Technology licence)</td></tr><tr><td>Long-Lead Items Reserved</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>AGREED</td><td>Project</td><td>All</td><td>Independent reviewer</td></tr><tr><td>EPC Security Package &amp; Damage Caps (performance bond, parent guarantee, retention)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>AGREED</td><td>Legal</td><td>All</td><td>Counterparty (EPC)</td></tr><tr><td>Independent Technical Review of FEED</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Independent Engineer</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g6">
+  <header class="gate-head">
+    <span class="gate-id mono">G6</span>
+    <h3>Independent Engineer Sign-off</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Structurally Bankable</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>DFI / Mezz / Guarantees</dd></div>
+    <div><dt>Verified by</dt><dd>Independent engineer</dd></div>
+    <div><dt>Seen by</dt><dd>Finance, Regulator and the owner's executives</dd></div>
+  </dl>
+  <p class="note">Every item protects a lender: waived for a balance-sheet-funded project.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Independent Engineer Report — Issued (final)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Independent Engineer</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Energy Balance Verified by the IE</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Independent Engineer</td><td>All</td><td>Independent reviewer</td></tr><tr><td>IE Opinion — CAPEX Reasonableness</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Independent Engineer</td><td>All</td><td>Independent reviewer</td></tr><tr><td>IE Opinion — OPEX Reasonableness</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Independent Engineer</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Completion Test Definitions (IE-agreed)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Independent Engineer</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g7">
+  <header class="gate-head">
+    <span class="gate-id mono">G7</span>
+    <h3>Insurability Confirmed</h3>
+    <span class="gate-kind">Readiness gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Structurally Bankable</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>—</dd></div>
+    <div><dt>Verified by</dt><dd>Lenders&#x27; adviser, Insurer</dd></div>
+    <div><dt>Seen by</dt><dd>Finance and the owner's executives</dd></div>
+  </dl>
+  
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Insurance Programme Terms — Quoted by Insurers</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>INDICATIVE</td><td>Treasury</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Broker Market Report</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Treasury</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Deductible Levels Accepted by Lenders</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Treasury</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Exclusions Register Reviewed</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>First-of-a-Kind Exclusions &amp; OEM Warranty Backstop Reviewed</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Treasury</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g8">
+  <header class="gate-head">
+    <span class="gate-id mono">G8</span>
+    <h3>Audit-Grade Financial Model</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Credit Approved</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>Senior Debt Credit Approval (conditional)</dd></div>
+    <div><dt>Verified by</dt><dd>Lenders&#x27; adviser</dd></div>
+    <div><dt>Seen by</dt><dd>Finance and the owner's executives</dd></div>
+  </dl>
+  <p class="note">Every item protects a lender: waived for a balance-sheet-funded project.</p><p class="note">Cross-contract checks on this gate: <b>C10</b> Model inputs equal contract terms; offtake tenor covers debt.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Locked Base-Case Financial Model</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>—</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Model Audit Opinion — Issued</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Lender Downside Cases</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Covenant Suite Defined</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>DSRA &amp; Maintenance Reserve Logic</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Hedging Plan (rates, FX, power)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Treasury</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Model Consistent with IE Findings</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g9">
+  <header class="gate-head">
+    <span class="gate-id mono">G9</span>
+    <h3>Permits Granted &amp; Appeal Risk Managed</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Financeable</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>—</dd></div>
+    <div><dt>Verified by</dt><dd>Lenders&#x27; adviser</dd></div>
+    <div><dt>Seen by</dt><dd>Producer, Regulator, Offtaker and the owner's executives</dd></div>
+  </dl>
+  
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>EIA / Environmental Permit — Granted</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Construction Permit — Granted</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Ancillary Permits — Granted</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>EXECUTED</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Legal Opinion on Appeal Risk</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>EXECUTED</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Operating Permit Pathway</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Stakeholder Management Plan v2</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Project</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g10">
+  <header class="gate-head">
+    <span class="gate-id mono">G10</span>
+    <h3>Financial Close</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Financeable</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>Debt Drawdown</dd></div>
+    <div><dt>Verified by</dt><dd>Lenders&#x27; adviser</dd></div>
+    <div><dt>Seen by</dt><dd>Finance, Offtaker and the owner's executives</dd></div>
+  </dl>
+  <p class="note">Cross-contract checks on this gate: <b>C9</b> Force majeure aligned across offtake, EPC and supply contracts.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Conditions Precedent Satisfied</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EFFECTIVE</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Funding Committed (equity injected, or board-approved funding)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Finance</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Debt Service Reserve Funded</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>EXECUTED</td><td>Treasury</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Security Package Perfected</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EFFECTIVE</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Insurance Bound &amp; Certificates Delivered (lenders as loss payee where project-financed)</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>EFFECTIVE</td><td>Treasury</td><td>All</td><td>Independent reviewer</td></tr><tr><td>All Major Project Contracts Executed (PPA, feedstock, EPC, O&amp;M, offtake)</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Legal Opinions — Issued</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>O&amp;M Contract or Operating Organisation in Place</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>EXECUTED</td><td>Project</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<section class="gate" id="g11">
+  <header class="gate-head">
+    <span class="gate-id mono">G11</span>
+    <h3>COD &amp; Stabilization</h3>
+    <span class="gate-kind">Achievement gate</span>
+  </header>
+  <dl class="facts">
+    <div><dt>Leads to</dt><dd>Operational</dd></div>
+    <div><dt>Capital decision made eligible</dt><dd>Refinance / Bonds / Infra</dd></div>
+    <div><dt>Verified by</dt><dd>Certifier, Independent engineer</dd></div>
+    <div><dt>Seen by</dt><dd>Producer, Executive, Offtaker and the owner's executives</dd></div>
+  </dl>
+  
+  <div class="scroll"><table>
+    <thead><tr><th>Evidence item</th><th>Severity</th><th>Maturity</th><th>Owner</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>COD / Taking-Over Certificate</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Performance Tests Passed</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Operating Permit — In Force</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EFFECTIVE</td><td>Legal</td><td>All</td><td>Independent reviewer</td></tr><tr><td>MRV Reporting Live</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>6–12 Months Stable Operation</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>—</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>Certification Audit Passed &amp; First Certificates / Proofs of Sustainability Issued</td><td><span class='sev sev-deal_killer'>Deal-killer</span></td><td class='mono'>EXECUTED</td><td>Engineering</td><td>All</td><td>Independent reviewer</td></tr><tr><td>First On-Specification Deliveries Accepted by the Offtaker</td><td><span class='sev sev-warning'>Warning</span></td><td class='mono'>EXECUTED</td><td>Sales</td><td>All</td><td>Independent reviewer</td></tr></tbody>
+  </table></div>
+</section>
+<p class="stamp">Generated from pf_engine evidence rules 4.2.0, app.core.abac and app.core.contract_tokens
+on 2026-10-28 by backend/scripts/export_gex_process.py.</p>
+</main>
+</div>

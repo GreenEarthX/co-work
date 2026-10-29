@@ -194,9 +194,10 @@ export function ICPackBuilder() {
   const projectId = selectedProjectId ?? 'unknown'
 
   const cfgDs = useProjectDataset<ProjectSectionConfig>('ic_pack_config', selectedProjectId)
-  const readinessDs = useProjectDataset<number>('ic_pack_readiness', selectedProjectId)
   const sections = useMemo(() => buildSections(cfgDs.data ?? {}), [cfgDs.data])
-  const readiness = useMemo(() => computeReadiness(readinessDs.data ?? null, sections), [readinessDs.data, sections])
+  // Computed from the sections only (2026-10-28): a stored readiness figure
+  // (ic_pack_readiness) used to override the computation — a typed verdict.
+  const readiness = useMemo(() => computeReadiness(null, sections), [sections])
   const tier = lenderTier(readiness)
   // A real SHA-256 of the pack's section contents. It used to be hex generated
   // from the project id that only looked like a hash.

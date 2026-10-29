@@ -22,6 +22,9 @@ Mount in main.py:
 from __future__ import annotations
 
 import os
+import hashlib
+import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -49,6 +52,8 @@ from app.api.v1.evidence_ledger import (
     VerificationState,
     append_evidence,
 )
+
+logger = logging.getLogger("gex.tea_bridge")
 
 router = APIRouter()
 
@@ -323,11 +328,182 @@ def _fx_override_gate(request: Request, body: "ComputeRequest") -> Optional[dict
             "approved_by": payload.get("user_id") or payload.get("email") or "unknown"}
 
 
+def _tea_fx_benchmark() -> tuple[float | None, str | None]:
+    """The governed USD->EUR benchmark from the reference registry, or (None, None).
+
+    `tea_engine` is stateless and holds no database, so it cannot read the registry
+    itself; the bridge resolves the row here and passes the value in the request. That
+    keeps the engine stateless AND puts the rate inside `cost_basis_hash`, which hashes
+    the request — so a four-eye change to the rate changes the hash. It did not before:
+    on 2026-09-24 the hardcoded rate moved e-methanol capex -4.8% under a
+    byte-identical hash.
+
+    On no registry row this returns (None, None) and the engine falls back to its own
+    dated default, marked `engine_default` in the cost basis. Never a hard failure: a
+    missing reference must not take TEA offline.
+    """
+    try:
+        from app.core import reference_registry as rr
+        res = rr.resolve_or_default("tea_fx_usd_to_eur", None)
+        if res.value is None or res.source_class != "reference":
+            return None, None
+        return float(res.value), res.ref_id
+    except Exception as exc:                      # noqa: BLE001 — degrade, never 500
+        logger.warning("tea_fx_usd_to_eur unresolved (%s); engine default stands", exc)
+        return None, None
+
+
+def _record_correlation_set(result: dict, project_id: str) -> Optional[dict]:
+    """Record which published cost data priced this basis, and flag an unreviewed set.
+
+    The set is a PIN, not a parameter — OpenPyTEA's correlations are literature
+    constants and are deliberately not editable. What is governed is whether GEX has
+    REVIEWED a given set: a `pip install` can replace the data without anything in this
+    repo changing, and `cost_basis_hash` would then move with nothing explaining why.
+
+    Never fatal. A basis priced by an unreviewed set is still produced — refusing would
+    take TEA offline the moment anyone upgrades the engine — it is returned with
+    `state: unreviewed` so the artefact says so.
+    """
+    cs = ((result.get("cost_basis") or {}).get("correlation_set")) or None
+    if not cs or not cs.get("hash"):
+        return None                                   # stub path, or an older engine
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        # PLATFORM_ADMIN, deliberately — the tenth such site, and for the same reason
+        # as the audit-ledger write path. A correlation set is a fact about GEX's own
+        # installed software, not tenant data: it carries no project_id, every tenant's
+        # run is priced by the same set, and a tenant must not be able to decide whether
+        # a set counts as reviewed. 074's policy is admin-write / read-by-all for
+        # exactly that reason, so the caller's own tenant context is refused here.
+        from app.core.request_tenant import PLATFORM_ADMIN
+        conn = domain_connection(PLATFORM_ADMIN)
+        try:
+            row = conn.execute(
+                "SELECT set_hash, state, reviewed_by, first_seen_at "
+                "FROM tea_correlation_set WHERE set_hash = ?", (cs["hash"],)).fetchone()
+            if row is None:
+                yr = cs.get("cepci_year_range") or [None, None]
+                conn.execute(
+                    "INSERT INTO tea_correlation_set (set_hash, openpytea_version, "
+                    "correlations, cepci_year_min, cepci_year_max, "
+                    "gex_supplied_cepci_years, components_json, state, first_seen_at, "
+                    "first_seen_project, note) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (cs["hash"], cs.get("openpytea_version"), cs.get("correlations"),
+                     yr[0], yr[1], json.dumps(cs.get("gex_supplied_cepci_years") or []),
+                     json.dumps(cs.get("components") or {}), "unreviewed", now,
+                     project_id,
+                     "Recorded automatically on first use. Accept or reject it "
+                     "deliberately — do not leave a priced basis on an unreviewed set."))
+                conn.commit()
+                state, reviewed_by, first_seen = "unreviewed", None, now
+            else:
+                state, reviewed_by = row["state"], row["reviewed_by"]
+                first_seen = row["first_seen_at"]
+        finally:
+            conn.close()
+    except Exception as exc:                           # noqa: BLE001 — never 500
+        logger.warning("correlation set %s not recorded (%s)", cs.get("hash"), exc)
+        return {**cs, "state": "unrecorded", "note": f"not recorded: {type(exc).__name__}"}
+
+    return {**cs, "state": state, "reviewed_by": reviewed_by, "first_seen_at": first_seen}
+
+
+def _tea_governed_train(fuel_id: str) -> dict:
+    """The approved equipment train for this molecule (migration 075), as request fields.
+
+    The engine is stateless, so the train travels in the request — which also means
+    `cost_basis_hash` covers it, so an approved change to a `base_param` or a
+    `scale_exp` reprices VISIBLY. A `uq_tes_fuel_role_approved` partial index guarantees
+    at most one approved spec per (fuel, role), so this cannot silently double a unit.
+
+    Returns {} when there is no approved train, and the engine falls back to the code
+    registry reporting `train_basis: canonical_code`. A missing governed train must not
+    take TEA offline.
+    """
+    if not fuel_id:
+        return {}
+    try:
+        from app.core.request_tenant import PLATFORM_ADMIN
+        conn = domain_connection(PLATFORM_ADMIN)   # platform reference data, no project_id
+        try:
+            rows = conn.execute(
+                "SELECT role, node, category, equipment_type, material, base_param, "
+                "scale_exp FROM tea_equipment_spec "
+                "WHERE fuel_id = ? AND state = 'approved' ORDER BY role",
+                (fuel_id,)).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:                        # noqa: BLE001 — degrade, never 500
+        logger.warning("governed train for %s unresolved (%s); code registry stands",
+                       fuel_id, exc)
+        return {}
+    if not rows:
+        return {}
+
+    train = [{"role": r["role"], "node": r["node"], "category": r["category"],
+              "equipment_type": r["equipment_type"], "material": r["material"],
+              "base_param": float(r["base_param"]), "scale_exp": float(r["scale_exp"])}
+             for r in rows]
+    # Version the approved SET, not the rows: the content hash is what a basis cites.
+    blob = json.dumps(train, sort_keys=True, separators=(",", ":")).encode()
+    return {"governed_train": train,
+            "governed_train_version": "sha256:" + hashlib.sha256(blob).hexdigest()[:16]}
+
+
+def _tea_governed_policy() -> dict:
+    """The governed TEA policy constants (migration 073), as request fields.
+
+    Same reason as `_tea_fx_benchmark`: the engine is stateless, so the bridge resolves
+    and passes. Each absent key leaves the engine on its own constant, reported as
+    engine_default — a missing or unapproved reference must never take TEA offline.
+
+    The LCOP band's unit travels with it ON PURPOSE. COST_PER_MASS admits EUR/t as well
+    as EUR/kg, and the engine refuses a band that is not EUR/kg rather than read a
+    per-tonne band as per-kilogram (a silent 1000x widening of a band that gates
+    IMPLAUSIBLE, which gates promotion to verified, which gates P1).
+    """
+    out: dict = {}
+    try:
+        from app.core import reference_registry as rr
+    except Exception as exc:                      # noqa: BLE001
+        logger.warning("reference_registry unavailable (%s); engine defaults stand", exc)
+        return out
+
+    def _res(key):
+        try:
+            r = rr.resolve_or_default(key, None)
+            return r if r.value is not None and r.source_class == "reference" else None
+        except Exception as exc:                  # noqa: BLE001 — degrade, never 500
+            logger.warning("%s unresolved (%s); engine default stands", key, exc)
+            return None
+
+    band = _res("tea_lcop_plausible_band")
+    if band is not None and band.value_low is not None and band.value_high is not None:
+        out["lcop_band_low"] = float(band.value_low)
+        out["lcop_band_high"] = float(band.value_high)
+        out["lcop_band_unit"] = band.unit
+        out["lcop_band_ref_id"] = band.ref_id
+
+    refs: dict = {}
+    for key, field in (("tea_mc_default_rel_std", "mc_default_rel_std"),
+                       ("tea_mc_max_rel_std", "mc_max_rel_std")):
+        r = _res(key)
+        if r is not None:
+            out[field] = float(r.value)
+            refs[key] = r.ref_id
+    if refs:
+        out["mc_sigma_ref_ids"] = refs
+    return out
+
+
 def _tea_payload(project_id: str, body: "ComputeRequest") -> dict:
     """The :8002 request for a TEA run. Increment 2: an explicit request currency wins;
     else the project's persisted choice; else EUR. Shared by /compute and /monte-carlo so
     the two always run on the same inputs (and so share a cost_basis_hash)."""
     base_currency = (body.base_currency or _project_currency(project_id) or "EUR").upper()
+    bench, bench_ref = _tea_fx_benchmark()
     return {
         "project_id": project_id,
         "pathway_id": body.pathway_id,
@@ -338,6 +514,10 @@ def _tea_payload(project_id: str, body: "ComputeRequest") -> dict:
         "fuel_id": body.fuel_id,
         "base_currency": base_currency,
         **({"fx_usd_to_eur": body.fx_usd_to_eur} if body.fx_usd_to_eur is not None else {}),
+        **({"fx_benchmark_usd_to_eur": bench} if bench is not None else {}),
+        **({"fx_benchmark_ref_id": bench_ref} if bench_ref else {}),
+        **_tea_governed_policy(),
+        **_tea_governed_train(body.fuel_id),
     }
 
 
@@ -458,6 +638,10 @@ async def compute_base_case(
         "result_status": result_status,
         "plausibility": plausibility,
         "fx_override": fx_override,
+        # Which published cost data priced this basis, and whether GEX has reviewed it
+        # (point 2). Recorded on first sight; an unreviewed set says so rather than
+        # passing silently after an engine upgrade.
+        "correlation_set": _record_correlation_set(result, project_id),
         "note": result.get("note"),
     }
 

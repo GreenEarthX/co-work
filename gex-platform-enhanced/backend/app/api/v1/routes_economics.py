@@ -147,8 +147,20 @@ def economics_snapshot(
             "capex_eur": row["capex_eur"],
             "opex_eur_per_year": row["opex_eur_per_year"],
             "lcop": row["lcop"],
-            "lcop_basis": ("levelised cost per nameplate unit of primary product "
-                           f"({row['nameplate_unit']})"),
+            # LCOP is EUR per KILOGRAM, always — openpytea divides by plant_products
+            # production, which the engine feeds in kg/day, and integrity.lcop_band
+            # REFUSES a governed band that is not EUR/kg. This used to read "per
+            # nameplate unit of primary product (<nameplate_unit>)", which for a
+            # project stated in mtpd rendered as "per mtpd" — cost per tonne-per-DAY —
+            # and for any tonne-based spelling understated the cost per tonne 1000x on
+            # the screen. The nameplate unit describes the CAPACITY, not this number.
+            "lcop_unit": "EUR/kg",
+            "lcop_eur_per_tonne": (round(row["lcop"] * 1000.0, 2)
+                                   if row["lcop"] is not None else None),
+            "lcop_basis": ("levelised cost per KILOGRAM of primary product (EUR/kg); "
+                           "lcop_eur_per_tonne is the same figure per metric tonne. "
+                           f"nameplate_unit ({row['nameplate_unit']}) describes the "
+                           "plant's capacity, not this cost basis"),
         },
         "lca": _lca_block(db, project_id, pathway_id or row["pathway_id"]),
         "integrity": {

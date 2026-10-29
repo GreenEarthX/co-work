@@ -56,6 +56,9 @@ class VisibleProject(BaseModel):
     # The rest of the project record (project_profile.profile) and its state.
     profile: Optional[dict] = None
     profile_verification: Optional[str] = None
+    # Gates, state and capital eligibility — from the ENGINE only, scoped to the
+    # caller's persona (app/core/engine_view.py). Never from the profile.
+    bankability: Optional[dict] = None
 
 
 class ProjectProfileIntelligence(BaseModel):
@@ -67,6 +70,12 @@ class ProjectProfileIntelligence(BaseModel):
     backend_store: str
     linked_records: list[str]
     updated_at: str
+
+
+# Keys of a profile that state an ASSESSMENT (gates, completion, capital
+# status, readiness). Assessments come from the engine; these are never served.
+_PROFILE_ASSESSMENT_KEYS = frozenset({"bankability", "risk_alerts", "unlocked_capital", "capital_status",
+                                      "overall_completion", "gates", "next_milestone"})
 
 
 def _profile_to_visible(profile: ProjectAccessProfile) -> VisibleProject | None:
@@ -82,7 +91,10 @@ def _profile_to_visible(profile: ProjectAccessProfile) -> VisibleProject | None:
     if not row:
         return None
     record = fetch_project_profile(profile.project_id)
-    extra = (record or {}).get("profile") or {}
+    # Gate figures are the engine's alone (JML 2026-10-28). Any assessment still
+    # held in a profile is withheld, so no screen can read it.
+    extra = {k: v for k, v in ((record or {}).get("profile") or {}).items()
+             if k not in _PROFILE_ASSESSMENT_KEYS}
     capacity = float(row.get("capacity_mtpd") or 0.0)
     ctx = get_effective_context(profile.project_id)
     return VisibleProject(
@@ -413,6 +425,16 @@ async def patch_project_context(
         raise HTTPException(status_code=422, detail="No fields to update")
 
     current = get_effective_context(project_id)
+    # A premise change that removes evidence from the bar goes through
+    # /api/v1/premises: a document and a second party (JML 2026-10-28).
+    from app.core.premises import removes_items
+    removing = [f for f in ("financing_model", "power_model")
+                if f in updates and removes_items(f, getattr(current, f, None), updates[f])]
+    if removing:
+        raise HTTPException(status_code=409, detail={
+            "code": "PREMISE_NEEDS_DOCUMENT_AND_SECOND_PARTY", "fields": removing,
+            "message": "This change removes evidence from the bar. Propose it at /api/v1/premises/"
+                       f"{project_id} with its supporting document; a second party confirms it."})
     normalized = normalize_project_id(project_id)
     actor = payload.get("email", "unknown")
     new_ctx = {
@@ -438,8 +460,19 @@ async def patch_project_context(
         actor=actor,
         changes=changes,
     )
+    reevaluation = None
+    if changes:
+        # A premise decides which items apply: re-evaluate now (JML 2026-10-28).
+        from app.api.v1.routes_bankability_proxy import reevaluate
 
-    return {"project_id": project_id, **new_ctx, "updated_by": actor, "updated_at": now}
+        fields = ", ".join(f"{f} {o} -> {n}" for f, o, n in changes)
+        try:
+            reevaluation = (await reevaluate(normalized, reason=f"premise {fields}",
+                                             actor=payload.get("user_id")))["changes"]
+        except HTTPException as exc:
+            reevaluation = {"error": exc.detail, "state_withdrawn": True}
+    return {"project_id": project_id, **new_ctx, "updated_by": actor, "updated_at": now,
+            "reevaluation": reevaluation}
 
 
 @router.get("/{project_id}/context/events")
@@ -593,8 +626,28 @@ async def get_visible_projects(
     for pid in _visible_ids_from_jwt(payload):
         vp = _profile_to_visible(by_id[pid]) if pid in by_id else None
         if vp:
+            vp.bankability = await _engine_bankability(pid, payload, by_id[pid].owner_company_id)
             result.append(vp)
     return result
+
+
+async def _engine_bankability(project_id: str, payload: dict, owner_company_id: str | None) -> dict:
+    """The engine's view of a project for this caller; `evaluated: False` when
+    the engine has not evaluated it and cannot now — never a stored guess."""
+    from fastapi import HTTPException as _HTTPException
+
+    from app.api.v1.routes_bankability_proxy import engine_rules, fresh_snapshot
+    from app.core.engine_view import bankability_view, persona_for
+
+    persona = persona_for(payload, owner_company_id)
+    try:
+        persona_gates = (await engine_rules()).get("persona_gates", {})
+    except _HTTPException:
+        view = bankability_view(None, persona, {})
+        view["unavailable"] = "The bankability engine is not answering."
+        return view
+    snapshot, evaluated_at = await fresh_snapshot(project_id)
+    return bankability_view(snapshot, persona, persona_gates, evaluated_at)
 
 
 @router.get("/{project_id}/profile-intelligence", response_model=ProjectProfileIntelligence)

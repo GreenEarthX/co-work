@@ -140,6 +140,14 @@ Alembic rebuild**, a dump restore already carries it): `ehb_premium` base 0.40 -
 (new row, valid from 10-20), and `debt_gearing` 0.65 approved with OIES kept. Versions 1-3;
 three rows remain `proposed` (IEA capex ROW and CN, 45V).
 
+**2026-10-28: head is 078** (072–075 are the TEA session's). 076 bankability reports, 077 premise
+changes (document + second party), 078 contract tokens (only counterparty/reviewer-confirmed terms
+reach the engine). PF engine rules **4.2.0** (UNRESOLVED). Gate figures come from the engine only
+(`app/core/engine_view.py`); `project_profile` holds no assessments. **After an Alembic rebuild**:
+the 076–078 tables start empty; 077 records the pre-rule premises itself. Handoff §8 item 52.
+Tests: **1202 pass, 15 skip, 0 fail**, both exported, run alone (never beside another pytest: they
+share `gex_test_suite`).
+
 **2026-10-25 (part 3): head is 071** — `project_dataset` takes the 16 kinds the screens held in
 code; `GET /api/v1/projects/{id}/datasets/{kind}`. **After an Alembic rebuild also run
 `move_frontend_datasets_20261025.py --execute`** (last). WAE and CSS now act as the token's

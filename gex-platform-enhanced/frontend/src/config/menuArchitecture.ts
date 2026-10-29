@@ -62,8 +62,6 @@ export interface MenuItem {
   consult_for?: VisibilityRule[];
   icon?: string;          // lucide icon name
   tooltip?: string;       // from helpText.ts key
-  /** Gate that must be ≥ threshold before this screen is actionable. Omit for always-accessible screens. */
-  gate_prerequisite?: string;
 }
 
 export interface VisibilityRule {
@@ -256,8 +254,7 @@ export const MENU_TABS: MenuTab[] = [
       { id: 'demand-pipeline', path: '/finance-demand', label: 'Sales', section: '',
         visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), TP('BANK')] },
       { id: 'offtake-quality', path: '/offtake-quality', label: 'Offtake Quality', section: '',
-        visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT('COMMERCIAL'), TP('BANK')],
-        gate_prerequisite: 'G4' },
+        visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT('COMMERCIAL'), TP('BANK')] },
 
       // The market (2026-10-23): anonymised listings, the company's own RFQs, and the
       // counterparty register — all read from PostgreSQL.
@@ -274,8 +271,7 @@ export const MENU_TABS: MenuTab[] = [
       { id: 'contracts', path: '/contracts', label: 'Contracts', section: 'NEGOTIATION',
         visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT(), TP('BANK'), TP('LEGAL')] },
       { id: 'term-sheet', path: '/term-sheet', label: 'Term Sheet Tracker', section: 'NEGOTIATION',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('EXECUTIVE'), OFT('FINANCE_TREASURY'), TP('BANK'), TP('LEGAL')],
-        gate_prerequisite: 'G4' },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('EXECUTIVE'), OFT('FINANCE_TREASURY'), TP('BANK'), TP('LEGAL')] },
 
       // Was labelled "Counterparties" but the screen is Delivery & Settlement —
       // a door must name what is behind it (Hidalgo). True counterparty/credit
@@ -302,8 +298,7 @@ export const MENU_TABS: MenuTab[] = [
       { id: 'project-readiness', path: '/finance/bankability', label: 'Capital Eligibility', section: '',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
       { id: 'capital-stack', path: '/capital-stack', label: 'Capital Stack', section: '',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')],
-        gate_prerequisite: 'G5' },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
       { id: 'covenants', path: '/covenants', label: 'Covenants', section: '',
         visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
 
@@ -367,46 +362,37 @@ export const MENU_TABS: MenuTab[] = [
 
       // OPERATE — verbs the finance/bank user performs (stay in top-nav)
       { id: 'gap-analysis', path: '/finance-gaps', label: 'Gap Analysis', section: 'DEAL STRUCTURING',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')],
-        gate_prerequisite: 'G5' },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
       { id: 'package-builder', path: '/finance-package', label: 'Development Packages', section: 'DEAL STRUCTURING',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
       { id: 'risk-allocation', path: '/finance-risk-matrix', label: 'Risk Allocation', section: 'DEAL STRUCTURING',
         visible_to: [PROD('FINANCE_TREASURY'), TP('BANK'), TP('INSURER')] },
       { id: 'drawdown-timeline', path: '/finance/drawdown-timeline', label: 'Drawdown Timeline', section: 'DEAL STRUCTURING',
-        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')],
-        gate_prerequisite: 'G10' },
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
 
       // ── Conditions Precedent (CPs) ──
       { id: 'insurance-schedule', path: '/insurance-schedule', label: 'Insurance Schedule', section: 'CONDITIONS PRECEDENT',
-        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK'), TP('INSURER')],
-        gate_prerequisite: 'G7' },
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK'), TP('INSURER')] },
       { id: 'insurer-coverage-lines', path: '/insurance-coverage', label: 'Coverage Lines (CAR/EAR/DSU/BI)', section: 'CONDITIONS PRECEDENT',
-        visible_to: [TP('INSURER'), PROD('FINANCE_TREASURY')],
-        gate_prerequisite: 'G7' },
+        visible_to: [TP('INSURER'), PROD('FINANCE_TREASURY')] },
       { id: 'insurer-asset-register', path: '/insurance-assets', label: 'Asset & Exposure Register', section: 'CONDITIONS PRECEDENT',
         visible_to: [TP('INSURER'), PROD('FINANCE_TREASURY')] },
 
       // ── IC & Diligence ──
       { id: 'banker-snapshot', path: '/bankability-snapshot', label: "Banker's Snapshot", section: 'IC & DILIGENCE',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')],
-        gate_prerequisite: 'G8' },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
       { id: 'ic-pack', path: '/ic-pack', label: 'IC Pack Builder', section: 'IC & DILIGENCE',
-        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')],
-        gate_prerequisite: 'G10' },
+        visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
       { id: 'transfer-readiness', path: '/transfer-readiness', label: 'Transfer Readiness', section: 'IC & DILIGENCE',
         visible_to: [PROD('FINANCE_TREASURY'), TP('BANK')] },
       { id: 'data-room', path: '/data-room', label: 'Data Room', section: 'IC & DILIGENCE',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMPLIANCE_LEGAL'), OFT('COMMERCIAL'), TP('BANK'), TP('INSURER'), TP('LEGAL'), TP('CERTIFIER')],
-        gate_prerequisite: 'G10' },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMPLIANCE_LEGAL'), OFT('COMMERCIAL'), TP('BANK'), TP('INSURER'), TP('LEGAL'), TP('CERTIFIER')] },
 
       // ── Financial Close ──
       { id: 'approval-queue', path: '/approval-queue', label: 'Approval Queue', section: 'FINANCIAL CLOSE',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), OFT('EXECUTIVE'), TP('BANK')],
-        gate_prerequisite: 'G10' },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), OFT('EXECUTIVE'), TP('BANK')] },
       { id: 'commitment-signing', path: '/commitment-signing', label: 'Commitment Signing', section: 'FINANCIAL CLOSE',
-        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY'), OFT('EXECUTIVE'), TP('BANK')],
-        gate_prerequisite: 'G10' },
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY'), OFT('EXECUTIVE'), TP('BANK')] },
       { id: 'commitment-verifier', path: '/commitment-verifier', label: 'Commitment Verifier', section: 'FINANCIAL CLOSE',
         visible_to: [ALL] },
     ],
@@ -457,6 +443,10 @@ export const MENU_TABS: MenuTab[] = [
       // canViewCapitalStack), which was unreachable while they were left off this list.
       { id: 'construction-progress', path: '/producer-bankability', label: 'Construction Progress', section: '',
         visible_to: [PROD('ENGINEERING'), PROD('OPERATIONS'), PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('ENGINEER')] },
+      // The engine's view of one project, every open item side by side, and what
+      // changed (2026-10-28). Content is scoped server-side to the caller's role.
+      { id: 'project-report', path: '/project-report', label: 'Project Report', section: 'PORTFOLIO',
+        visible_to: [PROD('EXECUTIVE'), PROD('FINANCE_TREASURY'), PROD('OPERATIONS'), PROD('ENGINEERING'), PROD('COMMERCIAL')] },
       { id: 'cfo-report', path: '/cfo-report', label: 'CEO Report', section: 'PORTFOLIO',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), PROD('OPERATIONS')] },
 

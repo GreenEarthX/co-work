@@ -50,8 +50,22 @@ export interface CustomerProject {
   associated_companies: string[];
   /** Absent = PROJECT_FINANCE (the legacy default). */
   financing_model?: FinancingModel;
-  // Bankability snapshot (used as demo fallback when backend is unavailable)
+  // Gates, state and capital eligibility — the ENGINE's evaluation, scoped to
+  // the caller's persona (GET /projects/visible, app/core/engine_view.py).
+  // Never typed by hand: the hand-written block this used to hold was removed
+  // on 2026-10-28 (JML). `evaluated: false` means the engine has not judged
+  // the project yet; show that, not a figure.
   bankability: {
+    evaluated?: boolean;
+    source?: "engine";
+    state?: string | null;
+    state_label?: string | null;
+    next_state?: string | null;
+    rules_version?: string | null;
+    evaluated_at?: string | null;
+    /** The overall figure covers every gate; a persona may see fewer. */
+    scope?: { persona: string; visible_gates: number; total_gates: number; note?: string | null };
+    unavailable?: string;
     overall_completion: number;
     gates: BankabilityGate[];
     capital_status: CapitalItem[];
@@ -98,6 +112,9 @@ export interface BankabilityGate {
   is_complete: boolean;
   blocking_items: string[];
   description: string;
+  /** SATISFIED | BLOCKED | UNRESOLVED | INCOMPLETE | WAIVED (engine 4.2.0). */
+  determination?: string;
+  blocked_reasons?: string[];
 }
 
 // ─── Structured risk flags ────────────────────────────────────────────────────
@@ -160,7 +177,11 @@ export type CommitmentStatus =
   | "TERM_SHEET" // Signed term sheet
   | "CREDIT_APPROVED" // Internal credit committee approval granted
   | "LEGAL_COMPLETE" // Legal documentation signed
-  | "DRAWN"; // Capital drawn
+  | "DRAWN" // Capital drawn
+  // What the engine reports (2026-10-28): GEX establishes whether the evidence
+  // makes a capital DECISION eligible; it never records money as committed.
+  | "DECISION_ELIGIBLE"
+  | "NOT_YET_ELIGIBLE";
 
 export interface CapitalItem {
   type: string;

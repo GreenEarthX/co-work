@@ -28,6 +28,7 @@ import {
   type CapacityUnit,
 } from "@/lib/capacityUnits";
 import type { VerificationState } from "@/types/deal";
+import { EngineReadoutNote } from '@/components/EngineReadoutNote';
 
 // ── Data model ───────────────────────────────────────────────────────────────
 
@@ -2066,6 +2067,7 @@ function ProfileWorkbench({
               )}{" "}
               &middot; contradictions: {contradictions.length}
             </span>
+            <div><EngineReadoutNote bankability={project.bankability} /></div>
             {dirty && <span className="text-amber-500 ml-2">unsaved</span>}
             {saved && <span className="text-emerald-500 ml-2">saved</span>}
           </div>

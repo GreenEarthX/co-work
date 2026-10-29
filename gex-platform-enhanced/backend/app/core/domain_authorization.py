@@ -137,7 +137,6 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/plant-data": "projects",
     "/api/v1/capacities": "projects",
     "/api/v1/project-truth": "projects",
-    "/api/v1/project-ratings": "projects",
     "/api/v1/project-activity": "projects",
     "/api/v1/pre-cod-metrics": "projects",
     "/api/v1/performance": "projects",
@@ -158,6 +157,13 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/fuels": "sustainability",
     # verification
     "/api/v1/bankability": "verification",
+    # A reader marking its own notification read is not a verification act.
+    "/api/v1/bankability-updates": "platform",
+    # Premise decisions involve every project party (a funder confirms, an
+    # offtaker contests); app/core/premises.py decides who may do what.
+    "/api/v1/premises": "platform",
+    # Counterparties and reviewers confirm terms here; contract_tokens decides who.
+    "/api/v1/contract-tokens": "platform",
     "/api/v1/evidence": "verification",
     "/api/v1/verification": "verification",
     "/api/v1/gates": "verification",
