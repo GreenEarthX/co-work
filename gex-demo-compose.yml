@@ -54,6 +54,7 @@ services:
       SECRET_KEY: demo_secret_not_for_production
       ENVIRONMENT: development
       PF_ENGINE_URL: http://pf_engine:8001
+      TEA_ENGINE_URL: http://tea_engine:8002
     depends_on:
       postgres: {condition: service_healthy}
       redis:    {condition: service_healthy}
@@ -61,6 +62,12 @@ services:
 
   pf_engine:
     image: jmlamay/gex-pf-engine:v1.9.0
+    environment:
+      ENVIRONMENT: development
+    networks: [gex_net]
+
+  tea_engine:
+    image: jmlamay/gex-tea-engine:v1.9.0
     environment:
       ENVIRONMENT: development
     networks: [gex_net]
