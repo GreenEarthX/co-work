@@ -14,6 +14,7 @@ import { getAuthHeader } from '@/lib/authToken'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import type { CustomerProject } from '@/data/customerProjects'
+import { submittedNote } from '@/lib/submittedNote'
 
 const DETERMINATION: Record<string, { label: string; tone: string }> = {
   SATISFIED: { label: 'satisfied', tone: 'text-emerald-700' },
@@ -47,7 +48,7 @@ export function GateFeedLine({ gateIds, bankability }: {
           <span key={g.id}>
             <span className="text-[var(--text-muted)]">Feeds </span>
             <span className="font-mono font-semibold">{g.id.split('_')[0]}</span> {g.name}
-            <span className="text-[var(--text-muted)]"> — {g.verified_count} of {g.total_evidence} items verified · </span>
+            <span className="text-[var(--text-muted)]"> — {g.verified_count} of {g.total_evidence} items verified{submittedNote(g.submitted_count)} · </span>
             <span className={d.tone}>{d.label}{reason ? `: ${reason}` : ''}</span>
           </span>
         )

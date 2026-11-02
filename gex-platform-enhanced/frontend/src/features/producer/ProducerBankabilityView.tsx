@@ -22,6 +22,7 @@ import { useVisibleProjects } from '@/hooks/useVisibleProjects';
 import { useSelectedProject } from '@/contexts/ProjectContext';
 import { useUserRole } from '@/contexts/UserRoleContext';
 import { AdversarialReviewEntryCard } from '@/components/AdversarialReviewEntryCard';
+import { submittedNote } from '@/lib/submittedNote';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ interface EvidenceItem {
 function severityBadge(s: EvidenceSeverity) {
   switch (s) {
     case 'deal_killer': return <span className="gex-badge gex-badge-red">DEAL KILLER</span>;
-    case 'warning':     return <span className="gex-badge gex-badge-amber">WARNING</span>;
+    case 'warning':     return <span className="gex-badge gex-badge-amber">REQUIRED</span>;
     default:            return <span className="gex-badge gex-badge-default">ADVISORY</span>;
   }
 }
@@ -77,6 +78,7 @@ interface Gate {
   name: string;
   total_evidence: number;
   verified_count: number;
+  submitted_count?: number;
   completion_pct: number;
   is_complete: boolean;
   blocking_items: string[];
@@ -719,7 +721,7 @@ export function ProducerBankabilityView({ projectId: propProjectId }: { projectI
                     <p className="text-xs text-[var(--text-muted)] mt-0.5">
                       {gate.financing_applicable === false
                         ? 'Out of scope — no external capital provider relies on this gate'
-                        : `${gate.verified_count} of ${gate.total_evidence} applicable evidence items verified`}
+                        : `${gate.verified_count} of ${gate.total_evidence} applicable evidence items verified${submittedNote(gate.submitted_count)}`}
                     </p>
 
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--border)]">

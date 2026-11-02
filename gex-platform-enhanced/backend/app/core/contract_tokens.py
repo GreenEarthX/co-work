@@ -43,7 +43,7 @@ FIELD_KIND: dict[str, dict[str, str]] = {
         "contingency_eur": "model", "sponsor_support_eur": "model", "counterparty_insolvent": "epc"},
     "schedule": {f: "technical" for f in (
         "permits_expected_date", "appeal_period_months", "fid_target_date", "construction_months_p80",
-        "commissioning_allowance_months", "forecast_cod_date")},
+        "commissioning_allowance_months", "forecast_cod_date", "actual_cod_date")},
     "supply": {"feedstock_required_tonnes_per_year": "technical", "power_required_mwh_per_year": "technical",
                "feedstock_contracted_tonnes_per_year": "supply", "feedstock_tenor_years": "supply",
                "co2_source_eligible": "supply", "certification_scheme": "supply", "fm_definition_ref": "supply",
@@ -59,11 +59,13 @@ ADVERSE_FACTS = {("epc", "counterparty_insolvent"), ("supply", "support_or_ppa_r
 COUNTERPARTY_KINDS = ("offtake", "ppa", "supply", "epc", "licence")
 REVIEWER_KINDS = {"technical": "G5", "model": "G8"}     # gate whose appointed reviewer confirms
 # The instruments a counterparty's confirmation verifies (it is a party to them).
+# Never an instrument a THIRD PARTY issues — the offtaker's letter of credit, the EPC contractor's
+# bond: confirming one's own contract says nothing about the bank behind it (rules 4.3.0 review).
 CONTRACT_EVIDENCE: dict[str, tuple[str, ...]] = {
-    "offtake": ("binding_offtake_contract_executed", "credit_support_package"),
+    "offtake": ("binding_offtake_contract_executed",),
     "ppa": ("ppa_signed_or_term_sheet_evidence",),
     "supply": ("feedstock_supply_agreement",),
-    "epc": ("epc_contract_fixed_price_or_capped_gmp", "epc_security_package"),
+    "epc": ("epc_contract_fixed_price_or_capped_gmp",),
     "licence": ("technology_licensor_term_sheet", "technology_licence_process_guarantee"),
 }
 

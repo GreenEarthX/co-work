@@ -21,6 +21,7 @@ import { isFinanceLike } from "@/data/evidenceCatalog";
 import {
   blockingGates, decisionsGatedBy, gateName, gateShortId, humanise, type EngineReadout,
 } from "@/lib/engineReadout";
+import { submittedNote } from "@/lib/submittedNote";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -381,7 +382,7 @@ function ExpandPanel({
                         <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
                         <span className="min-w-0">
                           <span className="block truncate">
-                            {gateName(r, g.gate_id)} · {g.verified_count}/{g.total_evidence} verified
+                            {gateName(r, g.gate_id)} · {g.verified_count}/{g.total_evidence} verified{submittedNote(g.submitted_count)}
                           </span>
                           {neededFor.length > 0 && (
                             <span className="block truncate font-mono text-[10px] text-[var(--text-muted)]">

@@ -248,7 +248,12 @@ def load(conn, execute: bool) -> None:
 def verify() -> int:
     """Evaluate through the engine and compare with the published answer key."""
     be = _engine()
-    evidence = [{"key": k, "status": "VERIFIED", "maturity": m} for k, m in evidence_rows()]
+    # Rules 4.6.0: an item that lapses in practice (permit, lease, credit support, insurance, grid
+    # reservation) is valid for 12 months from its verification and counts for nothing without a
+    # verification date, so the fixture is judged as the loader leaves it: verified today.
+    verified_at = be._today() + " 00:00:00"
+    evidence = [{"key": k, "status": "VERIFIED", "maturity": m, "verified_at": verified_at}
+                for k, m in evidence_rows()]
     terms = {k: v for k, v in CARDS.items() if v}
     snap = be.evaluate(PROJECT_ID, evidence, None, POWER_MODEL, PHASE, FINANCING_MODEL, terms)
 

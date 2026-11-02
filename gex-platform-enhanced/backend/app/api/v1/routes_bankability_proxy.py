@@ -52,6 +52,11 @@ class EvidenceUpdateRequest(BaseModel):
     # this item (POST /evidence/document). Required for VERIFIED; any other
     # status may name one. See _document_on_file.
     document_sha256: Optional[str] = None
+    # Until when the document is valid (YYYY-MM-DD): a permit's validity, a letter of
+    # credit's expiry, a policy period. From that date the engine reads the item EXPIRED
+    # (rules 4.5.0). The submitter declares it; a reviewer may add one or shorten it, never
+    # extend it. See _validate_valid_until.
+    valid_until: Optional[str] = None
 
 
 # Statuses a producer moves an item through, and statuses a reviewer sets —
@@ -121,6 +126,33 @@ def _validate_evidence_write(evidence_key: str, new_status: Optional[str],
                 "message": (f"Declared as {existing_maturity}. Review can confirm that or "
                             f"lower it; raising it to {maturity} needs a new submission."),
             })
+
+
+def _validate_valid_until(valid_until: Optional[str], new_status: Optional[str],
+                          existing_valid_until: Optional[str]) -> None:
+    """The validity date is a restriction, so a reviewer may add or shorten it and never
+    extend it: a longer life needs a new document. A date already past is refused —
+    evidence that expired before it was filed is not evidence. Raises HTTPException(422)."""
+    if valid_until is None:
+        return
+    from datetime import date
+
+    try:
+        until = date.fromisoformat(valid_until)
+    except ValueError:
+        raise HTTPException(status_code=422, detail={
+            "code": "VALID_UNTIL_INVALID", "valid_until": valid_until,
+            "message": "valid_until must be a date, YYYY-MM-DD."}) from None
+    if until < date.today():
+        raise HTTPException(status_code=422, detail={
+            "code": "VALID_UNTIL_IN_THE_PAST", "valid_until": valid_until,
+            "message": "That date has passed; evidence that is already expired cannot be filed."})
+    if new_status in _REVIEWER_STATUSES and existing_valid_until and valid_until > str(existing_valid_until)[:10]:
+        raise HTTPException(status_code=422, detail={
+            "code": "VERIFICATION_CANNOT_EXTEND_VALIDITY",
+            "declared_valid_until": str(existing_valid_until)[:10], "requested_valid_until": valid_until,
+            "message": (f"Declared valid until {str(existing_valid_until)[:10]}. Review can confirm that or "
+                        f"shorten it; a later date needs a new submission.")})
 
 
 def _get_db():
@@ -223,6 +255,17 @@ def _ensure_tables(conn):
             UNIQUE(project_id, card_type)
         )
     """)
+    # The gate clock (migration 080 owns it on PostgreSQL).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS project_gate_clock (
+            project_id TEXT NOT NULL,
+            gate_id TEXT NOT NULL,
+            first_satisfied_at TEXT NOT NULL,
+            rules_version TEXT,
+            state_at_time TEXT,
+            PRIMARY KEY (project_id, gate_id)
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS commitment_terms_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,10 +283,11 @@ def _ensure_tables(conn):
     # Assignment (055) likewise.
     for table, columns in (("bankability_evidence", ("maturity", "assignee_user_id", "assigned_by",
                                                      "assigned_at", "due_date", "committed_at",
-                                                     "committed_by")),
+                                                     "committed_by", "valid_until")),
                            ("evidence_events", ("old_maturity", "new_maturity",
                                                 "old_assignee", "new_assignee",
-                                                "old_due_date", "new_due_date"))):
+                                                "old_due_date", "new_due_date",
+                                                "old_valid_until", "new_valid_until"))):
         present = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         for col in columns:
             if col not in present:
@@ -271,7 +315,7 @@ def _load_evidence(project_id="default"):
              "verified_at": r["verified_at"], "document_hash": r["document_hash"],
              "notes": r["notes"], "maturity": _col(r, "maturity"),
              "assignee_user_id": _col(r, "assignee_user_id"), "due_date": _col(r, "due_date"),
-             "committed_at": _col(r, "committed_at")}
+             "committed_at": _col(r, "committed_at"), "valid_until": _col(r, "valid_until")}
             for r in rows]
 
 
@@ -286,8 +330,19 @@ def _existing_maturity(project_id, evidence_key):
     return row["maturity"] if row else None
 
 
+def _existing_valid_until(project_id, evidence_key):
+    conn = _get_db()
+    _ensure_tables(conn)
+    row = conn.execute(
+        "SELECT valid_until FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
+        (project_id, evidence_key),
+    ).fetchone()
+    conn.close()
+    return row["valid_until"] if row else None
+
+
 def _upsert_evidence(project_id, evidence_key, status, actor, notes=None,
-                     document_sha256=None, maturity=None):
+                     document_sha256=None, maturity=None, valid_until=None):
     """Write one evidence item and its append-only audit event.
 
     `actor` is the AUTHENTICATED user id — never a name from a request body. It
@@ -300,12 +355,16 @@ def _upsert_evidence(project_id, evidence_key, status, actor, notes=None,
     conn = _get_db()
     _ensure_tables(conn)
     old = conn.execute(
-        "SELECT status, maturity FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
+        "SELECT status, maturity, valid_until FROM bankability_evidence WHERE project_id = ? AND evidence_key = ?",
         (project_id, evidence_key),
     ).fetchone()
     old_status = old["status"] if old else None
     old_maturity = old["maturity"] if old else None
     new_maturity = maturity if maturity is not None else old_maturity
+    old_valid = old["valid_until"] if old else None
+    # A new submission is a new document and carries ITS validity (none = never expires);
+    # any other write keeps the date unless it names one (a reviewer's can only shorten it).
+    new_valid = valid_until if (status == "SUBMITTED" or valid_until is not None) else old_valid
     # The submitter is who a reviewer must be independent of; the verifier, and
     # the document verified, are what a lender reads. verified_by describes the
     # CURRENT verification, so any other status clears it — the event log keeps
@@ -315,9 +374,9 @@ def _upsert_evidence(project_id, evidence_key, status, actor, notes=None,
     conn.execute("""
         INSERT INTO bankability_evidence (project_id, evidence_key, status, submitted_by, submitted_at,
                                           verified_by, verified_at, document_hash, notes, maturity,
-                                          updated_at)
+                                          valid_until, updated_at)
         VALUES (?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END,
-                ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END, ?, ?, ?,
+                ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END, ?, ?, ?, ?,
                 datetime('now'))
         ON CONFLICT(project_id, evidence_key)
         DO UPDATE SET status=excluded.status,
@@ -328,22 +387,24 @@ def _upsert_evidence(project_id, evidence_key, status, actor, notes=None,
             document_hash=COALESCE(excluded.document_hash, bankability_evidence.document_hash),
             notes=COALESCE(excluded.notes, bankability_evidence.notes),
             maturity=COALESCE(excluded.maturity, bankability_evidence.maturity),
+            valid_until=CASE WHEN excluded.status = 'SUBMITTED' THEN excluded.valid_until
+                             ELSE COALESCE(excluded.valid_until, bankability_evidence.valid_until) END,
             updated_at=datetime('now')
     """, (project_id, evidence_key, status, submitter, submitter, verifier, verifier,
-          document_sha256, notes, maturity))
+          document_sha256, notes, maturity, valid_until))
     # Append-only audit: every status transition AND every maturity change is
     # recorded with its actor. Maturity is load-bearing from rules 3.0.0, so a
     # change from INTENT to EXECUTED that left the status alone must still leave
     # a trace — otherwise the most consequential edit would be the invisible one.
     # So must every write that names a document: a second upload, or a second
     # reviewer verifying the same item, changes no status but is an attestation.
-    if old_status != status or old_maturity != new_maturity or document_sha256:
+    if old_status != status or old_maturity != new_maturity or old_valid != new_valid or document_sha256:
         conn.execute(
             "INSERT INTO evidence_events (project_id, evidence_key, old_status, new_status, actor, at, "
-            "document_sha256, old_maturity, new_maturity) "
-            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)",
+            "document_sha256, old_maturity, new_maturity, old_valid_until, new_valid_until) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?)",
             (project_id, evidence_key, old_status, status, actor,
-             document_sha256, old_maturity, new_maturity),
+             document_sha256, old_maturity, new_maturity, old_valid, new_valid),
         )
     conn.commit()
     conn.close()
@@ -811,11 +872,28 @@ async def reevaluate(project_id: str, *, reason: str, actor: Optional[str] = Non
     except Exception as exc:  # noqa: BLE001 — the evaluation stands; the trace failure is logged
         logger.warning("re-evaluation of %s not recorded in the ledger: %s", project_id, exc)
     try:
+        from app.core import gate_clock
+        conn = _get_db()
+        _ensure_tables(conn)
+        try:
+            gate_clock.record(conn, project_id, snapshot.get("gate_evaluations", []),
+                              snapshot.get("rules_version"), snapshot.get("current_state"))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — a measurement never fails an evaluation
+        logger.warning("gate clock for %s not recorded: %s", project_id, exc)
+    try:
         from app.core.bankability_reports import notify_changes
         notify_changes(project_id, changes, reason=reason, actor=actor, snapshot=snapshot)
     except Exception as exc:  # noqa: BLE001
         logger.warning("re-evaluation of %s: designated executives not notified: %s", project_id, exc)
     return {"snapshot": snapshot, "changes": changes}
+
+
+def _today_iso() -> str:
+    from datetime import date
+    return date.today().isoformat()
 
 
 async def fresh_snapshot(project_id: str) -> tuple[Optional[dict], Optional[str]]:
@@ -827,6 +905,11 @@ async def fresh_snapshot(project_id: str) -> tuple[Optional[dict], Optional[str]
         current = (await engine_rules()).get("rules_version")
         if snap is None or snap.get("rules_version") != current:
             await reevaluate(project_id, reason="rules" if snap else "first_evaluation")
+            snap, at = stored_snapshot(project_id)
+        elif snap.get("next_expiry") and str(snap["next_expiry"])[:10] < _today_iso():
+            # Evidence expired since this was computed (rules 4.5.0): the result is stale though
+            # nothing was written. next_expiry is the last day the item is still valid.
+            await reevaluate(project_id, reason="evidence expired", actor="system:expiry")
             snap, at = stored_snapshot(project_id)
     except HTTPException as exc:
         logger.warning("engine unavailable while refreshing %s: %s", project_id, exc.detail)
@@ -981,12 +1064,16 @@ async def update_evidence(request: EvidenceUpdateRequest,
         request.evidence_key, request.new_status, request.maturity,
         _existing_maturity(request.project_id, request.evidence_key) if request.maturity else None,
     )
+    _validate_valid_until(request.valid_until, request.new_status,
+                          _existing_valid_until(request.project_id, request.evidence_key)
+                          if request.valid_until else None)
     if request.new_status in _REVIEWER_STATUSES:
         _require_independent_reviewer(actor, request.project_id, request.evidence_key)
     document = _document_on_file(request.project_id, request.evidence_key, request.new_status,
                                  request.document_sha256)
     _upsert_evidence(request.project_id, request.evidence_key, request.new_status, actor["user_id"],
-                     request.notes, document_sha256=document, maturity=request.maturity)
+                     request.notes, document_sha256=document, maturity=request.maturity,
+                     valid_until=request.valid_until)
     evidence = _load_evidence(request.project_id)
     result = await reevaluate(request.project_id, actor=actor["user_id"], evidence=evidence,
                               reason=f"evidence {request.evidence_key} -> {request.new_status}")

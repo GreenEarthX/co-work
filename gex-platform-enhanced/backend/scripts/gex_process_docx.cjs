@@ -13,7 +13,7 @@ const {
 } = require('docx')
 
 const [, , src, dst] = process.argv
-const { rules, date, blocks } = JSON.parse(fs.readFileSync(src, 'utf8'))
+const { rules, date, blocks, title = 'The GEX Process' } = JSON.parse(fs.readFileSync(src, 'utf8'))
 
 const INK = '18211D', MUTED = '5A665F', ACCENT = '0D6B57', SOFT = 'E1EFE9', RULE = 'D3DAD4'
 const TONE = { deal_killer: 'A3261C', warning: '8A5A00' }
@@ -37,7 +37,12 @@ function widths(head) {
   const key = head.join('|')
   const presets = {
     'Evidence item|Severity|Maturity|Owner|Applies to|Verified by': [2900, 1050, 1250, 1350, 1450, 1638],
-    'Party|Owns|Never owns': [2400, 4238, 3000],
+    'Role|Accountable for': [2600, 7038],
+    'Needed|Why|Who provides it': [2300, 5338, 2000],
+    'Item|Severity|Applies to today': [5200, 1500, 2938],
+    'Route|Electricity rules (additionality, correlation)|Status of my claim': [1900, 4400, 3338],
+    'Offtake|What it means': [1000, 8638],
+    'EPC|What it means': [1000, 8638],
     'State|What must be satisfied|Capital decision made eligible': [2700, 4538, 2400],
     'Check|What is compared|Gate': [900, 7838, 900],
     'Reviewer|Gates': [3400, 6238],
@@ -121,7 +126,7 @@ for (const b of blocks) {
 }
 
 const doc = new Document({
-  creator: 'GreenEarthX', title: 'The GEX Process',
+  creator: 'GreenEarthX', title,
   description: `Generated from evidence rules ${rules} on ${date}`,
   styles: {
     default: { document: { run: { font: BODY, size: 21, color: INK }, paragraph: { spacing: { after: 120, line: 290 } } } },
@@ -146,7 +151,7 @@ const doc = new Document({
   sections: [{
     properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 } } },
     headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [
-      new TextRun({ text: 'The GEX Process', font: DISPLAY, size: 15, color: MUTED })] })] }) },
+      new TextRun({ text: title, font: DISPLAY, size: 15, color: MUTED })] })] }) },
     footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [
       new TextRun({ text: `Evidence rules ${rules} · ${date} · page `, font: DISPLAY, size: 15, color: MUTED }),
       new TextRun({ children: [PageNumber.CURRENT], font: DISPLAY, size: 15, color: MUTED })] })] }) },

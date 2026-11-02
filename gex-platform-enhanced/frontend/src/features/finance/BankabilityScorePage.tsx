@@ -21,6 +21,7 @@ import {
   applicableDecisions, blockingGates, gateName, gateShortId, humanise, isEligible,
   openDealKillers, refusalReason, type EngineLevel, type EngineReadout,
 } from '@/lib/engineReadout'
+import { submittedNote } from '@/lib/submittedNote'
 
 const GATES_AND_EVIDENCE = '/stage-gates'
 
@@ -119,7 +120,7 @@ function Readout({ readout }: { readout: EngineReadout }) {
                       </span>
                       <span className="text-xs text-[var(--text-muted)]">
                         {gate.determination ? humanise(gate.determination) : ''} · {gate.verified_count} of{' '}
-                        {gate.total_evidence} items verified
+                        {gate.total_evidence} items verified{submittedNote(gate.submitted_count)}
                       </span>
                     </div>
                     {killers.length > 0 && (

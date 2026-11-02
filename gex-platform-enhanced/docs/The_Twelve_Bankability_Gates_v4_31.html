@@ -1,0 +1,570 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>The Twelve Bankability Gates</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap"><style>
+:root{
+  --paper:#f4f6f4; --card:#ffffff; --ink:#111d1b; --ink2:#3a4a46; --muted:#6a7a76;
+  --rule:#d6dfdb; --rule2:#e8eeeb; --band:#eef3f1;
+  --petrol:#0d5754; --petrol-s:#e0edeb;
+  --rust:#a8341a; --rust-s:#f8e6e1;
+  --ochre:#8a5f06; --ochre-s:#f8eed7;
+  --good:#245e42; --good-s:#e1efe7;
+  --seg:#d6dfdb; --seg-on:#0d5754;
+  color-scheme:light;
+  --fd:'Archivo',system-ui,sans-serif; --fb:'Source Sans 3',system-ui,sans-serif; --fm:'JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0e1614; --card:#141e1c; --ink:#e7eeeb; --ink2:#b2c1bc; --muted:#899b95;
+  --rule:#26342f; --rule2:#1c2825; --band:#17231f;
+  --petrol:#5bb7b1; --petrol-s:#15302d; --rust:#e8836a; --rust-s:#361c16;
+  --ochre:#d9ab4c; --ochre-s:#30270f; --good:#6cbd92; --good-s:#15291f;
+  --seg:#2c3b36; --seg-on:#5bb7b1; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --paper:#0e1614; --card:#141e1c; --ink:#e7eeeb; --ink2:#b2c1bc; --muted:#899b95;
+  --rule:#26342f; --rule2:#1c2825; --band:#17231f;
+  --petrol:#5bb7b1; --petrol-s:#15302d; --rust:#e8836a; --rust-s:#361c16;
+  --ochre:#d9ab4c; --ochre-s:#30270f; --good:#6cbd92; --good-s:#15291f;
+  --seg:#2c3b36; --seg-on:#5bb7b1; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{background:var(--paper);color:var(--ink);font-family:var(--fb);font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:20px;padding-block:0 72px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:48px}
+h1,h2,h3{font-family:var(--fd);text-wrap:balance;margin:0;line-height:1.15}
+code,.mono{font-family:var(--fm);font-size:.84em}
+a{color:var(--petrol)}
+p{margin:0 0 12px;max-width:70ch}
+
+/* contents rail */
+.rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);align-self:start;padding-top:36px;font-size:13.5px;max-height:calc(100vh - 40px);overflow:auto}
+.rail h4{font-family:var(--fm);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
+.rail ol,.rail ul{list-style:none;margin:0 0 20px;padding:0}
+.rail li a{display:flex;gap:8px;align-items:baseline;padding:4px 6px;border-radius:3px;color:var(--ink2);text-decoration:none}
+.rail li a:hover{background:var(--band);color:var(--ink)}
+.rail a:focus-visible{outline:2px solid var(--petrol);outline-offset:1px}
+.rn{font-family:var(--fm);font-size:11px;color:var(--muted);width:26px;flex:none}
+.rk{margin-left:auto;font-family:var(--fm);font-size:10px;font-weight:600;padding:0 5px;border-radius:2px}
+
+/* masthead */
+.mast{padding-block:36px 26px;border-bottom:2px solid var(--ink);margin-bottom:32px}
+.eyebrow{font-family:var(--fm);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--petrol);margin:0 0 14px;font-weight:600}
+h1{font-size:clamp(34px,5.4vw,54px);font-weight:700;letter-spacing:-.024em}
+.sub{font-size:19px;color:var(--ink2);margin:10px 0 22px}
+.mantra{border-left:3px solid var(--petrol);padding:2px 0 2px 18px;margin:0 0 18px;font-size:20px;font-style:italic;max-width:62ch}
+.aud{color:var(--muted);font-size:15px;margin-bottom:16px}
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--fm);font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.meta b{color:var(--petrol);font-weight:600}
+.revised{font-size:14px;color:var(--muted);margin:14px 0 0;max-width:72ch}
+
+section.sec{margin-bottom:52px;scroll-margin-top:20px}
+h2{font-size:25px;font-weight:600;letter-spacing:-.012em;padding-bottom:10px;border-bottom:1px solid var(--rule);margin-bottom:16px}
+h2 .n{font-family:var(--fm);font-size:14px;color:var(--muted);margin-right:10px;font-weight:400}
+
+.panel{background:var(--petrol-s);border-radius:3px;padding:16px 20px;margin:18px 0}
+.panel.good{background:var(--good-s)}
+.panel .pk{display:block;font-family:var(--fm);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--petrol);font-weight:600;margin-bottom:8px}
+.panel.good .pk{color:var(--good)}
+.panel p{max-width:none}
+.panel p:last-child{margin-bottom:0}
+
+ol.steps{list-style:none;counter-reset:s;padding:0;margin:0;display:grid;gap:8px}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:30px 1fr;gap:12px;background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:12px 16px}
+ol.steps li::before{content:counter(s);font-family:var(--fd);font-weight:700;font-size:21px;color:var(--petrol);line-height:1.2}
+ol.steps li p{margin:0;max-width:none}
+
+/* maturity ladder — doubles as the legend for the maturity column */
+ol.ladder{list-style:none;padding:0;margin:8px 0 18px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+ol.ladder li{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:12px 12px 14px;display:flex;flex-direction:column;gap:7px}
+ol.ladder li b{font-family:var(--fd);font-size:15px;letter-spacing:.03em}
+ol.ladder li .def{font-size:13.5px;color:var(--ink2);line-height:1.45}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card);margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:640px}
+th{font-family:var(--fm);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--petrol);text-align:left;padding:10px 12px;background:var(--band);font-weight:600;white-space:nowrap}
+td{padding:10px 12px;border-top:1px solid var(--rule2);vertical-align:top}
+td.st{font-weight:600;white-space:nowrap}
+td.own,td.app{color:var(--ink2);font-size:13.5px;white-space:nowrap}
+
+.sev{font-family:var(--fm);font-size:10.5px;font-weight:600;letter-spacing:.04em;padding:2px 6px;border-radius:2px;white-space:nowrap}
+.sev-dk{background:var(--rust-s);color:var(--rust)}
+.sev-w{background:var(--ochre-s);color:var(--ochre)}
+.sev-a{background:var(--band);color:var(--muted)}
+
+.mat{display:inline-flex;flex-direction:column;gap:4px;min-width:84px}
+.scale{display:inline-flex;gap:2px}
+.scale i{display:block;width:14px;height:5px;background:var(--seg);border-radius:1px}
+.scale i.on{background:var(--seg-on)}
+.mlabel{font-family:var(--fm);font-size:10.5px;font-weight:600;letter-spacing:.04em}
+.m-intent{color:var(--muted)}
+.m-indicative,.m-agreed{color:var(--ochre)}
+.m-executed{color:var(--petrol)}
+.m-effective{color:var(--good)}
+.nomat{color:var(--muted)}
+
+/* gates */
+.gate{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:22px 24px;margin-bottom:22px;scroll-margin-top:20px}
+.gh{display:flex;gap:16px;align-items:flex-start;margin-bottom:14px}
+.gnum{font-family:var(--fd);font-weight:700;font-size:30px;line-height:1;color:var(--petrol);min-width:52px}
+.gtitle h3{font-size:21px;font-weight:600;letter-spacing:-.01em}
+.gmeta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:6px 0 0;font-size:13px;color:var(--muted);max-width:none}
+.gmeta code{color:var(--ink2);overflow-wrap:anywhere}
+.kind{font-family:var(--fm);font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:2px}
+.k-read{background:var(--ochre-s);color:var(--ochre)}
+.k-ach{background:var(--petrol-s);color:var(--petrol)}
+.leads b{color:var(--ink2);font-weight:600}
+
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:3px;overflow:hidden;margin:16px 0}
+.facts>div{background:var(--card);padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+.fk{font-family:var(--fm);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.fv{font-size:14.5px}
+.fv.ver{color:var(--petrol);font-weight:600}
+
+.note{border-radius:3px;padding:12px 16px;margin-top:10px}
+.note .nk{display:block;font-family:var(--fm);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px}
+.note p{margin:0;font-size:15px;max-width:none}
+.n-changed{background:var(--ochre-s)}
+.n-changed .nk{color:var(--ochre)}
+.n-done{background:var(--good-s)}
+.n-done .nk{color:var(--good)}
+.n-conv{background:var(--rust-s)}
+.n-conv .nk{color:var(--rust)}
+.note p.retired{margin-top:8px;font-size:12.5px;color:var(--ink2);overflow-wrap:anywhere}
+.retired span{font-family:var(--fm);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:8px}
+.retired code{font-size:11.5px}
+
+ul.plain{list-style:none;padding:0;margin:0 0 18px;display:grid;gap:8px;max-width:78ch}
+ul.plain li{padding-left:18px;position:relative}
+ul.plain li::before{content:"";position:absolute;left:0;top:.62em;width:7px;height:7px;border-radius:50%;background:var(--good)}
+ol.openlist{list-style:none;counter-reset:o;padding:0;margin:0;display:grid;gap:10px;max-width:78ch}
+ol.openlist li{counter-increment:o;display:grid;grid-template-columns:30px 1fr;gap:8px}
+ol.openlist li::before{content:counter(o) ".";font-family:var(--fm);font-weight:600;font-size:14px;color:var(--rust);line-height:1.75}
+ol.openlist li p{margin:0;max-width:none}
+h3.sub3{font-size:17px;margin:22px 0 12px}
+h3.sub3.good{color:var(--good)}
+h3.sub3.bad{color:var(--rust)}
+
+.srole{font-family:var(--fm);font-size:10.5px;font-weight:600;letter-spacing:.04em;padding:2px 6px;border-radius:2px;background:var(--band);color:var(--ink2);white-space:nowrap}
+.src-auth{background:var(--petrol-s);color:var(--petrol)}
+.src-bad{background:var(--rust-s);color:var(--rust)}
+footer{border-top:1px solid var(--rule);padding-top:18px;font-family:var(--fm);font-size:11.5px;color:var(--muted);line-height:1.8;overflow-wrap:anywhere}
+
+@media (max-width:960px){
+  .wrap{grid-template-columns:minmax(0,1fr);gap:0}
+  .rail{position:static;max-height:none;overflow:visible;padding-top:24px;border-bottom:1px solid var(--rule);margin-bottom:8px}
+  .rail ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
+}
+@media (max-width:760px){
+  ol.ladder{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:620px){
+  .wrap{padding-inline:16px}
+  .facts{grid-template-columns:minmax(0,1fr)}
+  .rail ul{grid-template-columns:minmax(0,1fr)}
+  .gate{padding:18px 16px}
+  .gh{gap:12px}
+  .gnum{min-width:0;font-size:26px}
+}
+</style></head><body>
+<div class="wrap">
+<nav class="rail" aria-label="Contents">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#verdict"><span class="rn">1</span>Verdict</a></li>
+    <li><a href="#how"><span class="rn">2</span>How a gate works</a></li>
+    <li><a href="#maturity"><span class="rn">3</span>Maturity</a></li>
+    <li><a href="#ladder"><span class="rn">4</span>The ladder</a></li>
+    <li><a href="#gates"><span class="rn">5</span>The twelve gates</a></li>
+    <li><a href="#ownership"><span class="rn">6</span>Who is accountable</a></li>
+    <li><a href="#remaining"><span class="rn">7</span>Closed and open</a></li>
+    <li><a href="#sources"><span class="rn">8</span>Sources</a></li>
+  </ol>
+  <h4>Gates · R readiness · A achievement</h4>
+  <ul><li><a href="#g0"><span class="rn">G0</span>Site Rights &amp; Social License<span class="rk k-ach">A</span></a></li><li><a href="#g1"><span class="rn">G1</span>Power, Utilities &amp; Technology Basis<span class="rk k-read">R</span></a></li><li><a href="#g2"><span class="rn">G2</span>Green Certification Pathway<span class="rk k-read">R</span></a></li><li><a href="#g3"><span class="rn">G3</span>Feedstock &amp; Logistics Terms<span class="rk k-read">R</span></a></li><li><a href="#g4"><span class="rn">G4</span>Binding Offtake<span class="rk k-ach">A</span></a></li><li><a href="#g5"><span class="rn">G5</span>EPC Risk Priced<span class="rk k-ach">A</span></a></li><li><a href="#g6"><span class="rn">G6</span>Independent Engineer Sign-off<span class="rk k-ach">A</span></a></li><li><a href="#g7"><span class="rn">G7</span>Insurability Confirmed<span class="rk k-read">R</span></a></li><li><a href="#g8"><span class="rn">G8</span>Audit-Grade Financial Model<span class="rk k-ach">A</span></a></li><li><a href="#g9"><span class="rn">G9</span>Permits Granted &amp; Appeal Risk Managed<span class="rk k-ach">A</span></a></li><li><a href="#g10"><span class="rn">G10</span>Financial Close<span class="rk k-ach">A</span></a></li><li><a href="#g11"><span class="rn">G11</span>COD &amp; Stabilization<span class="rk k-ach">A</span></a></li></ul>
+</nav>
+
+<main>
+<header class="mast">
+  <p class="eyebrow">GreenEarthX</p>
+  <h1>The Twelve Bankability Gates</h1>
+  <p class="sub">Evidence rules 4.8.0 — convergence computed, the credit decision left to the lender</p>
+  <blockquote class="mantra">Projects don’t become bankable because the story is convincing. They become bankable when the evidence converges.</blockquote>
+  <p class="aud">Reference for producers, financiers, certifiers and the GEX platform team.</p>
+  <div class="meta"><span><b>Rules 4.8.0</b></span><span>12 gates</span><span>93 evidence items</span>
+    <span>31 maturity requirements</span><span>26 keys retired</span><span>9 states</span><span>8 capital types</span></div>
+  <p class="revised">Revised 30 October 2026, after the review of 29–30 October of the process against an outside reviewer’s remarks, lender practice and the market record. Every gate, evidence item, maturity requirement, check and owner in this document was exported from the running engine on that date; the engine and the platform registry are held identical by a guardrail test. The stable explanation of the process, without status, is “The GEX Process”.</p>
+</header>
+
+<section class="sec" id="verdict">
+  <h2><span class="n">1</span>Verdict</h2>
+  <p><b>The gate structure is right, and the bar now tests more than whether documents exist.</b> Since 3.0.0 the engine has required achievements rather than intentions. It grades the offtake and the EPC on their own commitment ladders; it compares terms across contracts; a gate whose checks cannot run for lack of confirmed terms reads UNRESOLVED, never SATISFIED; and no party can verify its own evidence or change, alone, the premises that decide what applies to it.</p>
+  <p><b>The half of the mantra that was missing — convergence — is now partly true.</b> Ten checks compare delivery dates, capacity, specification, damages, longstops, power, certification, force majeure and the model’s inputs. They run only on terms the other party to the contract has confirmed on its token, so a figure the producer typed alone reaches no check. Convergence is not complete: section 5 lists, gate by gate, the comparisons still to compute.</p>
+  <div class="panel good"><span class="pk">What 4.3.0 to 4.8.0 changed</span>
+    <p>Until 4.3.0 a balance-sheet-funded project skipped every item in G6 and G8, because the engine called them all lender protection. It could climb to the state then named “Credit approved” with no independent engineer’s report and no base case — the pattern of a project that takes an investment decision on its own balance sheet before cost and offtake are settled. Seven of those items protect the sponsor’s own capital, and they now apply to every project. 16 items that protect only a lender still drop out. No gate is waived wholesale, and a state is never reached on waivers alone.</p>
+    <p>4.5.0 added expiry: a verified item with a validity date stops counting the day after it, with no new upload. 4.6.0 made the dates unavoidable for the instruments that lapse in practice — the land option or lease, the permits, the grid reservation, credit support and the EPC security package, the insurance quotation and the bound cover (marked “lapses” in each table): with no declared date such an item counts for 12 months after its verification and then stops, and one with neither a date nor a verification date counts for nothing. A declared date always wins, so a lease can say 25 years.</p>
+    <p>4.4.0 settled severity. Every applicable item stays mandatory, because a lender wants the full set; what changed is the reading. A deal-killer blocks the gate while it is missing. A <b>Required</b> item — the 62 formerly called warnings — leaves the gate incomplete, and becomes a deal-killer once capital is at work where the item says so. An <b>advisory</b> (two items) is shown and never blocks, so a gate can be satisfied below 100 %.</p>
+    <p>The state is now “Ready for credit decision”. It says the financial assessment is complete; whether a lender approves is the lender’s, and GEX does not record it. The offtaker’s confirmation no longer verifies the letter of credit behind its own payments: it confirms the contract.</p>
+    <p>Measured on 30 October: of the 11 stored evaluations, 10 are SPECULATIVE and the synthetic test project is TECHNICALLY PLAUSIBLE. They date from rules 4.2.0 and earlier and re-evaluate under 4.8.0 on next read. The one balance-sheet project has one evidence row, none verified, so its state cannot change; it gains seven applicable items, and the seven requests were raised on 30 October: three assigned to its executive, four — the independent engineer’s — with no one to ask yet.</p>
+  </div>
+</section>
+
+<section class="sec" id="how">
+  <h2><span class="n">2</span>How a gate works</h2>
+  <p>Seven steps, executed on every change.</p>
+  <ol class="steps">
+    <li><p><b>Evidence carries a status.</b> NOT_STARTED, IN_PROGRESS, SUBMITTED, UNDER_REVIEW, VERIFIED, REJECTED, EXPIRED. Only VERIFIED can count. An item that carries a validity date reads EXPIRED the day after it, with no new upload, and counts for nothing. For the instruments that lapse in practice, no declared date means 12 months from verification.</p></li>
+    <li><p><b>Instruments also carry a maturity.</b> Contracts, permits, policies, opinions, certificates and funding events declare how far they have progressed. A VERIFIED instrument counts only at or above the maturity its gate requires; 31 of the 93 items set a minimum, and for the rest verification alone counts.</p></li>
+    <li><p><b>Verification is independent.</b> A contract is verified by its counterparty’s confirmation on the contract’s token, which confirms the terms and the execution; an instrument a third party issues — a letter of credit — is reviewed independently. Studies, opinions, audits and the producer’s own plan are verified by an appointed independent reviewer, never the submitter or the project owner’s company. GEX verifies no party’s evidence.</p></li>
+    <li><p><b>A gate scores its applicable items.</b> Items that do not apply to the project’s power model, or protect only a lender it does not have, leave the denominator. A gate is complete when every required item is verified — an advisory is shown and never blocks — and its commitment checks, coherence checks and triggers also pass.</p></li>
+    <li><p><b>Each gate gets one determination.</b> SATISFIED; BLOCKED (a deal-killer is missing, a commitment is below the level the gate needs, or a check failed); UNRESOLVED (the items are verified but a check cannot run for lack of confirmed terms); INCOMPLETE; or WAIVED (not required for this financing model). A waived gate is never shown as satisfied by evidence.</p></li>
+    <li><p><b>Satisfied gates set the state.</b> The nine-state ladder is strictly sequential; no state is reachable without every gate of every state before it, and none on waivers alone.</p></li>
+    <li><p><b>States make capital decisions eligible, and every change re-evaluates.</b> GEX establishes that the evidence conditions are met; the bank, investor, DFI or grant authority still decides. Any change to evidence, a document, a premise, a contract term or a confirmation re-evaluates the project at once, and the designated executives are told when the state or a gate’s answer moves. Losing evidence moves the project backwards and withdraws eligibility, naming the gate responsible.</p></li>
+  </ol>
+</section>
+
+<section class="sec" id="maturity">
+  <h2><span class="n">3</span>Maturity — the axis the decision added</h2>
+  <p>Verification answers whether a document is authentic. Maturity answers how far the instrument behind it has progressed. They are independent: a letter of intent can be perfectly authentic, and it must never count as an executed contract.</p>
+  <ol class="ladder"><li><span class="scale" aria-hidden="true"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></span><b class="m-intent">INTENT</b><span class="def">Plan, mandate, letter of intent, MOU, strategy, or application in preparation.</span></li><li><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span><b class="m-indicative">INDICATIVE</b><span class="def">Term sheet, quotation, indication of terms, or application submitted.</span></li><li><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span><b class="m-agreed">AGREED</b><span class="def">Agreed-form document with all terms settled, not yet signed or granted.</span></li><li><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><b class="m-executed">EXECUTED</b><span class="def">Signed, bound, granted, issued or passed.</span></li><li><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><b class="m-effective">EFFECTIVE</b><span class="def">In force: conditions precedent satisfied, policy incepted, appeal period expired.</span></li></ol>
+  <div class="panel"><span class="pk">The maker/checker rule</span>
+    <p>The submitter declares maturity. A reviewer may confirm it or lower it, and may never raise it — verification must not turn a term sheet into a contract. A reviewer also cannot introduce a maturity the submitter never declared. Both rules are enforced on the platform’s write path, and every maturity change is recorded in the append-only audit trail even when the status does not change.</p>
+    <p>Where a gate sets a minimum, an instrument with no declared maturity does not count until someone declares it. The 62 items without a minimum are shown with a dash.</p>
+  </div>
+</section>
+
+<section class="sec" id="ladder">
+  <h2><span class="n">4</span>The ladder</h2>
+  <div class="tw"><table>
+    <thead><tr><th>State</th><th>Gates</th><th>What must be satisfied</th><th>Capital decision made eligible</th></tr></thead>
+    <tbody><tr><td class="st">SPECULATIVE</td><td class="mono">—</td><td>Entry state</td><td>—</td></tr><tr><td class="st">TECHNICALLY PLAUSIBLE</td><td class="mono">G0, G1</td><td>Site Rights &amp; Social License; Power, Utilities &amp; Technology Basis</td><td>GRANTS &amp; TA, SEED / VC / ANGEL</td></tr><tr><td class="st">COMMERCIALLY PLAUSIBLE</td><td class="mono">G2, G3</td><td>Green Certification Pathway; Feedstock &amp; Logistics Terms<br><span class="mono" style="color:var(--muted)">project finance: offtake O2, offtake terms for 60 % of output; balance sheet: offtake O2, offtake terms for 60 % of output</span></td><td>STRATEGIC EQUITY</td></tr><tr><td class="st">BUILDABLE</td><td class="mono">G4, G5</td><td>Binding Offtake; EPC Risk Priced<br><span class="mono" style="color:var(--muted)">G4 needs offtake O4; G5 needs EPC E4</span></td><td>PROJECT EQUITY</td></tr><tr><td class="st">STRUCTURALLY BANKABLE</td><td class="mono">G6, G7</td><td>Independent Engineer Sign-off; Insurability Confirmed<br><span class="mono" style="color:var(--muted)">project finance: offtake O6</span></td><td>DFI / MEZZ / GUARANTEES</td></tr><tr><td class="st">READY FOR CREDIT DECISION</td><td class="mono">G8</td><td>Audit-Grade Financial Model</td><td>SENIOR DEBT CREDIT APPROVAL (CONDITIONAL)</td></tr><tr><td class="st">FINANCEABLE</td><td class="mono">G9, G10</td><td>Permits Granted &amp; Appeal Risk Managed; Financial Close<br><span class="mono" style="color:var(--muted)">project finance: offtake O7 in force, EPC E6; balance sheet: offtake O5 in force, EPC E6</span></td><td>DEBT DRAWDOWN</td></tr><tr><td class="st">OPERATIONAL</td><td class="mono">G11</td><td>COD &amp; Stabilization</td><td>REFINANCE / BONDS / INFRA</td></tr><tr><td class="st">REFINANCING ELIGIBLE</td><td class="mono">G11</td><td>COD &amp; Stabilization<br><span class="mono" style="color:var(--muted)">12 months since the actual COD date</span></td><td>REFINANCE / BONDS / INFRA</td></tr></tbody></table></div>
+  <p>No gate is waived wholesale. For a balance-sheet project the 16 items marked “lender-financed only” drop out of their gates and the rest still apply; a state is never reached on waivers alone. Capital eligibility is generic by state: a named provider’s own requirements are not modelled.</p>
+  <p>Readiness gates (G1, G2, G3, G7) test what can be true at their stage — indicative terms, a feasible pathway, confirmed insurability. Every instrument they rely on must be EXECUTED at G10. That is the design: terms are established early, and financial close is where they become commitments.</p>
+  <h3 class="sub3">The commitment ladders</h3>
+  <p>The offtake and the EPC are graded on their own ladders, computed from the confirmed terms on the contract tokens plus the maturity of their documents. Each state names the level it needs, shown beneath it above.</p>
+  <div class="tw"><table><thead><tr><th>Offtake</th><th>What it means</th></tr></thead><tbody><tr><td class="st mono">O0</td><td>No verified offtake document with a declared maturity.</td></tr><tr><td class="st mono">O1</td><td>MoU or letter of intent: a buyer exists; nothing binds.</td></tr><tr><td class="st mono">O2</td><td>Term sheet, heads of agreement or agreed form: commercial fit, not binding.</td></tr><tr><td class="st mono">O3</td><td>Signed, but not a binding commitment: a framework, volume or price not firm, or conditions with no longstop.</td></tr><tr><td class="st mono">O4</td><td>Binding, subject to conditions precedent with a longstop date.</td></tr><tr><td class="st mono">O5</td><td>Binding and effective: conditions satisfied; obligations run from COD.</td></tr><tr><td class="st mono">O6</td><td>Firm take-or-pay or take-if-tendered from an investment-grade or credit-supported buyer.</td></tr><tr><td class="st mono">O7</td><td>Project-finance grade: O6 plus tenor covering debt, assignment, step-in, a termination payment and allocated change in law.</td></tr></tbody></table></div><div class="tw"><table><thead><tr><th>EPC</th><th>What it means</th></tr></thead><tbody><tr><td class="st mono">E0</td><td>No contracting strategy and no verified EPC document.</td></tr><tr><td class="st mono">E1</td><td>Strategy defined: contracting model chosen, contractor candidates identified.</td></tr><tr><td class="st mono">E2</td><td>FEED complete (AACE Class 3 or better).</td></tr><tr><td class="st mono">E3</td><td>Priced proposal: a verified quotation or term sheet on the FEED basis.</td></tr><tr><td class="st mono">E4</td><td>Agreed form: price, schedule, guarantees, damages and caps, security and licence guarantee all agreed.</td></tr><tr><td class="st mono">E5</td><td>Executed; long-lead items ordered.</td></tr><tr><td class="st mono">E6</td><td>Effective and bankable: notice to proceed issued, security posted.</td></tr></tbody></table></div>
+</section>
+
+<section class="sec" id="gates">
+  <h2><span class="n">5</span>The twelve gates</h2>
+  <p>Each gate as the engine now defines it. “Maturity” is the minimum at which a verified instrument counts, drawn as a position on the five-level ladder above; a dash means the item sets no minimum and verification alone counts. “Verified by” says whether the contract’s counterparty confirms the item or an independent reviewer does. Severity says what a missing item costs: a deal-killer blocks the gate (29 items); a required item leaves it incomplete (62); an advisory is shown and never blocks (2). Every applicable item that is not an advisory must be verified.</p>
+
+<section class="gate" id="g0">
+  <header class="gh">
+    <span class="gnum">G0</span>
+    <div class="gtitle">
+      <h3>Site Rights &amp; Social License</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G0_SITE_RIGHTS</code><span class="leads">leads to <b>TECHNICALLY PLAUSIBLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> The project has enforceable control of the full footprint it needs for development and construction, its zoning compatibility is known, and the community around it is mapped. Its technical suitability — major-hazard siting, geotechnics, logistics access — is evidenced.</p>
+  <p><b>Milestone.</b> Option, lease or purchase executed over the full project footprint.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Land Option or Lease Executed <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Zoning Compatibility Memo</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Stakeholder Map v1</td><td class="own">PROJECT</td><td><span class="sev sev-a">Advisory</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Site Technical Suitability (major-hazard siting, geotechnics, logistics access)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">Grants &amp; TA</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Independent engineer · Lenders’ adviser · Grant assessor</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Project Director</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Legal counsel · land agent</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>1 item added since 3.0.0: Site Technical Suitability (major-hazard siting, geotechnics, logistics access).</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>site footprint ↔ plant layout · tenure term ↔ construction schedule · zoning ↔ proposed facilities</p></div>
+</section>
+<section class="gate" id="g1">
+  <header class="gh">
+    <span class="gnum">G1</span>
+    <div class="gtitle">
+      <h3>Power, Utilities &amp; Technology Basis</h3>
+      <p class="gmeta"><span class="kind k-read">Readiness gate</span>
+        <code>G1_GRID_UTILITIES_REALITY</code><span class="leads">leads to <b>TECHNICALLY PLAUSIBLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> Electricity, water and critical utilities can realistically reach the plant at the capacity and timing the project assumes. For electrolysis, power is not an operating cost like any other: it sets production volume, cost, carbon intensity and certification eligibility at once. The technology basis is evidenced as well: maturity, a named licensor, and a mass and energy balance at the design basis.</p>
+  <p><b>Milestone.</b> Interconnection study returned and queue position held (or behind-the-meter generation specified); PPA at least at term-sheet stage; water source and abstraction pathway identified. Technology maturity dossier, licensor term sheet and a design-basis mass and energy balance.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Grid Interconnection Study</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Grid Queue Position / Capacity Reservation <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Grid Connection Cost &amp; Reinforcement Scope</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Connection Date vs COD Compatibility Memo</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>PPA Register (counterparty, MW, €/MWh, tenor)</td><td class="own">SALES</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Signed PPA / Term Sheet / LOI Evidence</td><td class="own">SALES</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Term sheet, quotation, indication of terms, or application submitted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span><span class="mlabel m-indicative">INDICATIVE</span></span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Counterparty</td></tr><tr><td>PPA Volume vs Plant Load Coverage Analysis</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>PPA Tenor vs Debt / Offtake Tenor Comparison</td><td class="own">FINANCE</td><td><span class="sev sev-a">Advisory</span></td><td><span class="nomat">—</span></td><td class="app">Grid Connected, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Curtailment Assessment (grid node congestion + load profile)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Dispatch / Load Factor Impact on Production Volume</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Water Source Plan (volume, cost, seasonal availability)</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Water Permit / Abstraction / Discharge Pathway</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>BTM Generation Asset Spec &amp; CAPEX</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">Off Grid Btm, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Generation Yield Study (P50/P90)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Off Grid Btm, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Grid-Independence Design Note</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Off Grid Btm, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Backup / Construction Power Plan</td><td class="own">PROJECT</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">Off Grid Btm, Hybrid</td><td class="own">Reviewer</td></tr><tr><td>Technology Maturity Dossier (readiness level, reference plants, operating hours, scale-up factor)</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Technology Licensor Identified — Term Sheet</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Term sheet, quotation, indication of terms, or application submitted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span><span class="mlabel m-indicative">INDICATIVE</span></span></td><td class="app">All</td><td class="own">Counterparty</td></tr><tr><td>Integrated Mass &amp; Energy Balance at Design Basis (incl. hydrogen buffer and turndown vs power profile)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">Seed / VC / Angel</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Independent engineer · Seed investor’s adviser · contracts also by counterparty confirmation</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Head of Engineering</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Grid and utilities · power procurement · legal (water)</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>3 items added since 3.0.0: Technology Maturity Dossier (readiness level, reference plants, operating hours, scale-up factor); Technology Licensor Identified — Term Sheet; Integrated Mass &amp; Energy Balance at Design Basis (incl. hydrogen buffer and turndown vs power profile).</p></div><div class="note n-done"><span class="nk">Checks now computed</span><p>Also tested here, scored on G4: <b>C6</b> Feedstock and power contracted for the offtake&#x27;s volume and tenor. A failing check blocks the gate; one that cannot run for lack of confirmed terms holds it UNRESOLVED.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>P50/P90 generation ↔ production case · connection date ↔ COD · PPA tenor ↔ debt tenor · water volume ↔ process requirement</p></div>
+</section>
+<section class="gate" id="g2">
+  <header class="gh">
+    <span class="gnum">G2</span>
+    <div class="gtitle">
+      <h3>Green Certification Pathway</h3>
+      <p class="gmeta"><span class="kind k-read">Readiness gate</span>
+        <code>G2_CERTIFICATION_PATH_LOCKED</code><span class="leads">leads to <b>COMMERCIALLY PLAUSIBLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> A named certification regime applies to this project and is demonstrably feasible for its configuration, with the eligibility premises — above all additionality — evidenced. This is the pathway, not the certificate. The product’s qualification pathway is identified.</p>
+  <p><b>Milestone.</b> Scheme selected; additionality and temporal/geographic correlation evidenced; GHG methodology and MRV plan agreed.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Certification Scheme Selected (RFNBO / RED III / 45V / ISCC)</td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Additionality Evidence (generator age, no state aid)</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Temporal &amp; Geographic Correlation Alignment</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>GHG Methodology Memo</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>MRV Plan v1 (monitoring, reporting, verification)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Product Qualification Pathway (spec standard and annex status, e.g. ASTM D7566, ISO 6583)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">None — this gate advances the state only</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Certifier</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Sustainability / Regulatory Lead</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Engineering · power procurement</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>1 item added since 3.0.0: Product Qualification Pathway (spec standard and annex status, e.g. ASTM D7566, ISO 6583).</p></div><div class="note n-done"><span class="nk">Checks now computed</span><p>Also tested here, scored on G4: <b>C7</b> Power and CO2 sourcing meet the certification the offtake requires; <b>C8</b> Producer certifies under the scheme the offtake requires. A failing check blocks the gate; one that cannot run for lack of confirmed terms holds it UNRESOLVED.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>GHG methodology ↔ process and energy inputs</p></div>
+</section>
+<section class="gate" id="g3">
+  <header class="gh">
+    <span class="gnum">G3</span>
+    <div class="gtitle">
+      <h3>Feedstock &amp; Logistics Terms</h3>
+      <p class="gmeta"><span class="kind k-read">Readiness gate</span>
+        <code>G3_INPUTS_SECURED</code><span class="leads">leads to <b>COMMERCIALLY PLAUSIBLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> Feedstock and logistics are evidenced at terms a named counterparty has put on paper — volume, quality and tenor — consistent with the production case. The feedstock specification is matched to the design basis and to the certification scheme.</p>
+  <p><b>Milestone.</b> Feedstock supply term sheet; transport and logistics study; storage plan.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Feedstock Supply Terms (volume, quality, tenor)</td><td class="own">PROJECT</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Term sheet, quotation, indication of terms, or application submitted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span><span class="mlabel m-indicative">INDICATIVE</span></span></td><td class="app">All</td><td class="own">Counterparty</td></tr><tr><td>Transport &amp; Logistics Study</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Storage Plan</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Feedstock Specification &amp; Eligibility Matched to Design Basis and Certification Scheme</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">Strategic Equity</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Independent engineer · Strategic investor’s adviser · contracts also by counterparty confirmation</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Commercial / Procurement Lead</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Supply chain · engineering</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>1 item added since 3.0.0: Feedstock Specification &amp; Eligibility Matched to Design Basis and Certification Scheme.</p></div><div class="note n-done"><span class="nk">Checks now computed</span><p>Also tested here, scored on G4: <b>C6</b> Feedstock and power contracted for the offtake&#x27;s volume and tenor. A failing check blocks the gate; one that cannot run for lack of confirmed terms holds it UNRESOLVED.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>feedstock volume and quality ↔ process mass balance · supply tenor ↔ debt tenor</p></div>
+</section>
+<section class="gate" id="g4">
+  <header class="gh">
+    <span class="gnum">G4</span>
+    <div class="gtitle">
+      <h3>Binding Offtake</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G4_OFFTAKE_BANKABLE</code><span class="leads">leads to <b>BUILDABLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> A creditworthy buyer is contractually bound to take the product at a price that supports the debt, with the protections that make the contract financeable. The seller’s own exposure — delivery, specification, delay and shortfall caps, certification warranty, longstop — has been reviewed.</p>
+  <p><b>Milestone.</b> Offtake executed; buyer credit assessed; credit support in place; take-or-pay, termination, assignment, step-in and pricing terms confirmed.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Executed Offtake Agreement</td><td class="own">SALES</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Counterparty</td></tr><tr><td>Offtaker Credit Assessment</td><td class="own">FINANCE</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Credit Support (parent guarantee / letter of credit) <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">FINANCE</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Take-or-Pay Floor</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Termination Payment Formula</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Assignment to Lenders</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Lender Step-in Rights</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Hedgeable Pricing Index</td><td class="own">FINANCE</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Price Review / Reopener Mechanism</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Seller-Side Offtake Terms Reviewed (delivery, specification, delay and shortfall caps, certification warranty, longstop)</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">Project Equity</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Lenders’ adviser · contracts also by counterparty confirmation</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Chief Commercial Officer</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Sales · legal · treasury</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>Graded on the offtake ladder: it needs O4 — binding, subject to conditions precedent with a longstop date. Checks C1–C3 and C5–C8 compare the offtake with the EPC, supply, power and certification terms. The offtaker’s confirmation covers the contract and its terms; the credit support — a letter of credit or a guarantee — is a third party’s instrument and is reviewed independently (4.3.0).</p><p>1 item added since 3.0.0: Seller-Side Offtake Terms Reviewed (delivery, specification, delay and shortfall caps, certification warranty, longstop).</p></div><div class="note n-done"><span class="nk">Checks now computed</span><p><b>C1</b> First delivery after guaranteed completion plus commissioning allowance; <b>C2</b> Contracted volume within guaranteed capacity × availability; <b>C3</b> Offtake specification guaranteed by the EPC or licensor; <b>C5</b> Longstop covers permits, investment decision, construction and commissioning; <b>C6</b> Feedstock and power contracted for the offtake&#x27;s volume and tenor; <b>C7</b> Power and CO2 sourcing meet the certification the offtake requires; <b>C8</b> Producer certifies under the scheme the offtake requires. A failing check blocks the gate; one that cannot run for lack of confirmed terms holds it UNRESOLVED.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>offtake volume ↔ the P50/P90 production case (C2 tests guaranteed capacity) · price formula ↔ model revenue · buyer credit ↔ exposure</p></div>
+</section>
+<section class="gate" id="g5">
+  <header class="gh">
+    <span class="gnum">G5</span>
+    <div class="gtitle">
+      <h3>EPC Risk Priced</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G5_EPC_RISK_PRICED</code><span class="leads">leads to <b>BUILDABLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> Construction price, schedule and performance regime are settled in agreed form, so capital cost is a commitment rather than an estimate. The design is mature (FEED complete and independently reviewed), the technology is wrapped, long-lead items are reserved and the contractor’s security is in place.</p>
+  <p><b>Milestone.</b> EPC in agreed form, fixed price or capped GMP; liquidated damages; date-certain schedule; performance test protocol; interface matrix; OEM warranties; contractor due diligence. FEED complete and independently reviewed; technology licence and process guarantee; long-lead items reserved; EPC security package.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>EPC Contract — Fixed Price or Capped GMP (agreed form)</td><td class="own">PROJECT</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Agreed-form document with all terms settled, not yet signed or granted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span><span class="mlabel m-agreed">AGREED</span></span></td><td class="app">All</td><td class="own">Counterparty</td></tr><tr><td>Delay &amp; Performance Liquidated Damages</td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Date-Certain Construction Schedule</td><td class="own">PROJECT</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Performance Test Protocol</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Interface Matrix (EPC / OEM / balance of plant)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>OEM Warranties (agreed form)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Agreed-form document with all terms settled, not yet signed or granted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span><span class="mlabel m-agreed">AGREED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>EPC Contractor Due Diligence</td><td class="own">PROJECT</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>FEED Complete — AACE Class 3 or Better</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Technology Licence &amp; Process Performance Guarantee (or equivalent wrap)</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Agreed-form document with all terms settled, not yet signed or granted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span><span class="mlabel m-agreed">AGREED</span></span></td><td class="app">All</td><td class="own">Counterparty</td></tr><tr><td>Long-Lead Items Reserved</td><td class="own">PROJECT</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Agreed-form document with all terms settled, not yet signed or granted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span><span class="mlabel m-agreed">AGREED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>EPC Security Package &amp; Damage Caps (performance bond, parent guarantee, retention) <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Agreed-form document with all terms settled, not yet signed or granted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span><span class="mlabel m-agreed">AGREED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Independent Technical Review of FEED</td><td class="own">INDEPENDENT_ENGINEER</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">None — this gate advances the state only</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Independent engineer · contracts also by counterparty confirmation</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Project Director</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Engineering · legal · procurement</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>Graded on the EPC ladder: it needs E4 — agreed form, with price, schedule, guarantees, damages, caps and security all agreed. Check C4 tests the offtake’s delay exposure against EPC damages, contingency and sponsor support. The contractor’s confirmation covers the contract; the bond or guarantee behind it is a third party’s instrument and is reviewed independently, like the offtaker’s credit support.</p><p>5 items added since 3.0.0: FEED Complete — AACE Class 3 or Better; Technology Licence &amp; Process Performance Guarantee (or equivalent wrap); Long-Lead Items Reserved; EPC Security Package &amp; Damage Caps (performance bond, parent guarantee, retention); Independent Technical Review of FEED.</p></div><div class="note n-done"><span class="nk">Checks now computed</span><p><b>C4</b> Offtake delay exposure backed by EPC damages, contingency and sponsor support. Also tested here, scored on G4: <b>C1</b> First delivery after guaranteed completion plus commissioning allowance; <b>C3</b> Offtake specification guaranteed by the EPC or licensor; <b>C5</b> Longstop covers permits, investment decision, construction and commissioning. A failing check blocks the gate; one that cannot run for lack of confirmed terms holds it UNRESOLVED.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>scope ↔ plant configuration · performance guarantees ↔ the production model</p></div>
+</section>
+<section class="gate" id="g6">
+  <header class="gh">
+    <span class="gnum">G6</span>
+    <div class="gtitle">
+      <h3>Independent Engineer Sign-off</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G6_IE_SIGNOFF</code><span class="leads">leads to <b>STRUCTURALLY BANKABLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> An Independent Engineer has issued a final, version-specific conclusion on the technical basis: energy balance, capital cost, operating cost and completion tests.</p>
+  <p><b>Milestone.</b> IE report issued — final, not draft — with its component opinions.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Independent Engineer Report — Issued (final)</td><td class="own">INDEPENDENT_ENGINEER</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Energy Balance Verified by the IE</td><td class="own">INDEPENDENT_ENGINEER</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>IE Opinion — CAPEX Reasonableness</td><td class="own">INDEPENDENT_ENGINEER</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>IE Opinion — OPEX Reasonableness</td><td class="own">INDEPENDENT_ENGINEER</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Completion Test Definitions (IE-agreed)</td><td class="own">INDEPENDENT_ENGINEER</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">DFI / Mezz / Guarantees</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Independent engineer</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Lender (appoints and instructs)</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Project team supplies data only</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>4.3.0: applies to every project. The report and the energy-balance, CAPEX and OPEX opinions protect the sponsor’s own capital as much as a lender’s; only the completion-test definitions stay lender-only. Before, all five items were waived for balance-sheet funding.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>IE production and capex conclusions ↔ TEA and model base case · IE-reviewed version ↔ current model</p></div>
+</section>
+<section class="gate" id="g7">
+  <header class="gh">
+    <span class="gnum">G7</span>
+    <div class="gtitle">
+      <h3>Insurability Confirmed</h3>
+      <p class="gmeta"><span class="kind k-read">Readiness gate</span>
+        <code>G7_INSURANCE_BOUND</code><span class="leads">leads to <b>STRUCTURALLY BANKABLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> Insurers have quoted the construction and operating programme on terms lenders accept — not merely that a broker has been appointed. First-of-a-kind exclusions and the equipment makers’ warranty backstop are reviewed.</p>
+  <p><b>Milestone.</b> Programme terms quoted by insurers; broker market report; deductible levels accepted by lenders; exclusions register reviewed.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Insurance Programme Terms — Quoted by Insurers <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">TREASURY</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Term sheet, quotation, indication of terms, or application submitted."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span><span class="mlabel m-indicative">INDICATIVE</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Broker Market Report</td><td class="own">TREASURY</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Deductible Levels Accepted by Lenders</td><td class="own">TREASURY</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Exclusions Register Reviewed</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>First-of-a-Kind Exclusions &amp; OEM Warranty Backstop Reviewed</td><td class="own">TREASURY</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">None — this gate advances the state only</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Lenders’ adviser · Insurer</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">CFO / Treasury</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Broker · legal</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>Binding and the lenders’ loss-payee endorsement remain at G10; this gate establishes insurability.</p><p>1 item added since 3.0.0: First-of-a-Kind Exclusions &amp; OEM Warranty Backstop Reviewed.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>coverage and deductibles ↔ EPC and operating risks · insured values ↔ capex</p></div>
+</section>
+<section class="gate" id="g8">
+  <header class="gh">
+    <span class="gnum">G8</span>
+    <div class="gtitle">
+      <h3>Audit-Grade Financial Model</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G8_AUDIT_GRADE_MODEL</code><span class="leads">leads to <b>READY FOR CREDIT DECISION</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> The model used for the capital decision is locked, independently audited, and exposes downside cases and covenant effects.</p>
+  <p><b>Milestone.</b> Locked base case; model audit opinion issued; downside cases; covenant suite; reserve logic; hedging plan; consistency with the IE.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Locked Base-Case Financial Model</td><td class="own">FINANCE</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Model Audit Opinion — Issued</td><td class="own">FINANCE</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Lender Downside Cases</td><td class="own">FINANCE</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Covenant Suite Defined</td><td class="own">FINANCE</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>DSRA &amp; Maintenance Reserve Logic</td><td class="own">FINANCE</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Hedging Plan (rates, FX, power)</td><td class="own">TREASURY</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Model Consistent with IE Findings</td><td class="own">FINANCE</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">Senior Debt Credit Approval (conditional)</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Lenders’ adviser</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">CFO</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Financial modelling team</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>4.3.0: the base case, downside cases and consistency with the engineer apply to every project; the model audit opinion, covenant suite, reserve logic and hedging plan stay lender-only. Before, the whole gate was waived for balance-sheet funding. 4.2.0: if check C10 cannot run for lack of confirmed terms the gate reads UNRESOLVED, not SATISFIED. The state it leads to is now called “Ready for credit decision”: it says the financial assessment is complete, never that a lender has approved.</p></div><div class="note n-done"><span class="nk">Checks now computed</span><p><b>C10</b> Model inputs equal contract terms; offtake tenor covers debt. A failing check blocks the gate; one that cannot run for lack of confirmed terms holds it UNRESOLVED.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>capex, opex and production ↔ verified TEA/IE basis · PPA terms ↔ model assumptions · debt structure ↔ CFADS and DSCR</p></div>
+</section>
+<section class="gate" id="g9">
+  <header class="gh">
+    <span class="gnum">G9</span>
+    <div class="gtitle">
+      <h3>Permits Granted &amp; Appeal Risk Managed</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G9_PERMITS_SAFE</code><span class="leads">leads to <b>FINANCEABLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> The pre-construction consents are granted and challenge risk is managed; the operating permit has a credible pathway.</p>
+  <p><b>Milestone.</b> EIA granted; construction permit granted; ancillary permits granted; legal opinion on appeal risk; operating permit pathway.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>EIA / Environmental Permit — Granted <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Construction Permit — Granted <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Ancillary Permits — Granted <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Legal Opinion on Appeal Risk</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Operating Permit Pathway</td><td class="own">LEGAL</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Stakeholder Management Plan v2</td><td class="own">PROJECT</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">None — this gate advances the state only</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Lenders’ adviser</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Regulatory / Permitting Lead</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Environmental consultant · legal</span></div>
+  </div>
+  <div class="note n-conv"><span class="nk">Convergence still to compute</span><p>consented capacity ↔ design · permit conditions ↔ schedule and cost · permit validity ↔ construction and COD</p></div>
+</section>
+<section class="gate" id="g10">
+  <header class="gh">
+    <span class="gnum">G10</span>
+    <div class="gtitle">
+      <h3>Financial Close</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G10_FINANCIAL_CLOSE_CP</code><span class="leads">leads to <b>FINANCEABLE</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> Financial close has happened: conditions precedent satisfied, equity injected, reserves funded, security perfected, insurance bound, legal opinions issued — and every readiness instrument from G1, G3, G5 and G7 now executed. This is where the ladder turns terms into commitments.</p>
+  <p><b>Milestone.</b> Financial close. Funding committed; insurance bound; operating organisation in place.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>Conditions Precedent Satisfied</td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="In force: conditions precedent satisfied, policy incepted, appeal period expired."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="mlabel m-effective">EFFECTIVE</span></span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Funds Committed to This Project (equity injected, or a committed facility or escrow; an internal approval alone does not count)</td><td class="own">FINANCE</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Debt Service Reserve Funded</td><td class="own">TREASURY</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Security Package Perfected</td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="In force: conditions precedent satisfied, policy incepted, appeal period expired."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="mlabel m-effective">EFFECTIVE</span></span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>Insurance Bound &amp; Certificates Delivered (lenders as loss payee where project-financed) <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">TREASURY</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="In force: conditions precedent satisfied, policy incepted, appeal period expired."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="mlabel m-effective">EFFECTIVE</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>All Major Project Contracts Executed (PPA, feedstock, EPC, O&amp;M, offtake)</td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Legal Opinions — Issued</td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All · lender-financed only</td><td class="own">Reviewer</td></tr><tr><td>O&amp;M Contract or Operating Organisation in Place</td><td class="own">PROJECT</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">Debt Drawdown</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Lenders’ adviser</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">CFO</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Legal · treasury · lender counsel</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>Check C9 compares force-majeure clauses across the offtake, EPC and supply contracts. The state it completes also needs the offtake in force (O7 under project finance, O5 on the balance sheet) and the EPC at E6.</p><p>3 added, 2 replaced since 3.0.0: Funds Committed to This Project (equity injected, or a committed facility or escrow; an internal approval alone does not count); Insurance Bound &amp; Certificates Delivered (lenders as loss payee where project-financed); O&amp;M Contract or Operating Organisation in Place.</p></div><div class="note n-done"><span class="nk">Checks now computed</span><p><b>C9</b> Force majeure aligned across offtake, EPC and supply contracts. A failing check blocks the gate; one that cannot run for lack of confirmed terms holds it UNRESOLVED.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>facility terms ↔ debt schedule · funded equity and DSRA ↔ closing statement · security package ↔ asset and entity structure</p></div>
+</section>
+<section class="gate" id="g11">
+  <header class="gh">
+    <span class="gnum">G11</span>
+    <div class="gtitle">
+      <h3>COD &amp; Stabilization</h3>
+      <p class="gmeta"><span class="kind k-ach">Achievement gate</span>
+        <code>G11_COD_STABILIZATION</code><span class="leads">leads to <b>OPERATIONAL</b></span></p>
+    </div>
+  </header>
+  <p><b>Establishes.</b> The plant works at the performance it was financed on, operates lawfully, reports its carbon, and has a stable operating record — which is what refinancing eligibility rests on. The first certificates are issued and the first on-specification deliveries have been accepted by the offtaker.</p>
+  <p><b>Milestone.</b> COD certified; performance tests passed; operating permit in force; MRV reporting live; 6–12 months of stable operation. First certificates issued; first deliveries accepted.</p>
+  <div class="tw"><table class="ev">
+    <thead><tr><th>Evidence required</th><th>Owner function</th><th>Severity</th><th>Maturity</th><th>Applies to</th><th>Verified by</th></tr></thead>
+    <tbody><tr><td>COD / Taking-Over Certificate</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Performance Tests Passed</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Operating Permit — In Force <span class="mono" style="color:var(--muted)">· lapses</span></td><td class="own">LEGAL</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="In force: conditions precedent satisfied, policy incepted, appeal period expired."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="mlabel m-effective">EFFECTIVE</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>MRV Reporting Live</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>6–12 Months Stable Operation</td><td class="own">ENGINEERING</td><td><span class="sev sev-w">Required</span></td><td><span class="nomat">—</span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>Certification Audit Passed &amp; First Certificates / Proofs of Sustainability Issued</td><td class="own">ENGINEERING</td><td><span class="sev sev-dk">Deal-killer</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr><tr><td>First On-Specification Deliveries Accepted by the Offtaker</td><td class="own">SALES</td><td><span class="sev sev-w">Required</span></td><td><span class="mat" title="Signed, bound, granted, issued or passed."><span class="scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span><span class="mlabel m-executed">EXECUTED</span></span></td><td class="app">All</td><td class="own">Reviewer</td></tr></tbody></table></div>
+  <div class="facts">
+    <div><span class="fk">Capital decision made eligible</span><span class="fv">Refinance / Bonds / Infra</span></div>
+    <div><span class="fk">Verified by</span><span class="fv ver">Certifier · Independent engineer</span></div>
+    <div><span class="fk">Accountable</span><span class="fv">Project Director → Operations Director</span></div>
+    <div><span class="fk">Responsible</span><span class="fv">Commissioning team · EPC contractor</span></div>
+  </div>
+  <div class="note n-changed"><span class="nk">Changed since 3.0.0</span><p>2 items added since 3.0.0: Certification Audit Passed &amp; First Certificates / Proofs of Sustainability Issued; First On-Specification Deliveries Accepted by the Offtaker.</p></div><div class="note n-conv"><span class="nk">Convergence still to compute</span><p>tested capacity and efficiency ↔ model and guarantees · COD ↔ offtake, debt and refinancing dates</p></div>
+</section>
+</section>
+
+<section class="sec" id="ownership">
+  <h2><span class="n">6</span>Who is accountable for what</h2>
+  <p>Producing a document, uploading it, controlling access to it and accepting responsibility for its conclusions are different things. An engineer may author a report, the producer submit it, and a lender commission it and rely on it.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Role</th><th>Accountable for</th><th>Must never own</th></tr></thead>
+    <tbody>
+      <tr><td class="st">Evidence owner</td><td>Obtaining, maintaining and updating the required evidence, and declaring what each instrument is and how far it has progressed.</td><td>The verification of its own evidence.</td></tr>
+      <tr><td class="st">Author or issuer</td><td>The document’s statements and professional conclusions, within its stated scope.</td><td>The decision to rely on it.</td></tr>
+      <tr><td class="st">Counterparty</td><td>Confirming its contractual agreement and the authority of its representative.</td><td>Terms it has not confirmed; the authentication of a third party’s instrument.</td></tr>
+      <tr><td class="st">Reviewer</td><td>A defined assessment: its scope, qualifications, limitations and findings.</td><td>Any commercial interest in the outcome — and the power to raise a declared maturity.</td></tr>
+      <tr><td class="st">GEX</td><td>Identity and permission controls, governance of the rules, the computation, version history and auditability. It appoints reviewers, may be the second party on a premise change, and decides a contested one.</td><td>The evidence, its verification, and the capital decision.</td></tr>
+      <tr><td class="st">Decision authority</td><td>Accepting residual risk and taking the investment, credit or drawdown decision.</td><td>Letting a GEX gate stand in for its own approval.</td></tr>
+    </tbody></table></div>
+  <p>Stated as one line: GEX must never own the evidence or the capital decision, the producer must never own the verification, and a counterparty’s confirmation covers what the counterparty can know. Every gate has two ownership axes, carried identically in both registries — personas, who sees the gate, and accountable functions, who does the work. Evidence requests are assigned to named people at the company that owns the work; due dates exist and are not yet used.</p>
+</section>
+
+<section class="sec" id="remaining">
+  <h2><span class="n">7</span>What the decisions closed, and what remains</h2>
+  <h3 class="sub3 good">Closed since 3.0.0</h3>
+  <ul class="plain"><li><b>Convergence never tested.</b> Ten cross-contract checks compare the terms; a failing check blocks its gate (4.0.0). A check that cannot run holds the gate UNRESOLVED instead of passing it (4.2.0).</li><li><b>Terms typed by the owner alone.</b> Only terms the other party has confirmed on the contract’s token reach the engine; a changed term is held back until it is confirmed again.</li><li><b>Premises changed by the owner alone.</b> A change that removes evidence needs a registered document and a second party’s confirmation; a contested premise reverts to the protective one until GEX decides.</li><li><b>Verification self-assertable.</b> Since 1 October a reviewer status is a verify, which only an appointed independent reviewer may give, never the submitter or the owner’s company, and which must name the sha256 of a document on file.</li><li><b>Hand-typed gate figures.</b> Every figure on every screen comes from the engine; the seeded assessments were removed from the project profiles and archived.</li><li><b>A persona seeing some gates and a score over all of them.</b> The engine readout states, wherever it is shown, that the overall figure and the state cover every gate when a role sees fewer.</li><li><b>Screen locks on hand-typed gate figures.</b> Removed; a screen now says which gate it feeds and how far the engine has it.</li><li><b>Stale evaluations.</b> Every change to evidence, a document, a premise, a contract term or a confirmation re-evaluates the project; an engine outage drops the stored result instead of keeping it. Designated executives are told when the state or a gate moves.</li><li><b>Documents attached as browser URLs.</b> The screen uses the real upload, which records the SHA-256 that binds an assertion to an artefact.</li><li><b>Balance-sheet projects skipping independent validation.</b> Closed in 4.3.0, with the guard that a state is never reached on waivers alone.</li><li><b>A state that could not be reached.</b> “Proven — refinancing” is now reached when G11 is satisfied and 12 months have passed since the actual COD date, a field on the producer’s schedule card; with no date, or fewer months, the project stays Operational and the screen says which (4.8.0).</li><li><b>No clock on any gate.</b> Each gate’s first satisfaction is now recorded once, never rewritten, and shown on the project report with its distance from the project’s start. It measures from 31 October 2026: gates satisfied earlier are not measured, so it cannot yet support a claim about acceleration. It can start to.</li><li><b>A declared gate ordering that nothing enforced.</b> The registry served a prerequisite graph that nothing read, and a “100 %” completion threshold that stopped being true when an advisory stopped blocking a gate. Both are removed; the only ordering is the state ladder, which the engine enforces.</li><li><b>“Funding committed” accepting an internal approval.</b> The G10 item now reads “Funds committed to this project”: equity injected, or a committed facility or escrow. A board’s approval alone does not count; the lenders’ adviser verifies it against that wording (4.7.0).</li><li><b>Evidence that never expired.</b> A document can carry a validity date, declared with it: a permit’s validity, a letter of credit’s expiry, a policy period. The day after, the item reads EXPIRED, counts for nothing and — unless it is an advisory — blocks its gate and names the expiry; the project steps back with no new upload. A stored evaluation is re-evaluated when read once an item has expired, and a daily sweep re-evaluates projects so their designated executives are told (4.5.0). Outside those instruments an item with no date never expires, and a reviewer may add or shorten a date, never extend it. The twelve-month default is JML’s decision of 31 October (4.6.0).</li><li><b>Severity that decided nothing.</b> Every applicable item stays mandatory; a deal-killer blocks, a required item (formerly “warning”) leaves the gate incomplete, and the two advisories are shown and never block (4.4.0).</li><li><b>A state claiming a lender’s decision.</b> “Credit approved” is now “Ready for credit decision”.</li><li><b>A counterparty’s confirmation verifying its own bank’s instrument.</b> The offtaker and the EPC contractor confirm their contracts; the letter of credit and the performance bond or guarantee are reviewed independently.</li></ul>
+  <h3 class="sub3 bad">Still open</h3>
+  <ol class="openlist">
+    <li><p><b>Applicability knows two premises.</b> The financing model and the power model decide what applies. Additionality is required of every project as a deal-killer whose blocked action is RFNBO eligibility, so a project on another certification route inherits an obligation that is not its own. The route should come from the confirmed offtake, which already names the scheme it requires.</p></li>
+    <li><p><b>No reviewer is appointed on any project.</b> Everything that needs an independent reviewer cannot yet be verified on a live project. That is fail-closed, not a fault. It now includes the letter of credit and the EPC security package; the latter has the independent engineer as its only verifier, whose scope is G5 as a whole.</p></li>
+    <li><p><b>One tolerance for every numeric check.</b> Equality allows 1 % of the larger value whatever the field or unit; a materiality that differs by field is not modelled.</p></li>
+    <li><p><b>Convergence is incomplete.</b> The comparisons listed under each gate are still to compute, among them the production case against the offtake, the buyer’s credit against the exposure, and the debt structure against CFADS and DSCR.</p></li>
+    <li><p><b>Assignment without due dates.</b> 56 of the 92 open evidence requests have an assignee and none has a due date. Most of the rest wait for an external party, because an independent engineer is not an account of the producer.</p></li>
+    <li><p><b>Eligibility is generic by state.</b> A named instrument’s own requirements are not modelled, and the credit decision is not recorded: GEX shows that the decision can be taken, not that it was.</p></li>
+    <li><p><b>Identifiers overclaim.</b> G3 and G7 keep SECURED and BOUND for stability while their names and evidence state what is tested; the state identifier CREDIT_APPROVED keeps its old name beside its new label.</p></li>
+  </ol>
+</section>
+
+<section class="sec" id="sources">
+  <h2><span class="n">8</span>Sources</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Source</th><th>Role</th><th>Used for</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">gex_pf_engine/backend/pf_engine/core/bankability_engine.py</td><td><span class="srole src-auth">Authoritative</span></td><td>Every gate, evidence item, maturity requirement, commitment ladder, check, state and capital decision in this document — rules 4.8.0.</td></tr>
+      <tr><td class="mono">gex-platform-enhanced/backend/app/core/bankability_engine.py</td><td><span class="srole ">Registry</span></td><td>Held identical to the engine by tests/test_gate_registries_agree.py. Also resolves evidence keys for authorisation.</td></tr>
+      <tr><td class="mono">backend/app/core/abac.py (REVIEWER_GATES) and contract_tokens.py</td><td><span class="srole ">Platform</span></td><td>Which reviewer role verifies which gate, and which contract instruments a counterparty’s confirmation verifies.</td></tr>
+      <tr><td class="mono">The GEX Process, rules 4.8.0</td><td><span class="srole ">Companion</span></td><td>The stable explanation without status, generated from the same rules.</td></tr>
+      <tr><td class="mono">Reviewer’s remarks of 29 October 2026</td><td><span class="srole ">Review</span></td><td>Responsibility allocation, counterparty assurance, the credit-decision state, balance-sheet scope, applicability, and the internal inconsistencies. Each point was checked against the engine; one claim — that O4 and E4 are undefined — was wrong, and they are published in section 4.</td></tr>
+      <tr><td class="mono">Hydrogen Council with McKinsey; MEED; IFC; OECD; GH2; Oxford Energy; Ørsted (FlagshipONE)</td><td><span class="srole ">Market record</span></td><td>That offtake is where projects fail, that credit support is a separate instrument, that the pre-FID stage is the financing gap, and the FlagshipONE case. Several figures reach us through trade press and are not used as thresholds.</td></tr>
+      <tr><td class="mono">Live database, 30 October 2026</td><td><span class="srole ">Measured</span></td><td>11 stored evaluations (10 SPECULATIVE, 1 synthetic test project TECHNICALLY PLAUSIBLE); 92 open requests, 56 assigned, none with a due date; no reviewer appointed; platform suite 1234 pass, engine suite 266 pass.</td></tr>
+    </tbody></table></div>
+</section>
+
+<footer>
+  Exported from the running engine on 30 October 2026 · evidence rules 4.8.0<br>
+  Generated by <span class="mono">backend/scripts/export_twelve_gates.py</span>; wording that only a person can say is in <span class="mono">scripts/data/gate_narrative_3_0_0.json</span> and in the script.
+</footer>
+</main>
+</div>
+
+</body></html>

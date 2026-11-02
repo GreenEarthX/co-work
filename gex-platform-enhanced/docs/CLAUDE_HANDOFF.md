@@ -2676,6 +2676,163 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     Tests: `test_engine_view_and_reports_pg.py` (15), `test_premises_pg.py` (5),
     `test_contract_tokens_pg.py` (8), engine +2; each rule negative-verified. Head **078**.
     Suite, both URLs exported, run alone: **1202 pass, 15 skip, 0 fail**; PF engine 241 pass.
+    **Rules 4.3.0 (2026-10-30), after reviewing the process against an external reviewer's remarks, lender
+    practice and FlagshipONE** (JML: "go ahead with steps 1 to 3"). (1) `CREDIT_APPROVED` is relabelled
+    "Ready for credit decision" (engine label, `vocabulary.py`, `StageGatesPage`); the id is unchanged. The state
+    says the financial assessment is complete; the lender's approval is not recorded by GEX. (2) Seven items
+    that protect the sponsor's own capital are no longer lender-only: G6 `ie_report_issued`,
+    `energy_balance_verified`, CAPEX and OPEX opinions; G8 `base_case_model`, `downside_cases`,
+    `model_consistency_with_ie`. `LENDER_ONLY_GATES` is now empty — no gate is waived wholesale; 16 items stay
+    lender-only. Mirrored in `app/core/bankability_engine.py` (held equal by `test_gate_registries_agree.py`).
+    (3) `_compute_state`: a state is never reached on waivers alone. (4) `BUILDABLE` label no longer says the
+    parties "can sign" (G4 needs O4, which is signed). (5) `CONTRACT_EVIDENCE["offtake"]` no longer includes
+    `credit_support_package`: the offtaker's confirmation covers terms agreed and the contract executed, not a
+    third party's letter of credit; that item is reviewed independently. Same shape, since moved:
+    `epc_security_package` (see the entry below).
+    **Rules 4.8.0 + migration 080 (2026-10-31, JML "yes to 2 and 5").** (2) `REFINANCING_ELIGIBLE` is reachable:
+    G11 satisfied AND `REFINANCING_STABLE_MONTHS` (12) since the new schedule-card field `actual_cod_date`
+    (mapped to the `technical` token kind, confirmed by the appointed reviewer like the rest of the producer's own
+    plan; mirrored in the platform's card schema). No date / too soon holds the state at OPERATIONAL and names the
+    date it becomes eligible; losing the date after eligibility is a named regression. Engine 266 (5 new; removing
+    the time requirement fails 3). (5) The gate clock: `project_gate_clock` (080; RLS forced, gex_app has
+    INSERT+SELECT only — pinned by `test_gate_clock_pg.py`, re-granting UPDATE fails it) records each gate's FIRST
+    satisfaction once, via `reevaluate` -> `app/core/gate_clock.py` (never fails an evaluation; first wins; a
+    waived gate is not recorded). `GET /api/v1/projects/{id}/gate-clock` (persona-scoped) and a panel on the
+    project report. Measured from 31 Oct 2026 only — earlier satisfactions are not measured; the TEST fixture shows
+    G0–G3 on 31 Oct. **The backend on :8000 has no --reload: restart it to serve the new route.** (The engine on
+    :8001 runs --reload and already serves 4.8.0.) Platform 1234 / 15 skip, frontend 232.
+    **Prerequisite graph removed (2026-10-31, JML "go").** `routes_gate_registry.py` no longer serves
+    `GATE_PREREQUISITES`/`prerequisites` or `min_completion_for_next` (nothing read the first; the second said 100 %,
+    false since 4.4.0). `/gates/registry` keeps phase, evidence, owners, linked screens and capital. Pinned by
+    `test_the_registry_advertises_no_ordering_or_threshold_the_engine_does_not_enforce` (restoring a field fails it).
+    **Rules 4.7.0 (2026-10-31): G10 "Funds Committed to This Project".** `equity_injected` (identifier unchanged)
+    no longer reads "or board-approved funding": it names equity injected, or a committed facility or escrow, and
+    says an internal approval alone does not count — the outside review's point. WORDING only (still EXECUTED
+    maturity, lenders' adviser verifies it); the fixture's answer key still matches. Engine 261; platform 1228.
+    **"N submitted, not independently verified" built (2026-10-31, JML "go").** Engine gate evaluations gain
+    `submitted_count` (applicable items SUBMITTED or UNDER_REVIEW); never in `verified_count`, never what satisfies
+    a gate (engine 260; counting them as verified fails the test). Passed through `engine_view` and shown beside
+    the verified count on Stage Gates, the screen gate line, the finance and producer bankability views, the project list and the score page (CovenantsPage deliberately not: its figures are covenant compliance, not gate evidence)
+    (`lib/submittedNote.ts`). Platform 1228 pass / 15 skip, frontend 232.
+    **Decision (2026-10-31, JML "go with your recommendation"): the owner NEVER names its own verifier, balance
+    sheet or not — rule unchanged.** A "not verified" label is acceptable as a STATUS and never as a substitute:
+    an item an owner submits (its own commissioned engineer's report included) stays SUBMITTED with the document
+    on file for a reader to open, counts for nothing, and the gate does not satisfy. Self-funded projects that
+    want their gates to count need an outside relying party (an insurer, offtaker or financing partner) to
+    instruct a reviewer. Reasons and sources: the answer given on 31 Oct — independence is what a verification
+    is worth (IE selected by the relying party; EP IESC "not directly linked with the client"); every tiered
+    precedent found (limited vs reasonable assurance, ICMA second-party opinion vs verification) tiers
+    INDEPENDENT review, none equates self-assessment. Possible small follow-up, not built: show "N submitted,
+    not independently verified" beside a gate's verified count.
+    **First reviewer appointment — prepared, NOT made (2026-10-31, JML "go").** `docs/First_Reviewer_Appointment_Pack.docx`
+    (what an appointment needs, the eight steps, the instruction letter) and
+    `backend/scripts/preflight_reviewer_appointment.py`: runs the real `reviewer_appointments.appoint` inside a
+    transaction that is ALWAYS rolled back, prints OK or the exact refusal, and lists the unverified items the
+    reviewer would face (pinned by `tests/test_preflight_reviewer_appointment.py`: it never commits). Run four
+    ways on the live database: owner's own account, a non-reviewer role and owner-as-instructor were refused, a
+    qualifying candidate passed; reviewer rows stayed 0. **Needs from JML:** a real independent person (every
+    existing account is a seeded demo account), the relying party and its written instruction. **A rule to decide:**
+    a balance-sheet project has no valid instructing party (the owner cannot instruct, a self-funded sponsor has
+    no lender) — Rheinwerk's four engineer items cannot be verified until an outside relying party exists, or
+    the rule changes. Not changed.
+    **The :8000 backend (checked 2026-10-31, read-only): not stale any more.** Pid 40008 (`uvicorn app.main:app
+    --host 0.0.0.0 --port 8000`, started 16:44 from an interactive shell) and the engine on :8001 (pid 37938,
+    16:42) both started AFTER the last edits to the code they serve (engine 15:49, proxy 13:15, tokens 11:29);
+    the backend's OpenAPI serves the 076/077/078 routes and `valid_until`. The old Oct-27 process is gone.
+    Decision: the backend stays under `.claude/launch.json` (the preview), NOT an agent — in development it needs
+    `--reload` and an agent would hold the port.
+    **INSTALLED 2026-10-31 (JML: "install them"): `com.gex.stack-up`, `com.gex.pf-engine`, `com.gex.expiry-sweep`
+    are loaded in ~/Library/LaunchAgents beside `com.gex.postgres-backup`; all four read exit 0 after the first
+    run. The sweep was kicked once under launchd (0 stale projects, exit 0). The pf-engine agent is waiting on
+    the engine you run by hand (pids 37938/37968) and takes over only when it stops. To confirm tomorrow:
+    `launchctl list | grep gex` — 07:30 sweep and 12:30 backup both 0.**
+    **Stack self-start — written (2026-10-31, JML "go").** `files/start_stack.sh` +
+    `com.gex.stack-up.plist` (at login, then every 15 min): opens Docker Desktop if it is down, `docker start`s
+    `files-postgres-1` if stopped, waits until it answers a query, starts the :55432 forwarder if stopped, and is
+    silent when all is up. It NEVER creates or recreates a container: a missing one exits 12 ("the volume may be
+    gone"). Exits 10 no CLI, 11 Docker did not start, 12 missing, 14 not answering. `files/start_pf_engine.sh` +
+    `com.gex.pf-engine.plist` (KeepAlive): the PF engine from its own virtualenv on 127.0.0.1:8001, no
+    --reload (`launchctl kickstart -k gui/$(id -u)/com.gex.pf-engine` after a code change); if you already run
+    it by hand it waits and takes over only when yours stops (verified against your process on :8001, which it
+    left alone). Real recovery tested: stopped postgres → script started it, head 079 intact. Logs
+    `db_backups/stack.log`. `tests/test_start_stack.py` (6, fake docker; "a missing container is never started"
+    negative-verified). Install commands are in each plist's header. Still manual: the platform backend on :8000.
+    **Expiry sweep scheduled — agent written, NOT installed (2026-10-31, JML "go").**
+    `files/com.gex.expiry-sweep.plist` (daily 07:30, Standard process type, absolute venv path, settings from
+    `backend/.env`; verified running in a clean `env -i` environment with no exports). Install: the two commands
+    in its header. Exit codes show in `launchctl list | grep gex`: 0 fine, 2 database unreadable (Docker
+    stopped: `docker start files-postgres-1`), 3 a project could not be re-evaluated (PF engine on :8001
+    down); logs `db_backups/expiry_sweep.out/.err`. `tests/test_expiry_sweep.py` (4; the last-valid-day
+    boundary negative-verified). It needs the PF engine running — nothing starts it on boot.
+    **Rules 4.6.0 (2026-10-31, JML: "12 months as default … a verified item of that kind with no date would
+    then not count. Implement this").** `EXPIRY_REQUIRED` in the engine (10 items, pinned by a test): the land option
+    or lease, the grid queue / capacity reservation, the EIA, construction, ancillary and operating permits,
+    `credit_support_package`, `epc_security_package`, `insurance_term_sheet`,
+    `insurance_certificates_delivered`. (The last two and the EPC security package are my reading of "insurance"
+    and "credit support" — JML to confirm or trim.) For these a VERIFIED item with no declared `valid_until` is
+    valid `DEFAULT_VALIDITY_MONTHS` (12) after `verified_at`, then EXPIRED; a declared date always wins (a
+    lease says 25 years); neither date → it counts for nothing ("undated", fail closed). Detail carries
+    `validity_basis` and `expiry_required`; `next_expiry` uses the effective dates. A second reviewer's
+    re-verification restarts the 12 months. The evidence form says so; the row says "(12 months after
+    verification; no date declared)". `load_comprehension_test_project.py --verify` now evaluates the fixture as
+    "verified today" and still matches Appendix B. Engine 259 (7 new; removing the default branch fails 3).
+    **Docker Desktop was down on 31 Oct: `open -a Docker`, then `docker start files-postgres-1`.**
+    **Evidence expiry, rules 4.5.0 + migration 079 (2026-10-30, my recommendation, JML "go").** New column
+    `bankability_evidence.valid_until` (text date) and `evidence_events.old/new_valid_until`; backup
+    taken, applied, round-tripped 079→078→079. Engine: `_apply_expiry` turns a VERIFIED item past its date into
+    EXPIRED before anything else reads it (gates AND the offtake/EPC ladders); an expired non-advisory item
+    adds a blocked reason "X expired on D" so the gate is BLOCKED and a regression names it; snapshot gains
+    `as_of`, `expired_evidence`, `next_expiry`, `expiry_watch` (60 days). Last valid day is the date itself.
+    Write path: `POST /bankability/evidence` takes `valid_until`; a date in the past is refused; a SUBMITTED
+    write REPLACES the date (new document, none = never expires), any other write keeps it; a reviewer may add
+    or shorten it, never extend (`VERIFICATION_CANNOT_EXTEND_VALIDITY`). `fresh_snapshot` re-evaluates a stored
+    result whose `next_expiry` has passed (reason "evidence expired"). `scripts/expire_evidence.py` (dry run
+    by default; `--apply` re-evaluates through `reevaluate`, which notifies designated executives) is the
+    sweep — NOT scheduled; add a launchd agent after the backup. Screen: StageGatesPage has "Valid until
+    (optional)" on the submission form and shows "Valid until D" / "Expired on D" on the row. Engine 252
+    tests (6 new; disabling `_apply_expiry` fails 3); `tests/test_evidence_expiry.py` (10; the extension rule and
+    the stale-read branch each negative-verified). **Decision still open:** dates are optional — requiring one
+    for named items (permits, credit support, the land option, insurance) is not decided.
+    **Certification applicability — drafted, NOT built (2026-10-30).** `docs/Certification_Applicability_Draft.docx`
+    is a draft for a certifier: only `additionality_evidence` (deal-killer) and `power_sourcing_alignment_note`
+    depend on the route; closed route list on the offtake card (RFNBO / 45V / EU low-carbon / RCF / biogenic /
+    other), protective default, route read only from the buyer-confirmed offtake, mapping held as a PROPOSED
+    reference parameter. Six questions await a certifier. Build only after the answers (would be rules 4.5.0).
+    **Rheinwerk's seven requests raised (2026-10-30, JML "go" on the recommendation).** New
+    `backend/scripts/raise_requests.py` (dry run by default; refuses non-live, inapplicable and already-present
+    keys; migration credential; backup first — `db_backups/daily/gex_platform_2026-10-30_1137.dump`). Applied to
+    `proj_rheinwerk_prosumer`: 7 NOT_STARTED rows + 7 `evidence_events` (actor `ops:raise_requests`): three
+    (`base_case_model`, `downside_cases`, `model_consistency_with_ie`) to `anna_keller_rheinwerk_de`, four
+    independent-engineer items unassigned (an external party is not an account of the producer). Open requests
+    92, 56 assigned, 0 due dates. SQLite parity: these rows are PostgreSQL only; `test_evidence_slice.py` excludes
+    them by their note prefix and `test_raised_requests_are_open_requests_only` pins that the exclusion covers
+    open requests only (negative-verified). **A `LIKE '%'` in a clause run through the SQL shim made the parity
+    tests skip silently (`tuple index out of range`): the shim reads `%` as a parameter — use `substr`.**
+    Platform 1205 pass / 15 skip. The first reviewer appointment is NOT done: every account is a seeded demo
+    account; it needs a real independent person, an instructing party and the sha256 of their instruction.
+    **EPC security package moved (2026-10-30, JML "yes, move it").** `CONTRACT_EVIDENCE["epc"]` no longer
+    includes `epc_security_package`: the contractor confirms the contract, the bond or guarantee behind it is
+    reviewed independently (independent engineer, whose gate scope is G5). A guard test pins that no third-party
+    instrument is counterparty-verified. Platform 1204 pass / 15 skip. Consequence: that item cannot be verified
+    on a live project until a reviewer is appointed.
+    **Rules 4.4.0 (2026-10-30, JML: "go with your recommendation on severity").** Every applicable item stays
+    mandatory except an advisory (`stakeholder_map_v1`, `ppa_tenor_debt_comparison`): shown, listed in the gate's
+    `advisory_open`, never blocking, so a gate can be SATISFIED below 100 %. Severity reads as the consequence of
+    a missing item — deal-killer BLOCKS, "warning" leaves INCOMPLETE (escalates to deal-killer once capital is at
+    work where the item says so). The 62 "warning" items are now LABELLED "Required" (`SEVERITY_LABELS`, engine
+    rules, frontend badge, both documents); the identifier `warning` is unchanged. Engine 246 tests (3 new, the
+    completion rule negative-verified); platform 1203 / 15 skip; frontend 230.
+    **Open from the review:** certification applicability (additionality is "ALL" and a deal-killer for a
+    biofuel project) — to be derived from the confirmed offtake card (C7/C8), not a new premise; one 1 %
+    tolerance for every field; `REFINANCING_ELIGIBLE` unreachable while G11 unlocks refinancing; G10
+    Rheinwerk (BALANCE_SHEET) has the seven newly
+    applicable items with no request rows — raise them with `convert_invented_evidence.py --assign-open`
+    after a backup. Tests: engine 243 (3 new, each negative-verified: old scope fails 2, removing the waiver
+    guard fails 1); `test_contract_tokens_pg.py` credit-support check negative-verified.
+    `docs/The_Twelve_Bankability_Gates.html` (the 3.0.0 edition's format, updated to 4.3.0, with status) is built by
+    `backend/scripts/export_twelve_gates.py`; its authored wording is in `scripts/data/gate_narrative_3_0_0.json`.
+    `docs/GEX_Process.html` / `.docx` regenerated (six-role accountability table, O/E ladders published, "No
+    minimum" maturity wording, one-tolerance wording).
     **Screen gate line (later 10-28).** Each screen that does a gate's work shows, above the page,
     "Feeds G4 Binding Offtake — 0 of 10 items verified · blocked: …" with a link to the open items
     (`components/ScreenGateLine.tsx`, mounted in `Layout`). Engine figures, persona-scoped; locks

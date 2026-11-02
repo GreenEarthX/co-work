@@ -207,7 +207,7 @@ READINESS = Concept(
         Term("COMMERCIALLY_PLAUSIBLE","Commercially plausible", "There is a credible commercial case.",                            "Development"),
         Term("BUILDABLE",             "Buildable",              "Site, inputs and permits make the project physically deliverable.", "Development"),
         Term("STRUCTURALLY_BANKABLE", "Structurally bankable",  "The contract and risk structure meets lender expectations.",      "Pre-Finance"),
-        Term("CREDIT_APPROVED",       "Credit approved",        "A lender's credit process has approved the project.",             "Finance Ready"),
+        Term("CREDIT_APPROVED",       "Ready for credit decision", "The financial assessment is complete, so a lender or investor can take its credit decision. GEX does not take or record that decision.", "Finance Ready"),
         Term("FINANCEABLE",           "Financeable",            "The project can reach financial close.",                          "Finance Ready"),
         Term("OPERATIONAL",           "Operational",            "The plant is built and running.",                                 "Investment Secured"),
         Term("REFINANCING_ELIGIBLE",  "Refinancing eligible",   "Operating history supports refinancing on better terms.",         "Investment Secured"),

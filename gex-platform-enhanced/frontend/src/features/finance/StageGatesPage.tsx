@@ -25,6 +25,7 @@ import { useVisibleProjects } from "@/hooks/useVisibleProjects";
 import { DeclaredVsEvidenced } from "@/components/DeclaredVsEvidenced";
 import { refusalReason } from "@/lib/engineReadout";
 import { ReviewersPanel } from "./ReviewersPanel";
+import { submittedNote } from "@/lib/submittedNote";
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES (match engine output models)
@@ -57,6 +58,14 @@ interface EvidenceItem {
   required_maturity?: Maturity | null;
   declared_maturity?: Maturity | null;
   maturity_status?: "NOT_REQUIRED" | "MET" | "BELOW_REQUIRED" | "NOT_DECLARED";
+  // Evidence rules 4.5.0 — a document's own validity. From valid_until the engine
+  // reads a VERIFIED item as EXPIRED (expired_on) and it counts for nothing.
+  valid_until?: string | null;
+  expired_on?: string | null;
+  // Rules 4.6.0 — where the date came from: declared with the document, the 12-month
+  // default (items that lapse in practice), or none at all ("undated": it counts for nothing).
+  validity_basis?: "declared" | "default" | "undated" | null;
+  expiry_required?: boolean;
   // Assignment (migration 055) — the named person who must produce the item.
   // Added by the platform, not the engine; absent means nobody is assigned.
   assignee_user_id?: string | null;
@@ -185,6 +194,7 @@ interface GateEvaluation {
   owners: string[];
   total_evidence: number;
   verified_count: number;
+  submitted_count?: number;
   completion_pct: number;
   is_complete: boolean;
   evidence_detail: EvidenceItem[];
@@ -253,6 +263,9 @@ interface Snapshot {
 interface EvidenceUpdateMeta {
   notes?: string;
   maturity?: Maturity;
+  // Until when the document is valid (YYYY-MM-DD). Declared with the submission;
+  // a reviewer can shorten it, never extend it.
+  validUntil?: string;
   // The document a verification attests to: the sha256 of one on file for the
   // item. The server refuses VERIFIED without it. Who acted is never sent —
   // the server takes it from the session.
@@ -278,6 +291,9 @@ interface SubmissionDraft {
   // What the submitted instrument actually is. Required when the item has a
   // maturity requirement; the reviewer can confirm or lower it, never raise it.
   maturity: Maturity | "";
+  // Optional: a permit's validity, a letter of credit's expiry. A new document
+  // carries its own date, so it is never pre-filled from the previous one.
+  validUntil: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -367,7 +383,7 @@ const STATE_LABELS: Record<string, string> = {
   COMMERCIALLY_PLAUSIBLE: "Commercially Plausible",
   BUILDABLE: "Buildable",
   STRUCTURALLY_BANKABLE: "Structurally Bankable",
-  CREDIT_APPROVED: "Credit Approved",
+  CREDIT_APPROVED: "Ready for credit decision",
   FINANCEABLE: "Financeable",
   OPERATIONAL: "Operational",
   REFINANCING_ELIGIBLE: "Refinancing Eligible",
@@ -1030,6 +1046,7 @@ function GateCard({
     documentFile: null,
     notes: "",
     maturity: "",
+    validUntil: "",
   });
   const completePct = Math.round(gate.completion_pct);
   // A lens filters what is shown; it never changes the gate's determination.
@@ -1057,6 +1074,7 @@ function GateCard({
       notes: "",
       // Pre-fill with what was previously declared, so a resubmission keeps it.
       maturity: evidence.declared_maturity ?? "",
+      validUntil: "",
     });
     setSubmitError(null);
     setSubmitEvidence(evidence);
@@ -1098,6 +1116,7 @@ function GateCard({
     }
     onUpdateEvidence(submitEvidence.key, "SUBMITTED", {
       maturity: submissionDraft.maturity || undefined,
+      validUntil: submissionDraft.validUntil || undefined,
       notes: [
         `Submit to: ${submissionDraft.submitTo}`,
         `Where: ${submissionDraft.destination}`,
@@ -1211,6 +1230,7 @@ function GateCard({
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <span className="text-xs text-slate-500">
                   {gate.verified_count}/{gate.total_evidence} verified
+                  {submittedNote(gate.submitted_count)}
                 </span>
                 {lens && lensReadout && (
                   <span className="rounded bg-slate-100 px-1.5 text-xs font-medium text-slate-700">
@@ -1385,6 +1405,24 @@ function GateCard({
                           " · maturity not declared — cannot count until it is"}
                         {ev.maturity_status === "BELOW_REQUIRED" &&
                           ` · declared ${ev.declared_maturity} — does not count`}
+                      </div>
+                    )}
+                    {!notApplicable && (ev.expired_on || ev.valid_until || ev.validity_basis === "undated") && (
+                      <div
+                        className={`mt-0.5 pl-5 text-[11px] ${
+                          ev.expired_on ? "font-medium text-red-700" : "text-slate-500"
+                        }`}
+                        data-testid="evidence-validity"
+                      >
+                        {ev.validity_basis === "undated"
+                          ? "No validity date and no verification date — it does not count until it is verified again"
+                          : ev.expired_on
+                            ? `Expired on ${ev.expired_on}${
+                                ev.validity_basis === "default" ? " (12 months after verification; no date was declared)" : ""
+                              } — it no longer counts; submit the renewed document`
+                            : `Valid until ${String(ev.valid_until).slice(0, 10)}${
+                                ev.validity_basis === "default" ? " (12 months after verification; no date declared)" : ""
+                              }`}
                       </div>
                     )}
                     {(ev.status === "IN_PROGRESS" ||
@@ -1759,6 +1797,30 @@ function GateCard({
                         )}
                     </label>
                   )}
+
+                  <label className="block">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Valid until (optional)
+                    </span>
+                    <input
+                      id="submission-valid-until"
+                      type="date"
+                      min={new Date().toISOString().slice(0, 10)}
+                      value={submissionDraft.validUntil}
+                      onChange={(event) =>
+                        setSubmissionDraft((draft) => ({
+                          ...draft,
+                          validUntil: event.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {submitEvidence.expiry_required
+                        ? "This kind of document lapses. Enter the last day it is valid — a lease may run for years. If you leave it empty it counts for 12 months after it is verified, then stops."
+                        : "If the document lapses — a permit, a letter of credit, a policy — enter the last day it is valid. From the next day the item stops counting and the gate says so; leave it empty if it does not lapse."}
+                    </p>
+                  </label>
 
                   <label className="block">
                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -2437,6 +2499,7 @@ export function StageGatesPage() {
         notes: meta?.notes,
         maturity: meta?.maturity,
         document_sha256: meta?.documentSha256,
+        valid_until: meta?.validUntil,
       });
       setSnapshot(updated);
     } catch (err: any) {

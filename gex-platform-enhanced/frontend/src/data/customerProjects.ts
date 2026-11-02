@@ -109,6 +109,8 @@ export interface BankabilityGate {
   completion_pct: number;
   total_evidence: number;
   verified_count: number;
+  /** Submitted or under review, not independently verified (engine 4.6.0+): shown, never counted. */
+  submitted_count?: number;
   is_complete: boolean;
   blocking_items: string[];
   description: string;

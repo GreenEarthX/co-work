@@ -1,7 +1,7 @@
 """
 GEX Platform — Gate Registry API
 =================================
-Exposes the canonical gate definitions with prerequisites, phases,
+Exposes the canonical gate definitions with phases,
 and linked screens so the frontend can enforce workflow progression
 without hardcoding gate knowledge.
 
@@ -37,22 +37,10 @@ GATE_PHASE: dict[str, str] = {
     "G11_COD_STABILIZATION":       "OPERATIONS",
 }
 
-# ── Prerequisites: which gates must be ≥ threshold before this gate is actionable ──
-
-GATE_PREREQUISITES: dict[str, list[str]] = {
-    "G0_SITE_RIGHTS":              [],
-    "G1_GRID_UTILITIES_REALITY":   [],
-    "G2_CERTIFICATION_PATH_LOCKED":[],
-    "G3_INPUTS_SECURED":           [],
-    "G4_OFFTAKE_BANKABLE":         ["G0_SITE_RIGHTS", "G1_GRID_UTILITIES_REALITY", "G3_INPUTS_SECURED"],
-    "G5_EPC_RISK_PRICED":          ["G4_OFFTAKE_BANKABLE"],
-    "G6_IE_SIGNOFF":               ["G5_EPC_RISK_PRICED"],
-    "G7_INSURANCE_BOUND":          ["G5_EPC_RISK_PRICED"],
-    "G8_AUDIT_GRADE_MODEL":        ["G6_IE_SIGNOFF"],
-    "G9_PERMITS_SAFE":             [],
-    "G10_FINANCIAL_CLOSE_CP":      ["G4_OFFTAKE_BANKABLE", "G5_EPC_RISK_PRICED", "G6_IE_SIGNOFF", "G7_INSURANCE_BOUND", "G8_AUDIT_GRADE_MODEL", "G9_PERMITS_SAFE"],
-    "G11_COD_STABILIZATION":       ["G10_FINANCIAL_CLOSE_CP"],
-}
+# No prerequisite graph and no completion threshold are served (2026-10-31). The only gate ordering is the
+# state ladder, which the engine enforces (evaluate -> _compute_state); a "prerequisites" list read by nothing
+# and a "min_completion_for_next" of 100 % — false since rules 4.4.0, when an advisory stopped blocking a gate —
+# described an enforcement that did not exist. tests/test_gate_registries_agree.py pins that they stay gone.
 
 # ── Screen linkage: the screens where each gate's work is done ──
 # Information only (JML 2026-10-28): a screen shows which gate it feeds and how far
@@ -82,10 +70,8 @@ class GateRegistryEntry(BaseModel):
     phase: str
     required_evidence: list[str]
     owners: list[str]
-    prerequisites: list[str]
     linked_screens: list[str]
     unlocks_capital: list[str]
-    min_completion_for_next: float
 
 
 def _build_entry(gate: GateDefinition) -> GateRegistryEntry:
@@ -95,20 +81,14 @@ def _build_entry(gate: GateDefinition) -> GateRegistryEntry:
         phase=GATE_PHASE.get(gate.id, "UNKNOWN"),
         required_evidence=gate.required_evidence,
         owners=[o.value for o in gate.owners],
-        prerequisites=GATE_PREREQUISITES.get(gate.id, []),
         linked_screens=GATE_SCREENS.get(gate.id, []),
         unlocks_capital=[c.value for c in gate.unlocks_capital],
-        # The engine requires EVERY applicable item verified — `is_complete` is
-        # `verified == applicable_total`, not a threshold. This field previously
-        # advertised 60.0 for every gate, which told the interface a gate
-        # advanced at a completion the engine never accepts.
-        min_completion_for_next=100.0,
     )
 
 
 @router.get("/registry")
 async def get_gate_registry() -> list[GateRegistryEntry]:
-    """Full gate registry with prerequisites, phases, and linked screens."""
+    """Full gate registry with phases and linked screens."""
     return [_build_entry(g) for g in GATE_REGISTRY]
 
 

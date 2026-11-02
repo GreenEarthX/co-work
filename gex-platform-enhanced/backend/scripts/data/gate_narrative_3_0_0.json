@@ -1,0 +1,257 @@
+{
+ "g0": {
+  "gate_name": "Site Rights & Social License",
+  "establishes": "The project has enforceable control of the full footprint it needs for development and construction, its zoning compatibility is known, and the community around it is mapped.",
+  "milestone": "Option, lease or purchase executed over the full project footprint.",
+  "accountable": "Project Director",
+  "responsible": "Legal counsel · land agent",
+  "changed_3_0_0": "The land option or lease must now be EXECUTED. Heads of terms on land no longer satisfy the gate.",
+  "convergence_old": [
+   "Site footprint ↔ plant layout",
+   "tenure term ↔ construction schedule",
+   "zoning ↔ proposed facilities"
+  ],
+  "items": [
+   "Land Option or Lease Executed",
+   "Zoning Compatibility Memo",
+   "Stakeholder Map v1"
+  ]
+ },
+ "g1": {
+  "gate_name": "Power, Water & Critical Utility Access",
+  "establishes": "Electricity, water and critical utilities can realistically reach the plant at the capacity and timing the project assumes. For electrolysis, power is not an operating cost like any other: it sets production volume, cost, carbon intensity and certification eligibility at once.",
+  "milestone": "Interconnection study returned and queue position held (or behind-the-meter generation specified); PPA at least at term-sheet stage; water source and abstraction pathway identified.",
+  "accountable": "Head of Engineering",
+  "responsible": "Grid and utilities · power procurement · legal (water)",
+  "changed_3_0_0": "Unchanged, except that the PPA item must now be at least INDICATIVE — an LOI no longer satisfies a slot whose own name says \"signed or term sheet\". The PPA must be EXECUTED by G10.",
+  "convergence_old": [
+   "Contracted or generated MWh ↔ plant load",
+   "P50/P90 generation ↔ production case",
+   "connection date ↔ COD",
+   "PPA tenor ↔ debt tenor",
+   "water volume ↔ process requirement"
+  ],
+  "items": [
+   "Grid Interconnection Study",
+   "Grid Queue Position / Capacity Reservation",
+   "Grid Connection Cost & Reinforcement Scope",
+   "Connection Date vs COD Compatibility Memo",
+   "PPA Register (counterparty, MW, €/MWh, tenor)",
+   "Signed PPA / Term Sheet / LOI Evidence",
+   "PPA Volume vs Plant Load Coverage Analysis",
+   "PPA Tenor vs Debt / Offtake Tenor Comparison",
+   "Curtailment Assessment (grid node congestion + load profile)",
+   "Dispatch / Load Factor Impact on Production Volume",
+   "Water Source Plan (volume, cost, seasonal availability)",
+   "Water Permit / Abstraction / Discharge Pathway",
+   "BTM Generation Asset Spec & CAPEX",
+   "Generation Yield Study (P50/P90)",
+   "Grid-Independence Design Note",
+   "Backup / Construction Power Plan"
+  ]
+ },
+ "g2": {
+  "gate_name": "Green Certification Pathway",
+  "establishes": "A named certification regime applies to this project and is demonstrably feasible for its configuration, with the eligibility premises — above all additionality — evidenced. This is the pathway, not the certificate.",
+  "milestone": "Scheme selected; additionality and temporal/geographic correlation evidenced; GHG methodology and MRV plan agreed.",
+  "accountable": "Sustainability / Regulatory Lead",
+  "responsible": "Engineering · power procurement",
+  "changed_3_0_0": "Additionality restored — the platform registry had dropped it, although it is an RFNBO pillar and a deal-killer. The MRV plan the runtime lacked is added. Five items.",
+  "convergence_old": [
+   "Power source and additionality ↔ chosen regime",
+   "GHG methodology ↔ process and energy inputs"
+  ],
+  "items": [
+   "Certification Scheme Selected (RFNBO / RED III / 45V / ISCC)",
+   "Additionality Evidence (generator age, no state aid)",
+   "Temporal & Geographic Correlation Alignment",
+   "GHG Methodology Memo",
+   "MRV Plan v1 (monitoring, reporting, verification)"
+  ]
+ },
+ "g3": {
+  "gate_name": "Feedstock & Logistics Terms",
+  "establishes": "Feedstock and logistics are evidenced at terms a named counterparty has put on paper — volume, quality and tenor — consistent with the production case.",
+  "milestone": "Feedstock supply term sheet; transport and logistics study; storage plan.",
+  "accountable": "Commercial / Procurement Lead",
+  "responsible": "Supply chain · engineering",
+  "changed_3_0_0": "Supply must now be at INDICATIVE maturity. The runtime accepted a letter of intent; the platform registry accepted a \"strategy\" and a \"concept note\" for a gate it called \"Inputs Secured\". Execution is required at G10 — a CO₂ supplier will not sign before the offtake that gives the plant a reason to exist. Renamed from \"Key Inputs Secured\"; the identifier keeps SECURED for stability.",
+  "convergence_old": [
+   "Feedstock volume and quality ↔ process mass balance",
+   "supply tenor ↔ debt and offtake period"
+  ],
+  "items": [
+   "Feedstock Supply Terms (volume, quality, tenor)",
+   "Transport & Logistics Study",
+   "Storage Plan"
+  ]
+ },
+ "g4": {
+  "gate_name": "Binding Offtake",
+  "establishes": "A creditworthy buyer is contractually bound to take the product at a price that supports the debt, with the protections that make the contract financeable.",
+  "milestone": "Offtake executed; buyer credit assessed; credit support in place; take-or-pay, termination, assignment, step-in and pricing terms confirmed.",
+  "accountable": "Chief Commercial Officer",
+  "responsible": "Sales · legal · treasury",
+  "changed_3_0_0": "A term sheet no longer satisfies \"binding\". Nine items: the executed contract, the offtaker credit assessment the registry had dropped, credit support, and the bankability clauses — including the price-review mechanism, the clause through which a buyer moves terms after signature.",
+  "convergence_old": [
+   "Offtake volume ↔ production P50/P90",
+   "tenor ↔ debt tenor",
+   "price formula ↔ model revenue",
+   "buyer credit ↔ exposure"
+  ],
+  "items": [
+   "Executed Offtake Agreement",
+   "Offtaker Credit Assessment",
+   "Credit Support (parent guarantee / letter of credit)",
+   "Take-or-Pay Floor",
+   "Termination Payment Formula",
+   "Assignment to Lenders",
+   "Lender Step-in Rights",
+   "Hedgeable Pricing Index",
+   "Price Review / Reopener Mechanism"
+  ]
+ },
+ "g5": {
+  "gate_name": "EPC Risk Priced",
+  "establishes": "Construction price, schedule and performance regime are settled in agreed form, so capital cost is a commitment rather than an estimate.",
+  "milestone": "EPC in agreed form, fixed price or capped GMP; liquidated damages; date-certain schedule; performance test protocol; interface matrix; OEM warranties; contractor due diligence.",
+  "accountable": "Project Director",
+  "responsible": "Engineering · legal · procurement",
+  "changed_3_0_0": "Heads of terms no longer satisfy it; the agreed form does. Execution follows at G10. The performance test protocol moved here from G11 — the protocol is agreed with the EPC contractor; passing it is COD.",
+  "convergence_old": [
+   "EPC price and schedule ↔ model and COD",
+   "performance guarantees ↔ production model",
+   "scope ↔ plant configuration"
+  ],
+  "items": [
+   "EPC Contract — Fixed Price or Capped GMP (agreed form)",
+   "Delay & Performance Liquidated Damages",
+   "Date-Certain Construction Schedule",
+   "Performance Test Protocol",
+   "Interface Matrix (EPC / OEM / balance of plant)",
+   "OEM Warranties (agreed form)",
+   "EPC Contractor Due Diligence"
+  ]
+ },
+ "g6": {
+  "gate_name": "Independent Engineer Sign-off",
+  "establishes": "An Independent Engineer has issued a final, version-specific conclusion on the technical basis: energy balance, capital cost, operating cost and completion tests.",
+  "milestone": "IE report issued — final, not draft — with its component opinions.",
+  "accountable": "Lender (appoints and instructs)",
+  "responsible": "Project team supplies data only",
+  "changed_3_0_0": "An appointment letter no longer satisfies a sign-off. This is the most independence-critical gate in the model: the producer must never verify its own items here.",
+  "convergence_old": [
+   "IE production and capex conclusions ↔ TEA and model base case",
+   "IE-reviewed version ↔ current model"
+  ],
+  "items": [
+   "Independent Engineer Report — Issued (final)",
+   "Energy Balance Verified by the IE",
+   "IE Opinion — CAPEX Reasonableness",
+   "IE Opinion — OPEX Reasonableness",
+   "Completion Test Definitions (IE-agreed)"
+  ]
+ },
+ "g7": {
+  "gate_name": "Insurability Confirmed",
+  "establishes": "Insurers have quoted the construction and operating programme on terms lenders accept — not merely that a broker has been appointed.",
+  "milestone": "Programme terms quoted by insurers; broker market report; deductible levels accepted by lenders; exclusions register reviewed.",
+  "accountable": "CFO / Treasury",
+  "responsible": "Broker · legal",
+  "changed_3_0_0": "The platform registry’s version would have deadlocked the ladder. It required cover BOUND with lenders named as loss payee at STRUCTURALLY_BANKABLE — two states before lenders approve credit. Lenders who have not approved cannot be named on a policy, and on a strictly sequential ladder nothing after that gate could pass. Binding and loss-payee endorsement are financial-close conditions and now sit at G10. A broker mandate no longer satisfies insurability. Renamed from \"Insurance Bound\"; the identifier keeps BOUND for stability.",
+  "convergence_old": [
+   "Coverage and deductibles ↔ EPC and operating risks",
+   "insured values ↔ capex"
+  ],
+  "items": [
+   "Insurance Programme Terms — Quoted by Insurers",
+   "Broker Market Report",
+   "Deductible Levels Accepted by Lenders",
+   "Exclusions Register Reviewed"
+  ]
+ },
+ "g8": {
+  "gate_name": "Audit-Grade Financial Model",
+  "establishes": "The model used for the capital decision is locked, independently audited, and exposes downside cases and covenant effects.",
+  "milestone": "Locked base case; model audit opinion issued; downside cases; covenant suite; reserve logic; hedging plan; consistency with the IE.",
+  "accountable": "CFO",
+  "responsible": "Financial modelling team",
+  "changed_3_0_0": "\"Audit-grade\" now means audited. Before 3.0.0 neither definition required a completed audit — the runtime accepted an engagement letter, and the platform registry had no audit item at all.",
+  "convergence_old": [
+   "Capex, opex and production ↔ verified TEA/IE basis",
+   "offtake and PPA terms ↔ model assumptions",
+   "debt structure ↔ CFADS and DSCR"
+  ],
+  "items": [
+   "Locked Base-Case Financial Model",
+   "Model Audit Opinion — Issued",
+   "Lender Downside Cases",
+   "Covenant Suite Defined",
+   "DSRA & Maintenance Reserve Logic",
+   "Hedging Plan (rates, FX, power)",
+   "Model Consistent with IE Findings"
+  ]
+ },
+ "g9": {
+  "gate_name": "Permits Granted & Appeal Risk Managed",
+  "establishes": "The pre-construction consents are granted and challenge risk is managed; the operating permit has a credible pathway.",
+  "milestone": "EIA granted; construction permit granted; ancillary permits granted; legal opinion on appeal risk; operating permit pathway.",
+  "accountable": "Regulatory / Permitting Lead",
+  "responsible": "Environmental consultant · legal",
+  "changed_3_0_0": "Submissions and applications no longer satisfy it. The construction permit is named rather than folded into \"ancillary\". The operating permit must be in force at G11 — it cannot exist before the plant does.",
+  "convergence_old": [
+   "Consented capacity ↔ design",
+   "permit conditions ↔ schedule and cost",
+   "permit validity ↔ construction and COD"
+  ],
+  "items": [
+   "EIA / Environmental Permit — Granted",
+   "Construction Permit — Granted",
+   "Ancillary Permits — Granted",
+   "Legal Opinion on Appeal Risk",
+   "Operating Permit Pathway",
+   "Stakeholder Management Plan v2"
+  ]
+ },
+ "g10": {
+  "gate_name": "Financial Close",
+  "establishes": "Financial close has happened: conditions precedent satisfied, equity injected, reserves funded, security perfected, insurance bound, legal opinions issued — and every readiness instrument from G1, G3, G5 and G7 now executed. This is where the ladder turns terms into commitments.",
+  "milestone": "Financial close.",
+  "accountable": "CFO",
+  "responsible": "Legal · treasury · lender counsel",
+  "changed_3_0_0": "A draft CP checklist, draft legal opinions and a security \"structure\" no longer satisfy close. Legal opinions restored — the registry had dropped them. Insurance binding moved here from the registry’s G7.",
+  "convergence_old": [
+   "Facility terms ↔ debt schedule",
+   "funded equity and DSRA ↔ closing statement",
+   "security package ↔ asset and entity structure"
+  ],
+  "items": [
+   "Conditions Precedent Satisfied",
+   "Sponsor Equity Injected",
+   "Debt Service Reserve Funded",
+   "Security Package Perfected",
+   "Insurance Bound & Certificates Delivered (lenders as loss payee)",
+   "All Major Project Contracts Executed (PPA, feedstock, EPC, O&M, offtake)",
+   "Legal Opinions — Issued"
+  ]
+ },
+ "g11": {
+  "gate_name": "COD & Stabilization",
+  "establishes": "The plant works at the performance it was financed on, operates lawfully, reports its carbon, and has a stable operating record — which is what refinancing eligibility rests on.",
+  "milestone": "COD certified; performance tests passed; operating permit in force; MRV reporting live; 6–12 months of stable operation.",
+  "accountable": "Project Director → Operations Director",
+  "responsible": "Commissioning team · EPC contractor",
+  "changed_3_0_0": "Plans and protocols no longer satisfy COD. The operating permit in force is added. As the terminal gate, the stabilization period blocks nothing downstream.",
+  "convergence_old": [
+   "Tested capacity and efficiency ↔ model and guarantees",
+   "COD ↔ offtake, debt and refinancing dates"
+  ],
+  "items": [
+   "COD / Taking-Over Certificate",
+   "Performance Tests Passed",
+   "Operating Permit — In Force",
+   "MRV Reporting Live",
+   "6–12 Months Stable Operation"
+  ]
+ }
+}

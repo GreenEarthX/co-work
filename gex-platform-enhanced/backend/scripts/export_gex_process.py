@@ -30,6 +30,7 @@ sys.path.append(str(HERE.parent.parent.parent / "gex_pf_engine" / "backend"))
 
 from app.core import contract_tokens as ct                              # noqa: E402
 from app.core.abac import REVIEWER_GATES                                # noqa: E402
+from app.core.vocabulary import display_label                           # noqa: E402
 from pf_engine.core import bankability_engine as E                      # noqa: E402
 
 h = html.escape
@@ -39,9 +40,19 @@ ROLE_LABEL = {
     "INSURER": "Insurer", "GRANT_ASSESSOR": "Grant assessor", "SEED_INVESTOR_ADVISER": "Seed investor's adviser",
     "STRATEGIC_INVESTOR_ADVISER": "Strategic investor's adviser",
 }
-SEVERITY = {"deal_killer": "Deal-killer", "warning": "Warning", "advisory": "Advisory"}
+SEVERITY = E.SEVERITY_LABELS
 KIND_LABEL = {"offtake": "Offtake", "ppa": "Power purchase", "supply": "Feedstock supply", "epc": "EPC",
               "licence": "Technology licence", "technical": "Technical basis and schedule", "model": "Financial model"}
+
+
+def state_name(state: str) -> str:
+    """The platform vocabulary's name for a state (one source: CREDIT_APPROVED reads
+    "Ready for credit decision", not the title-cased identifier)."""
+    return h(display_label("readiness", state)) if state else "—"
+
+
+def lender_only(key: str) -> bool:
+    return E.EVIDENCE_SCOPE.get(key) == "PROJECT_FINANCE"
 
 
 def words(s: str) -> str:
@@ -69,17 +80,20 @@ def gate_section(g: dict) -> str:
         m = meta.get(key, {})
         cp = counterparty_kind(key)
         rows.append(
-            f"<tr><td>{h(m.get('label') or key)}</td>"
+            f"<tr><td>{h(m.get('label') or key)}{' <span class=\'muted\'>· lapses</span>' if key in E.EXPIRY_REQUIRED else ''}</td>"
             f"<td><span class='sev sev-{h(m.get('severity', 'advisory'))}'>{SEVERITY.get(m.get('severity'), '—')}</span></td>"
-            f"<td class='mono'>{h(E.REQUIRED_MATURITY.get(key) or '—')}</td>"
+            f"<td class='mono'>{h(E.REQUIRED_MATURITY.get(key) or 'No minimum')}</td>"
             f"<td>{words(m.get('owner_function'))}</td>"
-            f"<td>{', '.join(words(a) for a in (m.get('applies_to') or ['ALL']))}</td>"
+            f"<td>{', '.join(words(a) for a in (m.get('applies_to') or ['ALL']))}"
+            f"{' · lender-financed only' if lender_only(key) else ''}</td>"
             f"<td>{'Counterparty (' + h(KIND_LABEL[cp]) + ')' if cp else 'Independent reviewer'}</td></tr>")
     notes = []
     if commit:
         notes.append(f"Also needs the {h(commit[0])} commitment at level <b>{h(commit[1])}</b> or above.")
     if lender:
         notes.append("Every item protects a lender: waived for a balance-sheet-funded project.")
+    elif any(lender_only(k) for k in g["required_evidence"]):
+        notes.append("Items marked lender-financed only drop out for a balance-sheet-funded project; the rest still apply.")
     checks = [c for c in E.COHERENCE_CHECKS if c["gate"] == gid]
     if checks:
         notes.append("Cross-contract checks on this gate: " + "; ".join(
@@ -92,7 +106,7 @@ def gate_section(g: dict) -> str:
     <span class="gate-kind">{kind}</span>
   </header>
   <dl class="facts">
-    <div><dt>Leads to</dt><dd>{words(g.get('unlocks_state'))}</dd></div>
+    <div><dt>Leads to</dt><dd>{state_name(g.get('unlocks_state'))}</dd></div>
     <div><dt>Capital decision made eligible</dt><dd>{h(capital)}</dd></div>
     <div><dt>Verified by</dt><dd>{h(', '.join(reviewers_for(gid)) or 'Counterparty confirmation only')}</dd></div>
     <div><dt>Seen by</dt><dd>{', '.join(words(p) for p in g.get('personas', []))} and the owner's executives</dd></div>
@@ -105,6 +119,37 @@ def gate_section(g: dict) -> str:
 </section>"""
 
 
+def commit_needs(state: str) -> str:
+    """What a state also needs on the offtake and EPC commitment ladders, per financing model."""
+    by_model = E.STATE_COMMITMENT_REQUIREMENTS.get(state, {})
+    label = {"PROJECT_FINANCE": "project finance", "BALANCE_SHEET": "balance sheet"}
+    parts = []
+    for model, req in by_model.items():
+        bits = []
+        if "offtake" in req:
+            bits.append(f"offtake {req['offtake']}" + (" in force" if req.get("offtake_effective") else ""))
+        if "offtake_coverage_pct" in req:
+            bits.append(f"offtake terms for {req['offtake_coverage_pct']:g} % of output")
+        if "epc" in req:
+            bits.append(f"EPC {req['epc']}")
+        if bits:
+            parts.append(f"{label.get(model, model)}: {', '.join(bits)}")
+    if state == "REFINANCING_ELIGIBLE":
+        parts.append(f"{E.REFINANCING_STABLE_MONTHS} months since the actual COD date")
+    gate_bits = [f"{g.split('_')[0]} needs {k.upper() if k == 'epc' else k} {lvl}" for g, (k, lvl) in E.GATE_COMMITMENT_REQUIREMENTS.items()
+                 if g in E.STATE_REQUIREMENTS.get(state, [])]
+    return h("; ".join(gate_bits + parts))
+
+
+def commitment_ladders() -> str:
+    def rows(levels, defs):
+        return "".join(f"<tr><td class='mono'>{h(l)}</td><td>{h(defs[l])}</td></tr>" for l in levels)
+    return (f"<div class='scroll'><table><thead><tr><th>Offtake</th><th>What it means</th></tr></thead><tbody>"
+            f"{rows(E.OFFTAKE_LEVELS, E.OFFTAKE_LEVEL_DEFINITIONS)}</tbody></table></div>"
+            f"<div class='scroll'><table><thead><tr><th>EPC</th><th>What it means</th></tr></thead><tbody>"
+            f"{rows(E.EPC_LEVELS, E.EPC_LEVEL_DEFINITIONS)}</tbody></table></div>")
+
+
 def ladder() -> str:
     rows = []
     for state in E.STATE_ORDER:
@@ -114,11 +159,17 @@ def ladder() -> str:
         if state == "SPECULATIVE":
             need = "Entry state"
         elif not gates:
-            need = "No gate defined yet — this state cannot be reached"
+            need = "No gate defined"
         else:
             need = ", ".join(f"<span class='mono'>{h(x.split('_')[0])}</span> {h(next(g['gate_name'] for g in E.GATES if g['gate_id'] == x))}"
                              for x in gates)
-        rows.append(f"<tr><td><b>{words(state)}</b><br><span class='muted'>{h(E.STATE_COMMITMENT_LABELS.get(state, ''))}</span></td>"
+        extra = commit_needs(state)
+        need = need + (f"<br><span class='muted'>{extra}</span>" if extra else "")
+        sub = E.STATE_COMMITMENT_LABELS.get(state, "")
+        name = display_label("readiness", state)
+        if sub.lower().startswith(name.lower() + " —"):
+            sub = sub.split("—", 1)[1].strip().capitalize()
+        rows.append(f"<tr><td><b>{state_name(state)}</b><br><span class='muted'>{h(sub)}</span></td>"
                     f"<td>{need}</td><td>{h(', '.join(caps)) or '—'}</td></tr>")
     return "".join(rows)
 
@@ -141,6 +192,11 @@ def token_table() -> str:
 def page() -> str:
     gates = "".join(gate_section(g) for g in E.GATES)
     n_items = sum(len(g["required_evidence"]) for g in E.GATES)
+    n_lender = sum(1 for g in E.GATES for k in g["required_evidence"] if lender_only(k))
+    lapse_list = "the land option or lease, permits, the grid reservation, credit support and security, insurance"
+    lender_gate_sentence = (
+        f"Gates made only of such items ({', '.join(sorted(x.split('_')[0] for x in E.LENDER_ONLY_GATES))}) are waived. "
+        if E.LENDER_ONLY_GATES else "No gate is waived wholesale. ")
     toc = "".join(f"<a href='#{h(g['gate_id'].split('_')[0].lower())}'><span class='mono'>{h(g['gate_id'].split('_')[0])}</span> {h(g['gate_name'])}</a>"
                   for g in E.GATES)
     maturity = "".join(f"<li><span class='mono lvl'>{h(k)}</span> {h(v)}</li>" for k, v in E.MATURITY_DEFINITIONS.items())
@@ -229,25 +285,29 @@ and what each step makes possible. For producers, offtakers, financiers, insurer
 <p class="stamp">Generated from the running rules — evidence rules {h(E.EVIDENCE_RULES_VERSION)} · {len(E.GATES)} gates ·
 {n_items} evidence items · {len(E.REQUIRED_MATURITY)} maturity requirements · {len(E.STATE_ORDER)} states · {date.today().isoformat()}</p>
 
-<h2 id="owners">Who owns what</h2>
+<h2 id="owners">Who is accountable for what</h2>
+<p>Producing a document, uploading it, controlling access to it and accepting responsibility for its conclusions are
+different things. An engineer may author a report, the producer submit it, and a lender commission it and rely on it. Each
+role below is accountable for one thing, and no role is accountable for another's.</p>
 <div class="scroll"><table>
-<thead><tr><th>Party</th><th>Owns</th><th>Never owns</th></tr></thead>
+<thead><tr><th>Role</th><th>Accountable for</th></tr></thead>
 <tbody>
-<tr><td><b>The client</b> (producer, and each party to its contracts)</td><td>The evidence, the milestones, the declaration of what each instrument is and how far it has progressed.</td><td>The verification of its own evidence.</td></tr>
-<tr><td><b>The counterparty</b> to a contract</td><td>Confirming, on the contract's token, the terms it agreed — which also verifies that contract.</td><td>Terms it has not confirmed.</td></tr>
-<tr><td><b>The independent reviewer</b></td><td>The assertion that a study, opinion, audit or the producer's own plan is authentic and is what it claims to be.</td><td>A commercial interest in the outcome, and the power to raise a declared maturity.</td></tr>
-<tr><td><b>GEX</b></td><td>The rule: what counts, at what maturity, with what severity; the scoring; and the record of who asserted what, and when.</td><td>The evidence, its verification, and the capital decision.</td></tr>
-<tr><td><b>The capital provider</b></td><td>The grant, investment, credit or drawdown decision.</td><td>Letting a GEX gate stand in for its own approval.</td></tr>
+<tr><td><b>Evidence owner</b> (usually the producer)</td><td>Obtaining, maintaining and updating the required evidence, and declaring what each instrument is and how far it has progressed.</td></tr>
+<tr><td><b>Author or issuer</b></td><td>The document's statements and professional conclusions, within its stated scope.</td></tr>
+<tr><td><b>Counterparty</b></td><td>Confirming its contractual agreement and the authority of its representative.</td></tr>
+<tr><td><b>Reviewer</b> (independent)</td><td>A defined assessment: its scope, qualifications, limitations and findings.</td></tr>
+<tr><td><b>GEX</b></td><td>Identity and permission controls, governance of the rules, the computation, version history and auditability. GEX is accountable for these controls, and it appoints reviewers, may act as the second party on a premise change, and decides a contested one.</td></tr>
+<tr><td><b>Decision authority</b> (the capital provider)</td><td>Accepting residual risk and taking the investment, credit or drawdown decision.</td></tr>
 </tbody></table></div>
 
 <h2 id="path">The path of one evidence item</h2>
 <ol class="steps">
 <li><b>Requested.</b> Each item is assigned to a named person at the company that owns the work, with what it blocks.</li>
-<li><b>Submitted.</b> The document is uploaded and its SHA-256 recorded; the submitter declares the instrument's maturity.
+<li><b>Submitted.</b> The document is uploaded and its SHA-256 recorded; the submitter declares the instrument's maturity and, if the document lapses, the last day it is valid. For the instruments that lapse in practice ({lapse_list}) a missing date means 12 months from verification, and an item with neither date counts for nothing.
 A new document returns the item to submitted: what was verified was the earlier file.</li>
 <li><b>Verified.</b> By someone independent of the submitter and of the project owner — the contract's counterparty for a
 contract, an appointed independent reviewer for everything else. Verification names the document on file.</li>
-<li><b>Scored.</b> The engine counts an item only when it is verified at or above the maturity its gate requires.</li>
+<li><b>Scored.</b> The engine counts an item only when it is verified at or above the maturity its gate requires. An item that is submitted but not independently verified is shown beside the gate's verified count, &ldquo;3 submitted, not independently verified&rdquo;, and counted in nothing.</li>
 <li><b>Judged.</b> Each gate gets one answer (below); satisfied gates set the project's state.</li>
 <li><b>Made eligible.</b> A state makes a capital decision eligible. The capital provider still decides.</li>
 </ol>
@@ -255,13 +315,16 @@ contract, an appointed independent reviewer for everything else. Verification na
 <h2 id="maturity">Maturity</h2>
 <p>Verification answers whether a document is authentic. Maturity answers how far the instrument behind it has progressed —
 a letter of intent can be perfectly authentic. The submitter declares maturity; a reviewer may confirm or lower it, never raise
-it. An instrument with no declared maturity does not count.</p>
+it. {len(E.REQUIRED_MATURITY)} of the {n_items} evidence items set a minimum maturity (shown in each gate's table): an item
+with no declared maturity, or one below the minimum, does not count. The others have no minimum, and verification alone counts.</p>
 <ul class="mat">{maturity}</ul>
 
 <h2 id="verify">Who verifies</h2>
-<p>GEX verifies nothing. A contract is verified by its counterparty's confirmation on the contract's token; an independent
-reviewer may also take part, but is not required. Studies, analyses, opinions, audits and the producer's own plan need an
-independent reviewer, appointed by GEX staff on the instruction of a named party. Each reviewer role covers fixed gates:</p>
+<p>GEX verifies no party's evidence. A contract is verified by its counterparty's confirmation on the contract's token: that
+confirms the parties agreed the terms and the contract is executed. It does not authenticate an instrument issued by a third
+party, so the offtaker's credit support and the contractor's security package — a letter of credit, a bond, a guarantee — are
+reviewed independently, like any other instrument. Studies, analyses, opinions, audits and the producer's own plan also need an independent reviewer, appointed by GEX
+staff on the instruction of a named party. Each reviewer role covers fixed gates:</p>
 <div class="scroll"><table><thead><tr><th>Reviewer</th><th>Gates</th></tr></thead><tbody>
 {''.join(f"<tr><td>{h(ROLE_LABEL.get(getattr(r, 'value', str(r)), str(r)))}</td><td class='mono'>{h(', '.join(sorted(g, key=lambda x: int(x[1:]))))}</td></tr>" for r, g in REVIEWER_GATES.items())}
 </tbody></table></div>
@@ -269,16 +332,20 @@ independent reviewer, appointed by GEX staff on the instruction of a named party
 
 <h2 id="determination">A gate's answer</h2>
 <div class="det">
-<div><b>SATISFIED</b><br>Every applicable item verified at its maturity, every required commitment reached, every cross-contract check passed.</div>
+<div><b>SATISFIED</b><br>Every applicable item verified at its maturity (an advisory is shown and never blocks), every required commitment reached, every cross-contract check passed.</div>
 <div><b>BLOCKED</b><br>A deal-killer is missing, a commitment is below the level the gate needs, a cross-contract check failed, or an event undermines the gate.</div>
 <div><b>UNRESOLVED</b><br>The items are verified, but a cross-contract check cannot run because confirmed terms are missing. Missing data is never a pass.</div>
 <div><b>INCOMPLETE</b><br>Items are still to be verified.</div>
-<div><b>WAIVED</b><br>Not required for this financing model. Counts toward the ladder; never shown as satisfied by evidence.</div>
+<div><b>WAIVED</b><br>Not required for this financing model. Fills a gap in a state, never the whole of it; never shown as satisfied by evidence.</div>
 </div>
 
+<p>Severity says what a missing item costs. A <b>deal-killer</b> blocks the gate. A <b>required</b> item leaves it incomplete, and becomes a deal-killer once capital is at work where the item says so. An <b>advisory</b> is shown and never blocks. Every other applicable item is mandatory.</p>
+
 <h2 id="premises">Project premises</h2>
-<p>Two premises decide which evidence applies. The <b>financing model</b>: balance-sheet funding drops the items that only protect
-an external lender and waives the gates made only of them ({h(', '.join(sorted(x.split('_')[0] for x in E.LENDER_ONLY_GATES)))}).
+<p>Two premises decide which evidence applies. The <b>financing model</b>: balance-sheet funding drops the {n_lender} items that
+protect only an external lender (for example the take-or-pay floor, step-in rights, the model audit opinion, covenants and
+reserve logic). Whatever also protects the sponsor's own capital stays: the independent engineer's report and opinions on cost
+and energy balance, the base case and the downside cases. {lender_gate_sentence}A state is never reached on waivers alone.
 The <b>power model</b> (grid-connected, off-grid behind the meter, hybrid): each drops the items that belong to the others.</p>
 <p>A change that removes evidence takes effect only when its supporting document is registered <i>and</i> a second party confirms
 it — another party to the project (a funder, the counterparty) or GEX staff, never the company that proposed it. Any party may
@@ -297,8 +364,12 @@ read UNRESOLVED.</p>
 once and blocks the gates it undermines; clearing it needs a confirmation.</p>
 <div class="scroll"><table><thead><tr><th>Check</th><th>What is compared</th><th>Gate</th></tr></thead>
 <tbody>{checks_table()}</tbody></table></div>
-<p class="note">Numeric equality allows {E.COHERENCE_TOLERANCE * 100:g} % for rounding in a model — not a margin for error.
-COMMERCIALLY PLAUSIBLE also needs offtake terms covering at least {E.OFFTAKE_COVERAGE_MIN_PCT:g} % of planned output.</p>
+<p class="note">Numeric equality checks use one tolerance, {E.COHERENCE_TOLERANCE * 100:g} % of the larger value, for every field
+and unit; it is a setting of the rules, not a judgement of materiality.</p>
+<h3>The commitment ladders</h3>
+<p>Offtake and EPC contracts are graded on their own ladders. Each gate and state names the level it needs (see the ladder
+below); the offtake and EPC levels are computed from the confirmed terms on the contract tokens, not declared.</p>
+{commitment_ladders()}
 
 <h2 id="ladder">The ladder</h2>
 <p>Nine states, strictly in order: no state is reachable without every gate of every state before it.</p>
@@ -308,6 +379,7 @@ COMMERCIALLY PLAUSIBLE also needs offtake terms covering at least {E.OFFTAKE_COV
 <h2 id="backwards">What moves a project backwards</h2>
 <ul>
 <li>A verified item replaced by a new document, rejected, or withdrawn.</li>
+<li>A document reaching its validity date: a permit, a letter of credit, a policy period. The item stops counting the day after, with no new upload.</li>
 <li>A cross-contract check that fails, or a term change not yet confirmed.</li>
 <li>A counterparty or reviewer disputing terms it had confirmed.</li>
 <li>A premise contested or rejected.</li>
@@ -326,7 +398,8 @@ says so when a viewer sees fewer.</p>
 
 <h2 id="never">What GEX never does</h2>
 <ul class="never">
-<li>Verify a party's evidence, or confirm a party's terms.</li>
+<li>Verify a party's evidence, or confirm a party's contract terms.</li>
+<li>Take, record or stand in for a credit decision. "{state_name('CREDIT_APPROVED')}" says the financial assessment is complete; whether a lender approves is the lender's.</li>
 <li>Commit, release or draw capital. A state makes a decision eligible; the capital provider decides.</li>
 <li>Let a gate stand in for a lender's, investor's or grant authority's own approval.</li>
 <li>Show a figure the engine did not compute from verified evidence.</li>

@@ -62,6 +62,47 @@ async def project_report(project_id: str, request: Request):
     }
 
 
+@router.get("/projects/{project_id}/gate-clock")
+async def project_gate_clock(project_id: str, request: Request):
+    """When each gate was first seen satisfied, and how many days after the project was created. Only the
+    gates the caller's role sees. The first EVALUATION that saw it, not the day the last document was filed;
+    a gate satisfied before the clock existed has no entry."""
+    from datetime import datetime
+
+    from app.api.v1.routes_bankability_proxy import _ensure_tables, _get_db, engine_rules
+    from app.core import gate_clock
+    from app.core.engine_view import persona_for
+
+    payload = _caller(request)
+    profile = _visible_or_404(project_id, payload)
+    persona = persona_for(payload, profile.owner_company_id)
+    visible = set((await engine_rules()).get("persona_gates", {}).get(persona, []))
+    conn = _get_db()
+    try:
+        _ensure_tables(conn)
+        rows = [r for r in gate_clock.read(conn, project_id) if r["gate_id"] in visible]
+        try:
+            row = conn.execute("SELECT created_at FROM projects WHERE project_id = ?", (project_id,)).fetchone()
+            started = row["created_at"] if row else None
+        except Exception:  # noqa: BLE001 — the SQLite fallback has no projects table
+            started = None
+    finally:
+        conn.close()
+    for r in rows:
+        r["days_from_project_start"] = None
+        try:
+            if started:
+                a = datetime.fromisoformat(str(started).replace("Z", "+00:00")[:19])
+                b = datetime.fromisoformat(r["first_satisfied_at"].replace("Z", "+00:00")[:19])
+                r["days_from_project_start"] = max((b - a).days, 0)
+        except ValueError:
+            pass
+    return {"project_id": project_id, "persona": persona, "project_started_at": str(started) if started else None,
+            "gates": rows,
+            "note": "Measured from the first evaluation that saw each gate satisfied. Gates satisfied before the clock "
+                    "began (31 Oct 2026) are not measured."}
+
+
 @router.get("/projects/{project_id}/report-recipients")
 def get_recipients(project_id: str, request: Request):
     from app.core.bankability_reports import recipients

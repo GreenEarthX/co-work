@@ -539,6 +539,7 @@ export const bankabilityAPI = {
     notes?: string;
     maturity?: string;
     document_sha256?: string;
+    valid_until?: string;
   }) =>
     fetchAPI("/bankability/evidence", {
       method: "POST",

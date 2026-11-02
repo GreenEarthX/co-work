@@ -16,6 +16,7 @@ import { useSelectedProject } from '@/contexts/ProjectContext'
 import { getAuthHeader } from '@/lib/authToken'
 import { PremisesPanel } from './PremisesPanel'
 import { ContractTokensPanel } from './ContractTokensPanel'
+import { GateClockPanel } from './GateClockPanel'
 
 interface OpenItem {
   gate_id: string
@@ -196,6 +197,7 @@ export function ProjectReportPage() {
 
       <PremisesPanel projectId={selectedProjectId} onChanged={() => setReloadKey(k => k + 1)} />
       <ContractTokensPanel projectId={selectedProjectId} onChanged={() => setReloadKey(k => k + 1)} />
+      <GateClockPanel projectId={selectedProjectId} reloadKey={reloadKey} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-gray-200 bg-white">

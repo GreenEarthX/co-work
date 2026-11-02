@@ -87,6 +87,7 @@ def bankability_view(snapshot: Optional[dict], persona: str, persona_gates: dict
         "id": g["gate_id"], "name": g["gate_name"],
         "completion_pct": g.get("completion_pct", 0.0),
         "total_evidence": g.get("total_evidence", 0), "verified_count": g.get("verified_count", 0),
+        "submitted_count": g.get("submitted_count", 0),
         "is_complete": bool(g.get("is_complete")),
         "determination": g.get("determination"),
         "blocking_items": list(g.get("blocking_items") or []),

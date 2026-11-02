@@ -22,6 +22,7 @@ export interface EngineGate {
   determination?: "SATISFIED" | "INCOMPLETE" | "BLOCKED" | "WAIVED";
   is_complete: boolean;
   verified_count: number;
+  submitted_count?: number;
   total_evidence: number;
   completion_pct: number;
   blocking_items: string[];

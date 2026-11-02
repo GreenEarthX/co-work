@@ -25,6 +25,7 @@ import {
   applicableDecisions, gateName, gatesSatisfied, humanise, isEligible, refusalReason,
   type EngineGate, type EngineReadout,
 } from '@/lib/engineReadout';
+import { submittedNote } from '@/lib/submittedNote';
 
 // ─── Tooltip ──────────────────────────────────────────────────────────────────
 
@@ -265,7 +266,7 @@ function Readout({ readout }: { readout: EngineReadout }) {
                                 <span className="text-xs font-semibold text-[var(--text-primary)]">{gateName(readout, gid)}</span>
                               )}
                               <span className="text-[10px] text-[var(--text-muted)]">
-                                {g.verified_count} of {g.total_evidence} verified
+                                {g.verified_count} of {g.total_evidence} verified{submittedNote(g.submitted_count)}
                               </span>
                             </div>
                             {items.length > 0 && (

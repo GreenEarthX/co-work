@@ -663,7 +663,9 @@ EVIDENCE_OWNER_FUNCTION: dict[str, str] = {
 
 # Rules 4.0.0 — financing scope per ITEM. Only these items protect an external
 # lender; for BALANCE_SHEET funding they are not applicable and no request is
-# raised for them. Held identical to the runtime by tests/test_gate_registries_agree.py.
+# raised for them. Rules 4.3.0: the engineer's report and opinions (G6) and the base case,
+# downside cases and engineer consistency (G8) protect the sponsor's own capital, so they
+# apply to every project. Held identical to the runtime by tests/test_gate_registries_agree.py.
 EVIDENCE_SCOPE: dict[str, str] = {
     "credit_support_package": "PROJECT_FINANCE",
     "take_or_pay_floor": "PROJECT_FINANCE",
@@ -671,19 +673,12 @@ EVIDENCE_SCOPE: dict[str, str] = {
     "assignment_rights": "PROJECT_FINANCE",
     "step_in_rights": "PROJECT_FINANCE",
     "hedgeable_pricing_index": "PROJECT_FINANCE",
-    "ie_report_issued": "PROJECT_FINANCE",
-    "energy_balance_verified": "PROJECT_FINANCE",
-    "capex_opinion_reasonableness": "PROJECT_FINANCE",
-    "opex_opinion_reasonableness": "PROJECT_FINANCE",
     "completion_test_definitions": "PROJECT_FINANCE",
     "deductibles_accepted": "PROJECT_FINANCE",
-    "base_case_model": "PROJECT_FINANCE",
     "model_audit_opinion": "PROJECT_FINANCE",
-    "downside_cases": "PROJECT_FINANCE",
     "covenant_suite_defined": "PROJECT_FINANCE",
     "dsra_maintenance_reserve_logic": "PROJECT_FINANCE",
     "hedging_plan": "PROJECT_FINANCE",
-    "model_consistency_with_ie": "PROJECT_FINANCE",
     "cp_checklist_completed": "PROJECT_FINANCE",
     "dsra_funded": "PROJECT_FINANCE",
     "security_package_perfected": "PROJECT_FINANCE",
@@ -785,6 +780,7 @@ COMMITMENT_CARD_FIELDS: dict[str, dict[str, str]] = {
         "construction_months_p80": "number",
         "commissioning_allowance_months": "number",
         "forecast_cod_date": "date",
+        "actual_cod_date": "date",
     },
     "supply": {
         "feedstock_required_tonnes_per_year": "number",
