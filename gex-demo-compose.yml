@@ -47,7 +47,7 @@ services:
   # NOTE: service MUST be named "backend" — the frontend's nginx
   # proxies /api/ to http://backend:8000
   backend:
-    image: jmlamay/gex-backend:v1.6.1
+    image: jmlamay/gex-backend:v1.9.0
     environment:
       DATABASE_URL: postgresql://gex_user:gex_password_dev@postgres:5432/gex_platform
       REDIS_URL: redis://redis:6379/0
@@ -60,13 +60,13 @@ services:
     networks: [gex_net]
 
   pf_engine:
-    image: jmlamay/gex-pf-engine:v1.6.1
+    image: jmlamay/gex-pf-engine:v1.9.0
     environment:
       ENVIRONMENT: development
     networks: [gex_net]
 
   frontend:
-    image: jmlamay/gex-frontend:v1.6.1
+    image: jmlamay/gex-frontend:v1.9.0
     ports:
       - "8080:80"
     depends_on:
