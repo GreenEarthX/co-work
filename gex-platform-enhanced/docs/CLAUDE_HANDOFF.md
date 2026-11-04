@@ -2930,9 +2930,14 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       and prune the build cache if it is under ~2 GB free** — PostgreSQL shares that disk.
     - Local images `gex-pf-engine` v1.8.0/v1.9.0/latest were removed while freeing space; they
       remain on Docker Hub.
-    - **Not fixed, same shape:** the `tea_engine` service sets neither `GEX_JWT_SECRET` nor
-      `GEX_JWKS_URL` (which defaults to `localhost:8000`, wrong inside a container), so
-      backend→TEA calls in the compose stack are probably refused the same way. Not tested.
+    - **The same fix for `tea_engine` (later the same day).** It set neither `GEX_JWT_SECRET` nor
+      `GEX_JWKS_URL` (default `localhost:8000`, i.e. the engine itself inside its container).
+      Compose now sets `GEX_JWT_SECRET` = the backend's `SECRET_KEY` and
+      `GEX_JWKS_URL: http://backend:8000/api/v1/auth/jwks`. Tested in `files_gex_net`
+      (backend + tea_engine `--no-deps`, image unchanged at v1.9.0): the backend's token (HS256)
+      200 on `/tea/regimes`, no token 401, a token signed with the engine's old default 401. The
+      backend's JWKS currently publishes no keys (it signs HS256 only), so the JWKS URL is for
+      when RS256 arrives. Both containers stopped again.
 
 ---
 
