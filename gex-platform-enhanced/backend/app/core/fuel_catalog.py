@@ -440,11 +440,15 @@ def load_fuel_catalog(
     offered_only: bool = False,
     include_inactive: bool = False,
 ) -> dict[str, Any]:
+    from app.core.db_backend import fuelref_is_postgres
+
     fuels = list_fuels(offered_only=offered_only, include_inactive=include_inactive)
     version = max((fuel["updated_at"] for fuel in fuels), default=None)
     return {
         "version": version or datetime.now(timezone.utc).date().isoformat(),
-        "source": "sqlite",
+        # The store actually read. Hardcoded "sqlite" until 2026-11-04, while the rows came
+        # from PostgreSQL — and the PF engine now relies on this answer for its fuel list.
+        "source": "postgres" if fuelref_is_postgres() else "sqlite",
         "fuels": fuels,
     }
 

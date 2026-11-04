@@ -2848,6 +2848,31 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     their shared password; nobody is appointed as a reviewer yet, so technical/model terms cannot be
     confirmed on any real project.
 
+53. **4 Nov 2026 — the PF engine keeps nothing in SQLite (JML: "move both to PostgreSQL, use the
+    platform API for fuels").** The gate engine never used a database; the *pricing* module did,
+    twice. (1) Its run log — every priced response and parameter change, the "reproduce the number"
+    audit trail — lived in `gex_pf_engine/backend/engine_model_runs.db` (665 runs, 1 change), outside
+    every backup. Migration **082** gives it `engine_model_runs` and `engine_param_change_events`,
+    append-only and FORCED RLS, written by a new role **`gex_engine`** holding SELECT + INSERT on
+    those two tables and nothing else; `gex_app` holds nothing on them. The engine connects with
+    `GEX_ENGINE_DATABASE_URL` from `gex_pf_engine/backend/.env` (git-ignored, random password,
+    loaded by `files/start_pf_engine.sh`); without it a run is stamped `run_logged: false` and the
+    reason logged — never written anywhere else. The rows were copied by
+    `scripts/migrate_run_log_to_postgres.py` (idempotent, verifies) and the SQLite files kept as
+    `*.migrated-2026-11-04`. (2) The offered fuels came from the platform's retired `gex_platform.db`
+    with `gex_fuel_catalog.json` as fallback; they now come from the platform's public
+    `/api/v1/onboarding/reference-data/fuels`, cached 60 s, and the engine answers 503
+    `FUEL_CATALOGUE_UNAVAILABLE` rather than use a copy. That route's `"source"` had said "sqlite"
+    unconditionally while serving PostgreSQL rows; it now names the store it read.
+
+    Verified live after restarting the engine: `/molecules` returns the eight offered fuels, a priced
+    `/forward` call wrote run 666 to PostgreSQL with `run_logged: true`, and the engine holds no
+    `.db` file open. Platform 1304 pass / 15 skip, engine 275, both with four deliberate breaks
+    caught. **Restores:** `gex_engine` is a role, not in a dump — `setup_postgres_rls.sql` creates
+    it, restore step 5 grants it CONNECT, then reset its password to the engine's `.env`.
+    **Docker release (not done):** compose's `pf_engine` service needs `GEX_ENGINE_DATABASE_URL`
+    and `GEX_PLATFORM_API_URL` (the backend service), and the image must be rebuilt for psycopg2.
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce

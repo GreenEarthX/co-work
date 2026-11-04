@@ -72,3 +72,29 @@ def curve_service(tmp_path, monkeypatch) -> GabillonService:
 def service_client(curve_service) -> TestClient:
     """A TestClient that sends a platform service bearer on every request."""
     return TestClient(app, headers={"Authorization": f"Bearer {gex_service_token()}"})
+
+
+# ── Run log and fuel catalogue: never the dev database, never the live platform ──
+# Since 2026-11-04 the run log is PostgreSQL (platform migration 082) and the
+# offered fuels come from the platform's API. With the developer's
+# GEX_ENGINE_DATABASE_URL in the environment every priced test response would
+# write a row into the dev database, and every molecule check would call :8000.
+# So both are cut here for EVERY test; tests/test_run_log_and_fuels.py tests the
+# real paths against fakes.
+TEST_OFFERED_FUELS = ["e-Methane", "e-Methanol", "e-NH3", "HVO", "SAF",
+                      "e-Gasoline", "e-LG", "e-Naphtha"]
+
+
+@pytest.fixture(autouse=True)
+def _no_dev_database_no_live_platform(monkeypatch, request):
+    from pf_engine.api import routes_pricing
+
+    monkeypatch.delenv("GEX_ENGINE_DATABASE_URL", raising=False)
+    if "real_fuel_lookup" not in request.keywords:
+        monkeypatch.setattr(routes_pricing, "_load_offered_molecules",
+                            lambda: list(TEST_OFFERED_FUELS))
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "real_fuel_lookup: run the real platform fuel lookup (against a fake HTTP answer)")

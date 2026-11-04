@@ -9,8 +9,9 @@ Three obligations, all append-only:
 
 2. RUN AUDIT TRAIL — every priced response carries a `governance` block
    (model version, calibration fingerprint, input hash, run id) and the
-   run is logged to an insert-only SQLite table. "Trust the number"
-   becomes "reproduce the number".
+   run is logged to an insert-only PostgreSQL table (engine_model_runs,
+   platform migration 082; until 2026-11-04 a local SQLite file outside
+   every backup). "Trust the number" becomes "reproduce the number".
 
 3. RUNTIME INVARIANTS — the engine refuses to emit outputs that violate
    its own documented properties (GABILLON_MODEL.md §2). The 2026-06-11
@@ -23,12 +24,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
+
+logger = logging.getLogger("pf_engine.model_governance")
 
 GABILLON_MODEL_VERSION = "1.1.0"
 
@@ -65,27 +68,32 @@ MODEL_CHANGE_REGISTER: list[dict[str, Any]] = [
 
 # ── Run audit log (append-only) ──────────────────────────────────────────────
 
-_RUNS_DB = os.getenv("GEX_ENGINE_RUNS_DB", "engine_model_runs.db")
+class RunLogUnavailable(RuntimeError):
+    """The run log cannot be reached (no DSN, or PostgreSQL refused)."""
 
 
-def _runs_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(_RUNS_DB)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS model_runs (
-            run_id TEXT PRIMARY KEY,
-            endpoint TEXT NOT NULL,
-            molecule TEXT,
-            model_version TEXT NOT NULL,
-            calibration_id TEXT NOT NULL,
-            calibration_status TEXT NOT NULL,
-            input_hash TEXT NOT NULL,
-            n_violations INTEGER NOT NULL DEFAULT 0,
-            violations_json TEXT,
-            computed_at TEXT NOT NULL
-        )
-    """)
-    return conn
+def _runs_conn():
+    """A connection as the engine's own role, gex_engine: SELECT and INSERT on
+    engine_model_runs and engine_param_change_events, nothing else (migration 082).
+
+    The tables are owned by the platform's migrations; the engine creates nothing.
+    There is no SQLite fallback: with GEX_ENGINE_DATABASE_URL unset the log is
+    simply unavailable — a run is then stamped run_logged: false, never written
+    somewhere a backup does not reach."""
+    dsn = os.getenv("GEX_ENGINE_DATABASE_URL")
+    if not dsn:
+        raise RunLogUnavailable("GEX_ENGINE_DATABASE_URL is not set")
+    import psycopg2
+
+    try:
+        return psycopg2.connect(dsn, connect_timeout=3)
+    except psycopg2.Error as exc:
+        raise RunLogUnavailable(str(exc)) from exc
+
+
+def _rows(cur) -> list[dict]:
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
 def _stable_hash(payload: Any) -> str:
@@ -191,29 +199,33 @@ def governance_stamp(
     }
     try:
         conn = _runs_conn()
-        conn.execute(
-            "INSERT INTO model_runs (run_id, endpoint, molecule, model_version, calibration_id, "
-            "calibration_status, input_hash, n_violations, violations_json, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (run_id, endpoint, molecule, GABILLON_MODEL_VERSION, fp["calibration_id"],
-             fp["calibration_status"], stamp["input_hash"], len(violations),
-             json.dumps(violations) if violations else None, computed_at),
-        )
-        conn.commit()
-        conn.close()
-    except sqlite3.Error:
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO engine_model_runs (run_id, endpoint, molecule, model_version, "
+                    "calibration_id, calibration_status, input_hash, n_violations, violations_json, "
+                    "computed_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (run_id, endpoint, molecule, GABILLON_MODEL_VERSION, fp["calibration_id"],
+                     fp["calibration_status"], stamp["input_hash"], len(violations),
+                     json.dumps(violations) if violations else None, computed_at),
+                )
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — logging never blocks pricing; it is loud instead
+        logger.error("run %s NOT logged: %s", run_id, exc)
         stamp["run_logged"] = False
     return stamp
 
 
 def recent_runs(limit: int = 100) -> list[dict]:
     conn = _runs_conn()
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT * FROM model_runs ORDER BY computed_at DESC LIMIT ?", (min(limit, 500),)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM engine_model_runs ORDER BY computed_at DESC LIMIT %s",
+                        (min(limit, 500),))
+            return _rows(cur)
+    finally:
+        conn.close()
 
 
 # ── Parameter governance ─────────────────────────────────────────────────────
@@ -251,23 +263,6 @@ def validate_params(params_dict: dict) -> list[dict]:
     return violations
 
 
-def _param_events_conn() -> sqlite3.Connection:
-    conn = _runs_conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS param_change_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            molecule TEXT NOT NULL,
-            old_calibration_id TEXT,
-            new_calibration_id TEXT NOT NULL,
-            changed_fields_json TEXT NOT NULL,
-            n_observations INTEGER NOT NULL,
-            source TEXT NOT NULL,
-            at TEXT NOT NULL
-        )
-    """)
-    return conn
-
-
 def log_param_change(molecule: str, old_params: Optional[dict], new_params: dict,
                      n_observations: int, source: str) -> dict:
     """Append-only register of parameter-set changes (old → new per field)."""
@@ -281,35 +276,40 @@ def log_param_change(molecule: str, old_params: Optional[dict], new_params: dict
                 changed[k] = {"old": old_v, "new": new_v}
     else:
         changed = {"_initial": {"old": None, "new": "seeded"}}
+    logged = True
     try:
-        conn = _param_events_conn()
-        conn.execute(
-            "INSERT INTO param_change_events (molecule, old_calibration_id, new_calibration_id, "
-            "changed_fields_json, n_observations, source, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (molecule, old_id, new_id, json.dumps(changed, default=str), n_observations,
-             source, datetime.now(timezone.utc).isoformat()),
-        )
-        conn.commit()
-        conn.close()
-    except sqlite3.Error:
-        pass
-    return {"old_calibration_id": old_id, "new_calibration_id": new_id, "changed_fields": changed}
+        conn = _runs_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO engine_param_change_events (molecule, old_calibration_id, "
+                    "new_calibration_id, changed_fields_json, n_observations, source, at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (molecule, old_id, new_id, json.dumps(changed, default=str), n_observations,
+                     source, datetime.now(timezone.utc).isoformat()),
+                )
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — as for runs: never blocks, always loud
+        logger.error("parameter change for %s NOT logged: %s", molecule, exc)
+        logged = False
+    return {"old_calibration_id": old_id, "new_calibration_id": new_id, "changed_fields": changed,
+            "change_logged": logged}
 
 
 def param_change_history(molecule: Optional[str] = None, limit: int = 100) -> list[dict]:
-    conn = _param_events_conn()
-    conn.row_factory = sqlite3.Row
-    if molecule:
-        rows = conn.execute(
-            "SELECT * FROM param_change_events WHERE molecule = ? ORDER BY id DESC LIMIT ?",
-            (molecule, min(limit, 500)),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM param_change_events ORDER BY id DESC LIMIT ?", (min(limit, 500),)
-        ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    conn = _runs_conn()
+    try:
+        with conn.cursor() as cur:
+            if molecule:
+                cur.execute("SELECT * FROM engine_param_change_events WHERE molecule = %s "
+                            "ORDER BY id DESC LIMIT %s", (molecule, min(limit, 500)))
+            else:
+                cur.execute("SELECT * FROM engine_param_change_events ORDER BY id DESC LIMIT %s",
+                            (min(limit, 500),))
+            return _rows(cur)
+    finally:
+        conn.close()
 
 
 # ── Challenger: engineering cost floor vs market-stochastic forward ─────────

@@ -279,3 +279,14 @@ def test_registry_electrolyser_consumption_is_above_hydrogen_lhv():
         assert floor > h2["specific_energy_value"], (
             f"electrolyser SEC {floor} kWh/kg is not above H2 LHV "
             f"{h2['specific_energy_value']} — an LHV has been stored as a consumption")
+
+
+@pytest.mark.parametrize("on_postgres,label", [(True, "postgres"), (False, "sqlite")])
+def test_the_catalogue_names_the_store_it_read(monkeypatch, on_postgres, label):
+    """It said "sqlite" unconditionally until 2026-11-04 while the rows came from
+    PostgreSQL — and the PF engine now takes its fuel list from this answer."""
+    from app.core import db_backend, fuel_catalog
+
+    monkeypatch.setattr(db_backend, "fuelref_is_postgres", lambda: on_postgres)
+    monkeypatch.setattr(fuel_catalog, "list_fuels", lambda **_: [])
+    assert fuel_catalog.load_fuel_catalog()["source"] == label

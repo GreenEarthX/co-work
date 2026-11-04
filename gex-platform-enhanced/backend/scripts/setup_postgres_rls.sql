@@ -30,6 +30,23 @@ END $$;
 GRANT CONNECT ON DATABASE gex_platform TO gex_admin;
 GRANT USAGE   ON SCHEMA public         TO gex_admin;
 
+-- ── PF engine role (2026-11-04) ───────────────────────────────────────────────
+-- gex_engine — used by the PF engine (:8001) for its own append-only run log.
+-- Migration 082 grants it SELECT, INSERT on engine_model_runs and
+-- engine_param_change_events and NOTHING else: no client data, no UPDATE/DELETE.
+-- Created here, not in 082, because roles are not in a pg_dump: a restore needs
+-- this script first, exactly as for gex_app. Set the real password with
+-- ALTER ROLE gex_engine PASSWORD ... to match GEX_ENGINE_DATABASE_URL.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gex_engine') THEN
+    CREATE ROLE gex_engine LOGIN PASSWORD 'gex_engine_password_change_in_prod';
+  END IF;
+END $$;
+
+GRANT CONNECT ON DATABASE gex_platform TO gex_engine;
+GRANT USAGE   ON SCHEMA public         TO gex_engine;
+
 -- ── Set default for app.current_company_id ───────────────────────────────────
 -- If a connection forgets to SET LOCAL, the default is 'GUEST' so RLS
 -- returns nothing rather than everything.
@@ -104,6 +121,17 @@ BEGIN
              WHERE schemaname = 'public' AND tablename = 'bankability_evidence_archive') THEN
     EXECUTE 'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON bankability_evidence_archive FROM gex_app';
   END IF;
+
+  -- 082: the PF engine's run log belongs to gex_engine alone. gex_app holds
+  -- nothing on these tables BY DESIGN, so the grant loop above would hand it
+  -- SELECT, INSERT, UPDATE on a re-run: take it all back, unconditionally.
+  FOR tbl IN
+    SELECT unnest(ARRAY['engine_model_runs', 'engine_param_change_events'])
+    INTERSECT
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  LOOP
+    EXECUTE format('REVOKE ALL ON %I FROM gex_app', tbl);
+  END LOOP;
 
   FOR tbl IN
     SELECT tablename FROM pg_tables WHERE schemaname = 'public'

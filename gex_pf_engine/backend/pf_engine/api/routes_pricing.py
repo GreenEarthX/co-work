@@ -8,8 +8,9 @@ keeps legacy molecule aliases operational.
 import logging
 import json
 import os
-import sqlite3
-from pathlib import Path
+import time
+
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -42,46 +43,15 @@ from pf_engine.core.model_governance import (
 logger = logging.getLogger("gex.routes.pricing")
 router = APIRouter()
 
-def _ancestor(levels: int) -> Path | None:
-    """parents[levels], or None when the tree is shallower (e.g. in a container)."""
-    parents = Path(__file__).resolve().parents
-    return parents[levels] if len(parents) > levels else None
-
-
-def _resolve_legacy_catalog_path() -> Path:
-    """Locate gex_fuel_catalog.json across dev-checkout and container layouts."""
-    override = os.getenv("GEX_FUEL_CATALOG_PATH")
-    if override:
-        return Path(override)
-
-    parents = Path(__file__).resolve().parents
-    candidates = [
-        *(p / "gex_fuel_catalog.json" for p in parents[:5]),
-        Path("/app/gex_fuel_catalog.json"),  # container: WORKDIR /app
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return Path("/app/gex_fuel_catalog.json")
-
-
-LEGACY_CATALOG_PATH = _resolve_legacy_catalog_path()
-
-
-def _resolve_platform_db_path() -> str | None:
-    dev_root = _ancestor(4)
-    candidates = [
-        os.getenv("GEX_PLATFORM_DB_PATH"),
-        str(dev_root / "gex-platform-enhanced" / "backend" / "gex_platform.db") if dev_root else None,
-        str(_ancestor(2) / "gex_platform.db") if _ancestor(2) else None,
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).exists() and Path(candidate).stat().st_size > 0:
-            return candidate
-    return None
-
-
-PLATFORM_DB_PATH = _resolve_platform_db_path()
+# The offered fuels come from the platform, whose fuel_catalog lives in PostgreSQL
+# (JML, 2026-11-04). Until then this module opened the platform's retired SQLite
+# file, gex_platform.db, and fell back to gex_fuel_catalog.json: two stale copies
+# that would silently outlive any change made in PostgreSQL. The route is public
+# reference data on the platform (route_security.PUBLIC_ROUTES), so no token.
+PLATFORM_API_URL = os.getenv("GEX_PLATFORM_API_URL", "http://127.0.0.1:8000").rstrip("/")
+FUEL_CATALOGUE_ROUTE = "/api/v1/onboarding/reference-data/fuels"
+FUEL_CACHE_SECONDS = 60.0
+_fuel_cache: dict = {"at": 0.0, "labels": None}
 SUPPORTED_MOLECULES = list(SEED_PARAMS.keys())
 MOLECULE_ALIASES = {
     "e-methane": "E_METHANE",
@@ -121,30 +91,29 @@ def normalize_molecule(value: str) -> str:
 
 
 def _load_offered_molecules() -> list[str]:
-    if PLATFORM_DB_PATH:
-        conn = sqlite3.connect(PLATFORM_DB_PATH)
-        conn.row_factory = sqlite3.Row
-        try:
-            rows = conn.execute(
-                """
-                SELECT label
-                FROM fuel_catalog
-                WHERE offered = 1 AND is_active = 1
-                ORDER BY sort_order, label
-                """
-            ).fetchall()
-            labels = [row["label"] for row in rows]
-            supported = [label for label in labels if normalize_molecule(label) in SUPPORTED_MOLECULES]
-            if supported:
-                return supported
-        except sqlite3.Error:
-            logger.warning("Fuel catalogue table not available in %s", PLATFORM_DB_PATH)
-        finally:
-            conn.close()
+    """Offered, active fuels this engine can price, read from the platform.
 
-    with LEGACY_CATALOG_PATH.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    return [fuel["label"] for fuel in payload.get("fuels", []) if fuel.get("offered")]
+    Cached for FUEL_CACHE_SECONDS. No fallback: if the platform cannot answer, the
+    engine answers 503 FUEL_CATALOGUE_UNAVAILABLE rather than price from a copy."""
+    now = time.monotonic()
+    if _fuel_cache["labels"] is not None and now - _fuel_cache["at"] < FUEL_CACHE_SECONDS:
+        return _fuel_cache["labels"]
+    try:
+        response = httpx.get(PLATFORM_API_URL + FUEL_CATALOGUE_ROUTE, timeout=3.0)
+        response.raise_for_status()
+        fuels = response.json()["fuels"]
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        logger.error("fuel catalogue unavailable from %s: %s", PLATFORM_API_URL, exc)
+        raise HTTPException(status_code=503, detail={
+            "code": "FUEL_CATALOGUE_UNAVAILABLE",
+            "message": "The platform did not return the fuel catalogue, so no molecule can be "
+                       "validated. Check the platform backend is up.",
+        }) from exc
+    labels = [f["label"] for f in fuels
+              if f.get("offered") and f.get("is_active", True)
+              and normalize_molecule(f["label"]) in SUPPORTED_MOLECULES]
+    _fuel_cache.update(at=now, labels=labels)
+    return labels
 
 
 # ════════════════════════════════════════════════════════════════
