@@ -2872,6 +2872,43 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     it, restore step 5 grants it CONNECT, then reset its password to the engine's `.env`.
     **Docker release (not done):** compose's `pf_engine` service needs `GEX_ENGINE_DATABASE_URL`
     and `GEX_PLATFORM_API_URL` (the backend service), and the image must be rebuilt for psycopg2.
+    (Compose was done the same day — item 54. The image rebuild remains.)
+
+54. **4 Nov 2026 — the repository caught up, client data kept out of it, and the Docker stack on
+    PostgreSQL (JML).** Four pushes to `co-work` `main`:
+
+    - **`0d2c91e` — the 31 Oct–3 Nov work of other sessions**, which had never been synced:
+      migration 081 (`auth_users.telephone`), the GEX staff console and read-only staff (R0P),
+      the owner's password change, the Project Profile and login-page fixes, FortaVerde client
+      onboarding and demo sign-ins, and the gate engine's rules 4.8.0 code. Committed then because
+      082 builds on 081: pushing 082 alone would have left a gap in the migration chain. The whole
+      tree had passed 1304 / 15 skip that day.
+    - **Client contact data stays out of git (JML).** `backend/scripts/fortaverde_client_accounts.json`
+      (real names, emails and a mobile number of Möhring Energie's contacts) is in `co-work/.gitignore`.
+      The repo copies of `fortaverde_knowledge_v2.json` and `docs/FORTAVERDE_CLIENT_ONBOARDING.md`
+      carry placeholder addresses (`contact-p1/p2@client.invalid`); **the working copies keep the
+      real ones, so every future sync of those two files must re-apply the placeholders.** The
+      real number was replaced by a placeholder in CLAUDE.md and in `GexStaffConsolePage.test.tsx`
+      (working copies too; the test still passes). None of it had ever been in git history.
+    - **`1171376` — the PF engine move** (item 53).
+    - **`6a097f1` / `d37992d` — `files/gex-demo-compose.yml`.** The `pf_engine` service gets
+      `GEX_ENGINE_DATABASE_URL` and `GEX_PLATFORM_API_URL` and waits for a healthy postgres (takes
+      effect with the next engine image). The **backend** connected as `gex_user`, the superuser,
+      and set none of the ten `*_DB_BACKEND` switches, all of which default to `sqlite` — so the
+      container kept most data in a SQLite file inside itself and no tenant policy applied. It now
+      uses `gex_app` for `DATABASE_URL` and `CANONICAL_DATABASE_URL`, with all ten switches on
+      `postgres`. Verified with today's v1.9.0 image by starting only the backend (`--no-deps`):
+      connected as `gex_app`, `projects` 0 with no tenant and 4 as `hamburgone_com`, no errors;
+      stopped again, postgres untouched.
+
+    **Passwords are never in compose.** `files/.env` (git-ignored, mode 600) holds
+    `GEX_APP_DB_PASSWORD` and `GEX_ENGINE_DB_PASSWORD`; compose reads them by substitution. Missing
+    values do not break compose (no `:?`), so `down` and the clean-pull routine still run; the
+    backend then cannot connect and the engine stamps runs `run_logged: false`. Anyone running the
+    stack from a fresh checkout needs their own `files/.env`.
+
+    **Still open:** rebuild and push the `pf_engine` image (psycopg2) and bump the tags;
+    `files/start_pf_engine.sh` (now loads the engine's `.env`) lives outside the repository.
 
 ---
 
