@@ -64,6 +64,18 @@ services:
     image: jmlamay/gex-pf-engine:v1.9.0
     environment:
       ENVIRONMENT: development
+      # Since 2026-11-04 the engine keeps nothing in SQLite (needs an image built after that):
+      # - its run log is in PostgreSQL (migration 082), written as its own role gex_engine
+      #   (SELECT + INSERT on two tables, nothing else). The password comes from
+      #   GEX_ENGINE_DB_PASSWORD in files/.env (git-ignored; the same value as the engine's
+      #   gex_pf_engine/backend/.env). Unset, the engine still prices and stamps every run
+      #   run_logged: false. A brand-new database needs the role first:
+      #   backend/scripts/setup_postgres_rls.sql, then ALTER ROLE gex_engine PASSWORD.
+      # - its offered fuels come from the platform API, the "backend" service below.
+      GEX_ENGINE_DATABASE_URL: postgresql://gex_engine:${GEX_ENGINE_DB_PASSWORD:-}@postgres:5432/gex_platform
+      GEX_PLATFORM_API_URL: http://backend:8000
+    depends_on:
+      postgres: {condition: service_healthy}
     networks: [gex_net]
 
   tea_engine:
