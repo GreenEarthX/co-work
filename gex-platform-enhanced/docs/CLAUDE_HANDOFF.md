@@ -2910,6 +2910,30 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     **Still open:** rebuild and push the `pf_engine` image (psycopg2) and bump the tags;
     `files/start_pf_engine.sh` (now loads the engine's `.env`) lives outside the repository.
 
+55. **4 Nov 2026 — `jmlamay/gex-pf-engine:v1.10.0` released; the Docker VM disk filled up.**
+    - **Image:** built from `files/docker/` (sync-to-docker.sh now also excludes `*.migrated-*` and
+      `fortaverde_client_accounts.json`), import-smoke-tested, pushed as `v1.10.0` and `latest`
+      (digest `sha256:f795f345…8627`). Compose now pins `v1.10.0`.
+    - **A 401 that was always there.** The backend signs its engine tokens with `SECRET_KEY`; the
+      engine container had no `GEX_JWT_SECRET`, so it verified with its own development default and
+      refused every backend→engine call in the compose stack. Compose now sets
+      `GEX_JWT_SECRET` equal to the backend's `SECRET_KEY`.
+    - **Clean-pull test passed** (backend + pf_engine only, `--no-deps`, postgres and redis
+      untouched): inside `files_gex_net`, `GET /api/v1/pricing/molecules` 200 with 8 molecules from
+      the platform API, `term-curve/E_METHANE` 200 with `run_logged: true`, the run in
+      `engine_model_runs` (669 → 670), no token 401. Both containers stopped again.
+    - **PostgreSQL crashed into recovery twice** during the build/pull. Cause: the Docker VM disk
+      (**7.8 GB** in all) was 100% full. `docker builder prune -a -f` freed 3 GB (now 76%, 1.8 GB
+      free). Data verified intact (projects 16, auth_users 27, evidence 124, head 082, 156 tables)
+      and a verified backup taken (`gex_platform_2026-11-04_1641.dump`). No volume was touched.
+      **Before any image build, check `docker exec files-postgres-1 df -h /var/lib/postgresql/data`
+      and prune the build cache if it is under ~2 GB free** — PostgreSQL shares that disk.
+    - Local images `gex-pf-engine` v1.8.0/v1.9.0/latest were removed while freeing space; they
+      remain on Docker Hub.
+    - **Not fixed, same shape:** the `tea_engine` service sets neither `GEX_JWT_SECRET` nor
+      `GEX_JWKS_URL` (which defaults to `localhost:8000`, wrong inside a container), so
+      backend→TEA calls in the compose stack are probably refused the same way. Not tested.
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce

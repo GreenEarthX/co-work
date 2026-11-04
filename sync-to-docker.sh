@@ -14,8 +14,21 @@ EXCLUDES=(
   --exclude='.git'
   --exclude='dist'
   --exclude='*.db'
+  --exclude='*.db-wal'
+  --exclude='*.db-shm'
   --exclude='.env'
   --exclude='micro_service'
+  --exclude='venv'
+  --exclude='.venv'
+  --exclude='.pytest_cache'
+  --exclude='.DS_Store'
+  --exclude='~$*'
+  --exclude='db_backups'
+  --exclude='tests'
+  # 2026-11-04: retired SQLite run-log files kept beside the engine after migration 082
+  --exclude='*.migrated-*'
+  # 2026-11-04 (JML): real client contact data stays out of git — and out of the images
+  --exclude='fortaverde_client_accounts.json'
 )
 
 echo "▶ Syncing gex-platform-enhanced..."
