@@ -49,7 +49,25 @@ services:
   backend:
     image: jmlamay/gex-backend:v1.9.0
     environment:
-      DATABASE_URL: postgresql://gex_user:gex_password_dev@postgres:5432/gex_platform
+      # The runtime role gex_app: no superuser, no BYPASSRLS, so row-level security applies
+      # (migration 045). Until 2026-11-04 this was gex_user, the superuser that owns the
+      # schema, which made every tenant policy decorative. gex_user is for migrations only.
+      # The password comes from GEX_APP_DB_PASSWORD in files/.env (git-ignored).
+      DATABASE_URL: postgresql://gex_app:${GEX_APP_DB_PASSWORD:-}@postgres:5432/gex_platform
+      CANONICAL_DATABASE_URL: postgresql://gex_app:${GEX_APP_DB_PASSWORD:-}@postgres:5432/gex_platform
+      # Every data slice on PostgreSQL, as on the development backend. Each defaults to
+      # "sqlite" in config.py, so without these the container kept its data in a SQLite
+      # file inside itself — outside the database, its backups and its row-level security.
+      AUTH_DB_BACKEND: postgres
+      EVIDENCE_DB_BACKEND: postgres
+      CAPITAL_DB_BACKEND: postgres
+      MARKET_DB_BACKEND: postgres
+      ENTITLEMENT_DB_BACKEND: postgres
+      EVENTSTORE_DB_BACKEND: postgres
+      FUELREF_DB_BACKEND: postgres
+      GOVERNANCE_DB_BACKEND: postgres
+      DOMAIN_DB_BACKEND: postgres
+      WORKSPACE_DB_BACKEND: postgres
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: demo_secret_not_for_production
       ENVIRONMENT: development
