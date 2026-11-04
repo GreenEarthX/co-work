@@ -379,6 +379,7 @@ class ABACMiddleware(BaseHTTPMiddleware):
             kyc_status=payload.get("kyc_status", "UNVERIFIED"),
             nda_signed_with=set(payload.get("nda_signed_with", [])),
             assigned_audits=set(payload.get("assigned_audits", [])),
+            is_platform_admin=bool(payload.get("is_platform_admin")),
             capabilities=capabilities,
             credit_rating=payload.get("credit_rating", "NR"),
             credit_rating_source=payload.get("credit_rating_source", "GEX"),

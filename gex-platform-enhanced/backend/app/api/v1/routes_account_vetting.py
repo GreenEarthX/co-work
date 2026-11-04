@@ -49,9 +49,16 @@ router = APIRouter()
 
 def _conn() -> sqlite3.Connection:
     """`auth_users` is owned by app.core.auth — use its accessor, never our own
-    connection. (Also keeps this module off the raw-sqlite3 ratchet.)"""
-    from app.core.auth import auth_db_connection
+    connection. (Also keeps this module off the raw-sqlite3 ratchet.)
 
+    PostgreSQL only (JML, 2026-11-03): registration and every vetting step
+    refuse with 503 POSTGRES_REQUIRED rather than write an account, or its
+    ledger events, to the SQLite file."""
+    from app.core.auth import auth_db_connection
+    from app.core.db_backend import eventstore_is_postgres, is_postgres, require_postgres
+
+    require_postgres(is_postgres(), "Account registration and vetting", "AUTH_DB_BACKEND")
+    require_postgres(eventstore_is_postgres(), "Account registration and vetting", "EVENTSTORE_DB_BACKEND")
     return auth_db_connection()
 
 
@@ -191,8 +198,8 @@ async def register(body: RegistrationRequest) -> RegistrationResponse:
                 user_id, email, password_hash, company_id, company_name,
                 company_type, service_type, business_function, user_name,
                 jurisdiction, clearance_level, kyc_status, is_platform_admin,
-                is_active, account_state, registered_at, vetting_note
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                is_active, account_state, registered_at, vetting_note, telephone
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 user_id, email, pwd_context.hash(body.password),
@@ -210,6 +217,9 @@ async def register(body: RegistrationRequest) -> RegistrationResponse:
                 AccountState.PENDING.value, now,
                 f"Self-registered {now}. Telephone supplied: {body.telephone.strip()}. "
                 "All company details are self-asserted and unconfirmed.",
+                # The current number, which its owner may change (alembic 081).
+                # The note above stays the record of what was supplied here.
+                body.telephone.strip(),
             ),
         )
         conn.commit()
@@ -254,7 +264,7 @@ async def vetting_queue(request: Request) -> dict[str, Any]:
         rows = conn.execute(
             "SELECT user_id, email, user_name, company_name, company_type, "
             "business_function, account_state, registered_at, phone_verified_at, "
-            "phone_verified_by, agreement_signed_at, agreement_ref, vetting_note "
+            "phone_verified_by, agreement_signed_at, agreement_ref, vetting_note, telephone "
             "FROM auth_users WHERE account_state IN (?,?) ORDER BY registered_at",
             (AccountState.PENDING.value, AccountState.IN_VETTING.value),
         ).fetchall()

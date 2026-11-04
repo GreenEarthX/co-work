@@ -22,10 +22,12 @@ export interface CustomerProject {
     | "e-Naphtha";
   location: string;
   country: string;
-  lat: number;
-  lng: number;
+  /** Null when not recorded — never 0, which is a point in the Gulf of Guinea. */
+  lat: number | null;
+  lng: number | null;
   capacity_mtpd: number;
-  capex_eur: number;
+  /** Null when not recorded — never 0, which reads as a costless plant. */
+  capex_eur: number | null;
   /**
    * Currency the CAPEX figure is denominated in. Decoupled from the field
    * name so users can keep the number and switch the unit without losing

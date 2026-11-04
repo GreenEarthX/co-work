@@ -121,14 +121,16 @@ function fmtYear(value: string | number): string {
 }
 
 /** Signed decimal degrees → hemisphere notation (-103.49 → 103.49° W). */
-function fmtLat(value: string | number): string {
+function fmtLat(value: string | number | null): string {
+  if (value == null || value === "") return "—";
   const n = Number(value);
   return Number.isFinite(n)
     ? `${fmtNum(Math.abs(n))}° ${n < 0 ? "S" : "N"}`
     : "—";
 }
 
-function fmtLng(value: string | number): string {
+function fmtLng(value: string | number | null): string {
+  if (value == null || value === "") return "—";
   const n = Number(value);
   return Number.isFinite(n)
     ? `${fmtNum(Math.abs(n))}° ${n < 0 ? "W" : "E"}`
@@ -167,71 +169,45 @@ function buildVerifiedFields(
     ...opts,
   });
 
-  // Gates with evidence → CONFIRMED; all evidence verified → AUDITED
-  const gateCompletion = p.bankability.overall_completion;
-  const projectVerif: VerificationState =
-    gateCompletion >= 90
-      ? "AUDITED"
-      : gateCompletion >= 60
-        ? "CONFIRMED"
-        : gateCompletion >= 30
-          ? "SUBMITTED"
-          : "UNVERIFIED";
+  // Nothing on this screen is independently verified: reviewers verify
+  // evidence on Gates & Evidence. A recorded value is the project's own claim
+  // (SUBMITTED), a missing one UNVERIFIED. These badges used to read CONFIRMED
+  // or AUDITED with invented sources and dates, or follow gate completion.
+  const claim = (v: unknown): VerificationState =>
+    v == null || v === "" || v === 0 ? "UNVERIFIED" : "SUBMITTED";
 
   return {
-    name: mk(p.name, "CONFIRMED", {
-      source: "Onboarding",
-      lastVerifiedAt: "2026-01-15",
-    }),
-    molecule: mk(p.molecule, projectVerif, { source: "FEED study" }),
-    owner_company: mk(p.owner_company, "CONFIRMED", {
-      source: "KYC check",
-      lastVerifiedAt: "2026-02-01",
-    }),
-    associated_companies: mk(p.associated_companies.join(", "), "SUBMITTED"),
-    location: mk(p.location, "CONFIRMED", {
-      source: "Site survey",
-      lastVerifiedAt: "2025-11-20",
-    }),
-    country: mk(p.country, "CONFIRMED", { source: "Jurisdiction filing" }),
-    lat: mk(p.lat, "CONFIRMED", { unit: "deg N" }),
-    lng: mk(p.lng, "CONFIRMED", { unit: "deg E/W" }),
-    capacity_mtpd: mk(p.capacity_mtpd, projectVerif, {
-      unit: "MTPD",
-      source: "FEED Class 3",
-    }),
-    capex_eur: mk(p.capex_eur, projectVerif, {
+    name: mk(p.name, claim(p.name)),
+    molecule: mk(p.molecule, claim(p.molecule)),
+    owner_company: mk(p.owner_company, claim(p.owner_company)),
+    associated_companies: mk(
+      p.associated_companies.join(", "),
+      claim(p.associated_companies.join(", ")),
+    ),
+    location: mk(p.location, claim(p.location)),
+    country: mk(p.country, claim(p.country)),
+    lat: mk(p.lat, claim(p.lat), { unit: "deg N" }),
+    lng: mk(p.lng, claim(p.lng), { unit: "deg E/W" }),
+    capacity_mtpd: mk(p.capacity_mtpd, claim(p.capacity_mtpd), { unit: "MTPD" }),
+    capex_eur: mk(p.capex_eur, claim(p.capex_eur), {
       unit: p.capex_currency ?? "EUR",
-      source: "AACE Class 3 estimate",
     }),
-    capex_currency: mk(
-      p.capex_currency ?? "EUR",
-      p.capex_currency ? "CONFIRMED" : "UNVERIFIED",
-      { source: "Project filing" },
-    ),
-    status: mk(p.status, "CONFIRMED"),
-    phase: mk(p.phase, projectVerif, { source: "Project manager attestation" }),
-    completion_date: mk(
-      p.completion_date,
-      p.status === "operating" ? "AUDITED" : "SUBMITTED",
-    ),
+    capex_currency: mk(p.capex_currency ?? "EUR", claim(p.capex_currency)),
+    status: mk(p.status, claim(p.status)),
+    phase: mk(p.phase, claim(p.phase)),
+    completion_date: mk(p.completion_date, claim(p.completion_date)),
     description: mk(p.description, "UNVERIFIED"),
     // ── Structured narrative source-of-truth fields (Option A) ──
     power_mw: mk(
       p.energy_input?.power_mw ?? 0,
-      p.energy_input ? "CONFIRMED" : "UNVERIFIED",
-      { unit: "MW", source: "FEED Class 3" },
+      claim(p.energy_input?.power_mw),
+      { unit: "MW" },
     ),
-    power_source: mk(
-      p.energy_input?.source ?? "",
-      p.energy_input ? "CONFIRMED" : "UNVERIFIED",
-      { source: "Energy supply agreement" },
-    ),
+    power_source: mk(p.energy_input?.source ?? "", claim(p.energy_input?.source)),
     // Grid topology — drives G1 evidence requirements and the PPA rule.
     power_model: mk(
       p.energy_input?.power_model ?? "",
-      p.energy_input?.power_model ? "CONFIRMED" : "UNVERIFIED",
-      { source: "Power sourcing strategy" },
+      claim(p.energy_input?.power_model),
     ),
     // PPA portfolio summary (structured editor is a follow-up; the rule reads the array).
     //
@@ -252,9 +228,7 @@ function buildVerifiedFields(
         const signed = ppas.filter((x) => x.status === "SIGNED").length;
         return `${ppas.length} PPA · ${signed} signed · ${mw} MW`;
       })(),
-      (p.energy_input?.ppas ?? []).some((x) => x.status === "SIGNED")
-        ? "CONFIRMED"
-        : "UNVERIFIED",
+      (p.energy_input?.ppas ?? []).length > 0 ? "SUBMITTED" : "UNVERIFIED",
       {
         source:
           p.energy_input?.power_model === "OFF_GRID_BTM"
@@ -299,9 +273,7 @@ function buildVerifiedFields(
     ),
     grid_import_metering: mk(
       p.energy_input?.power_attribution?.grid_import_metering ?? "",
-      p.energy_input?.power_attribution?.grid_import_metering === "VERIFIED"
-        ? "CONFIRMED"
-        : "UNVERIFIED",
+      claim(p.energy_input?.power_attribution?.grid_import_metering),
       {
         source:
           "Smart metering attesting zero grid import — required by DA Art. 3(b); any import voids the direct-line route",
@@ -309,12 +281,7 @@ function buildVerifiedFields(
     ),
     certificate_matching: mk(
       p.energy_input?.power_attribution?.certificate_matching ?? "",
-      p.energy_input?.power_attribution?.certificate_matching === "HOURLY"
-        ? "CONFIRMED"
-        : p.energy_input?.power_attribution?.certificate_matching &&
-            p.energy_input.power_attribution.certificate_matching !== "NONE"
-          ? "SUBMITTED"
-          : "UNVERIFIED",
+      claim(p.energy_input?.power_attribution?.certificate_matching),
       {
         source:
           "EAC / GO retirement granularity — 45V requires hourly from 2028, RFNBO from 2030",
@@ -322,23 +289,21 @@ function buildVerifiedFields(
     ),
     electrolyser_mw: mk(
       p.electrolyser?.capacity_mw ?? 0,
-      p.electrolyser ? "CONFIRMED" : "UNVERIFIED",
-      { unit: "MW", source: "Electrolyser OEM spec" },
+      claim(p.electrolyser?.capacity_mw),
+      { unit: "MW" },
     ),
     electrolyser_tech: mk(
       p.electrolyser?.technology ?? "",
-      p.electrolyser ? "CONFIRMED" : "UNVERIFIED",
-      { source: "Electrolyser OEM spec" },
+      claim(p.electrolyser?.technology),
     ),
     capacity_kt_yr: mk(
       p.capacity_kt_yr ?? Math.round((p.capacity_mtpd * 365) / 1000),
-      "CONFIRMED",
+      claim(p.capacity_kt_yr ?? p.capacity_mtpd),
       { unit: "kt/yr", source: "Derived from capacity_mtpd × 365" },
     ),
     construction_start: mk(
       p.timeline?.construction_start_year ?? 0,
-      p.timeline?.construction_start_year ? "SUBMITTED" : "UNVERIFIED",
-      { source: "Project schedule" },
+      claim(p.timeline?.construction_start_year),
     ),
   };
 }
@@ -780,24 +745,24 @@ function VerificationPill({
   isDraft,
   source,
   lastVerifiedAt,
-  onConfirm,
 }: {
   state: VerificationState;
   isDraft?: boolean;
   source?: string;
   lastVerifiedAt?: string;
-  onConfirm?: () => void;
 }) {
   const effectiveState: VerificationState = isDraft ? "SUBMITTED" : state;
-  const canConfirm =
-    !isDraft && effectiveState !== "CONFIRMED" && effectiveState !== "AUDITED";
 
+  // Nothing is confirmed on this screen: an independent reviewer verifies
+  // evidence on Gates & Evidence, and a click here used to fake that.
   const tip = [
     isDraft
-      ? "Modified by user — verification required"
-      : canConfirm
-        ? "Click to confirm client-reviewed data"
-        : effectiveState,
+      ? "Modified — not saved, not verified"
+      : effectiveState === "SUBMITTED"
+        ? "Recorded by the project, not independently verified"
+        : effectiveState === "UNVERIFIED"
+          ? "Not recorded"
+          : effectiveState,
     source ? `Source: ${source}` : null,
     lastVerifiedAt ? `Verified: ${fmtDate(lastVerifiedAt)}` : null,
   ]
@@ -807,7 +772,6 @@ function VerificationPill({
   return (
     <span
       title={tip}
-      onClick={canConfirm ? onConfirm : undefined}
       className={`${CHIP_BASE} border border-l-2 ${
         effectiveState === "AUDITED"
           ? "border-slate-950 bg-slate-950 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950"
@@ -816,7 +780,7 @@ function VerificationPill({
             : effectiveState === "SUBMITTED"
               ? "border-slate-300 border-l-sky-600 bg-[#F8FAFC] text-sky-800 dark:bg-slate-900 dark:text-sky-300"
               : "border-slate-300 border-l-slate-400 bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400"
-      } ${canConfirm ? "cursor-pointer hover:border-slate-500 hover:bg-slate-100" : "cursor-default"}`}
+      } cursor-default`}
     >
       {effectiveState}
     </span>
@@ -837,7 +801,6 @@ function InlineField({
   options,
   highlighted,
   isDraft,
-  onConfirm,
   onChange,
 }: {
   fieldKey: string;
@@ -851,7 +814,6 @@ function InlineField({
   options?: readonly string[];
   highlighted?: boolean;
   isDraft?: boolean;
-  onConfirm?: (key: string) => void;
   onChange: (key: string, val: string | number) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -923,7 +885,6 @@ function InlineField({
             isDraft={isDraft}
             source={source}
             lastVerifiedAt={lastVerifiedAt}
-            onConfirm={() => onConfirm?.(fieldKey)}
           />
           <span />
         </div>
@@ -1020,7 +981,6 @@ function InlineField({
         isDraft={isDraft}
         source={source}
         lastVerifiedAt={lastVerifiedAt}
-        onConfirm={() => onConfirm?.(fieldKey)}
       />
 
       {unit ? (
@@ -1047,7 +1007,6 @@ function LocationPair({
   countryDraft,
   latDraft,
   lngDraft,
-  onConfirm,
   onChange,
 }: {
   location: string | number;
@@ -1060,7 +1019,6 @@ function LocationPair({
   countryDraft?: boolean;
   latDraft?: boolean;
   lngDraft?: boolean;
-  onConfirm?: (key: string) => void;
   onChange: (key: string, val: string | number) => void;
 }) {
   const [editingPlace, setEditingPlace] = useState(false);
@@ -1162,10 +1120,6 @@ function LocationPair({
         <VerificationPill
           state={locationVerification}
           isDraft={locationDraft || countryDraft}
-          onConfirm={() => {
-            onConfirm?.("location");
-            onConfirm?.("country");
-          }}
         />
         <span />
       </div>
@@ -1232,10 +1186,6 @@ function LocationPair({
         <VerificationPill
           state={latVerification}
           isDraft={latDraft || lngDraft}
-          onConfirm={() => {
-            onConfirm?.("lat");
-            onConfirm?.("lng");
-          }}
         />
         <span />
       </div>
@@ -1251,7 +1201,6 @@ function CapacityField({
   verification,
   isDraft,
   onUnitChange,
-  onConfirm,
   onChange,
 }: {
   valueMtpd: string | number;
@@ -1259,7 +1208,6 @@ function CapacityField({
   verification: VerificationState;
   isDraft?: boolean;
   onUnitChange: (unit: CapacityUnit) => void;
-  onConfirm?: (key: string) => void;
   onChange: (key: string, val: string | number) => void;
 }) {
   const mtpd = Number(valueMtpd) || 0;
@@ -1316,7 +1264,6 @@ function CapacityField({
       <VerificationPill
         state={verification}
         isDraft={isDraft}
-        onConfirm={() => onConfirm?.("capacity_mtpd")}
       />
       <select
         value={unit}
@@ -1810,12 +1757,6 @@ function ProfileWorkbench({
     setSaved(false);
   }, []);
 
-  const handleConfirm = useCallback((key: string) => {
-    setVerificationOverrides((prev) => ({ ...prev, [key]: "CONFIRMED" }));
-    setDirty(true);
-    setSaved(false);
-  }, []);
-
   const handleSave = useCallback(() => {
     setDirty(false);
     setSaved(true);
@@ -2105,7 +2046,6 @@ function ProfileWorkbench({
               lastVerifiedAt={vf("name").lastVerifiedAt}
               isDraft={isDraft("name")}
               highlighted={contradictionFields.has("name")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2118,7 +2058,6 @@ function ProfileWorkbench({
               options={MOLECULE_OPTIONS}
               isDraft={isDraft("molecule")}
               highlighted={contradictionFields.has("molecule")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2130,7 +2069,6 @@ function ProfileWorkbench({
               lastVerifiedAt={vf("owner_company").lastVerifiedAt}
               isDraft={isDraft("owner_company")}
               highlighted={contradictionFields.has("owner_company")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2140,7 +2078,6 @@ function ProfileWorkbench({
               verification={vf("associated_companies").verification}
               isDraft={isDraft("associated_companies")}
               highlighted={contradictionFields.has("associated_companies")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
           </FieldSection>
@@ -2158,7 +2095,6 @@ function ProfileWorkbench({
               countryDraft={isDraft("country")}
               latDraft={isDraft("lat")}
               lngDraft={isDraft("lng")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
           </FieldSection>
@@ -2171,7 +2107,6 @@ function ProfileWorkbench({
               verification={vf("capacity_mtpd").verification}
               isDraft={isDraft("capacity_mtpd")}
               onUnitChange={setCapacityUnit}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             {/* Annual product output — derived, read-only chip (audit trail surfaced in source) */}
@@ -2184,7 +2119,6 @@ function ProfileWorkbench({
               unit="kt/yr"
               type="number"
               isDraft={isDraft("capacity_kt_yr")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             {/* Upstream energy — narrative source-of-truth, editable */}
@@ -2197,7 +2131,6 @@ function ProfileWorkbench({
               unit="MW"
               type="number"
               isDraft={isDraft("power_mw")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2209,7 +2142,6 @@ function ProfileWorkbench({
               options={["wind", "solar", "hybrid", "hydro", "nuclear", "grid"]}
               isDraft={isDraft("power_source")}
               highlighted={contradictionFields.has("power_source")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             {/* Grid topology: off-grid BTM needs grid-independence evidence; on-grid needs ≥1 PPA */}
@@ -2223,7 +2155,6 @@ function ProfileWorkbench({
               options={["OFF_GRID_BTM", "GRID_CONNECTED", "HYBRID"]}
               isDraft={isDraft("power_model")}
               highlighted={contradictionFields.has("power_model")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2234,7 +2165,6 @@ function ProfileWorkbench({
               source={vf("ppas").source}
               isDraft={isDraft("ppas")}
               highlighted={contradictionFields.has("ppas")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             {/* Power attribution — the evidence that qualifies the electricity.
@@ -2250,7 +2180,6 @@ function ProfileWorkbench({
               options={["", "SAME_ENTITY", "AFFILIATE", "THIRD_PARTY"]}
               isDraft={isDraft("generator_ownership")}
               highlighted={contradictionFields.has("generator_ownership")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2262,7 +2191,6 @@ function ProfileWorkbench({
               type="year"
               isDraft={isDraft("generator_cod_year")}
               highlighted={contradictionFields.has("generator_cod_year")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2275,7 +2203,6 @@ function ProfileWorkbench({
               options={["", "no", "yes"]}
               isDraft={isDraft("generator_aid")}
               highlighted={contradictionFields.has("generator_aid")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2288,7 +2215,6 @@ function ProfileWorkbench({
               options={["", "NONE", "INSTALLED", "VERIFIED"]}
               isDraft={isDraft("grid_import_metering")}
               highlighted={contradictionFields.has("grid_import_metering")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2301,7 +2227,6 @@ function ProfileWorkbench({
               options={["", "NONE", "ANNUAL", "MONTHLY", "HOURLY"]}
               isDraft={isDraft("certificate_matching")}
               highlighted={contradictionFields.has("certificate_matching")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             {/* Electrolyser — narrative source-of-truth, editable */}
@@ -2314,7 +2239,6 @@ function ProfileWorkbench({
               unit="MW"
               type="number"
               isDraft={isDraft("electrolyser_mw")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2325,7 +2249,6 @@ function ProfileWorkbench({
               type="select"
               options={["PEM", "AEM", "SOEC", "alkaline"]}
               isDraft={isDraft("electrolyser_tech")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2337,7 +2260,6 @@ function ProfileWorkbench({
               options={STATUS_OPTIONS}
               isDraft={isDraft("status")}
               highlighted={contradictionFields.has("status")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2348,7 +2270,6 @@ function ProfileWorkbench({
               source={vf("phase").source}
               isDraft={isDraft("phase")}
               highlighted={contradictionFields.has("phase")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2358,7 +2279,6 @@ function ProfileWorkbench({
               verification={vf("construction_start").verification}
               type="year"
               isDraft={isDraft("construction_start")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2369,7 +2289,6 @@ function ProfileWorkbench({
               type="date"
               isDraft={isDraft("completion_date")}
               highlighted={contradictionFields.has("completion_date")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <ToolGroup>
@@ -2420,7 +2339,6 @@ function ProfileWorkbench({
               type="number"
               isDraft={isDraft("capex_eur")}
               highlighted={contradictionFields.has("capex_eur")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <InlineField
@@ -2432,7 +2350,6 @@ function ProfileWorkbench({
               options={["EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD"]}
               isDraft={isDraft("capex_currency")}
               highlighted={contradictionFields.has("capex_currency")}
-              onConfirm={handleConfirm}
               onChange={handleChange}
             />
             <ToolGroup>

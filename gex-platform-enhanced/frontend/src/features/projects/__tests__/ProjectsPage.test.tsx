@@ -115,4 +115,15 @@ describe('/projects', () => {
     await waitFor(() => expect(screen.getAllByText('Gate engine unavailable')).toHaveLength(2))
     expect(document.body.textContent).not.toContain('52%')
   })
+
+  it('says access is refused, not that the engine is down, on a 403', async () => {
+    const refused = { status: 403, body: { detail: 'Access denied', rules_evaluated: ['R0'] } }
+    stubFetch(engineRoutes({
+      proj_hamburgone_emethanol: refused,
+      proj_north_sea_e_methanol_203b51: refused,
+    }))
+    renderPage()
+    await waitFor(() => expect(screen.getAllByText("No access to this project's gates")).toHaveLength(2))
+    expect(screen.queryByText('Gate engine unavailable')).toBeNull()
+  })
 })

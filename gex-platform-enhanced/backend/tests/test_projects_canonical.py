@@ -184,24 +184,18 @@ def test_create_project_writes_context_in_the_same_store():
 
 # ── The silent-empty-list failure ───────────────────────────────────────────
 
-def test_runtime_visible_projects_reads_the_canonical_store():
+def test_visible_projects_are_built_from_the_canonical_store():
     """
-    `_runtime_visible_projects` used to query the SQLite `projects` table and
-    swallow sqlite3.Error into an empty list. Once that table was retired, every
-    runtime project silently disappeared from the very list it was created for —
-    no error, no log, just fewer rows. This asserts the source.
+    The list was once built from SQLite (and swallowed sqlite3.Error into an
+    empty list), later from two code dictionaries plus the store. Since
+    2026-10-25 every project is rendered from PostgreSQL only — `projects` and
+    `project_profile` — through `_profile_to_visible`.
     """
     src = (APP / "api" / "v1" / "routes_projects.py").read_text()
-    fn = src[src.index("def _runtime_visible_projects("):src.index('@router.get("/visible"')]
-    # Strip the docstring: it legitimately DESCRIBES the old sqlite3 behaviour,
-    # and matching prose rather than code is how this test first failed.
+    fn = src[src.index("def _profile_to_visible("):src.index("def _visible_ids_from_jwt(")]
     body = re.sub(r'"""[\s\S]*?"""', "", fn, count=1)
-    assert "projects_store" in body, "must read the canonical store"
-    assert not re.search(r"sqlite3\.|import\s+sqlite3", body), "must not query SQLite"
-    assert "except sqlite3.Error" not in body, (
-        "must not swallow a store failure into an empty list — the store logs "
-        "its own failures"
-    )
+    assert "fetch_project" in body and "fetch_project_profile" in body, "must read the canonical store"
+    assert not re.search(r"sqlite3\.|import\s+sqlite3|_PROJECT_META", body), "must not read SQLite or code data"
 
 
 def test_runtime_projects_do_not_get_fabricated_coordinates():
@@ -233,15 +227,23 @@ def test_runtime_projects_do_not_get_fabricated_coordinates():
     )
 
 
-def test_runtime_project_owners_pass_the_authorization_check():
+def test_a_project_owner_always_passes_its_own_authorization_check(monkeypatch):
     """
-    `_visible_ids_from_jwt` is used BOTH to build the list and (line ~883) to
-    authorize per-project access. It walks the static registry, so without the
-    runtime branch a project's own creator was denied access to it.
+    `_visible_ids_from_jwt` builds the list AND authorizes per-project access.
+    A project's creator was once denied its own project because the check walked
+    a static registry. With one source (PostgreSQL, 2026-10-25) the owner is in
+    the profile's stakeholder set whatever its company type.
     """
-    src = (APP / "api" / "v1" / "routes_projects.py").read_text()
-    fn = src[src.index("def _visible_ids_from_jwt("):src.index("@router.get")]
-    assert "project_ids_owned_by" in fn, (
-        "_visible_ids_from_jwt must include runtime-owned projects, or their "
-        "owners fail the per-project authorization check"
-    )
+    from app.api.v1 import routes_projects as rp
+    from app.core.project_registry import ProjectAccessProfile
+
+    runtime = ProjectAccessProfile(project_id="proj_TEST_runtime", project_name="TEST runtime",
+                                   owner_company_name="TEST Owner Co", associated_company_names=("TEST Lender",),
+                                   jurisdiction="DE")
+    monkeypatch.setattr(rp, "all_project_profiles", lambda: [runtime])
+    for company_type in ("PRODUCER", "OFFTAKER", "THIRD_PARTY"):
+        assert rp._visible_ids_from_jwt({"company_name": "TEST Owner Co", "company_type": company_type}) \
+            == ["proj_TEST_runtime"], company_type
+    assert rp._visible_ids_from_jwt({"company_name": "TEST Lender"}) == ["proj_TEST_runtime"]
+    assert rp._visible_ids_from_jwt({"company_name": "TEST Stranger"}) == []
+    assert rp._visible_ids_from_jwt({"is_platform_admin": True}) == ["proj_TEST_runtime"]

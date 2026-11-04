@@ -168,6 +168,9 @@ class UserAttributes:
     kyc_status: str = "UNVERIFIED"
     nda_signed_with: Set[str] = field(default_factory=set)
     assigned_audits: Set[str] = field(default_factory=set)  # project_ids for certifiers
+    # GEX staff (auth_users.is_platform_admin). Grants READ of gates and their
+    # evidence on every project (R0P) and nothing else. False unless the token says so.
+    is_platform_admin: bool = False
     # ── Prosumer / trade attributes (Phase 3) ──
     capabilities: Set[Capability] = field(default_factory=set)       # e.g. {OFFTAKE, PRODUCE, SELL}
     credit_rating: str = "NR"                                        # S&P or GEX-internal rating
@@ -434,6 +437,22 @@ def reviewer_gates(user: UserAttributes, project_id: str) -> frozenset[str]:
     for at in _actor_types_for_project(user, project_id):
         gates |= REVIEWER_GATES.get(at, frozenset())
     return frozenset(gates)
+
+
+# R0P — what GEX staff may READ on a project they hold no role on (JML,
+# 2026-11-03: "read-only"). Gates and their evidence, nothing more: financial
+# models, contracts, data rooms and activity stay with the parties, and every
+# write or verification still goes through R0–R6 as for anyone else.
+PLATFORM_READ_RESOURCE_TYPES = frozenset({"GATE_EVALUATION", "EVIDENCE"})
+
+
+def _rule_0p_platform_read(
+    user: UserAttributes, resource: ResourceAttributes, action: Action
+) -> Optional[AccessDecision]:
+    if (user.is_platform_admin and action == Action.READ
+            and resource.resource_type in PLATFORM_READ_RESOURCE_TYPES):
+        return AccessDecision(decision=Decision.ALLOW, rules_evaluated=["R0P"])
+    return None
 
 
 def _rule_0_guest_gate(
@@ -719,6 +738,13 @@ def evaluate_access(
     """
     rules_evaluated = []
 
+    # R0P — GEX staff read gates and evidence (read-only). Before R0, which
+    # would otherwise make an admin with no project role a GUEST everywhere.
+    r0p = _rule_0p_platform_read(user, resource, action)
+    if r0p:
+        r0p.attributes_snapshot = _snapshot(user, resource, action, context)
+        return r0p
+
     # R0 — Guest gate (always first, regardless of phase)
     r0 = _rule_0_guest_gate(user, resource, context)
     rules_evaluated.append("R0")
@@ -800,6 +826,7 @@ def _snapshot(user: UserAttributes, resource: ResourceAttributes,
         "company_id": user.company_id,
         "actor_types": [str(at) for at in _actor_types_for_project(user, resource.project_id)],
         "clearance": user.clearance_level.value,
+        "is_platform_admin": user.is_platform_admin,
         "action": action.value,
         "resource_type": resource.resource_type,
         "resource_id": resource.resource_id,

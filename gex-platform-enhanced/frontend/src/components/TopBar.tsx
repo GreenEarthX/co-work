@@ -1,10 +1,10 @@
 // Screen: Shared layout component — all authenticated screens
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Settings, LogOut } from "lucide-react";
+import { Settings, LogOut, KeyRound } from "lucide-react";
 import {
   MENU_TABS,
-  CISO_ITEMS,
+  cisoMenuItems,
   isVisibleInNav,
 } from "@/config/menuArchitecture";
 import { useUserRole } from "@/contexts/UserRoleContext";
@@ -260,7 +260,7 @@ export function TopBar() {
               <div className="absolute right-0 top-10">
                 <TopBarDropdown
                   label="CISO Admin"
-                  items={CISO_ITEMS}
+                  items={cisoMenuItems(role)}
                   isActive={true}
                   onClose={() => setOpenTab(null)}
                 />
@@ -268,7 +268,18 @@ export function TopBar() {
             )}
           </div>
 
-          {/* Logout (authenticated only) */}
+          {/* Change password, then logout (authenticated only) */}
+          {sessionTier === "authenticated" && (
+            <button
+              onClick={() => navigate("/account")}
+              title="Your account: password and telephone"
+              aria-label="Your account"
+              className="p-2 rounded-lg transition-colors"
+              style={{ color: "rgba(255, 255, 255, 0.52)" }}
+            >
+              <KeyRound className="w-4 h-4" />
+            </button>
+          )}
           {sessionTier === "authenticated" && (
             <button
               onClick={handleLogout}

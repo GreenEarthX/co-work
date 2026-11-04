@@ -45,7 +45,8 @@ class VisibleProject(BaseModel):
     lng: Optional[float] = None
     capacity_mtpd: float
     capacity_mt_year: int
-    capex_eur: float
+    # Null when none is recorded — 0.0 read as a costless plant.
+    capex_eur: Optional[float] = None
     status: str
     phase: str
     completion_date: str = ""
@@ -107,7 +108,7 @@ def _profile_to_visible(profile: ProjectAccessProfile) -> VisibleProject | None:
         lng=extra.get("lng"),
         capacity_mtpd=capacity,
         capacity_mt_year=capacity_mtpd_to_mt_year(capacity),
-        capex_eur=float(row.get("capex_eur") or 0.0),
+        capex_eur=None if row.get("capex_eur") is None else float(row["capex_eur"]),
         status=row.get("status") or "development",
         phase=extra.get("phase") or (ctx.phase if ctx else "development"),
         completion_date=str(row.get("completion_date") or ""),

@@ -104,6 +104,13 @@ export function isAuthenticated(): boolean {
   return getAuthToken() !== null
 }
 
+/** After a password change the server revokes every refresh token and issues this session a new one. */
+export function replaceRefreshToken(refreshToken: string): void {
+  const session = safeGetJson<Record<string, unknown>>(AUTH_SESSION_KEY, {})
+  if (!session.token) return
+  safeSetItem(AUTH_SESSION_KEY, JSON.stringify({ ...session, refreshToken }))
+}
+
 /** Signed-out storage: what logout leaves behind, and what an ended session becomes. */
 export function clearAuthSession(): void {
   safeRemoveItem(AUTH_SESSION_KEY)

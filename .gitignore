@@ -41,3 +41,6 @@ gex-platform-enhanced/backend/data/package_docs/
 # A committed copy (11 Aug 2026) carried demo fallbacks removed from source
 # on 25 Oct 2026; never commit a build again.
 **/frontend/dist/
+
+# Real client contact data (JML, 2026-11-04): kept out of git, local only
+gex-platform-enhanced/backend/scripts/fortaverde_client_accounts.json

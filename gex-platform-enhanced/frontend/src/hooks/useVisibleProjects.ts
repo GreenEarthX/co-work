@@ -35,7 +35,7 @@ interface ServerProject {
   lat: number | null
   lng: number | null
   capacity_mtpd: number
-  capex_eur: number
+  capex_eur: number | null
   status: string
   phase: string
   completion_date: string
@@ -73,10 +73,10 @@ export function serverToCustomerProject(sp: ServerProject): CustomerProject {
     molecule: (sp.molecule || profile.molecule || 'H2') as CustomerProject['molecule'],
     location: sp.location,
     country: sp.country,
-    lat: sp.lat ?? 0,
-    lng: sp.lng ?? 0,
+    lat: sp.lat ?? null,
+    lng: sp.lng ?? null,
     capacity_mtpd: sp.capacity_mtpd ?? 0,
-    capex_eur: sp.capex_eur ?? 0,
+    capex_eur: sp.capex_eur ?? null,
     status: (['development', 'construction', 'operating', 'commissioning'].includes(sp.status)
       ? sp.status
       : 'development') as CustomerProject['status'],

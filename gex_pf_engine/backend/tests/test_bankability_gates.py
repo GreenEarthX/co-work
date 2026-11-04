@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import copy
 
+from datetime import date
+
 import pytest
 
 from pf_engine.core import bankability_engine as B
@@ -104,6 +106,8 @@ def _all_evidence(maturity_override: dict | None = None,
                 "key": key,
                 "status": status_override.get(key, "VERIFIED"),
                 "maturity": maturity_override.get(key, default),
+                # Verified today: items in EXPIRY_REQUIRED are valid for 12 months from this (4.6.0).
+                "verified_at": B._today() + " 09:00:00",
             })
     return out
 
@@ -167,7 +171,7 @@ def test_no_gate_requires_evidence_before_the_state_at_which_it_can_exist():
 
 def test_every_snapshot_records_the_rules_version_that_judged_it():
     """T15 — a determination must be reproducible under a named rule set."""
-    assert _evaluate([])["rules_version"] == "4.1.0"
+    assert _evaluate([])["rules_version"] == "4.8.0"
 
 
 def test_every_live_item_has_a_label_an_owner_and_a_route():
@@ -325,13 +329,45 @@ def test_downgrading_maturity_regresses_the_project_and_names_the_gate():
 # 4.0.0 (1) — financing scope per item, not per gate
 # ═══════════════════════════════════════════════════════════════════════════
 
-def test_T12_balance_sheet_waives_only_gates_whose_every_item_protects_a_lender():
-    assert B.LENDER_ONLY_GATES == {"G6_IE_SIGNOFF", "G8_AUDIT_GRADE_MODEL"}
+def test_T12_balance_sheet_drops_only_items_that_protect_a_lender_and_waives_no_gate():
+    """4.3.0: the engineer's report and opinions (G6) and the base case and downside
+    cases (G8) protect the sponsor's own capital, so no gate is wholly lender-only."""
+    assert B.LENDER_ONLY_GATES == set()
     snap = _evaluate([], financing_model="BALANCE_SHEET")
-    waived = {g["gate_id"] for g in snap["gate_evaluations"] if g["determination"] == "WAIVED"}
-    assert waived == B.LENDER_ONLY_GATES
-    for gid in waived:
-        assert not _gate(snap, gid)["is_complete"], "a waived gate must never read as satisfied"
+    assert not [g for g in snap["gate_evaluations"] if g["determination"] == "WAIVED"]
+    g6 = {d["key"] for d in _gate(snap, "G6_IE_SIGNOFF")["evidence_detail"] if d["applicable"]}
+    g8 = {d["key"] for d in _gate(snap, "G8_AUDIT_GRADE_MODEL")["evidence_detail"] if d["applicable"]}
+    assert g6 == {"ie_report_issued", "energy_balance_verified", "capex_opinion_reasonableness",
+                  "opex_opinion_reasonableness"}
+    assert g8 == {"base_case_model", "downside_cases", "model_consistency_with_ie"}
+    lender_only = {k for k, v in B.EVIDENCE_SCOPE.items() if v == "PROJECT_FINANCE"}
+    assert {"model_audit_opinion", "covenant_suite_defined", "dsra_maintenance_reserve_logic",
+            "hedging_plan", "completion_test_definitions"} <= lender_only
+    assert not lender_only & (g6 | g8)
+
+
+def test_a_balance_sheet_project_does_not_reach_credit_decision_without_the_assessment():
+    """The 4.2.0 hole: G6 and G8 were wholly waived, so a balance-sheet project climbed to
+    CREDIT_APPROVED with no independent validation. Negative-verified 2026-10-30: restoring
+    the old scope makes it reach CREDIT_APPROVED here."""
+    drop = {"ie_report_issued", "energy_balance_verified", "capex_opinion_reasonableness",
+            "opex_opinion_reasonableness", "base_case_model", "downside_cases", "model_consistency_with_ie"}
+    snap = _evaluate(_all_evidence(drop=drop), financing_model="BALANCE_SHEET")
+    assert snap["current_state"] == "BUILDABLE"
+    assert set(snap["gates_blocking_next_state"]) == {"G6_IE_SIGNOFF"}
+    full = _evaluate(_all_evidence(), financing_model="BALANCE_SHEET")
+    assert full["current_state"] == "OPERATIONAL"
+
+
+def test_a_state_is_never_reached_on_waivers_alone(monkeypatch):
+    """Even if every gate of a state were waived, the state needs one gate satisfied by evidence."""
+    monkeypatch.setattr(B, "EVIDENCE_SCOPE", {**B.EVIDENCE_SCOPE, **{
+        k: "PROJECT_FINANCE" for g in B.GATES if g["gate_id"] == "G8_AUDIT_GRADE_MODEL"
+        for k in g["required_evidence"]}})
+    monkeypatch.setattr(B, "LENDER_ONLY_GATES", frozenset({"G8_AUDIT_GRADE_MODEL"}))
+    snap = _evaluate(_all_evidence(), financing_model="BALANCE_SHEET")
+    assert _gate(snap, "G8_AUDIT_GRADE_MODEL")["determination"] == "WAIVED"
+    assert snap["current_state"] == "STRUCTURALLY_BANKABLE", "CREDIT_APPROVED rests on G8 alone"
 
 
 def test_a_balance_sheet_producer_still_needs_a_customer():
@@ -554,12 +590,15 @@ def test_a_forecast_slip_past_the_longstop_fails_C5_after_fid():
     assert _check(_evaluate(evidence, terms=terms), "C5")["status"] == "PASS"
 
 
-def test_missing_data_is_not_evaluable_and_never_blocks():
+def test_missing_data_is_not_evaluable_and_holds_the_gate():
+    """Until 4.2.0 this test asserted OPERATIONAL: missing data "never blocks".
+    JML 2026-10-28: a check that cannot run leaves its gate UNRESOLVED."""
     snap = _evaluate(_all_evidence(), terms=_terms(schedule=None, supply=None))
     status = {c["id"]: c["status"] for c in snap["coherence_checks"]}
     assert status["C1"] == "NOT_EVALUABLE" and status["C6"] == "NOT_EVALUABLE" and status["C9"] == "NOT_EVALUABLE"
     assert "schedule.commissioning_allowance_months" in _check(snap, "C1")["missing"]
-    assert snap["current_state"] == "OPERATIONAL"
+    assert _gate(snap, "G4_OFFTAKE_BANKABLE")["determination"] == "UNRESOLVED"
+    assert snap["current_state"] == "COMMERCIALLY_PLAUSIBLE"
 
 
 def test_checks_that_cannot_apply_say_so():
@@ -685,7 +724,7 @@ def test_a_gate_with_a_blocked_deal_killer_is_blocked_not_incomplete():
 
 
 def test_every_gate_carries_exactly_one_determination():
-    allowed = {"SATISFIED", "BLOCKED", "INCOMPLETE", "WAIVED"}
+    allowed = {"SATISFIED", "BLOCKED", "INCOMPLETE", "WAIVED", "UNRESOLVED"}
     for snap in (_evaluate([]), _evaluate(_all_evidence()), _evaluate([], financing_model="BALANCE_SHEET")):
         assert {g["determination"] for g in snap["gate_evaluations"]} <= allowed
 
@@ -783,7 +822,273 @@ def test_capital_decisions_are_labelled_and_senior_debt_reads_as_a_conditional_a
     for cu in snap["capital_unlocks"]:
         assert cu["label"] == B.CAPITAL_TYPE_LABELS[cu["capital_type"]]
     assert "conditional" in B.CAPITAL_TYPE_LABELS["SENIOR_DEBT_COMMITMENT"].lower()
-    assert "conditional" in B.STATE_COMMITMENT_LABELS["CREDIT_APPROVED"].lower()
+    label = B.STATE_COMMITMENT_LABELS["CREDIT_APPROVED"].lower()
+    assert "conditional" in label and "ready for credit decision" in label
+    assert "approved" not in label.split("—")[0], "the state must not claim a lender has approved"
     rules = B.get_rules()
     assert rules["capital_type_labels"] == B.CAPITAL_TYPE_LABELS
     assert rules["offtake_coverage_min_pct"] == B.OFFTAKE_COVERAGE_MIN_PCT == 60.0
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4.2.0 — a check that cannot run holds the gate (JML, 2026-10-28)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_verified_items_with_unrunnable_checks_are_unresolved_not_satisfied():
+    """Negative-verified 2026-10-28: removing the `not unresolved` condition
+    from is_complete makes G8 SATISFIED and the project CREDIT_APPROVED."""
+    snap = _evaluate(_all_evidence(), terms=_terms(model=None))
+    g8 = _gate(snap, "G8_AUDIT_GRADE_MODEL")
+    assert g8["items_complete"] and not g8["is_complete"]
+    assert g8["determination"] == "UNRESOLVED"
+    assert any("C10" in r and "model." in r for r in g8["unresolved_reasons"])
+    assert snap["current_state"] == "STRUCTURALLY_BANKABLE"
+
+
+def test_missing_data_is_not_a_contradiction():
+    """UNRESOLVED (data missing) and BLOCKED (a check failed) stay distinct."""
+    missing = _gate(_evaluate(_all_evidence(), terms=_terms(model=None)), "G8_AUDIT_GRADE_MODEL")
+    failing = _gate(_evaluate(_all_evidence(), terms=_terms(model={"debt_tenor_years": 20})),
+                    "G8_AUDIT_GRADE_MODEL")
+    assert missing["determination"] == "UNRESOLVED" and not missing["blocked_reasons"]
+    assert failing["determination"] == "BLOCKED"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4.4.0 — every applicable item is mandatory except an advisory (JML, 2026-10-30)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_an_unverified_advisory_is_shown_and_never_blocks():
+    """Negative-verified 2026-10-30: restoring `verified == applicable_total` as the completion
+    test makes this gate INCOMPLETE."""
+    snap = _evaluate(_all_evidence(drop={"stakeholder_map_v1"}))
+    g0 = _gate(snap, "G0_SITE_RIGHTS")
+    assert g0["determination"] == "SATISFIED" and g0["is_complete"]
+    assert g0["advisory_open"] == ["stakeholder_map_v1"]
+    assert "stakeholder_map_v1" not in g0["blocking_items"]
+    assert g0["completion_pct"] < 100.0, "completion still counts advisories"
+
+
+def test_a_required_item_still_blocks_whatever_its_label():
+    """The 62 'warning' items are mandatory: missing one leaves the gate INCOMPLETE, not BLOCKED."""
+    assert B.EVIDENCE_META["zoning_compatibility_memo"]["severity"] == "warning"
+    g0 = _gate(_evaluate(_all_evidence(drop={"zoning_compatibility_memo"})), "G0_SITE_RIGHTS")
+    assert not g0["is_complete"] and g0["determination"] == "INCOMPLETE"
+    assert "zoning_compatibility_memo" in g0["blocking_items"]
+
+
+def test_severity_reads_as_a_consequence_and_the_warning_tier_is_called_required():
+    assert B.SEVERITY_LABELS == {"deal_killer": "Deal-killer", "warning": "Required", "advisory": "Advisory"}
+    assert B.get_rules()["severity_labels"] == B.SEVERITY_LABELS
+    advisories = {k for g in B.GATES for k in g["required_evidence"] if B.EVIDENCE_META[k]["severity"] == "advisory"}
+    assert advisories == {"stakeholder_map_v1", "ppa_tenor_debt_comparison"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4.5.0 — evidence expires (JML, 2026-10-30)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _with_validity(evidence, key, until):
+    return [{**e, "valid_until": until} if e["key"] == key else e for e in evidence]
+
+
+def _rank(state):
+    return B.STATE_ORDER.index(state)
+
+
+def test_a_verified_item_past_its_date_expires_and_blocks_its_gate():
+    """Negative-verified 2026-10-30: dropping `_apply_expiry` from evaluate() makes the gate SATISFIED."""
+    ev = _with_validity(_all_evidence(), "zoning_compatibility_memo", "2026-10-01")
+    snap = _evaluate(ev, as_of="2026-10-30")
+    g0 = _gate(snap, "G0_SITE_RIGHTS")
+    assert not g0["is_complete"] and g0["determination"] == "BLOCKED"
+    assert any("expired on 2026-10-01" in r for r in g0["blocked_reasons"])
+    assert snap["expired_evidence"] == [{"key": "zoning_compatibility_memo", "valid_until": "2026-10-01",
+                                         "basis": "declared"}]
+    row = next(d for d in g0["evidence_detail"] if d["key"] == "zoning_compatibility_memo")
+    assert row["status"] == "EXPIRED" and row["expired_on"] == "2026-10-01"
+
+
+def test_the_same_evidence_is_fine_the_day_before_and_on_the_day():
+    ev = _with_validity(_all_evidence(), "zoning_compatibility_memo", "2026-10-30")
+    for as_of in ("2026-10-29", "2026-10-30"):
+        snap = _evaluate(ev, as_of=as_of)
+        assert _gate(snap, "G0_SITE_RIGHTS")["determination"] == "SATISFIED", as_of
+        assert snap["expired_evidence"] == []
+    assert _evaluate(ev, as_of="2026-10-31")["expired_evidence"]
+
+
+def test_an_expired_instrument_lowers_the_ladder_without_any_new_upload():
+    """The reviewer's point: an expired approval must reassess the project by itself."""
+    ev = _all_evidence()
+    full = _evaluate(ev, as_of="2026-10-30")
+    assert full["current_state"] == "OPERATIONAL"
+    lapsed = _evaluate(_with_validity(ev, "binding_offtake_contract_executed", "2026-10-01"),
+                        as_of="2026-10-30", previous_state=full["current_state"])
+    assert _rank(lapsed["current_state"]) < _rank("BUILDABLE")
+    assert lapsed["regression"]["trigger_gate"] == "G4_OFFTAKE_BANKABLE"
+
+
+def test_an_expired_advisory_is_shown_and_never_blocks():
+    ev = _with_validity(_all_evidence(), "stakeholder_map_v1", "2026-10-01")
+    snap = _evaluate(ev, as_of="2026-10-30")
+    assert _gate(snap, "G0_SITE_RIGHTS")["determination"] == "SATISFIED"
+    assert snap["expired_evidence"][0]["key"] == "stakeholder_map_v1"
+
+
+def test_expiry_tells_the_platform_when_the_result_goes_stale_and_what_is_coming():
+    ev = _with_validity(_with_validity(_all_evidence(), "zoning_compatibility_memo", "2026-11-15"),
+                        "land_option_or_lease_executed", "2027-06-01")
+    snap = _evaluate(ev, as_of="2026-10-30")
+    assert snap["next_expiry"] == "2026-11-15"
+    assert snap["expiry_watch"] == [{"key": "zoning_compatibility_memo", "valid_until": "2026-11-15", "days": 16}]
+    assert _evaluate(_all_evidence(), as_of="2026-10-30")["next_expiry"] == \
+        B._add_months(date.fromisoformat(B._today()), 12).isoformat(), "the default sets when to look again"
+
+
+def test_an_item_with_no_date_that_does_not_lapse_in_practice_never_expires():
+    snap = _evaluate(_all_evidence(), as_of="2099-01-01")
+    assert {e["key"] for e in snap["expired_evidence"]} == set(B.EXPIRY_REQUIRED), \
+        "only the items that lapse in practice default to expiring (4.6.0)"
+    assert _evaluate(_all_evidence())["current_state"] == "OPERATIONAL"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4.6.0 — instruments that lapse must carry a date; 12 months by default (JML, 2026-10-31)
+# ═══════════════════════════════════════════════════════════════════════════
+
+EXPECTED_EXPIRY_REQUIRED = {
+    "land_option_or_lease_executed", "queue_position_evidence", "eia_permit_granted",
+    "construction_permit_granted", "ancillary_permits_granted", "operating_permit_effective",
+    "credit_support_package", "epc_security_package", "insurance_term_sheet",
+    "insurance_certificates_delivered",
+}
+
+
+def _verified_on(evidence, key, day, **extra):
+    return [{**e, "verified_at": f"{day} 09:00:00", **extra} if e["key"] == key else e for e in evidence]
+
+
+def test_the_items_that_lapse_are_exactly_the_ones_JML_named():
+    """Pinned: widening or narrowing the list is a decision, not a drift."""
+    assert B.EXPIRY_REQUIRED == EXPECTED_EXPIRY_REQUIRED
+    live = {k for g in B.GATES for k in g["required_evidence"]}
+    assert B.EXPIRY_REQUIRED <= live
+
+
+def test_an_undated_item_that_lapses_counts_for_twelve_months_then_stops():
+    """Negative-verified 2026-10-31: removing the default-validity branch lets a permit count for ever."""
+    ev = _verified_on(_all_evidence(), "eia_permit_granted", "2026-01-31")
+    on_last_day = _evaluate(ev, as_of="2027-01-31")
+    assert _gate(on_last_day, "G9_PERMITS_SAFE")["determination"] == "SATISFIED"
+    day_after = _evaluate(ev, as_of="2027-02-01")
+    g9 = _gate(day_after, "G9_PERMITS_SAFE")
+    assert g9["determination"] == "BLOCKED"
+    assert any("expired on 2027-01-31" in r and "12 months after verification" in r for r in g9["blocked_reasons"])
+    row = next(d for d in g9["evidence_detail"] if d["key"] == "eia_permit_granted")
+    assert row["validity_basis"] == "default" and row["expiry_required"] is True
+
+
+def test_a_declared_date_beats_the_default_in_both_directions():
+    long_lease = _verified_on(_all_evidence(), "land_option_or_lease_executed", "2026-01-31", valid_until="2051-01-31")
+    snap = _evaluate(long_lease, as_of="2030-06-01")
+    assert _gate(snap, "G0_SITE_RIGHTS")["determination"] == "SATISFIED"
+    short = _verified_on(_all_evidence(), "queue_position_evidence", "2026-10-01", valid_until="2026-11-15")
+    assert _evaluate(short, as_of="2026-11-16")["expired_evidence"][0]["basis"] == "declared"
+
+
+def test_an_undated_item_with_no_verification_date_counts_for_nothing():
+    ev = [{k: v for k, v in e.items() if k != "verified_at"} if e["key"] == "credit_support_package" else e
+          for e in _all_evidence()]
+    g4 = _gate(_evaluate(ev), "G4_OFFTAKE_BANKABLE")
+    assert not g4["is_complete"]
+    assert any("no validity date and no verification date" in r for r in g4["blocked_reasons"])
+
+
+def test_an_item_that_does_not_lapse_in_practice_never_defaults_to_expiring():
+    ev = _verified_on(_all_evidence(), "zoning_compatibility_memo", "2020-01-01")
+    snap = _evaluate(ev, as_of="2026-10-31")
+    assert snap["expired_evidence"] == []
+    assert next(d for d in _gate(snap, "G0_SITE_RIGHTS")["evidence_detail"]
+                if d["key"] == "zoning_compatibility_memo")["expiry_required"] is False
+
+
+def test_the_default_shows_up_in_next_expiry_so_the_platform_knows_when_to_look_again():
+    snap = _evaluate(_verified_on(_all_evidence(), "eia_permit_granted", "2026-10-01"), as_of="2026-10-31")
+    assert snap["next_expiry"] <= "2027-10-01"
+    assert snap["next_expiry"] == min(e["valid_until"] for e in
+                                      [d for g in snap["gate_evaluations"] for d in g["evidence_detail"]
+                                       if d["status"] == "VERIFIED" and d.get("valid_until")])
+
+
+def test_adding_months_clips_to_the_end_of_a_short_month():
+    assert B._add_months(date(2026, 1, 31), 1).isoformat() == "2026-02-28"
+    assert B._add_months(date(2028, 2, 29), 12).isoformat() == "2029-02-28"
+    assert B._add_months(date(2026, 10, 31), 12).isoformat() == "2027-10-31"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# A submitted item is shown, never counted (JML, 2026-10-31)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_submitted_items_are_counted_beside_the_verified_count_and_never_in_it():
+    """Negative-verified 2026-10-31: counting SUBMITTED toward verified_count makes this fail."""
+    ev = _all_evidence(status_override={"zoning_compatibility_memo": "SUBMITTED", "site_technical_suitability": "UNDER_REVIEW",
+                                        "stakeholder_map_v1": "NOT_STARTED"})
+    g0 = _gate(_evaluate(ev), "G0_SITE_RIGHTS")
+    assert g0["submitted_count"] == 2
+    assert g0["verified_count"] == g0["total_evidence"] - 3
+    assert not g0["is_complete"], "an asserted item does not satisfy a gate"
+    assert _gate(_evaluate(_all_evidence()), "G0_SITE_RIGHTS")["submitted_count"] == 0
+
+
+def test_funds_committed_does_not_accept_an_internal_approval_alone():
+    """The outside review's point (2026-10-29): a board approval is not committed funds. Negative-verified
+    2026-10-31: restoring the old wording fails this."""
+    label = B.EVIDENCE_META["equity_injected"]["label"]
+    assert "internal approval alone does not count" in label
+    assert "board-approved" not in label
+    assert "committed facility or escrow" in label
+    assert B.REQUIRED_MATURITY["equity_injected"] == "EXECUTED"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4.8.0 — REFINANCING_ELIGIBLE is reachable: 12 months since the actual COD (JML, 2026-10-31)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _with_cod(date_iso):
+    return _terms(schedule={"actual_cod_date": date_iso}) if date_iso else _terms()
+
+
+def test_twelve_months_after_cod_the_project_is_refinancing_eligible_and_not_a_day_before():
+    """Negative-verified 2026-10-31: dropping the time requirement makes the day before pass."""
+    ev = _all_evidence()
+    assert _evaluate(ev, terms=_with_cod("2026-01-15"), as_of="2027-01-15")["current_state"] == "REFINANCING_ELIGIBLE"
+    before = _evaluate(ev, terms=_with_cod("2026-01-15"), as_of="2027-01-14")
+    assert before["current_state"] == "OPERATIONAL"
+    short = before["commitments_blocking_next_state"][0]
+    assert short["kind"] == "time" and short["eligible_from"] == "2027-01-15"
+
+
+def test_without_an_actual_cod_date_the_project_stays_operational_and_is_told_what_to_record():
+    snap = _evaluate(_all_evidence(), terms=_with_cod(None))   # verified today, so nothing has lapsed
+    assert snap["current_state"] == "OPERATIONAL"
+    assert "actual COD date" in snap["commitments_blocking_next_state"][0]["message"]
+
+
+def test_refinancing_needs_g11_too_not_just_the_calendar():
+    snap = _evaluate(_all_evidence(drop={"performance_tests_passed"}), terms=_with_cod("2020-01-01"), as_of="2027-01-01")
+    assert snap["current_state"] != "REFINANCING_ELIGIBLE"
+
+
+def test_losing_the_cod_date_after_refinancing_eligibility_is_a_named_regression():
+    snap = _evaluate(_all_evidence(), terms=_with_cod(None), as_of="2027-01-15", previous_state="REFINANCING_ELIGIBLE")
+    assert snap["current_state"] == "OPERATIONAL"
+    assert snap["regression"]["from_state"] == "REFINANCING_ELIGIBLE" and "COD" in snap["regression"]["reason"]
+
+
+def test_the_refinancing_state_has_a_gate_and_the_label_says_what_it_means():
+    assert B.STATE_REQUIREMENTS["REFINANCING_ELIGIBLE"] == ["G11_COD_STABILIZATION"]
+    assert "12 months" in B.STATE_COMMITMENT_LABELS["REFINANCING_ELIGIBLE"]
+    assert B.COMMITMENT_CARD_FIELDS["schedule"]["actual_cod_date"] == "date"

@@ -83,6 +83,14 @@ def test_every_card_has_a_gate_for_authorisation():
 def wired(isolated_store, monkeypatch):
     actor = {"user_id": "u_exec", "company_id": OWNER, "is_platform_admin": False}
     monkeypatch.setattr(proxy, "_require_actor", lambda authorization: actor)
+    # Saving a card re-evaluates the project (2026-10-28): no live engine in tests.
+    async def _engine(path, method="GET", json_data=None):
+        if path == "/rules":
+            return {"rules_version": "test", "persona_gates": {"PRODUCER": ["G4_OFFTAKE_BANKABLE"],
+                                                               "EXECUTIVE": ["G4_OFFTAKE_BANKABLE"]}}
+        return {"current_state": "SPECULATIVE", "gate_evaluations": []}
+    monkeypatch.setattr(proxy, "_call_engine", _engine)
+    proxy._RULES_CACHE.update(at=0.0, rules=None)
     monkeypatch.setattr(proxy, "_project_owner", lambda pid: OWNER if pid == PROJECT else None)
     conn = proxy._get_db()
     proxy._ensure_tables(conn)
@@ -183,15 +191,23 @@ def test_every_evaluation_sends_the_cards_to_the_engine(wired, monkeypatch):
     sent = []
 
     async def fake_engine(path, method="GET", json_data=None):
+        if path == "/rules":
+            return {"rules_version": "test", "persona_gates": {"PRODUCER": ["G4_OFFTAKE_BANKABLE"],
+                                                               "EXECUTIVE": ["G4_OFFTAKE_BANKABLE"]}}
         sent.append((path, json_data))
         return {"current_state": "SPECULATIVE", "gate_evaluations": []}
 
     monkeypatch.setattr(proxy, "_call_engine", fake_engine)
     monkeypatch.setattr(proxy, "_store_snapshot", lambda *a, **k: None)
     asyncio.run(proxy.evaluate_project(project_id=PROJECT, authorization=None))
-    asyncio.run(proxy.evaluate_for_persona(persona="OFFTAKER", project_id=PROJECT))
+    proxy._RULES_CACHE.update(at=0.0, rules=None)
+    # The persona is the caller's own now (the token decides), not a parameter.
+    asyncio.run(proxy.evaluate_for_persona(project_id=PROJECT, persona=None, authorization="Bearer x"))
     asyncio.run(proxy.check_regression(project_id=PROJECT))
-    expected = {"offtake": {"commitment_form": "TAKE_IF_TENDERED"}, "epc": {"contracting_model": "LSTK"}}
+    # Since 2026-10-28 only terms CONFIRMED on their contract token reach the
+    # engine (app/core/contract_tokens.py). These cards were typed by the owner
+    # and confirmed by nobody, so every evaluation sends none of them.
+    expected = {}
     assert [p for p, _ in sent] == ["/evaluate", "/evaluate/persona", "/regression/check"]
     for _, payload in sent:
         assert payload["terms"] == expected

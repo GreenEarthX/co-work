@@ -483,6 +483,16 @@ export const CISO_ITEMS: MenuItem[] = [
   { id: 'pricing-curves-view', path: '/pricing-curves',  label: 'Forward Curves (Project view)', section: 'WEBMASTER', visible_to: [ALL] },
 ];
 
+// GEX's own console (JML, 2026-11-03). Shown to GEX staff (service type PLATFORM)
+// only — navigation, not access: the server refuses anyone not is_platform_admin.
+export const GEX_STAFF_ITEMS: MenuItem[] = [
+  { id: 'gex-console', path: '/gex-console', label: 'GEX Staff Console', section: 'GEX STAFF', visible_to: [TP('PLATFORM')] },
+];
+
+export function cisoMenuItems(role: Pick<UserRole, 'service_type'> | null | undefined): MenuItem[] {
+  return role?.service_type === 'PLATFORM' ? [...GEX_STAFF_ITEMS, ...CISO_ITEMS] : CISO_ITEMS;
+}
+
 // ── Count helper (for dev) ──
 
 export function countVisibleItems(role: UserRole): Record<string, number> {

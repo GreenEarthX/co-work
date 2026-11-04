@@ -433,7 +433,14 @@ def test_monte_carlo_samples_lifetime_anchored_on_the_stated_life():
     assert "stated project life" in lt["source"]
     assert 24.0 <= lt["mean"] <= 26.0                  # _mc states 25 y
     assert 19.5 <= lt["min"] and lt["max"] <= 30.5     # 10% rel σ truncated ±2σ → [20, 30]
-    assert not any("lifetime" in h.lower() for h in r.held_fixed)
+    # Lifetime must not be DECLARED HELD. Asserted on the claim, not on a substring:
+    # this read `not any("lifetime" in h.lower() ...)` until 2026-10-26, when the new
+    # conversion-yield disclosure ("...covers price, utilisation and lifetime risk
+    # only, not quantity risk") matched that substring while saying the OPPOSITE. A
+    # held entry names its quantity first — "<name> (σ = 0)" — so match on that shape.
+    held_quantities = [h.split(" (")[0].strip().lower() for h in r.held_fixed]
+    assert "project lifetime" not in held_quantities, (
+        f"lifetime is declared held while being sampled: {r.held_fixed}")
 
 
 def test_constant_inputs_are_held_fixed_not_reported_as_sampled():

@@ -7,7 +7,8 @@ in: gex_pf_engine/backend/app/core/bankability_engine.py
 """
 
 from __future__ import annotations
-from datetime import datetime, timezone
+import calendar
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -85,6 +86,75 @@ from typing import Optional
 #                      accepted. (6) Every item carries lenses (PRODUCER,
 #                      OFFTAKER, CAPITAL, CERTIFIER); OFFTAKER becomes a persona.
 #                      (7) G1 renamed "Power, Utilities & Technology Basis".
+#   4.8.0 (2026-10-31) JML: REFINANCING_ELIGIBLE becomes reachable. It was a state with no
+#                      requirements ("requires OPERATIONAL + time"), so nothing could ever
+#                      reach it while G11 already made refinancing capital eligible. It
+#                      now needs G11 satisfied AND REFINANCING_STABLE_MONTHS (12) since
+#                      the actual COD date, a new field on the schedule card
+#                      (`actual_cod_date`, confirmed with the rest of the producer's own
+#                      plan). No date recorded, or fewer than 12 months, holds the state at
+#                      OPERATIONAL and says which. Time is the only new requirement: the
+#                      evidence of stable operation is already in G11.
+#   4.7.0 (2026-10-31) STRICTER wording — what a reviewer may accept at G10. The item
+#                      equity_injected read "Funding Committed (equity injected, or
+#                      board-approved funding)". A board's approval is an internal
+#                      authorisation: it does not show that sufficient funds are
+#                      available and committed to THIS project (outside review,
+#                      29 Oct). It now reads "Funds Committed to This Project" and names
+#                      what counts — equity injected, or a committed facility or
+#                      escrow — and what does not. The identifier is unchanged and no
+#                      scoring changed; the lenders' adviser verifies it against that
+#                      wording.
+#   4.6.0 (2026-10-31) STRICTER — can lower a state. JML: instruments that lapse in
+#                      practice must carry a validity date, and 12 months is the
+#                      default. For the items in EXPIRY_REQUIRED (the land option
+#                      or lease, the permits, the grid reservation, credit support
+#                      and the EPC security package, the insurance quotation and
+#                      the bound cover) a VERIFIED item with no declared date is
+#                      valid for DEFAULT_VALIDITY_MONTHS after its verification and
+#                      then reads EXPIRED; a declared date always wins (a 25-year
+#                      lease says so). A verified item with neither a declared date
+#                      nor a verification date counts for nothing. Detail carries
+#                      `validity_basis` ("declared" | "default" | "undated") and
+#                      `expiry_required`; a declared `valid_until` is still shown
+#                      as declared.
+#   4.5.0 (2026-10-30) STRICTER — can lower a state with no new upload. Evidence
+#                      expires. An item may carry `valid_until` (a date, declared
+#                      with the document: a permit's validity, a letter of credit's
+#                      expiry, a policy period). From that date a VERIFIED item
+#                      reads EXPIRED, counts for nothing, and — unless it is an
+#                      advisory — BLOCKS its gate and names the expiry, exactly as
+#                      withdrawn support does. The snapshot carries `as_of`,
+#                      `expired_evidence`, `next_expiry` (when the stored result
+#                      goes stale) and `expiry_watch` (items expiring within 60
+#                      days). An item with no date never expires: requiring dates
+#                      for named items is a separate decision.
+#   4.4.0 (2026-10-30) LOOSER for two items — can raise a state. JML, on the
+#                      review of 29-30 October: every applicable item stays
+#                      mandatory, whatever its severity, EXCEPT an advisory,
+#                      which is shown and never blocks (two items:
+#                      stakeholder_map_v1, ppa_tenor_debt_comparison). Severity
+#                      now reads as the consequence of a missing item, and the
+#                      "warning" tier is labelled "Required" (SEVERITY_LABELS);
+#                      the identifier is unchanged. Completion still counts
+#                      advisories, so a gate can be SATISFIED below 100 %.
+#   4.3.0 (2026-10-30) STRICTER — can lower a state (balance-sheet projects).
+#                      Review of the process against lender practice and
+#                      FlagshipONE (balance-sheet FID, cost up after FID, no
+#                      offtake): (1) the items that protect the SPONSOR's own
+#                      capital are no longer lender-only — the independent
+#                      engineer's report, energy balance, CAPEX and OPEX
+#                      opinions (G6) and the base case, downside cases and
+#                      consistency with the engineer (G8). G6 and G8 therefore
+#                      apply to every project; only the model audit opinion,
+#                      completion tests, covenants, DSRA logic and hedging
+#                      stay lender-only. (2) A state cannot be reached on
+#                      waivers alone: at least one of its gates must be
+#                      satisfied by evidence. (3) CREDIT_APPROVED is relabelled
+#                      "Ready for credit decision": G8 shows the financial
+#                      assessment is complete; the credit decision is the
+#                      lender's and is not recorded here. The identifier is
+#                      unchanged.
 #   4.2.0 (2026-10-28) STRICTER — can lower a state. JML: a gate whose items are
 #                      all verified but whose cross-contract checks cannot run
 #                      for lack of data is UNRESOLVED, not SATISFIED, and does
@@ -104,7 +174,7 @@ from typing import Optional
 #                      approval, financial close and drawdown, and conditional
 #                      commitments lapse. The identifier is unchanged.
 
-EVIDENCE_RULES_VERSION = "4.2.0"
+EVIDENCE_RULES_VERSION = "4.8.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -172,6 +242,79 @@ def _item_applies_financing(key: str, financing_model: Optional[str]) -> bool:
 # The frontend renders this; it must NOT define its own copy as policy.
 
 _ESCALATION_PHASES = {"construction", "commissioning", "operating"}
+
+# What a missing item costs (4.4.0). Every applicable item is mandatory except an
+# advisory. deal_killer: the gate is BLOCKED while it is missing. warning (shown as
+# "Required"): the gate stays INCOMPLETE, and escalates to a deal-killer once capital
+# is at work if the item says so. advisory: shown, never blocks.
+EXPIRY_WATCH_DAYS = 60
+DEFAULT_VALIDITY_MONTHS = 12
+# Instruments that lapse in practice (JML 2026-10-31). Not an exhaustive list of everything that
+# can expire — any item may carry a date — but the ones where silence would be a false pass.
+EXPIRY_REQUIRED: frozenset[str] = frozenset({
+    "land_option_or_lease_executed",
+    "queue_position_evidence",
+    "eia_permit_granted", "construction_permit_granted", "ancillary_permits_granted",
+    "operating_permit_effective",
+    "credit_support_package", "epc_security_package",
+    "insurance_term_sheet", "insurance_certificates_delivered",
+})
+
+
+def _add_months(d: date, months: int) -> date:
+    y, m = divmod(d.month - 1 + months, 12)
+    year, month = d.year + y, m + 1
+    return date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _apply_expiry(evidence: list[dict], as_of: str) -> tuple[list[dict], list[dict]]:
+    """A VERIFIED item past its validity reads EXPIRED for everything downstream (gates, the
+    offtake and EPC ladders). The validity is the declared `valid_until`; for an item in
+    EXPIRY_REQUIRED with none, DEFAULT_VALIDITY_MONTHS after its verification; and an item
+    in EXPIRY_REQUIRED with neither counts for nothing. Returns the adjusted evidence (its
+    `valid_until` the EFFECTIVE date, with `validity_basis`) and the expired."""
+    out: list[dict] = []
+    expired: list[dict] = []
+    for e in evidence:
+        if e.get("status") != "VERIFIED":
+            out.append(e)
+            continue
+        until, basis = str(e.get("valid_until") or "")[:10], None
+        if until:
+            basis = "declared"
+        elif e["key"] in EXPIRY_REQUIRED:
+            try:
+                until = _add_months(date.fromisoformat(str(e.get("verified_at") or "")[:10]),
+                                    DEFAULT_VALIDITY_MONTHS).isoformat()
+                basis = "default"
+            except ValueError:
+                out.append({**e, "status": "EXPIRED", "expired_on": as_of, "validity_basis": "undated"})
+                expired.append({"key": e["key"], "valid_until": None, "basis": "undated"})
+                continue
+        if until and until < as_of:
+            out.append({**e, "status": "EXPIRED", "expired_on": until, "valid_until": until,
+                        "validity_basis": basis})
+            expired.append({"key": e["key"], "valid_until": until, "basis": basis})
+        elif until:
+            out.append({**e, "valid_until": until, "validity_basis": basis})
+        else:
+            out.append(e)
+    return out, expired
+
+
+def _expiry_reason(d: dict) -> str:
+    if d.get("validity_basis") == "undated":
+        return f"{d['label']} has no validity date and no verification date, so it does not count"
+    tail = (f" ({DEFAULT_VALIDITY_MONTHS} months after verification — no validity date was declared)"
+            if d.get("validity_basis") == "default" else "")
+    return f"{d['label']} expired on {d['expired_on']}{tail}"
+
+
+SEVERITY_LABELS: dict[str, str] = {"deal_killer": "Deal-killer", "warning": "Required", "advisory": "Advisory"}
 
 EVIDENCE_META: dict[str, dict] = {
     # ── G0 ────────────────────────────────────────────────────────────────────
@@ -845,7 +988,7 @@ _G2_G11_META: list[tuple[str, str, str, str, str, str]] = [
     ("operating_permit_pathway", "Operating Permit Pathway", "B", "Appeal Risk", "LEGAL", "Lawful operation after COD"),
     ("stakeholder_management_plan_v2", "Stakeholder Management Plan v2", "C", "Social Licence", "PROJECT", "Social licence through construction"),
     ("cp_checklist_completed", "Conditions Precedent Satisfied", "A", "Closing", "LEGAL", "First drawdown"),
-    ("equity_injected", "Funding Committed (equity injected, or board-approved funding)", "A", "Closing", "FINANCE", "Money to build — debt-to-equity ratio at close where project-financed"),
+    ("equity_injected", "Funds Committed to This Project (equity injected, or a committed facility or escrow; an internal approval alone does not count)", "A", "Closing", "FINANCE", "Money to build — debt-to-equity ratio at close where project-financed"),
     ("dsra_funded", "Debt Service Reserve Funded", "A", "Closing", "TREASURY", "Liquidity from day one"),
     ("security_package_perfected", "Security Package Perfected", "A", "Closing", "LEGAL", "Lender recourse"),
     ("insurance_certificates_delivered", "Insurance Bound & Certificates Delivered (lenders as loss payee where project-financed)", "B", "Insurance at Close", "TREASURY", "Cover in force from construction start"),
@@ -939,20 +1082,20 @@ RETIRED_EVIDENCE: dict[str, dict[str, str]] = {
 # ── 1. Lender protection vs commercial substance ─────────────────────────────
 # Only these items protect an external lender. For BALANCE_SHEET funding they
 # are NOT_APPLICABLE; every other item applies to every project. A gate is
-# WAIVED only when none of its items apply (G6, G8).
+# WAIVED only when none of its items apply. Since 4.3.0 that is no gate: the
+# engineer's report and opinions (G6) and the base case and downside cases (G8)
+# protect the sponsor's own capital as much as a lender's.
 EVIDENCE_SCOPE: dict[str, str] = {k: "PROJECT_FINANCE" for k in (
     # G4 — lender security over the revenue line
     "credit_support_package", "take_or_pay_floor", "termination_payment_formula",
     "assignment_rights", "step_in_rights", "hedgeable_pricing_index",
-    # G6 — the lenders' own engineer (every project now carries an independent
-    # technical review in G5)
-    "ie_report_issued", "energy_balance_verified", "capex_opinion_reasonableness",
-    "opex_opinion_reasonableness", "completion_test_definitions",
+    # G6 — completion tests are the lenders' drawdown mechanics
+    "completion_test_definitions",
     # G7 — lender acceptance of retained risk
     "deductibles_accepted",
-    # G8 — the credit committee's model
-    "base_case_model", "model_audit_opinion", "downside_cases", "covenant_suite_defined",
-    "dsra_maintenance_reserve_logic", "hedging_plan", "model_consistency_with_ie",
+    # G8 — the credit committee's own instruments
+    "model_audit_opinion", "covenant_suite_defined",
+    "dsra_maintenance_reserve_logic", "hedging_plan",
     # G10 — financing conditions
     "cp_checklist_completed", "dsra_funded", "security_package_perfected", "legal_opinions_issued",
 )}
@@ -1119,14 +1262,19 @@ STATE_COMMITMENT_LABELS: dict[str, str] = {
     "SPECULATIVE": "Idea stage — nothing can be committed yet",
     "TECHNICALLY_PLAUSIBLE": "Site and technology basis confirmed",
     "COMMERCIALLY_PLAUSIBLE": "Commercially defined — offtake term sheets cover most of the output",
-    "BUILDABLE": "Commitment-ready — producer and offtaker can sign binding-with-conditions",
+    # 4.3.0: G4 needs O4 and G5 needs E4 — the offtake is already signed and binding
+    # (conditions precedent open), the EPC agreed in form. "Can sign" was wrong.
+    "BUILDABLE": "Commitment-ready — offtake binding subject to conditions precedent, EPC agreed in form",
     "STRUCTURALLY_BANKABLE": "Independently validated",
     # 4.1.0: a credit approval is a conditional commitment, not money — it lapses
     # if financial close is not reached (Gevo 2026) and precedes close by months.
-    "CREDIT_APPROVED": "Credit approved — conditional until financial close",
+    # 4.3.0: and it is the lender's decision. This state says the financial
+    # assessment (G8) is complete, so the decision CAN be taken; it never says
+    # it has been.
+    "CREDIT_APPROVED": "Ready for credit decision — a lender's approval stays conditional until financial close",
     "FINANCEABLE": "Committed — investment decision taken",
     "OPERATIONAL": "Delivering — certified product accepted by the buyer",
-    "REFINANCING_ELIGIBLE": "Proven — refinancing possible",
+    "REFINANCING_ELIGIBLE": "Proven — 12 months of stable operation since COD, refinancing possible",
 }
 
 # The structured fields each commitment card may carry. The platform validates
@@ -1158,7 +1306,7 @@ COMMITMENT_CARD_FIELDS: dict[str, dict[str, str]] = {
     "schedule": {
         "permits_expected_date": "date", "appeal_period_months": "number", "fid_target_date": "date",
         "construction_months_p80": "number", "commissioning_allowance_months": "number",
-        "forecast_cod_date": "date",
+        "forecast_cod_date": "date", "actual_cod_date": "date",
     },
     "supply": {
         "feedstock_required_tonnes_per_year": "number", "feedstock_contracted_tonnes_per_year": "number",
@@ -1603,7 +1751,7 @@ STATE_REQUIREMENTS: dict[str, list[str]] = {
     "CREDIT_APPROVED": ["G8_AUDIT_GRADE_MODEL"],
     "FINANCEABLE": ["G9_PERMITS_SAFE", "G10_FINANCIAL_CLOSE_CP"],
     "OPERATIONAL": ["G11_COD_STABILIZATION"],
-    "REFINANCING_ELIGIBLE": [],  # requires OPERATIONAL + time
+    "REFINANCING_ELIGIBLE": ["G11_COD_STABILIZATION"],  # + REFINANCING_STABLE_MONTHS since COD (4.8.0)
 }
 
 # Persona scoping, DERIVED from each gate's own `personas` so the two can never
@@ -1665,6 +1813,9 @@ def _evaluate_gate(gate: dict, evidence: list[dict],
     detail = []
     verified = 0
     applicable_total = 0
+    required_total = 0       # applicable items that are not advisory (4.4.0)
+    required_verified = 0
+    advisory_open: list[str] = []
     blocking = []
     deal_killers_blocked = []
     maturity_shortfalls = []
@@ -1709,6 +1860,10 @@ def _evaluate_gate(gate: dict, evidence: list[dict],
             "submitted_at": ev.get("submitted_at"),
             "verified_at": ev.get("verified_at"),
             "notes": ev.get("notes"),
+            "valid_until": (str(ev.get("valid_until"))[:10] if ev.get("valid_until") else None),
+            "expired_on": ev.get("expired_on"),
+            "validity_basis": ev.get("validity_basis"),
+            "expiry_required": ek in EXPIRY_REQUIRED,
             "required_maturity": required_maturity,
             "declared_maturity": declared_maturity,
             "maturity_status": maturity_status,
@@ -1720,12 +1875,18 @@ def _evaluate_gate(gate: dict, evidence: list[dict],
         if not applicable:
             continue
         applicable_total += 1
+        if severity != "advisory":
+            required_total += 1
         # An item counts only when it is VERIFIED *and* its instrument is mature
         # enough. Verification says the document is authentic; it does not make
         # a term sheet into a contract.
         is_verified = ev.get("status") == "VERIFIED"
         if is_verified and maturity_status in ("NOT_REQUIRED", "MET"):
             verified += 1
+            if severity != "advisory":
+                required_verified += 1
+        elif severity == "advisory":
+            advisory_open.append(ek)     # shown, never blocks
         else:
             blocking.append(ek)
             if is_verified:
@@ -1776,7 +1937,7 @@ def _evaluate_gate(gate: dict, evidence: list[dict],
         mine = [d for d in detail if d["applicable"] and lens in d["lenses"]]
         lens_readouts[lens] = {
             "applicable": len(mine),
-            "verified": sum(1 for d in mine if d["key"] not in blocking),
+            "verified": sum(1 for d in mine if d["key"] not in blocking and d["key"] not in advisory_open),
             "blocking": [d["key"] for d in mine if d["key"] in blocking],
         }
 
@@ -1786,8 +1947,12 @@ def _evaluate_gate(gate: dict, evidence: list[dict],
         "owners": gate["owners"],
         "total_evidence": applicable_total,
         "verified_count": verified,
+        # Items someone has submitted that no independent party has verified. Shown beside the verified count,
+        # never counted in it (JML 2026-10-31): a submitted item is an assertion, not evidence that counts.
+        "submitted_count": sum(1 for d in detail if d["applicable"] and d["status"] in ("SUBMITTED", "UNDER_REVIEW")),
         "completion_pct": round(pct, 1),
-        "is_complete": verified == applicable_total and applicable_total > 0,
+        "is_complete": required_verified == required_total and required_total > 0,
+        "advisory_open": advisory_open,
         "power_model": power_model,
         "project_phase": project_phase,
         "premise_findings": premise_findings,
@@ -1843,18 +2008,47 @@ def _commitment_shortfalls(state: str, financing_model: Optional[str],
     return out
 
 
+REFINANCING_STABLE_MONTHS = 12
+
+
+def _time_shortfalls(state: str, terms: Optional[dict], as_of: str) -> list[dict]:
+    """What a state needs that only the calendar can supply (4.8.0): REFINANCING_ELIGIBLE needs
+    REFINANCING_STABLE_MONTHS since the actual COD date on the schedule card."""
+    if state != "REFINANCING_ELIGIBLE":
+        return []
+    raw = str(((terms or {}).get("schedule") or {}).get("actual_cod_date") or "")[:10]
+    try:
+        cod = date.fromisoformat(raw)
+    except ValueError:
+        return [{"kind": "time", "gate": "G11_COD_STABILIZATION", "required": f"{REFINANCING_STABLE_MONTHS} months since COD",
+                 "actual": "no actual COD date recorded",
+                 "message": "REFINANCING_ELIGIBLE needs 12 months of stable operation since COD; record the actual COD "
+                            "date on the schedule card."}]
+    ready = _add_months(cod, REFINANCING_STABLE_MONTHS)
+    if date.fromisoformat(as_of) >= ready:
+        return []
+    return [{"kind": "time", "gate": "G11_COD_STABILIZATION", "required": f"{REFINANCING_STABLE_MONTHS} months since COD",
+             "actual": f"COD {cod.isoformat()}", "eligible_from": ready.isoformat(),
+             "message": f"REFINANCING_ELIGIBLE needs {REFINANCING_STABLE_MONTHS} months of stable operation since COD "
+                        f"({cod.isoformat()}); eligible from {ready.isoformat()}."}]
+
+
 def _compute_state(gate_evals: list[dict], waived_gates: set[str] | None = None,
                    financing_model: Optional[str] = None,
-                   offtake: Optional[dict] = None, epc: Optional[dict] = None) -> str:
+                   offtake: Optional[dict] = None, epc: Optional[dict] = None,
+                   terms: Optional[dict] = None, as_of: Optional[str] = None) -> str:
     """
     Highest state whose gates are complete AND whose commitment requirements
     are met, climbing strictly in order. Gates waived by financing model count
-    as satisfied for the climb; they are never presented as satisfied evidence.
+    as satisfied for the climb; they are never presented as satisfied evidence,
+    and a state whose gates are ALL waived is not reached on waivers alone.
     """
     waived = waived_gates or set()
+    as_of = as_of or _today()
     offtake = offtake or {"level": "O0", "effective": False}
     epc = epc or {"level": "E0"}
-    complete_gates = {g["gate_id"] for g in gate_evals if g["is_complete"]} | waived
+    evidenced = {g["gate_id"] for g in gate_evals if g["is_complete"]}
+    complete_gates = evidenced | waived
     achieved = "SPECULATIVE"
     for state in STATE_ORDER[1:]:
         reqs = STATE_REQUIREMENTS.get(state, [])
@@ -1862,7 +2056,10 @@ def _compute_state(gate_evals: list[dict], waived_gates: set[str] | None = None,
             continue
         if achieved != STATE_ORDER[STATE_ORDER.index(state) - 1]:
             break
-        if all(g in complete_gates for g in reqs) and not _commitment_shortfalls(state, financing_model, offtake, epc):
+        # 4.3.0: waivers fill gaps in a state, never the whole of it.
+        if (all(g in complete_gates for g in reqs) and any(g in evidenced for g in reqs)
+                and not _commitment_shortfalls(state, financing_model, offtake, epc)
+                and not _time_shortfalls(state, terms, as_of)):
             achieved = state
         else:
             break
@@ -1936,7 +2133,8 @@ def _find_blocking_gates(current: str, gate_evals: list[dict]) -> list[str]:
 
 def _check_regression(current: str, previous: Optional[str], gate_evals: list[dict],
                       waived_gates: set[str] | None = None, financing_model: Optional[str] = None,
-                      offtake: Optional[dict] = None, epc: Optional[dict] = None) -> Optional[dict]:
+                      offtake: Optional[dict] = None, epc: Optional[dict] = None,
+                      terms: Optional[dict] = None, as_of: Optional[str] = None) -> Optional[dict]:
     """Check if state has regressed from previous evaluation, and name why."""
     if not previous:
         return None
@@ -1957,6 +2155,7 @@ def _check_regression(current: str, previous: Optional[str], gate_evals: list[di
             break
         shortfalls = _commitment_shortfalls(state, financing_model, offtake or {"level": "O0", "effective": False},
                                             epc or {"level": "E0"})
+        shortfalls = shortfalls + _time_shortfalls(state, terms, as_of or _today())
         if shortfalls:
             trigger, reason = shortfalls[0]["gate"], shortfalls[0]["message"]
             break
@@ -1972,7 +2171,8 @@ def evaluate(project_id: str, evidence: list[dict],
              power_model: Optional[str] = None,
              project_phase: Optional[str] = None,
              financing_model: Optional[str] = None,
-             terms: Optional[dict] = None) -> dict:
+             terms: Optional[dict] = None,
+             as_of: Optional[str] = None) -> dict:
     """
     Full bankability evaluation.
 
@@ -1987,6 +2187,8 @@ def evaluate(project_id: str, evidence: list[dict],
         financing_model: PROJECT_FINANCE | BALANCE_SHEET — scopes which ITEMS
             apply; lender-protection items drop out for balance-sheet projects
             (None = legacy, everything applies)
+        as_of: ISO date the evaluation is made on (default: today, UTC). Evidence whose
+            `valid_until` is earlier reads EXPIRED (4.5.0).
         terms: commitment cards {offtake, epc, schedule, supply, model}; see
             COMMITMENT_CARD_FIELDS. Drive the O/E ladders, coherence checks
             and post-FID triggers.
@@ -1994,6 +2196,8 @@ def evaluate(project_id: str, evidence: list[dict],
     Returns:
         ProjectBankabilitySnapshot dict
     """
+    as_of = (as_of or _today())[:10]
+    evidence, expired_evidence = _apply_expiry(evidence, as_of)
     evidence_map = {e["key"]: e for e in evidence}
     offtake = derive_offtake_level(evidence_map, terms)
     epc = derive_epc_level(evidence_map, terms)
@@ -2028,6 +2232,8 @@ def evaluate(project_id: str, evidence: list[dict],
              for c in checks if not c["met"]]
             + [f"{c['id']} failed: {c['detail']}" for c in ev["coherence_checks"] if c["status"] == "FAIL"]
             + [f"{t['id']} {t['title']}" for t in ev["triggers"]]
+            + [_expiry_reason(d) for d in ev["evidence_detail"]
+               if d["applicable"] and d.get("expired_on") and d["severity"] != "advisory"]
         )
         # 4.2.0: a cross-contract check that cannot run for lack of data is not a
         # pass. It holds the gate UNRESOLVED and names what is missing — the
@@ -2055,10 +2261,16 @@ def evaluate(project_id: str, evidence: list[dict],
             ev["determination"] = "INCOMPLETE"
         gate_evals.append(ev)
 
-    current_state = _compute_state(gate_evals, waived_gates, financing_model, offtake, epc)
+    upcoming = sorted((str(e["valid_until"])[:10], e["key"]) for e in evidence
+                      if e.get("status") == "VERIFIED" and e.get("valid_until") and str(e["valid_until"])[:10] >= as_of)
+    next_expiry = upcoming[0][0] if upcoming else None
+    horizon = (date.fromisoformat(as_of) + timedelta(days=EXPIRY_WATCH_DAYS)).isoformat()
+    expiry_watch = [{"key": k, "valid_until": d, "days": (date.fromisoformat(d) - date.fromisoformat(as_of)).days}
+                    for d, k in upcoming if d <= horizon]
+    current_state = _compute_state(gate_evals, waived_gates, financing_model, offtake, epc, terms, as_of)
     capital_unlocks = _compute_capital_unlocks(gate_evals, waived_gates, financing_model)
     regression = _check_regression(current_state, previous_state, gate_evals, waived_gates,
-                                   financing_model, offtake, epc)
+                                   financing_model, offtake, epc, terms, as_of)
 
     # Overall totals over financing-applicable gates only — a balance-sheet
     # project's completion is not diluted by lender evidence it will never file.
@@ -2090,6 +2302,10 @@ def evaluate(project_id: str, evidence: list[dict],
         "project_id": project_id,
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
         "rules_version": EVIDENCE_RULES_VERSION,
+        "as_of": as_of,
+        "expired_evidence": expired_evidence,
+        "next_expiry": next_expiry,
+        "expiry_watch": expiry_watch,
         "power_model": power_model,
         "project_phase": project_phase,
         "financing_model": financing_model,
@@ -2111,7 +2327,8 @@ def evaluate(project_id: str, evidence: list[dict],
             if gid not in waived_gates
         ],
         "commitments_blocking_next_state": (
-            _commitment_shortfalls(next_state, financing_model, offtake, epc) if next_state else []
+            (_commitment_shortfalls(next_state, financing_model, offtake, epc)
+             + _time_shortfalls(next_state, terms, as_of)) if next_state else []
         ),
         "offtake": offtake,
         "epc": epc,
@@ -2180,6 +2397,7 @@ def get_rules() -> dict:
         "persona_gates": PERSONA_GATES,
         "capital_types": CAPITAL_TYPES,
         "capital_type_labels": CAPITAL_TYPE_LABELS,
+        "severity_labels": SEVERITY_LABELS,
         "offtake_coverage_min_pct": OFFTAKE_COVERAGE_MIN_PCT,
         "capital_scope": CAPITAL_SCOPE,
         "capital_semantics": (

@@ -67,6 +67,8 @@ import RFQManagementPage from '@/features/trader/RFQManagementPage'
 import { CounterpartiesPage } from '@/features/trader/CounterpartiesPage'
 import { GanttVisibilityConfig } from '@/features/ciso/GanttVisibilityConfig'
 import { ScreenAccessPage } from '@/features/ciso/ScreenAccessPage'
+import { GexStaffConsolePage } from '@/features/gexConsole/GexStaffConsolePage'
+import { ChangePasswordPage } from '@/features/account/ChangePasswordPage'
 import { GapAnalysis } from '@/features/finance/GapAnalysis'
 import { GabillonAdminPage } from '@/features/pricing/GabillonAdminPage'
 import { MoleculePriceCurve } from '@/features/pricing/MoleculePriceCurve'
@@ -241,6 +243,8 @@ function App() {
               {/* ── Gantt Visibility Config (CISO) ── */}
               <Route path="ciso-gantt-config"    element={<GanttVisibilityConfig />} />
               <Route path="ciso-screen-access"   element={<ScreenAccessPage />} />
+              <Route path="gex-console"          element={<GexStaffConsolePage />} />
+              <Route path="account/password"     element={<ChangePasswordPage />} />
 
               {/* ── Gabillon / Pricing (CISO Webmaster + project view) ── */}
               <Route path="ciso-pricing"         element={<GabillonAdminPage />} />

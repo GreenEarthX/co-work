@@ -291,14 +291,16 @@ def test_a_shared_evidence_key_resolves_to_the_gate_that_scores_it():
     assert not wrong, "evidence resolves to a gate other than the one scoring it:\n  " + "\n  ".join(wrong)
 
 
-def test_the_registry_advertises_the_completion_the_engine_requires():
-    """
-    The engine's `is_complete` is `verified == applicable_total` — every
-    applicable item, no threshold. The registry used to advertise 60.0.
-    """
-    from app.api.v1.routes_gate_registry import _build_entry
+def test_the_registry_advertises_no_ordering_or_threshold_the_engine_does_not_enforce():
+    """The state ladder is the only gate ordering and a gate completes when its required items are verified
+    (an advisory never blocks, rules 4.4.0), so a served prerequisite graph or a "100 %" threshold is a claim
+    nothing enforces. Negative-verified 2026-10-31: restoring either field fails this."""
+    import app.api.v1.routes_gate_registry as reg
+    from app.api.v1.routes_gate_registry import GateRegistryEntry, _build_entry
 
+    assert not hasattr(reg, "GATE_PREREQUISITES")
+    assert "prerequisites" not in GateRegistryEntry.model_fields
+    assert "min_completion_for_next" not in GateRegistryEntry.model_fields
     for g in GATE_REGISTRY:
-        assert _build_entry(g).min_completion_for_next == 100.0, (
-            f"{g.id} advertises a completion threshold the engine does not honour"
-        )
+        dumped = _build_entry(g).model_dump()
+        assert "prerequisites" not in dumped and "min_completion_for_next" not in dumped

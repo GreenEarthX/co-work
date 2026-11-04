@@ -108,6 +108,8 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/settlements": "finance",
     "/api/v1/trading-book": "finance",
     "/api/v1/account": "platform",
+    # GEX staff console: read-only; the handler refuses anyone not is_platform_admin.
+    "/api/v1/gex-console": "platform",
     "/api/v1/billing": "platform",
     # Producer/offtaker discovery. Domain authorization decides who may WRITE here;
     # per-interest confidentiality is decided separately in app.core.open_interest,

@@ -813,6 +813,10 @@ app.include_router(
     routes_account_vetting.router, prefix="/api/v1/account", tags=["Account Vetting"]
 )
 
+# GEX staff console — GEX's own view: admins, companies, staff rights, onboarding (JML, 2026-11-03)
+from app.api.v1 import routes_gex_console
+app.include_router(routes_gex_console.router, prefix="/api/v1/gex-console", tags=["GEX staff console"])
+
 # Client commercial agreement and invoicing — records invoices, never moves money.
 # Routers carry their own prefixes; both are mapped in domain_authorization.py, without
 # which writes fail closed.

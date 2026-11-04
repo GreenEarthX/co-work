@@ -70,6 +70,8 @@ const MOLECULE_PRICE: Record<string, number> = {
   "e-Naphtha": 900,
 };
 
+const NOT_RECORDED = "not recorded";
+
 // The screen that shows a project's state and what blocks the next one.
 const STATE_AND_BLOCKERS = "State & Blockers";
 
@@ -87,13 +89,12 @@ function volumeBreakdown(project: CustomerProject) {
   const tokeniseShare = 0.8;
   const volumeToTokenise = Math.round(annualOutput * tokeniseShare);
   const plantLife = 20;
-  const annualCapexCoverage = project.capex_eur / (price * plantLife);
-  const volumeCapexCoverage = Math.round(annualCapexCoverage);
-  const annualDepreciation = project.capex_eur / plantLife;
-  const annualOpex = project.capex_eur * 0.04;
-  const volumeForDeprecAndOpex = Math.round(
-    (annualDepreciation + annualOpex) / price,
-  );
+  // No CAPEX recorded → the coverage cannot be computed: null, not 0.
+  const capex = project.capex_eur;
+  const volumeCapexCoverage =
+    capex == null ? null : Math.round(capex / (price * plantLife));
+  const volumeForDeprecAndOpex =
+    capex == null ? null : Math.round((capex / plantLife + capex * 0.04) / price);
   return {
     annualOutput: Math.round(annualOutput),
     volumeToTokenise,
@@ -142,10 +143,19 @@ function resolveProjectDetailPath(
 // The same sentence for every role: the next state and what it waits on. The
 // role decides only where the "Your next action" button goes (roleNextAction).
 
+/** Why there is no readout. A refusal is not an outage: the 403 every GEX
+ *  admin gets from ABAC rule R0 used to read "Gate engine unavailable". */
+function readoutFailure(readout: Readout): string {
+  const status = (readout.error as { status?: number } | null)?.status;
+  return status === 401 || status === 403
+    ? "No access to this project's gates"
+    : "Gate engine unavailable";
+}
+
 function engineNextStep(readout: Readout, stateLabel: LabelFn): string {
   if (readout.isLoading) return "…";
   const r = readout.data;
-  if (!r) return "Gate engine unavailable";
+  if (!r) return readoutFailure(readout);
   if (!r.next_state) return "No further state";
   const gates = blockingGates(r).map((g) => gateName(r, g.gate_id));
   const waits = gates.length > 0
@@ -275,7 +285,7 @@ function StateCell({ readout, stateLabel }: { readout: Readout; stateLabel: Labe
   const r = readout.data;
   if (!r) {
     return (
-      <span className="text-right font-mono text-[11px] text-[var(--text-muted)]" title="Gate engine unavailable">
+      <span className="text-right font-mono text-[11px] text-[var(--text-muted)]" title={readoutFailure(readout)}>
         —
       </span>
     );
@@ -356,11 +366,13 @@ function ExpandPanel({
           })()}
           <div className="font-mono text-[10px] text-[var(--text-muted)]">
             {project.location}
-            <span>
-              {" · "}
-              {project.lat.toFixed(2)}N,{Math.abs(project.lng).toFixed(2)}
-              {project.lng >= 0 ? "E" : "W"}
-            </span>
+            {project.lat != null && project.lng != null && (
+              <span>
+                {" · "}
+                {project.lat.toFixed(2)}N,{Math.abs(project.lng).toFixed(2)}
+                {project.lng >= 0 ? "E" : "W"}
+              </span>
+            )}
           </div>
           {r && openGates.length > 0 && (
             <>
@@ -451,18 +463,18 @@ function ExpandPanel({
           {!ops && (
             <KV
               label="Volume to cover CAPEX"
-              value={`${fmtShort(vb.volumeCapexCoverage)} MT/y`}
+              value={vb.volumeCapexCoverage == null ? NOT_RECORDED : `${fmtShort(vb.volumeCapexCoverage)} MT/y`}
             />
           )}
           {ops && (
             <KV
               label="Cover deprec + OPEX"
-              value={`${fmtShort(vb.volumeForDeprecAndOpex)} MT/y`}
+              value={vb.volumeForDeprecAndOpex == null ? NOT_RECORDED : `${fmtShort(vb.volumeForDeprecAndOpex)} MT/y`}
             />
           )}
           <KV
             label="CAPEX"
-            value={`€${fmtShort(project.capex_eur)}`}
+            value={project.capex_eur == null ? NOT_RECORDED : `€${fmtShort(project.capex_eur)}`}
           />
         </div>
       </div>

@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": "2.0.0",
-    "as_of": "2026-10-09",
+    "as_of": "2026-10-12",
     "compiled_by": "Jean-Marie Lamay (GEX CPO) with Claude",
     "engine_rules_version": "4.1.0",
     "fixture_marker": "TEST_FIXTURE_FORTAVERDE",
@@ -70,6 +70,15 @@
       "independent": true,
       "url": "https://www.complexodopecem.com.br/complexo-do-pecem-apresenta-hub-de-hidrogenio-verde-na-hannover-messe-2026-a-maior-feira-industrial-do-mundo/",
       "note": "From GEX's Pecém project research, 2026-10-06. Möhring Energie / FortaVerde not listed."
+    },
+    {
+      "source_id": "S7",
+      "type": "STATEMENT",
+      "title": "Jean-Marie Lamay, chat statement — contact roles and emails",
+      "date": "2026-10-12",
+      "author": "GEX",
+      "independent": false,
+      "note": "Roles and business emails as given by the two contacts to GEX. Not independently verified."
     }
   ],
   "company": {
@@ -99,36 +108,41 @@
       "legal form and registry number",
       "SPV and shareholders",
       "authorised signatories"
-    ]
+    ],
+    "email_domain": "moehring-energie.com"
   },
   "contacts": [
     {
       "contact_id": "P1",
-      "name": "Herr Möhring",
-      "first_name": null,
+      "name": "Sascha Möhring",
+      "first_name": "Sascha",
       "organisation": "Möhring Energie",
-      "role": null,
-      "email": null,
-      "telephone": null,
-      "source_ids": [
-        "S1"
-      ],
-      "is_platform_account": false
-    },
-    {
-      "contact_id": "P2",
-      "name": "Herr Block",
-      "first_name": null,
-      "organisation": "Möhring Energie",
-      "role": null,
-      "email": null,
+      "role": "Managing Director and CTO",
+      "email": "contact-p1@client.invalid",
       "telephone": null,
       "source_ids": [
         "S1",
-        "S3"
+        "S7"
       ],
       "is_platform_account": false,
-      "note": "On the call, said more offtakers are needed and existing talks may need re-underpinning."
+      "business_function": "EXECUTIVE"
+    },
+    {
+      "contact_id": "P2",
+      "name": "Jan Block",
+      "first_name": "Jan",
+      "organisation": "Möhring Energie",
+      "role": "CEO",
+      "email": "contact-p2@client.invalid",
+      "telephone": null,
+      "source_ids": [
+        "S1",
+        "S3",
+        "S7"
+      ],
+      "is_platform_account": false,
+      "note": "On the call, said more offtakers are needed and existing talks may need re-underpinning.",
+      "business_function": "EXECUTIVE"
     }
   ],
   "gex_side": {
@@ -589,6 +603,23 @@
       "maturity_claimed": null,
       "verification_state": "UNVERIFIED",
       "document_requested": null,
+      "note": null
+    },
+    {
+      "claim_id": "C23",
+      "statement": "Jan Block is CEO; Sascha Möhring is Managing Director and CTO of Möhring Energie",
+      "source_ids": [
+        "S7"
+      ],
+      "field": "officers",
+      "value": null,
+      "unit": null,
+      "phase": null,
+      "gate": "G0",
+      "evidence_key": null,
+      "maturity_claimed": null,
+      "verification_state": "UNVERIFIED",
+      "document_requested": "Commercial register extract naming the managing directors (Geschäftsführer) and signatories",
       "note": null
     }
   ],

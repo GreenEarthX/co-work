@@ -21,9 +21,10 @@ interface DemoUser {
   token: string;
   title: string;       // job title for display
   group: DemoGroup;
+  ownPassword?: true;  // fill the address only: this account has its own password, not demo1234
 }
 
-type DemoGroup = 'Producers' | 'Offtakers' | 'Bankers' | 'Engineers' | 'Insurers';
+type DemoGroup = 'Producers' | 'Offtakers' | 'Bankers' | 'Engineers' | 'Insurers' | 'FortaVerde';
 
 const DEMO_USERS: Record<string, DemoUser> = {
   // ── PRODUCERS — HamburgOne.com ─────────────────────────────────────────────
@@ -233,6 +234,37 @@ const DEMO_USERS: Record<string, DemoUser> = {
       user_name: 'Phillipe Blanker',
     },
   },
+  // ── FORTAVERDE PECÉM (TEST) ────────────────────────────────────────────────
+  // Demo sign-ins under the names of FortaVerde's two contacts (JML, 2026-11-03),
+  // in the TEST fixture tenant, vetting bypassed. NOT the people's own accounts
+  // (tenant mohring_energie). Created by backend/scripts/create_fortaverde_demo_accounts.py,
+  // with a password of their own: the policy refuses demo1234.
+  'sascha.moehring@fortaverde.test': {
+    token: 'demo-token-sascha-moehring',
+    title: 'Managing Director and CTO · TEST FortaVerde',
+    group: 'FortaVerde',
+    ownPassword: true,
+    role: {
+      company_type: 'PRODUCER',
+      service_type: null,
+      business_function: 'EXECUTIVE',
+      company_name: 'TEST FortaVerde',
+      user_name: 'Sascha Möhring (demo)',
+    },
+  },
+  'jan.block@fortaverde.test': {
+    token: 'demo-token-jan-block',
+    title: 'CEO · TEST FortaVerde',
+    group: 'FortaVerde',
+    ownPassword: true,
+    role: {
+      company_type: 'PRODUCER',
+      service_type: null,
+      business_function: 'EXECUTIVE',
+      company_name: 'TEST FortaVerde',
+      user_name: 'Jan Block (demo)',
+    },
+  },
 };
 
 const DEMO_PASSWORD = 'demo1234';
@@ -244,6 +276,7 @@ const GROUP_META: Record<DemoGroup, { label: string }> = {
   Bankers: { label: 'Banks' },
   Engineers: { label: 'Engineering' },
   Insurers: { label: 'Insurance' },
+  FortaVerde: { label: 'FortaVerde Pecém (TEST) · own password' },
 };
 
 interface LoginResponse {
@@ -252,6 +285,22 @@ interface LoginResponse {
   expires_at?: string;
   email: string;
   role: UserRole;
+}
+
+/** The server's refusal as one line of text. `detail` is a string for a wrong
+ *  password, and an object ({error, account_state, reason}) for a correct
+ *  password on an account that is not ACTIVE yet (403). Rendering that object
+ *  as a React child threw and left a blank page (2026-11-03, first PENDING
+ *  client account to sign in). */
+export function loginErrorText(payload: unknown): string | null {
+  const detail = (payload as { detail?: unknown } | null)?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (detail && typeof detail === 'object') {
+    const { reason, error } = detail as { reason?: unknown; error?: unknown };
+    if (typeof reason === 'string' && reason) return reason;
+    if (typeof error === 'string' && error) return error;
+  }
+  return null;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -280,13 +329,12 @@ export function LoginPage() {
         body: JSON.stringify({ email: normalizedEmail, password }),
       });
 
-      const payload = await response.json().catch(() => null) as LoginResponse | { detail?: string } | null;
+      const payload = await response.json().catch(() => null) as LoginResponse | { detail?: unknown } | null;
 
       if (!response.ok || !payload || !('access_token' in payload)) {
         setError(
-          payload && 'detail' in payload && payload.detail
-            ? payload.detail
-            : 'Invalid credentials. Use one of the demo accounts below with password demo1234.',
+          loginErrorText(payload)
+            ?? 'Invalid credentials. Use one of the demo accounts below with password demo1234.',
         );
         return;
       }
@@ -519,7 +567,7 @@ export function LoginPage() {
                         <button
                           key={emailAddr}
                           type="button"
-                          onClick={() => { setEmail(emailAddr); setPassword(DEMO_PASSWORD); }}
+                          onClick={() => { setEmail(emailAddr); setPassword(user.ownPassword ? '' : DEMO_PASSWORD); }}
                           className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left group transition-colors"
                           style={{ background: 'var(--surface)' }}
                         >

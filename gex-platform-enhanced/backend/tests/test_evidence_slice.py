@@ -149,7 +149,13 @@ def test_a_broken_link_breaks_the_chain():
 # is pinned by test_the_only_divergence_is_the_labelled_fixture: it cannot grow
 # to cover a real row without that test failing.
 FIXTURE_MARKER = "TEST_FIXTURE_COMPREHENSION"
-_REAL_ROWS = f"COALESCE(submitted_by,'') <> '{FIXTURE_MARKER}'"
+# The second, equally narrow one (2026-10-30): requests raised by scripts/raise_requests.py for items that
+# became applicable after rules 4.3.0. PostgreSQL is the system of record and the legacy SQLite file is not
+# written any more; these rows are open requests only (NOT_STARTED, nothing submitted), identified by the
+# note that script writes. Pinned by test_raised_requests_are_open_requests_only.
+RAISED_NOTE = "Open request, raised"      # a prefix; no LIKE, the SQL shim treats % as a parameter
+_RAISED = f"substr(COALESCE(notes,''), 1, {len(RAISED_NOTE)}) = '{RAISED_NOTE}'"
+_REAL_ROWS = f"COALESCE(submitted_by,'') <> '{FIXTURE_MARKER}' AND NOT ({_RAISED})"
 
 
 def _evidence_counts(monkeypatch, backend: str, where: str):
@@ -209,6 +215,26 @@ def test_the_only_divergence_is_the_labelled_fixture(monkeypatch):
         conn.close()
     assert all(p.startswith("proj_TEST_") for p in projects), (
         f"the fixture marker is on a project that is not labelled TEST: {projects}")
+
+
+def test_raised_requests_are_open_requests_only(monkeypatch):
+    """Negative-verified 2026-10-30: the exclusion cannot hide a submitted or verified row."""
+    requires_pg()
+    raised = _RAISED
+    try:
+        lite = _evidence_counts(monkeypatch, "sqlite", raised)
+        pg = _evidence_counts(monkeypatch, "postgres", raised)
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"backend unavailable: {exc}")
+    assert lite == {}, f"raised requests must not appear in SQLite: {lite}"
+    assert set(pg) <= {"NOT_STARTED"}, f"a raised request that is anything but open is a real row: {pg}"
+    conn, cur = _pg()
+    try:
+        cur.execute(f"SELECT count(*) AS n FROM bankability_evidence WHERE {raised} "
+                    "AND (submitted_by IS NOT NULL OR document_hash IS NOT NULL)")
+        assert cur.fetchone()["n"] == 0
+    finally:
+        conn.close()
 
 
 # ── 3. RLS on investor-facing data ──────────────────────────────────────────

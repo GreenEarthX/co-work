@@ -4,7 +4,8 @@
  *
  * Displays per-user:
  *   - Identity header (avatar, email, KYC badge, provider badge)
- *   - Account Security (sign-out, 2FA toggle, password last-changed)
+ *   - Account Security (sign-out, 2FA toggle, change password)
+ *   - Telephone number (the owner may change it)
  *   - Login History (pulled from /api/v1/auth/login-history)
  *   - Account details (email, provider, account ID, jurisdiction)
  *   - Role & ABAC context (company_type, business_function, clearance, capabilities)
@@ -22,6 +23,7 @@ import {
   Building2, Briefcase, BadgeCheck, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { useUserRole, type UserRole } from '@/contexts/UserRoleContext'
+import { TelephoneSection } from '@/features/account/TelephoneSection'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -146,7 +148,6 @@ export function AccountPage() {
   const [loginHistory, setLoginHistory] = useState<LoginEvent[]>([])
   const [tokenInfo, setTokenInfo] = useState<OIDCTokenInfo | null>(null)
   const [showOIDC, setShowOIDC] = useState(false)
-  const [passwordChanged] = useState<string>('Never')
 
   // Derive clearance from JWT claims
   const claims = authSession?.token ? decodeJWTPayload(authSession.token) : null
@@ -272,13 +273,17 @@ export function AccountPage() {
               Enable Two-Factor Authentication
             </button>
 
-            <div className="border border-gray-200 rounded-lg p-3 flex items-center gap-3">
+            {/* "Last changed: Never" was a constant, not a record — removed. */}
+            <button
+              onClick={() => navigate('/account/password')}
+              className="w-full border border-gray-200 rounded-lg p-3 flex items-center gap-3 text-left hover:bg-gray-50"
+            >
               <KeyRound size={16} className="text-gray-400" />
               <div>
-                <p className="text-sm font-semibold text-gray-900">Password</p>
-                <p className="text-xs text-gray-500">Last changed: {passwordChanged}</p>
+                <p className="text-sm font-semibold text-gray-900">Change your password</p>
+                <p className="text-xs text-gray-500">Signs you out on every other device</p>
               </div>
-            </div>
+            </button>
           </SectionCard>
 
           {/* Login History */}
@@ -315,6 +320,9 @@ export function AccountPage() {
             )}
           </SectionCard>
         </div>
+
+        {/* ── Telephone: the owner's to change (JML, 2026-11-03) ── */}
+        <TelephoneSection />
 
         {/* ── Account Details ──────────────────────────────────────── */}
         <SectionCard>

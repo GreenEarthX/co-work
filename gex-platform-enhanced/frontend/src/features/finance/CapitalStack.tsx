@@ -916,7 +916,7 @@ function CapitalStackModelled({ data, project, verification }: {
 
   // Use capex_eur from project data if available (it's stored in €M in customerProjects),
   // otherwise fall back to total capital as proxy.
-  const totalCapex = project ? project.capex_eur / 1_000_000 : totalCapital
+  const totalCapex = project?.capex_eur != null ? project.capex_eur / 1_000_000 : totalCapital
   const unfunded = Math.max(0, totalCapex - committedCapital)
   const gapPct = totalCapex > 0 ? (unfunded / totalCapex) * 100 : 0
 
