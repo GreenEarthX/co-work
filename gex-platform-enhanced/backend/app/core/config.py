@@ -1,10 +1,18 @@
 """
 Application Configuration
 """
+import os
 from pathlib import Path
 from typing import List
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+# A PostgreSQL connection that is never answered must fail, not wait for ever. With Docker Desktop
+# paused, port 55432 still accepts the TCP connection (the forwarder) and nothing replies: on 5 Nov
+# 2026 the 07:30 expiry sweep hung for over two hours and the test suite froze at 10%. libpq reads
+# this variable for every psycopg2 connection (the shim and SQLAlchemy's sync engines), and an
+# explicit PGCONNECT_TIMEOUT or a connect_timeout in a DSN still wins. Set before any connection.
+os.environ.setdefault("PGCONNECT_TIMEOUT", "10")
 
 # Anchor for all filesystem paths: the backend/ directory. Never the CWD.
 BACKEND_ROOT = Path(__file__).resolve().parents[2]

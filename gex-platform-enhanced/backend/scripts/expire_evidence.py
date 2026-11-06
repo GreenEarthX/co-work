@@ -22,14 +22,17 @@ the two commands are in its header comment.
 
 Exit codes (what `launchctl list | grep gex` shows in its second column):
     0   nothing was stale, or every stale project was re-evaluated
-    2   the database could not be read (Docker stopped? `docker start files-postgres-1`)
+    2   the database could not be read (Docker stopped or PAUSED? `docker start files-postgres-1`) —
+        a connection that is never answered times out after 10 s (PGCONNECT_TIMEOUT, app/core/config.py)
     3   at least one project could not be re-evaluated (the PF engine on :8001 down?); the others were
+    4   the whole run exceeded SWEEP_TIMEOUT_SECONDS (default 600): something answered and then stopped
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -83,7 +86,23 @@ async def sweep(projects: list[tuple[str, str]]) -> list[str]:
     return failed
 
 
+def _watchdog(seconds: int) -> None:
+    """A mid-run stall (a socket that answered, then went silent) must end the job, not hold it for hours.
+    A THREAD, not SIGALRM: a signal handler only runs when the main thread returns from the blocking
+    libpq call it is stuck in, which is exactly the case this exists for."""
+    import threading
+
+    def expire():
+        print(f"expiry sweep: still running after {seconds}s — giving up (exit 4)", flush=True)
+        os._exit(4)
+
+    timer = threading.Timer(seconds, expire)
+    timer.daemon = True
+    timer.start()
+
+
 def main() -> None:
+    _watchdog(int(os.environ.get("SWEEP_TIMEOUT_SECONDS", "600")))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="re-evaluate; default is a dry run")
     args = ap.parse_args()

@@ -1,6 +1,6 @@
 # GEX Platform — Engineering Handoff
 
-**Generated:** 2026-08-09 · **Last updated:** 2026-10-23 · **Derived from:** repository
+**Generated:** 2026-08-09 · **Last updated:** 2026-11-04 · **Derived from:** repository
 inspection, not conversation history.
 **Scope:** state of the tree at `files/gex-platform-enhanced` and its siblings.
 
@@ -2689,6 +2689,14 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     `credit_support_package`: the offtaker's confirmation covers terms agreed and the contract executed, not a
     third party's letter of credit; that item is reviewed independently. Same shape, since moved:
     `epc_security_package` (see the entry below).
+    **Hang fix (2026-11-05, from a drift check).** Docker Desktop was PAUSED: port 55432 still accepted TCP and
+    nothing answered, so the 07:30 sweep hung 2h12m and the suite froze at 10%. `app/core/config.py` now
+    defaults `PGCONNECT_TIMEOUT=10` (every psycopg2 connection; an explicit value or a DSN `connect_timeout`
+    wins) and `expire_evidence.py` has a THREAD watchdog (`SWEEP_TIMEOUT_SECONDS`, 600; exit 4 — a signal handler
+    cannot run while libpq is blocked). `tests/test_connect_timeout.py` (3, against a socket that accepts and says
+    nothing); removing the default or the watchdog fails them. A paused Docker now exits the sweep with 2.
+    Platform 1307 pass / 15 skip, engine 275. `export_twelve_gates.py` now names its output
+    `The_Twelve_Bankability_Gates_v<rules with spaces>.html`.
     **Rules 4.8.0 + migration 080 (2026-10-31, JML "yes to 2 and 5").** (2) `REFINANCING_ELIGIBLE` is reachable:
     G11 satisfied AND `REFINANCING_STABLE_MONTHS` (12) since the new schedule-card field `actual_cod_date`
     (mapped to the `technical` token kind, confirmed by the appointed reviewer like the rest of the producer's own
@@ -2699,7 +2707,7 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     satisfaction once, via `reevaluate` -> `app/core/gate_clock.py` (never fails an evaluation; first wins; a
     waived gate is not recorded). `GET /api/v1/projects/{id}/gate-clock` (persona-scoped) and a panel on the
     project report. Measured from 31 Oct 2026 only — earlier satisfactions are not measured; the TEST fixture shows
-    G0–G3 on 31 Oct. **The backend on :8000 has no --reload: restart it to serve the new route.** (The engine on
+    G0–G3 on 31 Oct. *(Superseded 2026-11-05: the :8000 backend now runs with `--reload`.)* (The engine on
     :8001 runs --reload and already serves 4.8.0.) Platform 1234 / 15 skip, frontend 232.
     **Prerequisite graph removed (2026-10-31, JML "go").** `routes_gate_registry.py` no longer serves
     `GATE_PREREQUISITES`/`prerequisites` or `min_completion_for_next` (nothing read the first; the second said 100 %,
@@ -2736,7 +2744,7 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     no lender) — Rheinwerk's four engineer items cannot be verified until an outside relying party exists, or
     the rule changes. Not changed.
     **The :8000 backend (checked 2026-10-31, read-only): not stale any more.** Pid 40008 (`uvicorn app.main:app
-    --host 0.0.0.0 --port 8000`, started 16:44 from an interactive shell) and the engine on :8001 (pid 37938,
+    --host 0.0.0.0 --port 8000`, started 16:44 from an interactive shell) and the engine on :8001 (pid 37938 then; the :8001 engine is now served by the `com.gex.pf-engine` agent WITHOUT --reload — `launchctl kickstart -k gui/$(id -u)/com.gex.pf-engine` after an engine code change),
     16:42) both started AFTER the last edits to the code they serve (engine 15:49, proxy 13:15, tokens 11:29);
     the backend's OpenAPI serves the 076/077/078 routes and `valid_until`. The old Oct-27 process is gone.
     Decision: the backend stays under `.claude/launch.json` (the preview), NOT an agent — in development it needs
@@ -2744,7 +2752,7 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     **INSTALLED 2026-10-31 (JML: "install them"): `com.gex.stack-up`, `com.gex.pf-engine`, `com.gex.expiry-sweep`
     are loaded in ~/Library/LaunchAgents beside `com.gex.postgres-backup`; all four read exit 0 after the first
     run. The sweep was kicked once under launchd (0 stale projects, exit 0). The pf-engine agent is waiting on
-    the engine you run by hand (pids 37938/37968) and takes over only when it stops. To confirm tomorrow:
+    the engine run by hand at the time (since replaced: the agent now serves :8001). To confirm tomorrow:
     `launchctl list | grep gex` — 07:30 sweep and 12:30 backup both 0.**
     **Stack self-start — written (2026-10-31, JML "go").** `files/start_stack.sh` +
     `com.gex.stack-up.plist` (at login, then every 15 min): opens Docker Desktop if it is down, `docker start`s
@@ -2757,7 +2765,7 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     left alone). Real recovery tested: stopped postgres → script started it, head 079 intact. Logs
     `db_backups/stack.log`. `tests/test_start_stack.py` (6, fake docker; "a missing container is never started"
     negative-verified). Install commands are in each plist's header. Still manual: the platform backend on :8000.
-    **Expiry sweep scheduled — agent written, NOT installed (2026-10-31, JML "go").**
+    **Expiry sweep scheduled — agent INSTALLED 2026-10-31 (it has run daily since).**
     `files/com.gex.expiry-sweep.plist` (daily 07:30, Standard process type, absolute venv path, settings from
     `backend/.env`; verified running in a clean `env -i` environment with no exports). Install: the two commands
     in its header. Exit codes show in `launchctl list | grep gex`: 0 fine, 2 database unreadable (Docker
@@ -2788,7 +2796,7 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     or shorten it, never extend (`VERIFICATION_CANNOT_EXTEND_VALIDITY`). `fresh_snapshot` re-evaluates a stored
     result whose `next_expiry` has passed (reason "evidence expired"). `scripts/expire_evidence.py` (dry run
     by default; `--apply` re-evaluates through `reevaluate`, which notifies designated executives) is the
-    sweep — NOT scheduled; add a launchd agent after the backup. Screen: StageGatesPage has "Valid until
+    sweep — scheduled by `com.gex.expiry-sweep` (installed 31 Oct). Screen: StageGatesPage has "Valid until
     (optional)" on the submission form and shows "Valid until D" / "Expired on D" on the row. Engine 252
     tests (6 new; disabling `_apply_expiry` fails 3); `tests/test_evidence_expiry.py` (10; the extension rule and
     the stale-read branch each negative-verified). **Decision still open:** dates are optional — requiring one
@@ -2907,8 +2915,9 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     backend then cannot connect and the engine stamps runs `run_logged: false`. Anyone running the
     stack from a fresh checkout needs their own `files/.env`.
 
-    **Still open:** rebuild and push the `pf_engine` image (psycopg2) and bump the tags;
-    `files/start_pf_engine.sh` (now loads the engine's `.env`) lives outside the repository.
+    **Still open:** ~~rebuild and push the `pf_engine` image (psycopg2) and bump the tags~~ —
+    done the same day, item 55. `files/start_pf_engine.sh` (now loads the engine's `.env`) lives
+    outside the repository.
 
 55. **4 Nov 2026 — `jmlamay/gex-pf-engine:v1.10.0` released; the Docker VM disk filled up.**
     - **Image:** built from `files/docker/` (sync-to-docker.sh now also excludes `*.migrated-*` and
@@ -3052,6 +3061,18 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 ---
 
 ## 10. Current task
+
+**2026-11-04:** nothing in flight. Done today (§8 items 53–55): the PF engine keeps nothing in
+SQLite (migration **082**, role `gex_engine`, fuels from the platform API; head 082, platform
+1304 pass / 15 skip, engine 275); `co-work` caught up with 31 Oct–3 Nov and client contact data
+kept out of git; the Docker stack fixed — backend as `gex_app` with all ten switches on
+`postgres`, both engines verifying the backend's tokens (`GEX_JWT_SECRET`, plus `GEX_JWKS_URL`
+for TEA); `gex-pf-engine:v1.10.0` built, pushed and pinned, end-to-end test passed. The Docker
+VM disk (7.8 GB, shared with PostgreSQL) filled during the build and PostgreSQL crashed into
+recovery twice — data intact, backup `gex_platform_2026-11-04_1641.dump`; check free space
+before the next build. **Open:** `start_pf_engine.sh` and the docker build copy sit outside
+the repository; the backend and frontend images (v1.9.0) predate 082 and today's platform
+changes, so the next release should rebuild them too. The paragraphs below are older.
 
 **2026-10-25:** spot prices approved, Marketplace records confirmed, errors cleaned; project data
 parts 1–2 moved to PostgreSQL — the backend holds no per-project data except the CISO workspace

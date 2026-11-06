@@ -396,7 +396,7 @@ def build() -> tuple[str, dict]:
       <tr><td class="mono">The GEX Process, rules {v}</td><td><span class="srole ">Companion</span></td><td>The stable explanation without status, generated from the same rules.</td></tr>
       <tr><td class="mono">Reviewer’s remarks of 29 October 2026</td><td><span class="srole ">Review</span></td><td>Responsibility allocation, counterparty assurance, the credit-decision state, balance-sheet scope, applicability, and the internal inconsistencies. Each point was checked against the engine; one claim — that O4 and E4 are undefined — was wrong, and they are published in section 4.</td></tr>
       <tr><td class="mono">Hydrogen Council with McKinsey; MEED; IFC; OECD; GH2; Oxford Energy; Ørsted (FlagshipONE)</td><td><span class="srole ">Market record</span></td><td>That offtake is where projects fail, that credit support is a separate instrument, that the pre-FID stage is the financing gap, and the FlagshipONE case. Several figures reach us through trade press and are not used as thresholds.</td></tr>
-      <tr><td class="mono">Live database, 30 October 2026</td><td><span class="srole ">Measured</span></td><td>11 stored evaluations (10 SPECULATIVE, 1 synthetic test project TECHNICALLY PLAUSIBLE); 92 open requests, 56 assigned, none with a due date; no reviewer appointed; platform suite 1234 pass, engine suite 266 pass.</td></tr>
+      <tr><td class="mono">Live database, 30 October 2026</td><td><span class="srole ">Measured</span></td><td>11 stored evaluations (10 SPECULATIVE, 1 synthetic test project TECHNICALLY PLAUSIBLE); 92 open requests, 56 assigned, none with a due date; no reviewer appointed; platform suite 1307 pass, engine suite 275 pass.</td></tr>
     </tbody></table></div>
 </section>
 
@@ -425,7 +425,7 @@ if __name__ == "__main__":
         i = args.index("--fragment")
         frag = Path(args[i + 1])
         del args[i:i + 2]
-    out = Path(args[0]) if args else HERE.parent.parent / "docs" / "The_Twelve_Bankability_Gates.html"
+    out = Path(args[0]) if args else HERE.parent.parent / "docs" / f"The_Twelve_Bankability_Gates_v{E.EVIDENCE_RULES_VERSION.replace('.', ' ')}.html"
     body, stats = build()
     out.write_text(page(body))
     print(f"wrote {out} ({out.stat().st_size // 1024} KB) {stats}")
