@@ -64,8 +64,8 @@ export function TraderDashboardPage() {
       Icon: LineChart,
     },
     {
-      title: "Close contract",
-      detail: "Both parties accept the match; either writes the contract from its terms",
+      title: "Confirm the contract",
+      detail: "Both parties accept the match and its contract is made at once; each party then confirms it with two people",
       cta: "Your matches",
       route: "/matching",
       Icon: FileCheck2,
@@ -109,12 +109,22 @@ export function TraderDashboardPage() {
     }
   };
 
+  // Since 2026-11-06 the contract is made the moment both parties accept (one contract
+  // record); an agreed match without one would be a fault, shown as such.
   const contracted = new Set(contracts.map((c) => c.match_id));
   const myAcceptance = (m: MarketMatch) =>
     m.side === "seller" ? m.seller_accepted_by : m.buyer_accepted_by;
   const toAccept = matches.filter((m) => m.status === "pending" && !myAcceptance(m));
   const awaitingThem = matches.filter((m) => m.status === "pending" && myAcceptance(m));
   const toContract = matches.filter((m) => m.status === "accepted" && !contracted.has(m.id));
+  const toConfirm = contracts.filter((c) => c.status === "pending_confirmation");
+
+  // TRADE_CONFIRM: a colleague's pending confirmation is approved by a second person.
+  const approveColleague = async (c: MarketContract) => {
+    const pending = (await marketAPI.confirmations(c.id)).confirmations.find((r) => r.status === "PENDING");
+    if (!pending) throw new Error("No confirmation from a colleague is waiting on this contract.");
+    return marketAPI.approveConfirmation(c.id, pending.id);
+  };
   const openRfqs = rfqs.filter((r) => r.status === "open");
 
   const kpis = [
@@ -122,8 +132,8 @@ export function TraderDashboardPage() {
       sub: `${awaitingThem.length} awaiting the counterparty`, icon: Zap },
     { label: "Open RFQs", value: String(openRfqs.length),
       sub: `${rfqs.filter((r) => r.status === "draft").length} in draft`, icon: FileText },
-    { label: "Agreed, no contract", value: String(toContract.length),
-      sub: "both parties accepted", icon: AlertTriangle },
+    { label: "Contracts to confirm", value: String(toConfirm.length),
+      sub: "two people of each party confirm", icon: AlertTriangle },
     { label: "Contracts", value: String(contracts.length),
       sub: `${contracts.filter((c) => c.status === "active").length} active`, icon: Package },
   ];
@@ -288,18 +298,47 @@ export function TraderDashboardPage() {
                         </button>
                       </>
                     ) : (
-                      <button
-                        onClick={() => {
-                          const delivery = window.prompt("Delivery terms (e.g. FOB Rotterdam, monthly)");
-                          if (!delivery) return;
-                          const payment = window.prompt("Payment terms (e.g. 30 days from invoice)");
-                          if (!payment) return;
-                          act(() => marketAPI.createContract(m.id, delivery, payment));
-                        }}
-                        className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">
-                        Write contract
-                      </button>
+                      <span role="alert" className="text-xs font-semibold text-red-700">
+                        Agreed, but no contract record — report this to GEX
+                      </span>
                     )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="gex-card rounded-xl p-6">
+          <h2 className="mb-1 text-base font-bold text-[var(--text-primary)]">Contracts to confirm</h2>
+          <p className="mb-4 text-xs text-[var(--text-secondary)]">
+            A contract is a draft until each party confirms it: one person confirms, a colleague
+            approves, and one of the two is an executive. GEX never confirms.
+          </p>
+          {toConfirm.length === 0 ? (
+            <p className="text-sm text-[var(--text-secondary)]">No contract waiting for confirmation.</p>
+          ) : (
+            <div className="space-y-3">
+              {toConfirm.map((c) => (
+                <div key={c.id}
+                     className="flex items-center justify-between gap-3 rounded-lg bg-[var(--surface-muted)] p-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">
+                      {c.contract_id_external ?? c.id} · {c.molecule} · {c.volume_mtpd} MTPD · €{c.price_eur_kg}/kg
+                    </div>
+                    <div className="text-xs text-[var(--text-secondary)]">
+                      {c.delivery_terms ?? "no delivery terms"} · {c.payment_terms ?? "no payment terms"}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button onClick={() => act(() => marketAPI.requestConfirmation(c.id))}
+                            className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">
+                      Confirm for my company
+                    </button>
+                    <button onClick={() => act(() => approveColleague(c))}
+                            className="rounded-lg border px-3 py-1.5 text-xs font-semibold">
+                      Approve colleague's confirmation
+                    </button>
                   </div>
                 </div>
               ))}

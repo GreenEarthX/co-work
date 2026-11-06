@@ -31,8 +31,8 @@ def _terms(cur, terms_id, owner, payer=None, receiver=None, frozen=False):
                     "quantity, unit, unit_price) VALUES (%s, 1, %s, '2027-01-01', '2027-01-31', "
                     "'2027-02-28', 1000, 't', %s)", (leg, flow, 900 if flow == "fixed_cash" else None))
     if frozen:
-        cur.execute("UPDATE tb_terms SET frozen_at = now(), terms_hash = repeat('a', 64) WHERE id = %s",
-                    (terms_id,))
+        cur.execute("UPDATE tb_terms SET frozen_at = now(), terms_hash = repeat('a', 64), "
+                    "shared_hash = repeat('a', 64) WHERE id = %s", (terms_id,))   # 083: both hashes
 
 
 @pytest.fixture
@@ -52,8 +52,8 @@ def cur(pg_store):
     c.execute("INSERT INTO tb_order (id, owner_id, side, terms_id, valid_until, status) "
               "VALUES (%s, %s, 'sell', %s, now() + interval '30 days', 'open')", (ORDER, CP_S, ORDER_TERMS))
     _terms(c, CONTRACT_TERMS, SELLER, payer=CP_S, receiver=CP_B, frozen=True)
-    c.execute("INSERT INTO tb_contract (id, contract_ref, trade_status, contract_type, created_at, updated_at) "
-              "VALUES (%s, 'GEX-TB-TEST-000001', 'pending_confirmation', 'terms', now(), now())", (CONTRACT,))
+    c.execute("INSERT INTO tb_contract (id, contract_ref, trade_status, contract_type, kind, created_at, updated_at) "
+              "VALUES (%s, 'GEX-TB-TEST-000001', 'pending_confirmation', 'terms', 'trade', now(), now())", (CONTRACT,))
     c.execute("INSERT INTO tb_contract_version (contract_id, version, terms_id, terms_hash, reason) "
               "VALUES (%s, 1, %s, repeat('a', 64), 'executed')", (CONTRACT, CONTRACT_TERMS))
     try:
@@ -169,9 +169,9 @@ def test_the_token_is_never_replaced_or_shared(cur):
     cur.execute("UPDATE tb_contract SET token_ref = 'tok:TEST-1' WHERE id = %s", (CONTRACT,))
     _refused(cur, "UPDATE tb_contract SET token_ref = 'tok:TEST-2' WHERE id = %s", (CONTRACT,), "TOKEN_FIXED")
     _refused(cur, "UPDATE tb_contract SET token_ref = NULL WHERE id = %s", (CONTRACT,), "TOKEN_FIXED")
-    _refused(cur, "INSERT INTO tb_contract (id, contract_ref, trade_status, contract_type, token_ref, created_at, "
-                  "updated_at) VALUES (gen_random_uuid(), 'GEX-TB-TEST-000002', 'confirmed', 'terms', "
-                  "'tok:TEST-1', now(), now())", match="unique|duplicate")
+    _refused(cur, "INSERT INTO tb_contract (id, contract_ref, trade_status, contract_type, kind, token_ref, "
+                  "created_at, updated_at) VALUES (gen_random_uuid(), 'GEX-TB-TEST-000002', 'confirmed', 'terms', "
+                  "'trade', 'tok:TEST-1', now(), now())", match="unique|duplicate")
     cur.execute("UPDATE tb_contract_version SET token_event_ref = 'tok-op:mint' WHERE contract_id = %s", (CONTRACT,))
     _refused(cur, "UPDATE tb_contract_version SET token_event_ref = 'tok-op:other' WHERE contract_id = %s",
              (CONTRACT,), "TOKEN_FIXED")

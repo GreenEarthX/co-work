@@ -781,6 +781,10 @@ app.include_router(reviewer_appointments_router, prefix="/api/v1/projects", tags
 from app.api.v1.routes_market import router as market_router
 app.include_router(market_router, prefix="/api/v1/market", tags=["Market"])
 
+# The order book on the one contract model — orders, RFQs, quotes, contract records (Phase 1, 2026-11-06)
+from app.api.v1.routes_order_book import router as order_book_router
+app.include_router(order_book_router, prefix="/api/v1/trading-book", tags=["Order book"])
+
 # ── Bankability Cockpit v2.0 ──
 if HAS_WORKFLOW:
     app.include_router(routes_workflow.router, prefix="/api/v1/workflow", tags=["Bankability — Workflow State Management"])

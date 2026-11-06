@@ -73,6 +73,16 @@ def _company_of(user_id: str) -> Optional[str]:
     return rows[0]["company_id"] if rows else None
 
 
+def _not_trade_confirm(action_type: Optional[str]) -> None:
+    """A contract confirmation is raised and decided on its contract
+    (/api/v1/trading-book/contracts/{id}/confirm), which authorises the party and
+    records the CONFIRMED event. Here it would do neither."""
+    if (action_type or "").upper() == "TRADE_CONFIRM":
+        raise HTTPException(status_code=409, detail={
+            "code": "TRADE_CONFIRM_ON_THE_CONTRACT",
+            "message": "A contract is confirmed on the contract itself, not through the generic approvals."})
+
+
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
 @router.get("/health")
@@ -87,6 +97,7 @@ def evaluate(body: EvaluateRequest, request: Request):
     Returns IMMEDIATE or PENDING_APPROVAL + request_id.
     """
     user_id, tenant, _ = _caller(request)
+    _not_trade_confirm(body.action_type)
     try:
         decision = evaluate_authorization(
             initiator_user_id=user_id,
@@ -154,6 +165,7 @@ def decide(request_id: str, body: DecideRequest, request: Request):
     req = get_request(request_id, company_id=tenant)
     if not req:
         raise HTTPException(status_code=404, detail="Approval request not found")
+    _not_trade_confirm(req.get("action_type"))
     # A countersignature is the initiator's own company's (GEX staff excepted):
     # a lender seeing the project does not approve the producer's spending.
     if not payload.get("is_platform_admin") and _company_of(approver) != _company_of(req["initiator_user_id"]):

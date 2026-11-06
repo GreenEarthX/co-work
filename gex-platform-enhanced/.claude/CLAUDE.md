@@ -147,6 +147,17 @@ reach the engine). PF engine rules **4.2.0** (UNRESOLVED). Gate figures come fro
 the 076–078 tables start empty; 077 records the pre-rule premises itself. Handoff §8 item 52.
 Tests: **1202 pass, 15 skip, 0 fail**, both exported, run alone (never beside another pytest: they
 share `gex_test_suite`).
+**2026-11-06: head is 084 — one contract record, Phase 1** (handoff §8 item 56; `docs/CONTRACT_RECORD_PHASE0.md`).
+- **Agreed matches:** an agreed market match now creates its contract in 065/083
+  (`trading_book/record.py`, the one writer) in the same transaction. `contracts` (063) is no
+  longer written.
+- **Order book:** `/api/v1/trading-book/{orders,rfqs,records}`. TRADE_CONFIRM is four eyes
+  inside each party (`core/wae.py`).
+- **Do NOT redefine `app_company_can_see_capacity`:** despite its name it is the generic "may
+  see this PROJECT" helper used by eight policies (063–069). Capacities resolve through
+  `app_company_sees_capacity` / `app_company_owns_capacity` (084).
+- **Parity check:** `backend/scripts/engine_parity_snapshot.py --out after.json --compare
+  before.json` is the read-only gate-engine parity check. Run both sides the same day.
 **2026-11-05: a paused Docker Desktop used to hang the sweep and the suite** (port 55432 accepts, nothing answers). `app/core/config.py` defaults `PGCONNECT_TIMEOUT=10`; the sweep has a thread watchdog (exit 4). Check `docker info` first. Platform **1307 pass / 15 skip**, engine 275.
 **2026-11-03:** tenant `mohring_energie` created (`scripts/onboard_fortaverde_client.py`; users not yet registered, no telephone numbers). The Project Profile no longer invents verification: a recorded value is SUBMITTED, a missing one UNVERIFIED, nothing is CONFIRMED there and its click-to-confirm is gone. A missing CAPEX or coordinate is null end to end, not 0. A 401/403 readout now says "No access to this project's gates", not "Gate engine unavailable". **GEX staff read-only (JML, same day):** ABAC rule **R0P**, before R0, lets `is_platform_admin` READ `GATE_EVALUATION` and `EVIDENCE` on every project — nothing else: writes, verification, export, share, financial models, contracts, data rooms and activity still meet R0 (an admin with no project role is GUEST there). `tests/test_platform_read_only.py` (25), negative-verified three ways. Platform **1259 pass / 15 skip**, frontend 233.
 **2026-11-03 (later): GEX staff console** (`/gex-console`, CISO menu, service type PLATFORM only; JML). `routes_gex_console.py` (`/api/v1/gex-console`, domain `platform`) is GET-only and `is_platform_admin`-only: admins, companies (TEST flagged), staff rights (from R0P and `REVIEWER_GATES`), per-company onboarding steps read from the records (a registered account is matched by its `pending_…` id + company name). Its actions post to the existing `/api/v1/account/{id}/…` endpoints, which enforce separation of duties. A read failure answers 503, never zeros. **Temporary password (JML exception to the onboarding rule):** `onboard_fortaverde_client.py --register --temporary-password --execute` reads one at a getpass prompt and writes `account.temporary_password_set`; Still blocked on the two telephone numbers. Platform 1267 / 15 skip (`test_gex_console_pg.py` 8, negative-verified three ways), frontend 238.

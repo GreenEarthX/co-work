@@ -173,8 +173,19 @@ def _asset(db: Session, caller: dict, asset_id: uuid.UUID) -> Asset:
     return asset
 
 
+# Since alembic 065/083 tb_contract also holds the ONE contract record
+# (contract_type = 'terms', written by trading_book/record.py). The JTI mapper has
+# no polymorphic identity for it, so these legacy routes read JTI rows only, and
+# the record is served by core/order_book (M6 drops the JTI side).
+JTI_ONLY = Contract.contract_type != "terms"
+
+
+def _jti(db: Session, contract_id) -> Optional[Contract]:
+    return db.execute(select(Contract).where(Contract.id == contract_id, JTI_ONLY)).scalars().first()
+
+
 def _contract(db: Session, caller: dict, contract_id: uuid.UUID) -> Contract:
-    contract = db.get(Contract, contract_id)
+    contract = _jti(db, contract_id)
     if contract is None or not _sees_contract(caller, db, contract):
         raise HTTPException(status_code=404, detail=f"Contract {contract_id} not found")
     return contract
@@ -256,7 +267,7 @@ def get_project_cashflows(
     for link in links:
         # Reload contract polymorphically — the selectinload above gives us
         # the parent row; we need the subtype for isinstance checks.
-        contract = db.get(Contract, link.contract_id)
+        contract = _jti(db, link.contract_id)
         if contract is None:
             continue
 
@@ -297,7 +308,7 @@ def list_project_contracts(
 
     out: list[dict] = []
     for link in links:
-        contract = db.get(Contract, link.contract_id)
+        contract = _jti(db, link.contract_id)
         if contract is None:
             continue
         out.append(
@@ -492,7 +503,7 @@ def create_index_linked_contract(body: sc.IndexLinkedContractCreate, request: Re
 @router.get("/contracts", summary="My book, and contracts behind assets I can see")
 def list_contracts(request: Request, db: Session = Depends(get_db)) -> list[dict]:
     caller = _caller(request)
-    rows = db.execute(select(Contract).order_by(Contract.trade_date.desc())).scalars().all()
+    rows = db.execute(select(Contract).where(JTI_ONLY).order_by(Contract.trade_date.desc())).scalars().all()
     return [_contract_read(c).model_dump(mode="json") for c in rows if _sees_contract(caller, db, c)]
 
 
@@ -528,7 +539,7 @@ def _link_owner_check(caller: dict, db: Session, asset_id: uuid.UUID, contract_i
     asset = _asset(db, caller, asset_id)
     if not _owns_project(caller, asset.project_id):
         _refuse(403, "NOT_YOUR_PROJECT", "Only the project owner allocates cashflows to its asset.")
-    contract = db.get(Contract, contract_id)
+    contract = _jti(db, contract_id)
     if contract is None or contract.owner_company_id != company:
         _refuse(403, "NOT_YOUR_BOOK", "Only a contract in your own book can be allocated.")
 

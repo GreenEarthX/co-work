@@ -1,5 +1,12 @@
 """
-Terms validation — spec §4, rules V01–V13. Applied on create and on freeze.
+Terms validation — spec §4, rules V01–V13, and V14 (alembic 083). Applied on
+create and on freeze.
+
+Since 083 terms have one or more sub-legs (one per buyer). V01, V02, V07 and V08
+apply to EACH sub-leg — "exactly two legs" became "exactly two legs per
+sub-leg" (Phase 0 Q1) — so a bilateral trade, one sub-leg, is checked exactly as
+before. V14 is the structure: leg seqs unique across the terms, clause types
+known, every clause and rank naming a sub-leg that exists.
 
 validate() returns the list of failed rule codes (empty = valid); the API answers
 422 with that list. Pure: the caller supplies what lives in the database (the
@@ -11,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from app.trading_book.conventions import LEG_ROLES, FlowType, LegRole, Settlement
-from app.trading_book.terms import FlowIn, TermsIn
+from app.trading_book.terms import CLAUSE_TYPES, FlowIn, TermsIn
 
 Kind = Literal["order", "contract"]
 CASH_FLOWS = {FlowType.FIXED_CASH, FlowType.FLOAT_CASH}
@@ -46,15 +53,15 @@ def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str
             failed.append(code)
 
     cash = terms.settlement != Settlement.PHYSICAL
-    roles = [leg.leg_role for leg in terms.legs]
-    by_role = {leg.leg_role: leg for leg in terms.legs}
+    sub_legs = {n: [leg for leg in terms.legs if leg.sub_leg == n] for n in terms.sub_leg_numbers()}
 
-    # V01 exactly two legs
-    if len(terms.legs) != 2:
+    # V01 exactly two legs per sub-leg (and at least one sub-leg)
+    if not sub_legs or any(len(legs) != 2 for legs in sub_legs.values()):
         fail("V01")
-    # V02 the two roles the settlement calls for
-    if sorted(roles) != sorted(LEG_ROLES[terms.settlement]):
-        fail("V02")
+    # V02 the two roles the settlement calls for, in each sub-leg
+    for legs in sub_legs.values():
+        if sorted(leg.leg_role for leg in legs) != sorted(LEG_ROLES[terms.settlement]):
+            fail("V02")
     # V03 physical: product leg only physical flows; payment leg only cash flows
     if not cash:
         for leg, flow in _flows(terms):
@@ -81,12 +88,14 @@ def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str
             fail("V06")
         if kind == "order" and named:
             fail("V06")
-    # V07 / V08 the two legs run in opposite directions
+    # V07 / V08 the two legs of each sub-leg run in opposite directions
     if kind == "contract":
         pair = (LegRole.PRODUCT, LegRole.PAYMENT) if not cash else (LegRole.FIXED, LegRole.FLOATING)
-        a, b = by_role.get(pair[0]), by_role.get(pair[1])
-        if a and b and not (a.payer == b.receiver and a.receiver == b.payer):
-            fail("V08" if cash else "V07")
+        for legs in sub_legs.values():
+            by_role = {leg.leg_role: leg for leg in legs}
+            a, b = by_role.get(pair[0]), by_role.get(pair[1])
+            if a and b and not (a.payer == b.receiver and a.receiver == b.payer):
+                fail("V08" if cash else "V07")
     # V09 one currency for all cash flows
     for _, flow in _flows(terms):
         if flow.flow_type in CASH_FLOWS and flow.currency and flow.currency.upper() != terms.currency.upper():
@@ -117,6 +126,16 @@ def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str
         for pair in ctx.restricted_pairs:
             if pair <= parties:
                 fail("V13")
+    # V14 structure: unique leg seqs, known clauses, references to existing sub-legs
+    if len({leg.seq for leg in terms.legs}) != len(terms.legs):
+        fail("V14")
+    if len({c.seq for c in terms.clauses}) != len(terms.clauses):
+        fail("V14")
+    for clause in terms.clauses:
+        if clause.clause_type not in CLAUSE_TYPES or (clause.sub_leg is not None and clause.sub_leg not in sub_legs):
+            fail("V14")
+    if any(s.seq not in sub_legs for s in terms.sub_legs) or len({s.seq for s in terms.sub_legs}) != len(terms.sub_legs):
+        fail("V14")
     return failed
 
 

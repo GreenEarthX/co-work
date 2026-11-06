@@ -2948,6 +2948,98 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       backend's JWKS currently publishes no keys (it signs HS256 only), so the JWKS URL is for
       when RS256 arrives. Both containers stopped again.
 
+56. **6 Nov 2026 — One contract record, Phase 1 (M2, M3; JML's prompt of 5 Nov).** Phase 0 report
+    and JML's 13 decisions: `docs/CONTRACT_RECORD_PHASE0.md`. JML chose scope **B** for Phase 1:
+    the order/RFQ API is built on 065, and the market's existing agreed match writes the draft
+    contract there. `offers`/`rfqs`/`matches` and the screens move in Phase 3. Backup
+    `gex_platform_2026-11-06_1355.dump` (verified) before either migration. Both migrations are
+    round-tripped. **Head 084, 159 tables, 152 FORCED.**
+
+    - **083:**
+      - `tb_sub_leg`: one per buyer, with its own hash. V01 becomes "two legs per sub-leg".
+      - `tb_clause`: shared or per sub-leg, frozen with the terms.
+      - `tb_contract_event`: one hash-chained, append-only event log per contract. A trigger makes
+        it append-only for every role, the owner included. Scheme `2` puts `at` inside the hash.
+      - `tb_terms.profile`, `shared_hash`.
+      - `tb_contract`: `kind`, `project_id`, `origin_ref`, `correlation_id`, plus
+        `tb_contract_ref_seq`.
+      - `matches.delivery_terms` / `payment_terms`.
+      - The `TRADE_CONFIRM` approval policy.
+    - **The hashes** (`trading_book/canonical.py`): shared hash, one hash per sub-leg, and
+      `terms_hash` = their Merkle root, with proof and verify functions. A flow's own currency is
+      not hashed: V09 makes it equal the terms' currency, and `tb_flow` does not store it.
+    - **084:** `capacities.project_id` (NOT NULL, FK) and `capacities.correlation_id`. The column
+      had never existed in PostgreSQL, so `POST /capacities` could not have succeeded even before
+      RLS. The four market policies are split into read and write, with WITH CHECK, using two new
+      SECURITY DEFINER functions, `app_company_sees_capacity` and `app_company_owns_capacity`.
+      **`app_company_can_see_capacity` is untouched and must stay so.** Despite its name it is the
+      generic "company may see this PROJECT" helper, which 063, 064, 066, 068 and 069 call with a
+      project id. **My first draft of 084 redefined it, and that broke eight tables' tenant reads
+      on the dev database** (project_profile, project_dataset, tb_asset, contracts, …). The backend
+      was not running, so nothing was served in that state. It was caught by
+      `test_marketplace_records_pg`, the 036 body was restored by hand, and 084 was re-run.
+      `test_order_book_pg::test_the_generic_project_visibility_helper_still_takes_a_project_id`
+      pins it (negative-verified).
+    - **The writer** (`trading_book/record.py`) is the one writer of contracts. It writes the
+      terms, the contract, version 1 and the genesis event on the CALLER's connection, so the
+      agreement and its contract commit together or not at all. `token_ref` holds the genesis
+      event hash, and each version's `token_event_ref` holds the hash of the event that carried
+      it (Phase 0 §4). `market_view` serves the 063 shape the screens read until Phase 3.
+    - **Market engine:**
+      - The delivery and payment terms ride on the proposal (Q6).
+      - When both sides accept, `_contract_from_match` creates the draft (v1,
+        pending_confirmation, UNVERIFIED, kind `trade`, one flow per delivery month, €/kg × 1000
+        per t, payment on the delivered quantity) in the same transaction.
+      - **`contracts` (063) is no longer read or written by the engine or by
+        `contracts_sqlite`.** `POST /market/contracts` is a compatibility no-op that returns the
+        contract and refuses different terms (`TERMS_AGREED_AT_ACCEPTANCE`).
+      - Settlement needs a `confirmed` contract.
+      - Every `seller_company(capacity_id)` now reads `capacities.project_id`.
+    - **Order book** (`core/order_book.py`, routes `/api/v1/trading-book/{terms/validate, orders,
+      rfqs, records}`):
+      - Acceptance is one `SELECT … FOR UPDATE` transaction. The acceptor's side is recorded as a
+        private mirror order, so the fill names both commitments.
+      - A quote is an invited firm order and counts as the quoting party's acceptance.
+      - The record is served at `/records/{id}`, not `/contracts/{id}`, because that path still
+        serves the JTI book. GEX reads state, chain and hashes, never terms (Q5).
+    - **TRADE_CONFIRM** (`core/wae.py`): four eyes inside each party. `record_decision` now
+      refuses an approver from another company, an approver who is not ACTIVE, GEX, and a pair
+      with no EXECUTIVE between them. The generic `/approvals` route refuses to raise or decide one
+      (`TRADE_CONFIRM_ON_THE_CONTRACT`). Once every party has confirmed, the contract is
+      `confirmed`. A confirmed `trade` contract **never reaches the gate engine**.
+    - **M2** (`trading_book/migrate/jti_to_terms.py`, `--dry-run` / `--execute`, idempotent,
+      stops and reports): mirrors the old cashflow engine (calendar months, flat quantity, monthly
+      index average). Nothing to convert today. **JTI `COMMITTED` maps to `confirmed`**, with a
+      note on the chain that it was never confirmed through TRADE_CONFIRM. That needs JML's word
+      before a real JTI row exists.
+    - The legacy JTI routes read only `contract_type <> 'terms'` rows (no polymorphic identity).
+    - **Frontend:**
+      - Market Discovery sends the delivery and payment terms with the proposal.
+      - The trading dashboard dropped "Write contract" and gained "Contracts to confirm" (confirm,
+        then a colleague approves).
+      - `api.ts` has the matching calls.
+      - No screen creates capacities, so 084 needed no frontend change.
+
+    **Parity:** `scripts/engine_parity_snapshot.py` (read only) diffs the whole engine answer
+    minus its timestamps. It is identical for all 16 projects before and after, the comprehension
+    fixture's `--verify` still matches Appendix B, and dev row counts are unchanged (`tb_contract`
+    0, `contracts` 0, `project_contract_event` 4).
+
+    **Tests:**
+    - New: `test_contract_record.py` (16, pure) and `test_order_book_pg.py` (16).
+    - `test_market_chain.py`: 13 → 13, rewritten for the new flow (contract at agreement,
+      compatibility create, four-eye confirm on each side, settlement after).
+    - `test_trading_terms_pg` fixture: both hashes and `kind`.
+    - Frontend: +1 in `MarketScreens.test.tsx`, `TraderConfirm.test.tsx` (1).
+    - 17 backend and 2 frontend deliberate breaks, all caught.
+    - Platform **1340 pass / 15 skip / 0 fail** (1307 + 33; the same 15 skips, read with `-rs`).
+      Frontend **252** pass, run on this Mac. Engine 275.
+    - `test_governance_slice` / `test_tenant_context_default`: 9 approval policies. TRADE_CONFIRM
+      is the one PostgreSQL-only policy, so the SQLite-parity check pins that single exception.
+
+    **Found, not fixed:** `TraderDashboardPage` crashes when the user sees no project
+    (`project.bankability` of undefined).
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
@@ -3061,6 +3153,12 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 ---
 
 ## 10. Current task
+
+**2026-11-06: One contract record — Phase 1 done, Phase 2 waits for JML's go-ahead** (§8 item 56;
+plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head 084. Platform 1340 pass / 15 skip / 0 fail (1307 + 33),
+frontend 252, engine 275. Not yet synced to `co-work`. Next: Phase 2, which folds the 078
+contract tokens (4 TEST events) into the record behind `v_engine_contract_terms`, with the
+parity test.
 
 **2026-11-04:** nothing in flight. Done today (§8 items 53–55): the PF engine keeps nothing in
 SQLite (migration **082**, role `gex_engine`, fuels from the platform API; head 082, platform

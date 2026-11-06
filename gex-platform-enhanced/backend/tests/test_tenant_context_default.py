@@ -45,7 +45,7 @@ TENANT_SCOPED = ["projects", "finance_entitlements", "platform_events"]
 # sentinel must NOT break them. A "fail closed" change that also blackholes the
 # fuel catalogue would be traded for a different outage.
 PUBLIC = {"fuel_catalog": 10, "fuel_unit_conversions": 120,
-          "approval_policies": 8, "sod_conflict_pairs": 8}
+          "approval_policies": 9, "sod_conflict_pairs": 8}     # 9th: TRADE_CONFIRM (alembic 083)
 
 
 def _as_role_and_company(company: str, table: str) -> int:

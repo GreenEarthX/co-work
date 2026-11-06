@@ -9,7 +9,8 @@ cancelled through its status, never deleted.
 
 Before 2026-10-23 this module opened the SQLite file directly and its `contracts`
 table existed in neither store, so every call failed (gap register G-01; the
-table is alembic 063).
+table is alembic 063). Since Phase 1 of "One contract record" (2026-11-06) it
+reads and changes the one contract record (065/083); `contracts` is not touched.
 """
 from typing import Optional
 
@@ -43,17 +44,15 @@ def _shape(row: dict) -> dict:
         "seller_company_id", "buyer_company_id", "delivery_terms", "payment_terms")}
 
 
-def _visible(conn, party: me.Party, where: str = "1=1", params: tuple = ()) -> list[dict]:
-    sql = ("SELECT c.*, p.project_name FROM contracts c LEFT JOIN capacities p ON c.project_id = p.id "
-           f"WHERE {where}")
-    if not party.is_admin:
-        sql += " AND (c.seller_company_id = ? OR c.buyer_company_id = ?)"
-        params = (*params, party.company_id, party.company_id)
-    return me._rows(conn, sql + " ORDER BY c.created_at DESC", params)
+def _visible(conn, party: me.Party) -> list[dict]:
+    """The caller's contracts (GEX: all), from the one contract record."""
+    from app.trading_book import record
+
+    return record.market_views_for(conn, None if party.is_admin else party.company_id)
 
 
 def _one(conn, party: me.Party, contract_id: str) -> dict:
-    rows = _visible(conn, party, "c.id = ?", (contract_id,))
+    rows = [r for r in _visible(conn, party) if r["id"] == contract_id]
     if not rows:
         raise HTTPException(404, "Contract not found")
     return rows[0]
@@ -73,16 +72,11 @@ async def create_contract(contract: ContractCreate, request: Request):
 @router.get("/", response_model=dict)
 async def list_contracts(request: Request, molecule: Optional[str] = None, status: Optional[str] = None):
     party = _party(request)
-    where, params = "1=1", []
-    if molecule:
-        where += " AND c.molecule = ?"
-        params.append(molecule)
-    if status:
-        where += " AND c.status = ?"
-        params.append(status)
     conn = me._conn()
     try:
-        return {"contracts": [_shape(r) for r in _visible(conn, party, where, tuple(params))]}
+        rows = [r for r in _visible(conn, party) if (not molecule or r["molecule"] == molecule)
+                and (not status or r["status"] == status)]
+        return {"contracts": [_shape(r) for r in rows]}
     finally:
         conn.close()
 
@@ -93,10 +87,12 @@ async def get_accepted_matches(request: Request):
     party = _party(request)
     conn = me._conn()
     try:
-        rows = me._rows(conn, "SELECT m.*, p.project_name FROM matches m LEFT JOIN capacities p "
-                              "ON p.id = m.project_id WHERE m.status = 'accepted' AND "
+        # Since Phase 1 an agreed match has its contract from the moment of agreement,
+        # so this lists only an agreement whose record is missing (should be none).
+        rows = me._rows(conn, "SELECT m.*, p.project_name FROM matches m LEFT JOIN projects p "
+                              "ON p.project_id = m.project_id WHERE m.status = 'accepted' AND "
                               "(m.seller_company_id = ? OR m.buyer_company_id = ?) AND NOT EXISTS "
-                              "(SELECT 1 FROM contracts c WHERE c.match_id = m.id) "
+                              "(SELECT 1 FROM tb_contract c WHERE c.origin_ref = 'match:' || m.id) "
                               "ORDER BY m.created_at DESC", (party.company_id, party.company_id))
     finally:
         conn.close()
@@ -117,46 +113,30 @@ async def get_contract(contract_id: str, request: Request):
 @router.patch("/{contract_id}/status", status_code=200)
 async def update_contract_status(contract_id: str, new_status: str, request: Request,
                                  notes: Optional[str] = None):
-    """A party moves its contract through the contract state machine; GEX does not."""
-    from app.core.state_machine import PreconditionError, TransitionError, transition_state
+    """A party moves its contract along the record's lifecycle; GEX does not.
+    `confirmed` is reached only by every party's TRADE_CONFIRM."""
+    from app.core import order_book
 
     party = _party(request)
-    if party.is_admin:
-        raise HTTPException(403, {"code": "GEX_DOES_NOT_TRADE",
-                                  "message": "GEX operates the market and changes no contract."})
-    conn = me._conn()
     try:
-        row = _one(conn, party, contract_id)
-        current = row["status"] or "draft"
-        try:
-            event_id = transition_state(aggregate_type="contract", aggregate_id=contract_id,
-                                        from_state=current, to_state=new_status,
-                                        data={"notes": notes, "changed_by": party.user_id},
-                                        user_id=party.user_id, correlation_id=row["correlation_id"])
-        except TransitionError as exc:
-            raise HTTPException(400, f"Invalid transition: {exc}") from exc
-        except PreconditionError as exc:
-            raise HTTPException(422, f"Precondition failed: {exc}") from exc
-        conn.execute("UPDATE contracts SET status = ?, updated_at = ? WHERE id = ?",
-                     (new_status, me._now(), contract_id))
-        conn.commit()
-    finally:
-        conn.close()
+        out = order_book.change_status(party, contract_id, new_status, notes)
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
     return {"message": "Status updated successfully", "contract_id": contract_id,
-            "old_status": current, "new_status": new_status, "event_id": event_id}
+            "old_status": out["old_status"], "new_status": out["new_status"], "event": out["event"]}
 
 
 @router.get("/{contract_id}/transitions", status_code=200)
 async def get_valid_contract_transitions(contract_id: str, request: Request):
-    from app.core.state_machine import get_valid_next_states
+    from app.core.order_book import STATUS_TRANSITIONS
 
     conn = me._conn()
     try:
-        current = _one(conn, _party(request), contract_id)["status"] or "draft"
+        current = _one(conn, _party(request), contract_id)["status"]
     finally:
         conn.close()
     return {"contract_id": contract_id, "current_status": current,
-            "valid_transitions": get_valid_next_states("contract", current)}
+            "valid_transitions": list(STATUS_TRANSITIONS.get(current, ()))}
 
 
 @router.delete("/{contract_id}", status_code=409)

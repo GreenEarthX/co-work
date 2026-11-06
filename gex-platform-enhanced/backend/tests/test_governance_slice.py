@@ -42,9 +42,11 @@ def test_approval_rules_are_readable_by_any_tenant():
     compliance rule you cannot read is a trap, not a control.
     """
     requires_pg()
+    # 9 approval policies since alembic 083 added TRADE_CONFIRM (2026-11-06); 8 SoD pairs.
+    expected = {"approval_policies": 9, "sod_conflict_pairs": 8}
     for t in GLOBAL_RULES:
         n = _as_tenant("acme_totally_unrelated", f"SELECT count(*) FROM {t}")
-        assert n == 8, f"{t}: a tenant sees {n} rows, expected all 8"
+        assert n == expected[t], f"{t}: a tenant sees {n} rows, expected all {expected[t]}"
 
 
 def test_approval_rules_are_not_tenant_writable():
@@ -227,7 +229,14 @@ def test_both_backends_return_the_same_rules(monkeypatch):
         lite, pg = snapshot("sqlite"), snapshot("postgres")
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"backend unavailable: {exc}")
-    assert lite == pg, "backends disagree on the governance rules"
+    # The one tolerated divergence: TRADE_CONFIRM (alembic 083) confirms contracts of the one
+    # contract record, which lives in PostgreSQL only — the retired SQLite file is never
+    # written (PostgreSQL-only rule), so it lacks that policy and only that policy.
+    pg_policies, pg_pairs = pg
+    only_pg = [p for p in pg_policies if p not in lite[0]]
+    assert only_pg == [("pol-trade-confirm", "TRADE_CONFIRM", 1)], only_pg
+    assert (lite[0], lite[1]) == ([p for p in pg_policies if p not in only_pg], pg_pairs), \
+        "backends disagree on the governance rules"
 
 
 @pytest.mark.parametrize("module,fn", [

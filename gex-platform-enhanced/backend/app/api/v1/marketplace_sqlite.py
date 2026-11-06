@@ -162,7 +162,7 @@ async def create_offer(offer: OfferCreate, request: Request):
         
         # Verify token exists and get details WITH correlation_id
         cursor.execute("""
-            SELECT t.*, c.molecule, c.project_name, t.correlation_id 
+            SELECT t.*, c.molecule, c.project_name, c.project_id AS capacity_project_id, t.correlation_id
             FROM tokens t
             JOIN capacities c ON t.capacity_id = c.id
             WHERE t.id = ?
@@ -177,7 +177,7 @@ async def create_offer(offer: OfferCreate, request: Request):
         from app.core import market_engine as me
         party = _market_party(request)
         user_id = party.user_id
-        if party.is_admin or me.seller_company(token['capacity_id']) != party.company_id:
+        if party.is_admin or me.seller_company(token['capacity_project_id']) != party.company_id:
             conn.close()
             raise HTTPException(status_code=403, detail={"code": "NOT_YOUR_TOKEN",
                                 "message": "Only the company that owns the project can offer its token."})
@@ -473,9 +473,10 @@ async def delete_offer(offer_id: str, request: Request):
     party = _market_party(request)
     conn = me._conn()
     try:
-        o = me._row(conn, "SELECT o.listing_state, t.capacity_id FROM offers o JOIN tokens t "
-                          "ON t.id = o.token_id WHERE o.id = ?", (offer_id,))
-        if o is None or party.is_admin or me.seller_company(o["capacity_id"]) != party.company_id:
+        o = me._row(conn, "SELECT o.listing_state, c.project_id FROM offers o JOIN tokens t "
+                          "ON t.id = o.token_id JOIN capacities c ON c.id = t.capacity_id "
+                          "WHERE o.id = ?", (offer_id,))
+        if o is None or party.is_admin or me.seller_company(o["project_id"]) != party.company_id:
             raise HTTPException(status_code=404, detail="Offer not found")
         if (o["listing_state"] or "DRAFT") != "DRAFT":
             raise HTTPException(status_code=409, detail={"code": "LISTING_IS_A_RECORD",

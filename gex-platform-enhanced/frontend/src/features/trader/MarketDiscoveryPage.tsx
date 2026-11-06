@@ -19,6 +19,8 @@ export function MarketDiscoveryPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [myRfqs, setMyRfqs] = useState<MarketRFQ[]>([]);
+  const [deliveryTerms, setDeliveryTerms] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState('');
   const [choice, setChoice] = useState<Record<string, string>>({});
   const [commodities, setCommodities] = useState<Commodity[]>([]);
 
@@ -53,8 +55,10 @@ export function MarketDiscoveryPage() {
 
   const propose = async (offerId: string, rfqId: string) => {
     try {
-      await marketAPI.proposeMatch(offerId, rfqId);
-      setNotice('Match proposed — it binds only when both parties accept, on the RFQ Management desk.');
+      await marketAPI.proposeMatch(offerId, rfqId, {
+        delivery_terms: deliveryTerms.trim() || undefined, payment_terms: paymentTerms.trim() || undefined });
+      setNotice('Match proposed — it binds only when both parties accept, on the RFQ Management desk. '
+        + 'The contract is made from exactly these terms.');
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -92,6 +96,19 @@ export function MarketDiscoveryPage() {
             exists. Propose one of yours to a counterpart; it binds only when both of you accept.
           </p>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-xs">
+        <span className="font-semibold text-[var(--text-primary)]">Terms you propose with a match:</span>
+        <input aria-label="Delivery terms" placeholder="Delivery terms (e.g. FOB Rotterdam, monthly)"
+               value={deliveryTerms} onChange={(e) => setDeliveryTerms(e.target.value)}
+               className="min-w-[16rem] flex-1 rounded border px-2 py-1" />
+        <input aria-label="Payment terms" placeholder="Payment terms (e.g. 30 days from invoice)"
+               value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}
+               className="min-w-[16rem] flex-1 rounded border px-2 py-1" />
+        <span className="text-[var(--text-secondary)]">
+          Both parties accept these with the match; nothing is typed after.
+        </span>
       </div>
 
       <div className="flex items-center gap-2">

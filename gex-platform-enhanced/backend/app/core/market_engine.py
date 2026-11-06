@@ -134,7 +134,9 @@ def _rows(conn, sql: str, params: Iterable = ()) -> list[dict]:
 
 
 def seller_company(project_id: Optional[str]) -> Optional[str]:
-    """The company that owns the project behind a capacity (capacities.id IS a project id)."""
+    """The company that owns a project. Callers pass the CAPACITY'S project
+    (capacities.project_id, alembic 084) — before 084 they passed the capacity id
+    itself, read as a project id, and every producer-created capacity failed."""
     from app.core.project_registry import get_project_profile
 
     profile = get_project_profile(project_id) if project_id else None
@@ -187,8 +189,8 @@ def _move_token(conn, trail: _Trail, token_id: str, expected: set[str], target: 
                 why: str, extra: Optional[dict] = None) -> None:
     from app.api.v1.tokens_sqlite import TOKEN_TRANSITIONS, TokenLifecycleState
 
-    tok = _row(conn, "SELECT lifecycle_state, correlation_id, capacity_id FROM tokens WHERE id = ?",
-               (token_id,))
+    tok = _row(conn, "SELECT t.lifecycle_state, t.correlation_id, c.project_id FROM tokens t "
+                     "JOIN capacities c ON c.id = t.capacity_id WHERE t.id = ?", (token_id,))
     if tok is None:
         _refuse(404, "TOKEN_NOT_FOUND", f"Token {token_id} does not exist.")
     current = tok["lifecycle_state"] or "MINTED"
@@ -203,7 +205,7 @@ def _move_token(conn, trail: _Trail, token_id: str, expected: set[str], target: 
     conn.execute(f"UPDATE tokens SET {', '.join(sets)} WHERE id = ?", (*params, token_id))
     trail.add("token.state_changed", "token", token_id,
               {"from": current, "to": target, "reason": why, **(extra or {})},
-              tok["correlation_id"], tok["capacity_id"])
+              tok["correlation_id"], tok["project_id"])
 
 
 # ── listings (anonymised) ───────────────────────────────────────────────────
@@ -325,8 +327,9 @@ def project_economics(party: Party) -> dict:
 def offer_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
     conn = _conn()
     try:
-        sql = ("SELECT o.*, t.capacity_id, t.carbon_intensity_gco2e_mj, t.certification_pathway "
-               "FROM offers o JOIN tokens t ON t.id = o.token_id WHERE o.listing_state = 'OPEN'")
+        sql = ("SELECT o.*, t.capacity_id, c.project_id AS capacity_project_id, t.carbon_intensity_gco2e_mj, "
+               "t.certification_pathway FROM offers o JOIN tokens t ON t.id = o.token_id "
+               "JOIN capacities c ON c.id = t.capacity_id WHERE o.listing_state = 'OPEN'")
         params: list = []
         if molecule:
             sql += " AND o.molecule = ?"
@@ -336,9 +339,9 @@ def offer_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
             item = {k: r.get(k) for k in OFFER_LISTING_FIELDS}
             item["carbon_intensity_gco2e_mj"] = r.get("carbon_intensity_gco2e_mj")
             item["certification_pathway"] = r.get("certification_pathway")
-            item["mine"] = bool(party.company_id) and seller_company(r["capacity_id"]) == party.company_id
+            item["mine"] = bool(party.company_id) and seller_company(r["capacity_project_id"]) == party.company_id
             if item["mine"]:
-                item["project_id"] = r["capacity_id"]      # the seller's own; never anyone else's
+                item["project_id"] = r["capacity_project_id"]      # the seller's own; never anyone else's
             out.append(item)
         return out
     finally:
@@ -433,9 +436,11 @@ def my_rfqs(party: Party) -> list[dict]:
 # ── offer listings and the token they reserve ───────────────────────────────
 
 def _offer_with_token(conn, offer_id: str) -> dict:
-    o = _row(conn, "SELECT o.*, t.capacity_id, t.lifecycle_state AS token_state, "
-                   "t.correlation_id AS token_correlation_id "
-                   "FROM offers o JOIN tokens t ON t.id = o.token_id WHERE o.id = ?", (offer_id,))
+    o = _row(conn, "SELECT o.*, t.capacity_id, c.project_id AS capacity_project_id, "
+                   "t.lifecycle_state AS token_state, t.correlation_id AS token_correlation_id, "
+                   "t.certification_pathway, t.carbon_intensity_gco2e_mj "
+                   "FROM offers o JOIN tokens t ON t.id = o.token_id JOIN capacities c ON c.id = t.capacity_id "
+                   "WHERE o.id = ?", (offer_id,))
     if o is None:
         _refuse(404, "OFFER_NOT_FOUND", "No offer with that id.")
     return o
@@ -447,7 +452,7 @@ def open_offer(party: Party, offer_id: str) -> dict:
     conn, trail = _conn(), _Trail(party)
     try:
         o = _offer_with_token(conn, offer_id)
-        if seller_company(o["capacity_id"]) != party.company_id:
+        if seller_company(o["capacity_project_id"]) != party.company_id:
             _refuse(403, "NOT_YOUR_OFFER", "Only the company that owns the project can list its offer.")
         if (o.get("listing_state") or "DRAFT") != "DRAFT":
             _refuse(409, "LISTING_STATE", f"The listing is {o.get('listing_state')}, not DRAFT.")
@@ -461,7 +466,7 @@ def open_offer(party: Party, offer_id: str) -> dict:
                      (offer_id,))
         _move_token(conn, trail, o["token_id"], {"MINTED"}, "RESERVED", f"listed as offer {offer_id}")
         trail.add("offer.opened", "offer", offer_id, {"token_id": o["token_id"]},
-                  o["token_correlation_id"], o["capacity_id"])
+                  o["token_correlation_id"], o["capacity_project_id"])
         _commit(conn, trail)
         return _row(conn, "SELECT * FROM offers WHERE id = ?", (offer_id,))
     finally:
@@ -474,7 +479,7 @@ def withdraw_offer(party: Party, offer_id: str) -> dict:
     conn, trail = _conn(), _Trail(party)
     try:
         o = _offer_with_token(conn, offer_id)
-        if seller_company(o["capacity_id"]) != party.company_id:
+        if seller_company(o["capacity_project_id"]) != party.company_id:
             _refuse(403, "NOT_YOUR_OFFER", "Only the company that owns the project can withdraw its offer.")
         state = o.get("listing_state") or "DRAFT"
         if state not in ("DRAFT", "OPEN"):
@@ -487,7 +492,7 @@ def withdraw_offer(party: Party, offer_id: str) -> dict:
             _move_token(conn, trail, o["token_id"], {"RESERVED"}, "MINTED",
                         f"listing {offer_id} withdrawn")
         trail.add("offer.withdrawn", "offer", offer_id, {"from": state},
-                  o["token_correlation_id"], o["capacity_id"])
+                  o["token_correlation_id"], o["capacity_project_id"])
         _commit(conn, trail)
         return _row(conn, "SELECT * FROM offers WHERE id = ?", (offer_id,))
     finally:
@@ -513,22 +518,24 @@ def _score(offer: dict, rfq: dict) -> int:
     return calculate_match_score(offer, rfq)
 
 
-def _insert_match(conn, trail: _Trail, party: Party, o: dict, rfq: dict, score: int) -> dict:
+def _insert_match(conn, trail: _Trail, party: Party, o: dict, rfq: dict, score: int,
+                  delivery_terms: Optional[str] = None, payment_terms: Optional[str] = None) -> dict:
     match_id = str(uuid.uuid4())
-    seller = seller_company(o["capacity_id"])
+    seller = seller_company(o["capacity_project_id"])
     conn.execute(
         "INSERT INTO matches (id, offer_id, rfq_id, match_score, volume_mtpd, price_eur_kg, status, "
         "created_at, project_id, token_id, seller_company_id, buyer_company_id, molecule, "
-        "delivery_start, delivery_end, correlation_id, created_by) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "delivery_start, delivery_end, correlation_id, created_by, delivery_terms, payment_terms) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (match_id, o["id"], rfq["id"], score, min(o["volume_mtpd"], rfq["volume_mtpd"]),
-         o["price_eur_kg"], "pending", _now(), o["capacity_id"], o["token_id"], seller,
+         o["price_eur_kg"], "pending", _now(), o["capacity_project_id"], o["token_id"], seller,
          rfq["buyer_company_id"], o["molecule"], max(o["delivery_start"], rfq["delivery_start"]),
-         min(o["delivery_end"], rfq["delivery_end"]), o["token_correlation_id"], party.user_id))
+         min(o["delivery_end"], rfq["delivery_end"]), o["token_correlation_id"], party.user_id,
+         delivery_terms, payment_terms))
     trail.add("match.created", "match", match_id,
               {"offer_id": o["id"], "rfq_id": rfq["id"], "score": score,
                "rfq_correlation_id": rfq["correlation_id"]},
-              o["token_correlation_id"], o["capacity_id"])
+              o["token_correlation_id"], o["capacity_project_id"])
     return {"id": match_id, "score": score}
 
 
@@ -537,7 +544,7 @@ def _matchable(conn, o: dict, rfq: dict, minimum: int = MIN_MATCH_SCORE) -> Opti
     if (o.get("listing_state") != "OPEN" or o.get("token_state") != "RESERVED"
             or rfq["status"] != "open" or o.get("molecule") != rfq.get("molecule")):
         return None
-    if seller_company(o["capacity_id"]) == rfq["buyer_company_id"]:
+    if seller_company(o["capacity_project_id"]) == rfq["buyer_company_id"]:
         return None                                    # no self-trade
     if _row(conn, "SELECT id FROM matches WHERE offer_id = ? AND rfq_id = ? AND status IN "
                   "('pending','accepted')", (o["id"], rfq["id"])):
@@ -546,7 +553,13 @@ def _matchable(conn, o: dict, rfq: dict, minimum: int = MIN_MATCH_SCORE) -> Opti
     return score if score >= minimum else None
 
 
-def create_match(party: Party, offer_id: str, rfq_id: str) -> dict:
+def create_match(party: Party, offer_id: str, rfq_id: str, *, delivery_terms: Optional[str] = None,
+                 payment_terms: Optional[str] = None) -> dict:
+    """Propose one listing against one RFQ. The delivery and payment terms are
+    agreed WITH the proposal (Phase 0 Q6): when both sides accept, the contract
+    is made from exactly what they accepted, and nothing is typed afterwards."""
+    from app.trading_book import record
+
     _trader(party)
     conn, trail = _conn(), _Trail(party)
     try:
@@ -554,7 +567,7 @@ def create_match(party: Party, offer_id: str, rfq_id: str) -> dict:
         rfq = _row(conn, "SELECT * FROM rfqs WHERE id = ?", (rfq_id,))
         if rfq is None:
             _refuse(404, "RFQ_NOT_FOUND", "No RFQ with that id.")
-        seller = seller_company(o["capacity_id"])
+        seller = seller_company(o["capacity_project_id"])
         if party.company_id not in (seller, rfq["buyer_company_id"]):
             _refuse(403, "NOT_A_PARTY", "You can only match your own offer or your own RFQ.")
         if seller == rfq["buyer_company_id"]:
@@ -565,7 +578,10 @@ def create_match(party: Party, offer_id: str, rfq_id: str) -> dict:
         if score is None:
             _refuse(409, "NOT_MATCHABLE", "This pair cannot be matched: the listing or RFQ is not "
                                           "open, the molecules differ, or a match already exists.")
-        made = _insert_match(conn, trail, party, o, rfq, score)
+        if record.commodity_for_molecule(conn, o["molecule"]) is None:
+            _refuse(409, "UNKNOWN_COMMODITY", f"{o['molecule']!r} is not a traded commodity (tb_commodity).")
+        made = _insert_match(conn, trail, party, o, rfq, score, (delivery_terms or "").strip() or None,
+                             (payment_terms or "").strip() or None)
         _commit(conn, trail)
         return _row(conn, "SELECT * FROM matches WHERE id = ?", (made["id"],))
     finally:
@@ -590,13 +606,14 @@ def run_matching(party: Party) -> dict:
         _trader(party)
     conn, trail = _conn(), _Trail(party)
     try:
-        offers = _rows(conn, "SELECT o.*, t.capacity_id, t.lifecycle_state AS token_state, "
-                             "t.correlation_id AS token_correlation_id FROM offers o "
-                             "JOIN tokens t ON t.id = o.token_id WHERE o.listing_state = 'OPEN'")
+        offers = _rows(conn, "SELECT o.*, t.capacity_id, c.project_id AS capacity_project_id, "
+                             "t.lifecycle_state AS token_state, t.correlation_id AS token_correlation_id "
+                             "FROM offers o JOIN tokens t ON t.id = o.token_id "
+                             "JOIN capacities c ON c.id = t.capacity_id WHERE o.listing_state = 'OPEN'")
         rfqs = _rows(conn, "SELECT * FROM rfqs WHERE status = 'open'")
         created = []
         for o in offers:
-            seller = seller_company(o["capacity_id"])
+            seller = seller_company(o["capacity_project_id"])
             for rfq in rfqs:
                 mine = party.is_admin or party.company_id in (seller, rfq["buyer_company_id"])
                 if not mine:
@@ -672,6 +689,10 @@ def accept_match(party: Party, match_id: str) -> dict:
             trail.add("match.agreed", "match", match_id, {"offer_id": m["offer_id"],
                                                           "rfq_id": m["rfq_id"]},
                       m["correlation_id"], m["project_id"])
+            made = _contract_from_match(conn, party, m, o)
+            trail.add("contract.created", "contract", made["id"],
+                      {"match_id": match_id, "token_id": m["token_id"], "contract_ref": made["contract_ref"],
+                       "terms_hash": made["terms_hash"]}, m["correlation_id"], m["project_id"])
         _commit(conn, trail)
         return _reveal(_row(conn, "SELECT * FROM matches WHERE id = ?", (match_id,)))
     finally:
@@ -697,53 +718,132 @@ def decline_match(party: Party, match_id: str) -> dict:
         conn.close()
 
 
-# ── contracts ───────────────────────────────────────────────────────────────
+# ── contracts — the one contract record (alembic 065/083, Phase 1) ──────────
+#
+# Since Phase 1 of "One contract record" (JML 2026-11-05/06) an agreed match
+# creates its contract in the record (trading_book/record.py) in the SAME
+# transaction as the agreement, and `contracts` (063) is never written again.
+# The contract is a draft — version 1, pending_confirmation, UNVERIFIED — until
+# both parties confirm it with four eyes each (TRADE_CONFIRM, core/order_book).
+# A contract is a commercial record: it never reaches the gate engine.
 
-def create_contract(party: Party, match_id: str, *, delivery_terms: str, payment_terms: str) -> dict:
-    _trader(party)
-    conn, trail = _conn(), _Trail(party)
+def _monthly(start, end):
+    """[(period_start, period_end)] month by month over the delivery window."""
+    from datetime import date as _date, timedelta
+
+    out, cur = [], start
+    while cur <= end:
+        nxt = _date(cur.year + (cur.month == 12), cur.month % 12 + 1, 1)
+        out.append((cur, min(end, nxt - timedelta(days=1))))
+        cur = nxt
+    return out
+
+
+def terms_from_match(conn, m: dict, o: dict, seller_cp: str, buyer_cp: str):
+    """The contract terms of an agreed match — exactly what was listed and
+    accepted, in the terms model: a physical product leg (seller -> buyer) and a
+    fixed-price payment leg (buyer -> seller), one flow per delivery month.
+    Volume is t/day × days; price €/kg × 1000 per tonne; payment on the delivered
+    quantity (decided 2026-10-23). Delivery and payment terms are clauses."""
+    from datetime import date as _date
+    from decimal import Decimal
+
+    from app.trading_book import record
+    from app.trading_book.terms import TermsIn
+
+    code = record.commodity_for_molecule(conn, m["molecule"])
+    if code is None:
+        _refuse(409, "UNKNOWN_COMMODITY", f"{m['molecule']!r} is not a traded commodity (tb_commodity).")
+    start, end = _date.fromisoformat(str(m["delivery_start"])[:10]), _date.fromisoformat(str(m["delivery_end"])[:10])
+    if end < start:
+        _refuse(409, "DELIVERY_WINDOW", "The agreed delivery window ends before it starts.")
+    rate = Decimal(str(m["volume_mtpd"]))
+    price = (Decimal(str(m["price_eur_kg"])) * 1000).quantize(Decimal("0.00000001"))
+    product, payment = [], []
+    for i, (a, b) in enumerate(_monthly(start, end), start=1):
+        qty = (rate * ((b - a).days + 1)).quantize(Decimal("0.000001"))
+        product.append({"seq": i, "flow_type": "physical", "period_start": a, "period_end": b, "settle_date": b,
+                        "quantity": qty, "unit": "t"})
+        payment.append({"seq": i, "flow_type": "fixed_cash", "period_start": a, "period_end": b, "settle_date": b,
+                        "quantity": qty, "unit": "t", "unit_price": price, "quantity_basis": "delivered",
+                        "quantity_source_flow": f"1.{i}"})
+    quality = {k: str(o[k]) for k in ("certification_pathway", "carbon_intensity_gco2e_mj") if o.get(k) is not None}
+    clauses = [{"seq": n, "clause_type": kind, "attrs": {"text": text}} for n, (kind, text) in enumerate(
+        [(k, t) for k, t in (("delivery", m.get("delivery_terms")), ("payment", m.get("payment_terms"))) if t],
+        start=1)]
+    return TermsIn.model_validate({
+        "settlement": "physical", "commodity": code, "quality_spec": quality, "currency": "EUR",
+        "legs": [{"seq": 1, "leg_role": "product", "payer": seller_cp, "receiver": buyer_cp, "flows": product},
+                 {"seq": 2, "leg_role": "payment", "payer": buyer_cp, "receiver": seller_cp, "flows": payment}],
+        "clauses": clauses})
+
+
+def _contract_from_match(conn, party: Party, m: dict, o: dict) -> dict:
+    from app.trading_book import record, validation
+
     try:
-        m = _row(conn, "SELECT m.*, r.buyer_name FROM matches m LEFT JOIN rfqs r ON r.id = m.rfq_id "
-                       "WHERE m.id = ?", (match_id,))
+        seller_cp = record.counterparty_for(conn, m["seller_company_id"])
+        buyer_cp = record.counterparty_for(conn, m["buyer_company_id"])
+        terms = terms_from_match(conn, m, o, seller_cp, buyer_cp)
+        pairs = {frozenset({str(r["counterparty_id"]), str(r["restricted_counterparty_id"])}) for r in _rows(
+            conn, "SELECT counterparty_id, restricted_counterparty_id FROM tb_counterparty_restriction WHERE active")}
+        failed = validation.validate(terms, "contract", validation.Context(restricted_pairs=pairs))
+        if failed:
+            _refuse(409, "TERMS_INVALID", "The agreed terms break rules " + ", ".join(failed) + ".")
+        return record.create_contract(
+            conn, terms=terms, owner_company_id=m["seller_company_id"], kind="trade", project_id=m["project_id"],
+            origin_ref=f"match:{m['id']}", correlation_id=m["correlation_id"], actor=party.user_id,
+            company_id=party.company_id, note=f"match {m['id']} accepted by both parties",
+            token_ids=[m["token_id"]] if m.get("token_id") else ())
+    except record.RecordRefused as exc:
+        _refuse(exc.status, exc.code, exc.message)
+
+
+def _contract_view(conn, party: Party, contract_id: str) -> dict:
+    from app.trading_book import record
+
+    view = record.market_view(conn, contract_id)
+    if view is None or not (party.is_admin or party.company_id in (view["seller_company_id"],
+                                                                   view["buyer_company_id"])):
+        _refuse(404, "CONTRACT_NOT_FOUND", "No contract of yours with that id.")
+    return view
+
+
+def create_contract(party: Party, match_id: str, *, delivery_terms: Optional[str] = None,
+                    payment_terms: Optional[str] = None) -> dict:
+    """COMPATIBILITY (Q6). The contract already exists from the moment both sides
+    accepted; this returns it. Terms typed now that differ from what both sides
+    accepted are refused — they would be a change, i.e. a new version."""
+    from app.trading_book import record
+
+    _trader(party)
+    conn = _conn()
+    try:
+        m = _row(conn, "SELECT * FROM matches WHERE id = ?", (match_id,))
         if m is None:
             _refuse(404, "MATCH_NOT_FOUND", "No match with that id.")
         _side(party, m)
         if m["status"] != "accepted":
             _refuse(409, "MATCH_NOT_AGREED", "A contract needs a match both parties have accepted.")
-        if _row(conn, "SELECT id FROM contracts WHERE match_id = ?", (match_id,)):
-            _refuse(409, "CONTRACT_EXISTS", "This match already has its contract.")
-        try:
-            start = datetime.strptime(m["delivery_start"][:10], "%Y-%m-%d")
-            end = datetime.strptime(m["delivery_end"][:10], "%Y-%m-%d")
-            tenor = max(0, int((end - start).days / 365.25))
-        except (TypeError, ValueError):
-            tenor = None
-        contract_id, now = str(uuid.uuid4()), _now()
-        conn.execute(
-            "INSERT INTO contracts (id, project_id, match_id, offer_id, rfq_id, token_id, "
-            "seller_company_id, buyer_company_id, contract_id_external, counterparty, molecule, "
-            "volume_mtpd, price_eur_kg, pricing_basis, delivery_terms, payment_terms, start_date, "
-            "end_date, tenor_years, status, correlation_id, created_by, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (contract_id, m["project_id"], match_id, m["offer_id"], m["rfq_id"], m["token_id"],
-             m["seller_company_id"], m["buyer_company_id"], f"CONT-{contract_id[:8].upper()}",
-             m.get("buyer_name") or m["buyer_company_id"], m["molecule"], m["volume_mtpd"],
-             m["price_eur_kg"], f"{delivery_terms} | {payment_terms}", delivery_terms, payment_terms,
-             m["delivery_start"], m["delivery_end"], tenor, "active", m["correlation_id"],
-             party.user_id, now, now))
-        trail.add("contract.created", "contract", contract_id,
-                  {"match_id": match_id, "token_id": m["token_id"]}, m["correlation_id"], m["project_id"])
-        _commit(conn, trail)
-        return _row(conn, "SELECT * FROM contracts WHERE id = ?", (contract_id,))
+        c = record.by_origin(conn, f"match:{match_id}")
+        if c is None:
+            _refuse(409, "CONTRACT_MISSING", "This agreed match has no contract record.")
+        view = _contract_view(conn, party, str(c["id"]))
+        for name, typed in (("delivery_terms", delivery_terms), ("payment_terms", payment_terms)):
+            if (typed or "").strip() and typed.strip() != (view.get(name) or ""):
+                _refuse(409, "TERMS_AGREED_AT_ACCEPTANCE",
+                        f"The {name.replace('_', ' ')} were agreed with the match; a change is a new version.")
+        return view
     finally:
         conn.close()
 
 
 def my_contracts(party: Party) -> list[dict]:
+    from app.trading_book import record
+
     conn = _conn()
     try:
-        return _rows(conn, "SELECT * FROM contracts WHERE seller_company_id = ? OR buyer_company_id = ? "
-                           "ORDER BY created_at DESC", (party.company_id, party.company_id))
+        return record.market_views_for(conn, party.company_id)
     finally:
         conn.close()
 
@@ -764,9 +864,10 @@ def create_settlement(party: Party, contract_id: str, *, settlement_type: str, v
         _refuse(422, "SETTLEMENT_TYPE", f"Unknown settlement type {settlement_type!r}.")
     conn, trail = _conn(), _Trail(party)
     try:
-        c = _row(conn, "SELECT * FROM contracts WHERE id = ?", (contract_id,))
-        if c is None or party.company_id not in (c["seller_company_id"], c["buyer_company_id"]):
-            _refuse(404, "CONTRACT_NOT_FOUND", "No contract of yours with that id.")
+        c = _contract_view(conn, party, contract_id)
+        if c["status"] not in ("confirmed", "active"):
+            _refuse(409, "CONTRACT_NOT_CONFIRMED",
+                    f"The contract is {c['status']}: both parties confirm it before anything is settled.")
         settlement_id, now = str(uuid.uuid4()), _now()
         total = round(volume_kg * (c["price_eur_kg"] or 0), 2)
         audit_hash = _hash_settlement({"settlement_id": settlement_id, "contract_id": contract_id,
@@ -840,9 +941,10 @@ def trail_for(party: Party, correlation_id: str) -> list[dict]:
                               "(seller_company_id = ? OR buyer_company_id = ?)",
                         (correlation_id, party.company_id, party.company_id))
             if not seen:
-                for t in _rows(conn, "SELECT capacity_id, holder_company_id FROM tokens "
-                                     "WHERE correlation_id = ?", (correlation_id,)):
-                    if party.company_id in (seller_company(t["capacity_id"]), t["holder_company_id"]):
+                for t in _rows(conn, "SELECT c.project_id, t.holder_company_id FROM tokens t "
+                                     "JOIN capacities c ON c.id = t.capacity_id "
+                                     "WHERE t.correlation_id = ?", (correlation_id,)):
+                    if party.company_id in (seller_company(t["project_id"]), t["holder_company_id"]):
                         seen = {"ok": 1}
                         break
             if not seen:

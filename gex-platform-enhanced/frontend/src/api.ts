@@ -305,9 +305,23 @@ export interface MarketMatch {
   created_at: string;
 }
 
+export interface ContractConfirmation {
+  id: string;
+  initiator_user_id: string;
+  status: string;            // PENDING | APPROVED | REJECTED
+  created_at: string;
+  version?: number;
+  terms_hash?: string;
+}
+
 export interface MarketContract {
   id: string;
   match_id: string;
+  contract_id_external?: string | null;  // the record's reference, GEX-TB-<year>-<n>
+  delivery_terms?: string | null;
+  payment_terms?: string | null;
+  verification_state?: string | null;
+  version?: number;
   molecule: string;
   volume_mtpd: number;
   price_eur_kg: number;
@@ -436,19 +450,27 @@ export const marketAPI = {
   withdrawOffer: (id: string) => fetchAPI(`/market/offers/${id}/withdraw`, { method: "POST" }),
   // Automated matching is suspended (JML 2026-10-23, spec decision 2B): a party
   // proposes a match to a specific listing; it binds only when both accept.
-  proposeMatch: (offer_id: string, rfq_id: string): Promise<MarketMatch> =>
-    fetchAPI("/market/matches", { method: "POST", body: JSON.stringify({ offer_id, rfq_id }) }),
+  // The delivery and payment terms are agreed WITH the proposal (2026-11-06, Phase 0 Q6):
+  // when both accept, the contract is made from exactly that, and nothing is typed after.
+  proposeMatch: (offer_id: string, rfq_id: string,
+                 terms: { delivery_terms?: string; payment_terms?: string } = {}): Promise<MarketMatch> =>
+    fetchAPI("/market/matches", { method: "POST", body: JSON.stringify({ offer_id, rfq_id, ...terms }) }),
   myMatches: (): Promise<{ matches: MarketMatch[] }> => fetchAPI("/market/matches/mine"),
   acceptMatch: (id: string): Promise<MarketMatch> =>
     fetchAPI(`/market/matches/${id}/accept`, { method: "POST" }),
   declineMatch: (id: string): Promise<MarketMatch> =>
     fetchAPI(`/market/matches/${id}/decline`, { method: "POST" }),
-  createContract: (match_id: string, delivery_terms: string, payment_terms: string): Promise<MarketContract> =>
-    fetchAPI("/market/contracts", {
-      method: "POST",
-      body: JSON.stringify({ match_id, delivery_terms, payment_terms }),
-    }),
+  // Compatibility: the contract already exists once both sides accept; this returns it.
+  createContract: (match_id: string): Promise<MarketContract> =>
+    fetchAPI("/market/contracts", { method: "POST", body: JSON.stringify({ match_id }) }),
   myContracts: (): Promise<{ contracts: MarketContract[] }> => fetchAPI("/market/contracts/mine"),
+  // TRADE_CONFIRM — four eyes inside each party: one person raises, a colleague approves.
+  requestConfirmation: (contractId: string): Promise<{ request_id: string; terms_hash: string }> =>
+    fetchAPI(`/market/contracts/${contractId}/confirm`, { method: "POST" }),
+  approveConfirmation: (contractId: string, requestId: string): Promise<{ trade_status?: string }> =>
+    fetchAPI(`/market/contracts/${contractId}/confirm/${requestId}/approve`, { method: "POST" }),
+  confirmations: (contractId: string): Promise<{ confirmations: ContractConfirmation[] }> =>
+    fetchAPI(`/market/contracts/${contractId}/confirmations`),
   trail: (correlationId: string): Promise<{ correlation_id: string; events: TrailEvent[] }> =>
     fetchAPI(`/market/trail/${encodeURIComponent(correlationId)}`),
 };

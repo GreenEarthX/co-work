@@ -14,8 +14,12 @@ Market routes — /api/v1/market. Policy and every check: core/market_engine.py.
     GET  /matches/mine               my matches, counterparty revealed
     POST /matches/{id}/accept        my side accepts; both sides -> agreed, token MATCHED
     POST /matches/{id}/decline
-    POST /contracts                  contract from an agreed match
-    GET  /contracts/mine
+    POST /contracts                  COMPATIBILITY: the agreed match's contract (it is made at agreement)
+    GET  /contracts/mine             my contracts — read from the one contract record (065/083)
+    GET  /contracts/{id}/record      versions, event chain, chain_intact; terms for a party
+    POST /contracts/{id}/confirm     TRADE_CONFIRM, first pair of eyes (my company)
+    POST /contracts/{id}/confirm/{request_id}/approve   second pair of eyes; both parties -> confirmed
+    GET  /contracts/{id}/confirmations                  my company's TRADE_CONFIRM requests
     POST /settlements                settlement for a contract (quantity only; the rest is derived)
     POST /settlements/{id}/confirm   seller confirms payment; token SETTLED, title to buyer
     GET  /trail/{correlation_id}     the event trail of one chain, for a party to it
@@ -70,12 +74,14 @@ class RFQStatusIn(BaseModel):
 class MatchIn(BaseModel):
     offer_id: str
     rfq_id: str
+    delivery_terms: Optional[str] = None     # agreed with the proposal (Phase 0 Q6)
+    payment_terms: Optional[str] = None
 
 
 class ContractIn(BaseModel):
     match_id: str
-    delivery_terms: str = Field(..., min_length=1)
-    payment_terms: str = Field(..., min_length=1)
+    delivery_terms: Optional[str] = None     # compatibility: must equal what was agreed, if given
+    payment_terms: Optional[str] = None
 
 
 class SettlementIn(BaseModel):
@@ -144,7 +150,8 @@ def run_matching(request: Request):
 
 @router.post("/matches", status_code=201)
 def create_match(body: MatchIn, request: Request):
-    return _call(me.create_match, _party(request), body.offer_id, body.rfq_id)
+    return _call(me.create_match, _party(request), body.offer_id, body.rfq_id,
+                 delivery_terms=body.delivery_terms, payment_terms=body.payment_terms)
 
 
 @router.get("/matches/mine")
@@ -171,6 +178,34 @@ def create_contract(body: ContractIn, request: Request):
 @router.get("/contracts/mine")
 def my_contracts(request: Request):
     return {"contracts": _call(me.my_contracts, _party(request))}
+
+
+@router.get("/contracts/{contract_id}/record")
+def contract_record(contract_id: str, request: Request):
+    from app.core import order_book
+
+    return _call(order_book.get_contract, _party(request), contract_id)
+
+
+@router.post("/contracts/{contract_id}/confirm", status_code=201)
+def request_confirmation(contract_id: str, request: Request):
+    from app.core import order_book
+
+    return _call(order_book.request_confirmation, _party(request), contract_id)
+
+
+@router.post("/contracts/{contract_id}/confirm/{request_id}/approve")
+def approve_confirmation(contract_id: str, request_id: str, request: Request):
+    from app.core import order_book
+
+    return _call(order_book.approve_confirmation, _party(request), contract_id, request_id)
+
+
+@router.get("/contracts/{contract_id}/confirmations")
+def confirmations(contract_id: str, request: Request):
+    from app.core import order_book
+
+    return {"confirmations": _call(order_book.confirmations, _party(request), contract_id)}
 
 
 @router.post("/settlements", status_code=201)

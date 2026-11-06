@@ -3,7 +3,7 @@ Capacity Management API Routes (SQLite)
 NOW WITH EVENT-DRIVEN ARCHITECTURE
 """
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import json
 import os
@@ -31,6 +31,7 @@ def get_db_connection():
 
 # Schemas
 class CapacityCreate(BaseModel):
+    project_id: str                       # alembic 084: the project this capacity is of
     project_name: str
     molecule: str
     capacity_mtpd: float
@@ -43,6 +44,7 @@ class CapacityCreate(BaseModel):
 
 class CapacityResponse(BaseModel):
     id: str
+    project_id: Optional[str] = None
     project_name: str
     molecule: str
     capacity_mtpd: float
@@ -58,95 +60,67 @@ class CapacityResponse(BaseModel):
 
 
 @router.post("/", response_model=CapacityResponse, status_code=201)
-async def create_capacity(capacity: CapacityCreate, user_id: str = "system"):
+async def create_capacity(capacity: CapacityCreate, request: Request):
+    """Declare a production capacity of one of the caller's own projects.
+
+    alembic 084 (Phase 0 §5): the capacity names its project. Before, the id was
+    a random uuid read everywhere as a project id, so RLS refused every
+    producer's insert and the market refused every producer offer. The actor is
+    the token's user — it used to be a query parameter defaulting to "system".
     """
-    Create new production capacity baseline
-    NOW WITH EVENT TRACKING
-    """
+    from app.core.project_registry import get_project_profile
+
+    payload = getattr(request.state, "user_payload", None) or {}
+    user_id, company = payload.get("user_id"), payload.get("company_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if payload.get("is_platform_admin"):
+        raise HTTPException(status_code=403, detail={"code": "GEX_DOES_NOT_TRADE",
+                                                     "message": "A capacity is declared by the project's owner."})
+    profile = get_project_profile(capacity.project_id)
+    if profile is None or profile.owner_company_id != company:
+        raise HTTPException(status_code=403, detail={"code": "NOT_YOUR_PROJECT",
+                                                     "message": "Only the project's owner declares its capacity."})
+    capacity_id = str(uuid.uuid4())
+    correlation_id = f"CAP-{capacity_id[:8].upper()}"
+    compliance_json = json.dumps(capacity.compliance_certifications) if capacity.compliance_certifications else None
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
         cursor = conn.cursor()
-        
-        # Generate UUID and correlation_id
-        capacity_id = str(uuid.uuid4())
-        correlation_id = f"CAP-{capacity_id[:8].upper()}"
-        
-        # Prepare compliance certifications as JSON
-        compliance_json = json.dumps(capacity.compliance_certifications) if capacity.compliance_certifications else None
-        
-        # 1. EMIT EVENT (Immutable audit log)
+        # Event first (immutable log), then the projection.
         append_event(
-            event_type="capacity.created",
-            aggregate_type="capacity",
-            aggregate_id=capacity_id,
-            data={
-                "project_name": capacity.project_name,
-                "molecule": capacity.molecule,
-                "capacity_mtpd": capacity.capacity_mtpd,
-                "location": capacity.location,
-                "production_start": capacity.production_start,
-                "production_end": capacity.production_end,
-                "compliance_certifications": capacity.compliance_certifications,
-                "status": "draft"
-            },
-            user_id=user_id,
-            correlation_id=correlation_id
-        )
-        
-        # 2. UPDATE DATABASE (Read model/projection)
+            event_type="capacity.created", aggregate_type="capacity", aggregate_id=capacity_id,
+            data={"project_id": capacity.project_id, "project_name": capacity.project_name,
+                  "molecule": capacity.molecule, "capacity_mtpd": capacity.capacity_mtpd,
+                  "location": capacity.location, "production_start": capacity.production_start,
+                  "production_end": capacity.production_end,
+                  "compliance_certifications": capacity.compliance_certifications, "status": "draft"},
+            user_id=user_id, correlation_id=correlation_id)
         cursor.execute("""
             INSERT INTO capacities (
-                id, project_name, molecule, capacity_mtpd, location,
+                id, project_id, project_name, molecule, capacity_mtpd, location,
                 production_start, production_end, compliance_certifications,
                 capex_eur, opex_eur_kg, status, correlation_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            capacity_id,
-            capacity.project_name,
-            capacity.molecule,
-            capacity.capacity_mtpd,
-            capacity.location,
-            capacity.production_start,
-            capacity.production_end,
-            compliance_json,
-            capacity.capex_eur,
-            capacity.opex_eur_kg,
-            "draft",
-            correlation_id
-        ))
-        
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (capacity_id, capacity.project_id, capacity.project_name, capacity.molecule,
+              capacity.capacity_mtpd, capacity.location, capacity.production_start, capacity.production_end,
+              compliance_json, capacity.capex_eur, capacity.opex_eur_kg, "draft", correlation_id))
         conn.commit()
-        
-        # Get the created record
         cursor.execute("SELECT * FROM capacities WHERE id = ?", (capacity_id,))
         row = cursor.fetchone()
+    finally:
         conn.close()
-        
-        if not row:
-            raise HTTPException(status_code=500, detail="Failed to retrieve created capacity")
-        
-        # Parse response
-        compliance = json.loads(row['compliance_certifications']) if row['compliance_certifications'] else None
-        
-        return {
-            "id": row['id'],
-            "project_name": row['project_name'],
-            "molecule": row['molecule'],
-            "capacity_mtpd": row['capacity_mtpd'],
-            "location": row['location'],
-            "production_start": row['production_start'],
-            "production_end": row['production_end'],
-            "compliance_certifications": compliance,
-            "capex_eur": row['capex_eur'],
-            "opex_eur_kg": row['opex_eur_kg'],
-            "created_at": row['created_at'],
-            "status": row['status'] if 'status' in row.keys() else "draft",
-            "correlation_id": row['correlation_id'] if 'correlation_id' in row.keys() else correlation_id,
-        }
-        
-    except Exception as e:
-        print(f"Error creating capacity: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create capacity: {str(e)}")
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to retrieve created capacity")
+    return {
+        "id": row['id'], "project_id": row['project_id'], "project_name": row['project_name'],
+        "molecule": row['molecule'], "capacity_mtpd": row['capacity_mtpd'], "location": row['location'],
+        "production_start": row['production_start'], "production_end": row['production_end'],
+        "compliance_certifications": json.loads(row['compliance_certifications'])
+        if row['compliance_certifications'] else None,
+        "capex_eur": row['capex_eur'], "opex_eur_kg": row['opex_eur_kg'], "created_at": str(row['created_at']),
+        "status": row['status'] or "draft", "correlation_id": row['correlation_id'] or correlation_id,
+    }
 
 
 @router.get("/", response_model=dict)

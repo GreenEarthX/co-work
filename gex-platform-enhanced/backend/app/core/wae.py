@@ -200,8 +200,27 @@ APPROVAL_POLICIES = [
     },
 ]
 
+# TRADE_CONFIRM (Phase 1 of "One contract record", JML 2026-11-06, Phase 0 Q7):
+# a party's confirmation of a contract needs a SECOND person of that party's own
+# company. The initiator raises it on the contract (trading_book/order_book), one
+# approver completes it; at least one of the two is an EXECUTIVE; GEX accounts
+# never take part. record_decision enforces the company, state and role rules for
+# this action type only, so the existing policies are unchanged.
+TRADE_CONFIRM = "TRADE_CONFIRM"
+APPROVAL_POLICIES.append({
+    "id": "pol-trade-confirm",
+    "action_type": TRADE_CONFIRM,
+    "threshold_currency": None,
+    "threshold_volume": None,
+    "required_roles": ["EXECUTIVE"],
+    "min_approvers": 1,
+    "escalation_timeout_hours": 48,
+    "escalation_role": "CEO",
+})
+
 # Action types that ALWAYS require approval (regardless of threshold)
 ALWAYS_REQUIRES_APPROVAL = {
+    TRADE_CONFIRM,
     "PPA_EXECUTION",
     "FINANCING_DRAWDOWN",
     "CERTIFICATE_APPLICATION",
@@ -388,8 +407,12 @@ def evaluate_authorization(
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(hours=timeout_h)).isoformat()
 
-    if not project_id:
-        # A request with no project is visible to nobody but GEX under RLS.
+    if action_type == TRADE_CONFIRM and not (payload or {}).get("party_company_id"):
+        raise ValueError("A TRADE_CONFIRM request names the confirming party (raise it on the contract).")
+    if not project_id and action_type != TRADE_CONFIRM:
+        # A request with no project is visible to nobody but GEX under RLS. A
+        # TRADE_CONFIRM may have none (a trade not tied to a project): it is read
+        # and decided only through its contract, which authorises the party.
         raise ValueError("An action that needs approval must name its project.")
     # Written as the caller: RLS refuses a request on a project the caller's
     # company neither owns nor has access to. A failed write is an error — it
@@ -463,6 +486,11 @@ def record_decision(
     if cur.fetchone():
         con.close()
         return {"error": "You have already decided this request.", "code": "ALREADY_DECIDED"}
+    if req["action_type"] == TRADE_CONFIRM:
+        refusal = _trade_confirm_refusal(req, approver_user_id)
+        if refusal:
+            con.close()
+            return refusal
 
     # Insert decision
     decision_id = str(uuid.uuid4())
@@ -507,6 +535,34 @@ def record_decision(
         "min_approvers": min_approvers,
         "quorum_reached": new_status == ApprovalStatus.APPROVED.value,
     }
+
+
+def _account(user_id: str) -> Optional[dict]:
+    from app.core.projects_store import _rows
+
+    rows = _rows("SELECT user_id, company_id, account_state, business_function, is_platform_admin "
+                 "FROM auth_users WHERE user_id = :u", {"u": user_id})
+    return rows[0] if rows else None
+
+
+def _trade_confirm_refusal(req, approver_user_id: str) -> Optional[dict]:
+    """The second pair of eyes on a party's TRADE_CONFIRM: an ACTIVE account of
+    that party's own company, never GEX, and an EXECUTIVE unless the initiator
+    was one. (The generic decide route checked only "same company as the
+    initiator", and let GEX staff decide anything.)"""
+    party = (json.loads(req["payload_json"] or "{}")).get("party_company_id")
+    approver, initiator = _account(approver_user_id), _account(req["initiator_user_id"])
+    if approver is None or approver.get("account_state") != "ACTIVE":
+        return {"error": "Only an active account confirms.", "code": "ACCOUNT_NOT_ACTIVE"}
+    if approver.get("is_platform_admin"):
+        return {"error": "GEX never confirms a party's contract.", "code": "GEX_DOES_NOT_CONFIRM"}
+    if not party or approver.get("company_id") != party:
+        return {"error": "Only the confirming party's own company completes its confirmation.",
+                "code": "OTHER_COMPANY"}
+    if "EXECUTIVE" not in {approver.get("business_function"), (initiator or {}).get("business_function")}:
+        return {"error": "One of the two people confirming a contract must be an executive.",
+                "code": "EXECUTIVE_REQUIRED"}
+    return None
 
 
 def get_pending_approvals(

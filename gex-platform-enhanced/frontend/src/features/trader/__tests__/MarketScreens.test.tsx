@@ -63,6 +63,21 @@ describe('Market Discovery', () => {
     expect(screen.queryByRole('button', { name: /Find matches/ })).toBeNull()
   })
 
+  it('sends the delivery and payment terms with the proposal, so nothing is typed after agreement', async () => {
+    const calls = serve((url, init) => (init?.method === 'POST' ? { id: 'm_1', status: 'pending' }
+      : url.includes('/listings/offers') ? { offers: [OFFER] }
+      : url.includes('/rfqs/mine') ? { rfqs: [{ ...RFQ, id: 'rfq_mine', status: 'open', buyer_company_id: 'me' }] }
+      : { rfqs: [] }))
+    render(<MemoryRouter><MarketDiscoveryPage /></MemoryRouter>)
+    fireEvent.change(await screen.findByLabelText('Delivery terms'), { target: { value: 'TEST FOB Rotterdam' } })
+    fireEvent.change(screen.getByLabelText('Payment terms'), { target: { value: 'TEST 30 days' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Propose a match' }))
+    await screen.findByText(/made from exactly these terms/)
+    const post = calls.find(c => c.init?.method === 'POST')!
+    expect(JSON.parse(String(post.init!.body))).toEqual({ offer_id: 'off_1', rfq_id: 'rfq_mine',
+      delivery_terms: 'TEST FOB Rotterdam', payment_terms: 'TEST 30 days' })
+  })
+
   it('shows a refusal rather than an empty market', async () => {
     serve(() => new Response(JSON.stringify({ detail: { code: 'AUTHENTICATION_REQUIRED',
       message: 'Sign in to use the market.' } }), { status: 401 }))
