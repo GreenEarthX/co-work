@@ -254,3 +254,37 @@ def test_a_counterparty_never_verifies_an_instrument_a_third_party_issues():
     verified_by_counterparty = {k for keys in ct.CONTRACT_EVIDENCE.values() for k in keys}
     assert not verified_by_counterparty & {"credit_support_package", "epc_security_package"}
     assert "epc_contract_fixed_price_or_capped_gmp" in ct.CONTRACT_EVIDENCE["epc"]
+
+
+def test_an_appointed_reviewer_reads_the_contracts_of_its_own_gates_only(client):
+    """Phase 0 Q5 (JML 2026-11-06). The lenders' adviser reviews G0, G4, G7–G10: it
+    reads the offtake (G4) and model (G8) contracts and no other; the owner reads all."""
+    owner = [t["kind"] for t in client.get(f"/api/v1/contract-tokens/{PID}", headers=_h("u_ct_exec")).json()["tokens"]]
+    adviser = [t["kind"] for t in client.get(f"/api/v1/contract-tokens/{PID}", headers=_h("u_ct_adv")).json()["tokens"]]
+    assert owner == list(ct.COUNTERPARTY_KINDS) + list(ct.REVIEWER_KINDS)
+    assert adviser == ["offtake", "model"]
+
+
+def test_changing_the_counterparty_is_one_transaction(client, monkeypatch):
+    """Phase 0 §4 gap 4: 078 updated the counterparty, then appended COUNTERPARTY_SET,
+    then DISPUTED, in three transactions; a failure between them left the new
+    counterparty with the old confirmations standing."""
+    from app.trading_book import record
+
+    c = ct.contract(PID, "offtake", create=False)
+    before = [e["event_type"] for e in ct.events(c["id"])]
+    real = record.append_event
+
+    def fail_on_dispute(conn, contract_id, event_type, *a, **k):
+        if event_type == "DISPUTED":
+            raise RuntimeError("TEST: failure between the two events")
+        return real(conn, contract_id, event_type, *a, **k)
+
+    monkeypatch.setattr(record, "append_event", fail_on_dispute)
+    with pytest.raises(RuntimeError):
+        client.put(f"/api/v1/contract-tokens/{PID}/offtake/counterparty", headers=_h("u_ct_exec"),
+                   json={"company_id": ADVISER})
+    monkeypatch.setattr(record, "append_event", real)
+    after = ct.contract(PID, "offtake", create=False)
+    assert after["counterparty_company_id"] == BUYER                  # unchanged
+    assert [e["event_type"] for e in ct.events(c["id"])] == before    # nothing half-written

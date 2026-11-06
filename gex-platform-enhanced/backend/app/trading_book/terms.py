@@ -75,10 +75,16 @@ class LegIn(BaseModel):
 
 
 class TermsIn(BaseModel):
-    settlement: Settlement
-    commodity: str                                  # tb_commodity.code, e.g. EMEOH
+    # `card` terms (alembic 085, Phase 0 Q3) are a project's commitment-card fields
+    # for one contract kind: card_projection holds the exact {card.field: value}
+    # the confirming party confirms and the gate engine reads. They have no
+    # settlement, commodity or currency of their own and, in Phase 2, no legs.
+    profile: str = "complete"                       # "complete" | "card"
+    card_projection: Optional[dict[str, Any]] = None
+    settlement: Optional[Settlement] = None         # required for "complete" (V02)
+    commodity: Optional[str] = None                 # tb_commodity.code, e.g. EMEOH
     quality_spec: dict[str, Any] = Field(default_factory=dict)
-    currency: str = Field(min_length=3, max_length=3)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
     legs: list[LegIn] = Field(default_factory=list)
     sub_legs: list[SubLegIn] = Field(default_factory=list)   # optional: rank per sub-leg
     clauses: list[ClauseIn] = Field(default_factory=list)

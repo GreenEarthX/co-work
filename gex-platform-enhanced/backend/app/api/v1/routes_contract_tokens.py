@@ -1,6 +1,10 @@
 """
 Contract tokens (JML 2026-10-28; alembic 078; app/core/contract_tokens.py).
 
+DEPRECATED compatibility layer (Phase 2 of "One contract record", 2026-11-06):
+the tokens are contracts of the one contract record (alembic 085). These routes
+keep working, with the same refusals, until the screens move (Phase 3).
+
   GET  /api/v1/contract-tokens/{project_id}                       every token, its chain, what is held back
   PUT  /api/v1/contract-tokens/{project_id}/{kind}/counterparty   owner's executive or GEX
   POST /api/v1/contract-tokens/{project_id}/{kind}/confirm        the counterparty (or appointed reviewer)
@@ -52,8 +56,11 @@ def list_tokens(project_id: str, request: Request):
     payload, profile = _context(request, project_id)
     confirmed = ct.confirmed_terms(project_id)
     _, held = ct.engine_terms(_load_terms_raw(project_id), confirmed)
+    scope = ct.reviewer_scope(payload["user_id"], payload.get("company_id"), project_id, profile.owner_company_id)
     out = []
     for kind in list(ct.COUNTERPARTY_KINDS) + list(ct.REVIEWER_KINDS):
+        if scope is not None and not ct.kind_gates(kind) & scope:
+            continue                     # Q5: a reviewer reads the contracts of its own gates only
         c = ct.contract(project_id, kind, create=False)
         evs = ct.events(c["id"]) if c else []
         last = next((e for e in reversed(evs) if e["event_type"] == "VERSION"), None)
@@ -98,17 +105,9 @@ async def set_counterparty(project_id: str, kind: str, body: CounterpartyBody, r
     c = ct.contract(project_id, kind)
     if c.get("counterparty_company_id") == body.company_id:
         return {"kind": kind, "counterparty_company_id": body.company_id, "changed": False}
-    from app.core.db_backend import domain_connection
-    conn = domain_connection()
-    try:
-        conn.execute("UPDATE project_contract SET counterparty_company_id = ? WHERE id = ?", (body.company_id, c["id"]))
-        conn.commit()
-    finally:
-        conn.close()
-    ct.append(c, "COUNTERPARTY_SET", payload["user_id"], payload.get("company_id"),
-              note=f"counterparty {body.company_id}")
-    # A new counterparty has confirmed nothing: earlier confirmations no longer stand.
-    ct.append(c, "DISPUTED", payload["user_id"], payload.get("company_id"), note="counterparty changed")
+    # One transaction: the counterparty, COUNTERPARTY_SET, and the DISPUTED that withdraws
+    # earlier confirmations (a new counterparty has confirmed nothing).
+    ct.set_counterparty(c, body.company_id, payload["user_id"], payload.get("company_id"))
     await reevaluate(project_id, reason=f"contract {kind}: counterparty {body.company_id}", actor=payload["user_id"])
     return {"kind": kind, "counterparty_company_id": body.company_id, "changed": True}
 

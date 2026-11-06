@@ -102,8 +102,9 @@ def canonical_dict(terms: TermsIn) -> dict:
         if multi:
             item["sub_leg"] = leg.sub_leg
         legs.append(item)
-    out = {"settlement": terms.settlement.value, "commodity": terms.commodity,
-           "quality_spec": terms.quality_spec, "currency": terms.currency.upper(), "legs": legs}
+    out = {"settlement": _enum(terms.settlement), "commodity": terms.commodity,
+           "quality_spec": terms.quality_spec, "currency": _upper(terms.currency), "legs": legs}
+    out.update(_card(terms))
     if terms.clauses:
         out["clauses"] = [_clause(c) for c in sorted(terms.clauses, key=lambda c: c.seq)]
     if any(s.rank is not None for s in terms.sub_legs):
@@ -111,10 +112,26 @@ def canonical_dict(terms: TermsIn) -> dict:
     return out
 
 
+def _enum(v):
+    return v.value if v is not None else None
+
+
+def _upper(v):
+    return v.upper() if v is not None else None
+
+
+def _card(terms: TermsIn) -> dict:
+    """Card terms (alembic 085) hash their profile and projection; complete terms
+    are hashed exactly as before — neither key appears."""
+    if terms.profile == "complete" and terms.card_projection is None:
+        return {}
+    return {"profile": terms.profile, "card_projection": terms.card_projection}
+
+
 def shared_dict(terms: TermsIn) -> dict:
-    return {"settlement": terms.settlement.value, "commodity": terms.commodity,
-            "quality_spec": terms.quality_spec, "currency": terms.currency.upper(),
-            "clauses": _clauses(terms, None)}
+    return {"settlement": _enum(terms.settlement), "commodity": terms.commodity,
+            "quality_spec": terms.quality_spec, "currency": _upper(terms.currency),
+            "clauses": _clauses(terms, None), **_card(terms)}
 
 
 def sub_leg_dict(terms: TermsIn, n: int) -> dict:
@@ -124,7 +141,8 @@ def sub_leg_dict(terms: TermsIn, n: int) -> dict:
 
 
 def _bytes(doc: dict) -> bytes:
-    return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                      default=str).encode("utf-8")
 
 
 def canonical_bytes(terms: TermsIn) -> bytes:

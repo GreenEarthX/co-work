@@ -3040,6 +3040,62 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
     **Found, not fixed:** `TraderDashboardPage` crashes when the user sees no project
     (`project.bankability` of undefined).
 
+57. **6 Nov 2026 — One contract record, Phase 2: the contract tokens fold into the record.**
+    Backup `gex_platform_2026-11-06_1636.dump` (verified) was taken first. Migration **085** is
+    applied and round-tripped. Head **085**.
+    - **What 085 adds:**
+      - `card` terms (`tb_terms.card_projection`; settlement, commodity and currency are now
+        required only for `complete` terms).
+      - `tb_contract.confirming_company_id`; `trade_status` is now required only for kind
+        `trade`.
+      - `tb_contract_version.legacy_terms_sha256`.
+      - Two SECURITY DEFINER functions, so that a project-bound contract is read by the
+        project's companies (Q5), and `app_tb_terms_readable` extended the same way.
+      - **`v_engine_contract_terms`**, the one view the gate engine reads.
+      - **The fold** (`trading_book/migrate/fold_contract_tokens.py`): 4 contracts and 4
+        events, all TEST. The events are copied verbatim under hash scheme `078` (their 078
+        contract id kept), and every chain and terms hash is re-verified before commit. The
+        folded event hashes are the 078 ones (`e4709f9e…`, `2b83c1a9…`, `dbc32662…`,
+        `96126b65…`).
+      - The 078 tables are kept, but `gex_app` can no longer write them. They are dropped in
+        Phase 3.
+    - **`core/contract_tokens.py`** is now a compatibility layer over the record, with the
+      same functions and return shapes. **DEPRECATED** for new callers, together with
+      `/api/v1/contract-tokens/*`, until the screens move (Phase 3).
+      - `confirmed_terms()` reads the view. It keeps 078's semantics: the version named by the
+        last CONFIRMED with no DISPUTED after it, so v1 stays in force after an unconfirmed v2.
+      - `terms_sha256` is still 078's hash of the projection.
+      - Writes run on the operator connection after the route has authorised the actor, so a
+        project party can no longer insert a CONFIRMED row of its own (Phase 0 §7 finding 5).
+      - Changing the counterparty is one transaction (§4 gap 4).
+      - The token list hides from an appointed reviewer the kinds outside its gates (Q5).
+    - **Card save (Q9):** the card and its contract version are written in one transaction, on
+      the card's connection switched to the operator context after `_owner_gate`. A failure is
+      a 503 `CONTRACT_RECORD_UNAVAILABLE` and nothing is saved. Before, it was a warning in the
+      log and the card was saved anyway.
+    - **Comprehension fixture:** `--remove` now clears the project's contract record (triggers
+      skipped for that transaction only) and the 078 rows. `--execute` writes the cards'
+      versions through the card-save path; the loader never wrote them before.
+    - **Parity:** the whole engine answer and the token readout (confirmed terms, held-back
+      fields, latest hashes, events, counterparties, chain state) are identical for all 16
+      projects before and after. The fixture's `--verify` still matches Appendix B.
+    - **Tests:**
+      - New: `test_contract_record_fold_pg.py` (6) and `test_comprehension_fixture_pg.py` (1).
+      - `test_commitment_terms.py` moved from SQLite to `pg_store` (+2, Q9).
+      - `test_contract_tokens_pg.py` +2 (Q5, one transaction). Its original 8 pass unchanged.
+      - 11 deliberate breaks, all caught, each for its own reason.
+      - **Platform 1351 pass / 15 skip / 0 fail** (1340 + 11, the same 15 skips). Frontend and
+        engine are untouched by Phase 2.
+    - **A lesson that cost a suite run:** `projects_store` caches ONE SQLAlchemy engine for the
+      process (`app.db.session._sync_engine`). A `pg_store` module that reaches it, here through a
+      card save, builds it on the throwaway URL, and every later module then reads the wrong
+      database: 14 failures in `test_project_records` and `test_route_authorization`. Every new
+      `pg_store` module saves, resets and restores it. This was negative-verified: removing the
+      restore from `test_commitment_terms` brings 10 of those failures back.
+    - **Not done in Phase 2, by design (Phase 3):** frames and sub-legs for card contracts (a
+      card version holds the projection only); adverse facts are still read from the card
+      (Q10); the 078 tables and `contracts` (063) are not dropped yet.
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
@@ -3154,11 +3210,16 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
-**2026-11-06: One contract record — Phase 1 done, Phase 2 waits for JML's go-ahead** (§8 item 56;
-plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head 084. Platform 1340 pass / 15 skip / 0 fail (1307 + 33),
-frontend 252, engine 275. Not yet synced to `co-work`. Next: Phase 2, which folds the 078
-contract tokens (4 TEST events) into the record behind `v_engine_contract_terms`, with the
-parity test.
+**2026-11-06 (later): One contract record — Phases 1 and 2 done; Phase 3 waits for JML's
+go-ahead** (§8 items 56–57; plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head **085**.
+Platform 1351 pass / 15 skip / 0 fail, frontend 252, engine 275. Gate engine parity is identical
+for all 16 projects after each phase. Committed to `co-work` branch `contract-record-phase1`; not
+pushed. **Next, Phase 3 (M4–M6):**
+- the cashflow engine dispatches on `flow_type`; Rotterdam TEST fixture; T10;
+- capacities columns (M5);
+- frames with one sub-leg per buyer (Q2), adverse facts as events (Q10), cards as a view (Q9);
+- the screens read views over the record;
+- drop the JTI columns, `contracts` (063), and the 078 tables, one migration each.
 
 **2026-11-04:** nothing in flight. Done today (§8 items 53–55): the PF engine keeps nothing in
 SQLite (migration **082**, role `gex_engine`, fuels from the platform API; head 082, platform

@@ -98,19 +98,26 @@ def _buyer_of(legs) -> Optional[str]:
     return None
 
 
-def write_terms(conn, terms: TermsIn, owner_company_id: str, *, profile: str = "complete",
-                freeze: bool = True) -> dict:
+def write_terms(conn, terms: TermsIn, owner_company_id: str, *, profile: Optional[str] = None,
+                freeze: bool = True, frozen_at=None) -> dict:
     """Insert terms with their sub-legs, legs, flows and clauses, then freeze them
-    with their hashes. Returns {terms_id, terms_hash, shared_hash, sub_legs: {seq: {id, hash}}}."""
+    with their hashes. Returns {terms_id, terms_hash, shared_hash, sub_legs: {seq: {id, hash}}}.
+    `frozen_at` lets the Phase 2 fold keep the time a 078 version was recorded."""
     h = canonical.hashes(terms)
-    commodity = _row(conn, "SELECT id FROM tb_commodity WHERE code = ?", (terms.commodity,))
-    if commodity is None:
-        raise RecordRefused(422, "UNKNOWN_COMMODITY", f"No commodity {terms.commodity!r} in tb_commodity.")
+    profile = profile or terms.profile
+    commodity_id = None
+    if terms.commodity is not None:
+        commodity = _row(conn, "SELECT id FROM tb_commodity WHERE code = ?", (terms.commodity,))
+        if commodity is None:
+            raise RecordRefused(422, "UNKNOWN_COMMODITY", f"No commodity {terms.commodity!r} in tb_commodity.")
+        commodity_id = str(commodity["id"])
     terms_id = str(uuid.uuid4())
     conn.execute("INSERT INTO tb_terms (id, owner_company_id, settlement, commodity_id, quality_spec, currency, "
-                 "profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 (terms_id, owner_company_id, terms.settlement.value, str(commodity["id"]),
-                  json.dumps(terms.quality_spec, sort_keys=True), terms.currency.upper(), profile))
+                 "profile, card_projection) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 (terms_id, owner_company_id, terms.settlement.value if terms.settlement else None, commodity_id,
+                  json.dumps(terms.quality_spec, sort_keys=True), terms.currency.upper() if terms.currency else None,
+                  profile, json.dumps(terms.card_projection, sort_keys=True, default=str)
+                  if terms.card_projection is not None else None))
     ranks = {s.seq: s.rank for s in terms.sub_legs}
     subs: dict[int, dict] = {}
     for n in terms.sub_leg_numbers():
@@ -147,15 +154,15 @@ def write_terms(conn, terms: TermsIn, owner_company_id: str, *, profile: str = "
                      (terms_id, subs[c.sub_leg]["id"] if c.sub_leg is not None else None, c.clause_type, c.seq,
                       json.dumps(c.attrs, sort_keys=True)))
     if freeze:
-        conn.execute("UPDATE tb_terms SET frozen_at = now(), terms_hash = ?, shared_hash = ? WHERE id = ?",
-                     (h["terms_hash"], h["shared_hash"], terms_id))
+        conn.execute("UPDATE tb_terms SET frozen_at = coalesce(?, now()), terms_hash = ?, shared_hash = ? WHERE id = ?",
+                     (frozen_at, h["terms_hash"], h["shared_hash"], terms_id))
     return {"terms_id": terms_id, "terms_hash": h["terms_hash"], "shared_hash": h["shared_hash"], "sub_legs": subs}
 
 
 def load_terms(conn, terms_id: str) -> TermsIn:
     """Read stored terms back into the payload model — for cloning an order's
     terms into a contract, for terms.json, and to re-check a stored hash."""
-    t = _row(conn, "SELECT t.*, co.code FROM tb_terms t JOIN tb_commodity co ON co.id = t.commodity_id "
+    t = _row(conn, "SELECT t.*, co.code FROM tb_terms t LEFT JOIN tb_commodity co ON co.id = t.commodity_id "
                    "WHERE t.id = ?", (terms_id,))
     if t is None:
         raise RecordRefused(404, "TERMS_NOT_FOUND", "No terms with that id.")
@@ -177,8 +184,9 @@ def load_terms(conn, terms_id: str) -> TermsIn:
         return out
 
     payload = {
-        "settlement": str(t["settlement"]), "commodity": t["code"], "quality_spec": t["quality_spec"] or {},
-        "currency": t["currency"],
+        "profile": t["profile"], "card_projection": t["card_projection"],
+        "settlement": str(t["settlement"]) if t["settlement"] else None, "commodity": t["code"],
+        "quality_spec": t["quality_spec"] or {}, "currency": t["currency"],
         "legs": [{"seq": l["seq"], "sub_leg": subs[str(l["sub_leg_id"])]["seq"] if l["sub_leg_id"] else 1,
                   "leg_role": str(l["leg_role"]),
                   "payer": str(l["payer_id"]) if l["payer_id"] else None,
@@ -252,6 +260,8 @@ def append_event(conn, contract_id: str, event_type: str, actor: str, company_id
                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                  (contract_id, seq, event_type, version_id, sub_leg_id, terms_hash, actor, company_id, note, at,
                   prev, digest, SCHEME))
+    # The genesis event is the contract's identity for life (065's token_ref; fixed by trigger).
+    conn.execute("UPDATE tb_contract SET token_ref = ? WHERE id = ? AND token_ref IS NULL", (digest, contract_id))
     return {"seq": seq, "event_hash": digest}
 
 
@@ -262,21 +272,41 @@ def events(conn, contract_id: str) -> list[dict]:
                  (contract_id,))
 
 
-def chain_intact(conn, contract_id: str) -> bool:
-    """Recompute every scheme-2 hash: a rewritten, removed or reordered event, or
-    a changed timestamp, breaks the chain. (Scheme '078' arrives with Phase 2.)"""
-    c = _row(conn, "SELECT contract_ref FROM tb_contract WHERE id = ?", (contract_id,))
+def legacy_event_hash(e: dict, prev: Optional[str]) -> str:
+    """Scheme '078' — alembic 078's formula, kept so the contract tokens folded in
+    Phase 2 stay verifiable with the hashes they were written with. `contract`
+    is the 078 contract id (legacy_contract_id); `at` is outside this hash, which
+    is why new events use scheme 2."""
+    body = json.dumps({"contract": e["legacy_contract_id"], "seq": e["seq"], "type": e["event_type"],
+                       "terms_sha256": e["terms_hash"], "actor": e["actor"], "company": e["company_id"],
+                       "note": e["note"], "prev": prev}, sort_keys=True)
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
+def chain_intact_events(contract_ref: str, evs: list[dict]) -> bool:
+    """Recompute every hash, each by its own scheme: a rewritten, removed or
+    reordered event, or (scheme 2) a changed timestamp, breaks the chain."""
     prev = None
-    for i, e in enumerate(events(conn, contract_id), start=1):
-        if e["hash_scheme"] != SCHEME or e["seq"] != i or e["prev_hash"] != prev:
+    for i, e in enumerate(evs, start=1):
+        if e["seq"] != i or e["prev_hash"] != prev:
             return False
-        digest = event_hash(contract_ref=c["contract_ref"], seq=e["seq"], event_type=e["event_type"],
-                            version=e["version"], sub_leg=e["sub_leg_seq"], terms_hash=e["terms_hash"],
-                            actor=e["actor"], company=e["company_id"], note=e["note"], at=e["at"], prev=prev)
+        if e["hash_scheme"] == "078":
+            digest = legacy_event_hash(e, prev)
+        elif e["hash_scheme"] == SCHEME:
+            digest = event_hash(contract_ref=contract_ref, seq=e["seq"], event_type=e["event_type"],
+                                version=e["version"], sub_leg=e["sub_leg_seq"], terms_hash=e["terms_hash"],
+                                actor=e["actor"], company=e["company_id"], note=e["note"], at=e["at"], prev=prev)
+        else:
+            return False
         if digest != e["event_hash"]:
             return False
         prev = e["event_hash"]
     return True
+
+
+def chain_intact(conn, contract_id: str) -> bool:
+    c = _row(conn, "SELECT contract_ref FROM tb_contract WHERE id = ?", (contract_id,))
+    return c is not None and chain_intact_events(c["contract_ref"], events(conn, contract_id))
 
 
 # ── contracts ───────────────────────────────────────────────────────────────

@@ -1397,18 +1397,32 @@ async def put_commitment_terms(request: TermsWriteRequest,
             "INSERT INTO commitment_terms_events (project_id, card_type, old_json, new_json, actor, at) "
             "VALUES (?, ?, ?, ?, ?, datetime('now'))",
             (request.project_id, request.card_type, old_json, new_json, who))
+        # Every changed contract records a new VERSION in the contract record, IN THIS
+        # TRANSACTION (Phase 0 Q9): the card and its version are saved together or not at
+        # all. Until the counterparty (or appointed reviewer) confirms the version, the
+        # changed fields do not reach the engine. The owner has been authorised above
+        # (_owner_gate); the record's rows are written as the operator for the rest of
+        # this transaction only (versions and events are PLATFORM_ADMIN writes, 083/085).
+        from app.core.contract_tokens import record_versions
+        try:
+            cards = {r["card_type"]: (json.loads(r["terms_json"]) if isinstance(r["terms_json"], str)
+                                      else r["terms_json"]) for r in conn.execute(
+                "SELECT card_type, terms_json FROM commitment_terms WHERE project_id = ?",
+                (request.project_id,)).fetchall()}
+            conn.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
+            record_versions(request.project_id, cards, who, actor.get("company_id"), conn=conn)
+        except Exception as exc:  # noqa: BLE001 — nothing saved, and the caller is told
+            conn.rollback()
+            conn.close()
+            logger.warning("card for %s not saved: its contract version could not be recorded: %s",
+                           request.project_id, exc)
+            raise HTTPException(status_code=503, detail={
+                "code": "CONTRACT_RECORD_UNAVAILABLE",
+                "message": "The card was not saved: its contract version could not be recorded."})
     conn.commit()
     conn.close()
     reevaluation = None
     if old_json != new_json:
-        # Every changed contract records a new VERSION on its token; until the
-        # counterparty (or appointed reviewer) confirms it, the changed fields do
-        # not reach the engine.
-        from app.core.contract_tokens import record_versions
-        try:
-            record_versions(request.project_id, _load_terms_raw(request.project_id), who, actor.get("company_id"))
-        except Exception as exc:  # noqa: BLE001 — fail closed: an unrecorded version is never confirmed
-            logger.warning("card saved for %s but its token version was not recorded: %s", request.project_id, exc)
         # A term change can pass or fail a cross-contract check: re-evaluate now.
         # The card is saved either way; an engine outage withdraws the stored
         # state (fail closed) rather than leaving it standing for old terms.

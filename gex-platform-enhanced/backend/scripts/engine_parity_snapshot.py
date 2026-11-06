@@ -34,6 +34,27 @@ def comparable(snapshot: dict) -> dict:
     return {k: v for k, v in snapshot.items() if k not in VOLATILE}
 
 
+def contract_terms(pid: str) -> dict:
+    """What the contract-token layer says for the project: the confirmed terms per kind,
+    the fields held back, and per kind its latest version hash and chain state — the
+    readout the Phase 2 fold must keep (it moves the store, not the answers)."""
+    from app.api.v1.routes_bankability_proxy import _load_terms_raw
+    from app.core import contract_tokens as ct
+
+    confirmed = ct.confirmed_terms(pid)
+    _, held = ct.engine_terms(_load_terms_raw(pid), confirmed)
+    kinds = {}
+    for kind in list(ct.COUNTERPARTY_KINDS) + list(ct.REVIEWER_KINDS):
+        c = ct.contract(pid, kind, create=False)
+        if c:
+            last = ct.latest_version(c["id"])
+            kinds[kind] = {"latest_version_sha256": (last or {}).get("terms_sha256"),
+                           "events": [e["event_type"] for e in ct.events(c["id"])],
+                           "counterparty": c.get("counterparty_company_id"),
+                           "chain_intact": ct.chain_intact(c["id"])}
+    return {"confirmed": confirmed, "held_back": held, "kinds": kinds}
+
+
 async def evaluate_all() -> dict:
     from app.api.v1 import routes_bankability_proxy as proxy
     from app.core.projects_store import _rows
@@ -48,6 +69,7 @@ async def evaluate_all() -> dict:
                 "project_id": pid, "evidence": proxy._load_evidence(pid),
                 **proxy._engine_context(pid)})
             out[pid] = comparable(snap)
+            out[pid]["_contract_terms"] = contract_terms(pid)
         return out
     finally:
         reset_current_company(token)

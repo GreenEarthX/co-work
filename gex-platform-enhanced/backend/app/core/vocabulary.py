@@ -352,11 +352,19 @@ COMMITMENT_OBJECT_ROLES: dict[str, dict[str, str]] = {
     },
     "app.core.contract_tokens": {
         "family": "NEITHER",
-        "role": "The token of each contract BEHIND a project's commitment cards (alembic 078): "
-                "versions and the counterparty's (or appointed reviewer's) confirmations, hash-"
-                "chained. Decides which card terms reach the gate engine's C1–C10 checks.",
-        "not_for": "Trading. It is not the trading book's contract token (tb_contract), which "
-                   "carries a traded deal; an offtake that is traded keeps both until M2–M6 merge them.",
+        "role": "Compatibility layer (DEPRECATED, Phase 2 of 'One contract record', alembic 085) over "
+                "the ONE contract record: each contract BEHIND a project's commitment cards is a "
+                "tb_contract with card terms, versions and the counterparty's (or appointed reviewer's) "
+                "confirmations, hash-chained. Decides, through v_engine_contract_terms, which card terms "
+                "reach the gate engine's C1–C10 checks.",
+        "not_for": "Trading. A traded deal is a `trade` contract of the same record "
+                   "(trading_book/record.py); it never reaches the gate engine (Phase 0 Q7).",
+    },
+    "app.trading_book.migrate.fold_contract_tokens": {
+        "family": "NEITHER",
+        "role": "One-off fold (alembic 085) of the 078 contract tokens into the one contract record: "
+                "events copied verbatim under hash scheme '078', every chain re-verified.",
+        "not_for": "Anything after the fold — new events go through trading_book/record.py.",
     },
     "app.api.v1.routes_contract_tokens": {
         "family": "NEITHER",

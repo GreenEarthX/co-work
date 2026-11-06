@@ -44,6 +44,19 @@ def _flows(terms: TermsIn):
             yield leg, flow
 
 
+def validate_card(terms: TermsIn) -> list[str]:
+    """`card` terms (alembic 085): a projection of commitment-card fields and no
+    legs (Phase 2). C01: a projection is present and every key is "card.field".
+    C02: no legs, flows or sub-legs yet — the frame comes in Phase 3."""
+    failed = []
+    proj = terms.card_projection
+    if not isinstance(proj, dict) or any(not isinstance(k, str) or k.count(".") != 1 for k in proj):
+        failed.append("C01")
+    if terms.legs or terms.sub_legs:
+        failed.append("C02")
+    return failed
+
+
 def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str]:
     ctx = ctx or Context()
     failed: list[str] = []
@@ -51,6 +64,11 @@ def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str
     def fail(code: str) -> None:
         if code not in failed:
             failed.append(code)
+
+    if terms.profile == "card":
+        return validate_card(terms)
+    if terms.settlement is None or terms.commodity is None or terms.currency is None:
+        return ["V02"]          # complete terms name their settlement, commodity and currency
 
     cash = terms.settlement != Settlement.PHYSICAL
     sub_legs = {n: [leg for leg in terms.legs if leg.sub_leg == n] for n in terms.sub_leg_numbers()}
