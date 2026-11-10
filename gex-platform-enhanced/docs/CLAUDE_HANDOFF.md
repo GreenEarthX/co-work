@@ -3271,6 +3271,82 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       and reads them on the engine's own path (frame buyers, open facts). The fixture's
       `--verify` matches Appendix B.
 
+60. **10 Nov 2026 — One contract record, Phase 4: the ledger anchor, built and switched off.**
+    Backup `gex_platform_2026-11-10_1753` first. Head **095**, round-tripped on dev (schema
+    identical after down and up). **150** tables, **143** FORCED.
+    - **What leaves, and only that:** per contract event, `{schema_version, pseudo_id, event_type,
+      event_hash, prev_hash}` (`app/core/ledger_anchor.py`). No terms, prices, volumes, names,
+      company or user ids. Hedera Consensus Service messages only, no token of any kind (rule 3).
+      The event hash already covers the version's Merkle root, so the root is anchored through it.
+    - **The pseudonymous id (Q12):** `tb_contract.pseudo_id = HMAC-SHA256(salt, contract_ref)`,
+      set by `record.append_event` before the contract's first event and fixed by trigger
+      (NULL → value once). Salt `LEDGER_ANCHOR_SALT` in `backend/.env` and `files/.env`
+      (git-ignored), one per environment, **never rotated**. **JML: put an off-machine copy in the
+      password manager** — it is in no dump and no git. Without a salt the event is written all
+      the same, its pseudo_id stays NULL and the row is never sent;
+      `scripts/drain_anchor_outbox.py --assign-pseudo-ids` sets it later.
+    - **The outbox (095):** `ledger_anchor_outbox`, one row per event, written **by an AFTER INSERT
+      trigger on `tb_contract_event`** (SECURITY DEFINER, pinned search_path), so every writer of
+      the record fills it in the event's own transaction and a rolled-back event leaves none.
+      Status PENDING | ANCHORED | FAILED | NOT_ANCHORED, attempts, next attempt, last error, the
+      ledger reference (network, topic, sequence number, consensus timestamp, transaction id),
+      anchored_at. A trigger keeps the identity columns and, once ANCHORED, the reference fixed,
+      and refuses every DELETE. The 4 events on dev got their rows (PENDING).
+    - **Who:** `gex_app` reads under the record's own rule (the parties, the project's companies,
+      GEX staff; the same as `tb_contract_event`) and writes nothing. New role **`gex_anchor`**
+      (`setup_postgres_rls.sql`; password in `.env` as `LEDGER_ANCHOR_DATABASE_URL` and in
+      `files/.env` as `GEX_ANCHOR_DB_PASSWORD`): SELECT on the outbox and column UPDATE on the ten
+      anchoring columns, nothing else. 095 asserts both. Q11 named four columns; the worker also
+      needs `next_attempt_at` (backoff and lease), `last_error`, network and transaction id —
+      **for JML to confirm**. Restore step 5 now also grants CONNECT to `gex_anchor`.
+    - **Adapters:** `NullAnchor` (default; the drain marks rows NOT_ANCHORED) and
+      `HederaHcsAnchor` (testnet only, ConsensusSubmitMessage, mirror-node reads over HTTPS).
+      `LEDGER_ANCHOR_BACKEND = none | hedera_testnet`; any other value refuses at startup, so
+      mainnet is not a value. Operator id, key and topic only from `.env`. **The Hedera submit
+      path is written against the Hiero Python SDK (`hiero_sdk_python`), which is NOT installed
+      and has never run here.** The provider is not chosen (JML with Marwen, week of 9 Nov).
+    - **The worker (Q11):** an asyncio loop started in the backend's startup, only when the
+      backend is not `none`, every 30 s; misconfigured, it does not start and the console says
+      why. Claims with `FOR UPDATE SKIP LOCKED` and a 120 s lease; backoff 1 min, 5 min, 30 min,
+      2 h, then 12 h; FAILED after 8 attempts. The event is committed before the worker sees it,
+      so anchoring never blocks the record. `scripts/drain_anchor_outbox.py --once | --status |
+      --requeue-failed | --requeue-not-anchored | --assign-pseudo-ids`. No launchd job.
+    - **Verification:** `GET /api/v1/trading-book/records/{id}/anchors` for whoever may read the
+      contract (its RLS decides): the chain (hashes, types, times), each event's ledger
+      reference, whether the chain holds, and a buyer's Merkle proof of its own sub-leg and of
+      the shared terms inside the current version's root (Q12). Other buyers stay hashes.
+      `scripts/verify_anchor.py` recomputes each chain, checks each outbox row against its event
+      and the pseudo_id against the salt, and reads the topic from the mirror node: the FIRST
+      message carrying an event hash must be the recorded one with exactly the expected payload
+      and timestamp; later copies are reported as duplicates. GEX staff console: outbox by
+      status, the FAILED rows, the worker (`/api/v1/gex-console/ledger-anchor`).
+    - **Compose:** the backend gets `LEDGER_ANCHOR_BACKEND: none`, the salt and the gex_anchor
+      URL from `files/.env`. No image rebuilt.
+    - **Not done — needs JML:** the manual testnet run. It needs a Hedera testnet operator account
+      and a topic (creating an account is JML's), the SDK installed, and the three values in
+      `.env`; then `LEDGER_ANCHOR_BACKEND=hedera_testnet`, `drain_anchor_outbox.py
+      --requeue-not-anchored` if needed, `--once`, and `verify_anchor.py`; record the topic id and
+      sequence numbers here.
+    - **Tests:** `test_ledger_anchor.py` (10, pure), `test_ledger_anchor_pg.py` (18, on `pg_store`,
+      a fake adapter, no ledger reached); frontend `GexStaffConsolePage.test.tsx` +3. Fixture
+      removal (`_fixture_record.remove`) and one test cleanup also delete the fixture's outbox
+      rows. **Platform 1422 pass / 15 skip / 0 fail** (1394 + 28;
+      both exported, run alone), **frontend 263**, `tsc` clean. Negative verification, all caught:
+      24 backend breaks (no outbox trigger, the outbox readable by anyone, identity columns
+      changeable, rows deletable, an anchored reference changeable, the pseudo_id not fixed or
+      not reaching earlier rows, a sixth key or a company id in the payload, an unsalted id, nine
+      attempts, a 5-min first wait, no lease, a row sent without a pseudo_id, mainnet in the
+      setting or the adapter, a misconfigured worker starting, the operator key in an error or
+      kept on the original exception, a stranger reading the chain, a buyer's proof of the wrong
+      leaf, verify taking the last message or ignoring the payload, the console open to
+      non-staff) and 2 on the console screen. The key test first MISSED (with the SDK absent it
+      never reached the scrubbing path); strengthened with a stand-in SDK, it found that
+      `raise … from None` still kept the original error, key included, on `__context__` — fixed.
+    - **Parity:** the engine answer and the token readout are identical for all 16 projects
+      (`_claude_backups/2026-11-10_contract_record_phase3/parity_after_p4.json`). On dev:
+      `drain_anchor_outbox.py --status` → 4 PENDING as `gex_anchor`; `verify_anchor.py` → 4 chains
+      intact, 0 anchored.
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
@@ -3385,7 +3461,16 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
-**2026-11-10 (latest): One contract record — Phase 3 done; Phase 4 waits for JML's go-ahead**
+**2026-11-10 (latest): One contract record — Phase 4 done (the ledger anchor, OFF); Phase 5 waits
+for JML's go-ahead** (§8 item 60). Head **095**. The outbox, the pseudonymous id, NullAnchor and a
+Hedera testnet adapter, the worker, the parties' chain readout and `verify_anchor.py` are built and
+verified against a fake ledger; `LEDGER_ANCHOR_BACKEND = none`, so nothing leaves. Platform 1422
+pass / 15 skip / 0 fail, frontend 263; parity identical for all 16 projects. Committed to `co-work`
+branch `contract-record-phase1`; not pushed. **Open for JML:** the manual testnet run (an operator
+account and topic, the SDK); an off-machine copy of `LEDGER_ANCHOR_SALT`; the six worker columns
+beyond Q11's four. **Next, Phase 5:** party signatures, recorded and verified, not yet required.
+
+**2026-11-10 (earlier): One contract record — Phase 3 done; Phase 4 waits for JML's go-ahead**
 (§8 items 56–59; plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head **094**. M3–M6 and
 step 4 are built and verified, Q6.4 included (a market trade joins its project's frame, locked,
 or stays a trade). Platform 1394 pass / 15 skip / 0 fail, frontend 260. Gate-engine parity

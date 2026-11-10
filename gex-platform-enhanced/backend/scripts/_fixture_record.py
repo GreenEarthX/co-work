@@ -28,6 +28,9 @@ def remove(cur, project_id: str, execute: bool) -> int:
         return n
     cur.execute("SET LOCAL session_replication_role = replica")
     cur.execute(f"CREATE TEMP TABLE _fixture_terms ON COMMIT DROP AS {_TERMS}", (project_id,))
+    # The events' ledger anchor outbox rows go with them (alembic 095). A TEST fixture's
+    # events anchored on a public ledger would keep their messages there, unreferenced.
+    cur.execute(f"DELETE FROM ledger_anchor_outbox WHERE contract_id IN ({_RECORD})", (project_id,))
     cur.execute(f"DELETE FROM tb_contract_event WHERE contract_id IN ({_RECORD})", (project_id,))
     for child in ("tb_flow WHERE leg_id IN (SELECT id FROM tb_leg WHERE terms_id IN "
                   "(SELECT terms_id FROM _fixture_terms))",

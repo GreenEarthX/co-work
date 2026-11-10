@@ -67,6 +67,33 @@ class Settings(BaseSettings):
     # named company accepts a specific listing) until counsel confirms GEX would
     # not be operating a trading venue. Turn on only on that confirmation.
     MARKET_AUTO_MATCHING: bool = False
+    # ── Ledger anchor (Phase 4 of "One contract record", 2026-11-10) ─────────
+    # Per contract event, only {schema_version, pseudo_id, event_type, event_hash,
+    # prev_hash} goes to a public ledger (Hedera Consensus Service messages only;
+    # no token of any kind). OFF by default: "none" leaves every outbox row
+    # PENDING and starts no worker. "hedera_testnet" is the only ledger value;
+    # mainnet is not a value until JML adds it.
+    LEDGER_ANCHOR_BACKEND: str = "none"
+    # HMAC-SHA256 salt for the pseudonymous contract id (Q12). One per environment,
+    # NEVER rotated (existing anchors would stop matching), with an off-machine copy.
+    LEDGER_ANCHOR_SALT: str = ""
+    # The worker's own role, gex_anchor (migration 095): reads the outbox and
+    # updates its anchoring columns, nothing else. Not the runtime credential.
+    LEDGER_ANCHOR_DATABASE_URL: str = ""
+    LEDGER_ANCHOR_INTERVAL_SECONDS: int = 30
+    # Hedera operator and topic — from files/.env only, never compose or code.
+    HEDERA_OPERATOR_ID: str = ""
+    HEDERA_OPERATOR_KEY: str = ""
+    HEDERA_TOPIC_ID: str = ""
+    HEDERA_MIRROR_URL: str = "https://testnet.mirrornode.hedera.com"
+
+    @field_validator("LEDGER_ANCHOR_BACKEND", mode="after")
+    @classmethod
+    def _anchor_backend(cls, value: str) -> str:
+        if value not in ("none", "hedera_testnet"):
+            raise ValueError(f"LEDGER_ANCHOR_BACKEND must be none or hedera_testnet, not {value!r}")
+        return value
+
     # Which store slice 6b-1 (entitlements) uses.
     ENTITLEMENT_DB_BACKEND: str = "sqlite"
     # Which store slice 6b-2 (the platform event ledger) uses.

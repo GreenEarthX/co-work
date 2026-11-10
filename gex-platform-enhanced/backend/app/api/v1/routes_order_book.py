@@ -160,6 +160,16 @@ def approve_confirmation(contract_id: str, request_id: str, request: Request):
     return _call(ob.approve_confirmation, _party(request), contract_id, request_id)
 
 
+@router.get("/records/{contract_id}/anchors")
+def record_anchors(contract_id: str, request: Request):
+    """The contract's chain with its ledger anchors (Phase 4): hashes, types, times and
+    ledger references; a buyer also gets the Merkle proof of its own sub-leg."""
+    from app.core import ledger_anchor
+
+    party = _party(request)
+    return _call(ledger_anchor.chain_for, party.company_id, party.is_admin, contract_id)
+
+
 @router.get("/records/{contract_id}/confirmations")
 def confirmations(contract_id: str, request: Request):
     return {"confirmations": _call(ob.confirmations, _party(request), contract_id)}

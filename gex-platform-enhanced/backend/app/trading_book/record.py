@@ -253,9 +253,18 @@ def append_event(conn, contract_id: str, event_type: str, actor: str, company_id
                  terms_hash: Optional[str] = None, note: Optional[str] = None) -> dict:
     """Append one event, chained to the previous one. The contract row is locked
     first, so two writers can never take the same seq (078's race)."""
-    c = _row(conn, "SELECT contract_ref FROM tb_contract WHERE id = ? FOR UPDATE", (contract_id,))
+    c = _row(conn, "SELECT contract_ref, pseudo_id FROM tb_contract WHERE id = ? FOR UPDATE", (contract_id,))
     if c is None:
         raise RecordRefused(404, "CONTRACT_NOT_FOUND", "No contract with that id.")
+    if c["pseudo_id"] is None:
+        # Phase 4 (Q12): the contract's pseudonymous id, set once, before its event, so the
+        # outbox row the event's trigger writes (alembic 095) carries it. No salt: it stays
+        # NULL, the event is written all the same (anchoring never blocks the record).
+        from app.core.ledger_anchor import pseudo_id
+
+        pid = pseudo_id(c["contract_ref"])
+        if pid:
+            conn.execute("UPDATE tb_contract SET pseudo_id = ? WHERE id = ? AND pseudo_id IS NULL", (pid, contract_id))
     last = _row(conn, "SELECT seq, event_hash FROM tb_contract_event WHERE contract_id = ? ORDER BY seq DESC LIMIT 1",
                 (contract_id,))
     seq = (last["seq"] + 1) if last else 1

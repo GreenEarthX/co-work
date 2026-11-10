@@ -209,3 +209,27 @@ def onboarding(company_id: str, request: Request) -> dict[str, Any]:
         "steps": steps,
         "replaces_fixture": fixture,
     }
+
+
+@router.get("/ledger-anchor")
+def ledger_anchor_health(request: Request) -> dict[str, Any]:
+    """Phase 4 (Q11): the outbox by status, the rows that FAILED after their eight
+    attempts, and whether the worker runs. Hashes and statuses only: no contract
+    reference, no party, no terms."""
+    from app.core import ledger_anchor
+
+    _require_staff(request)
+    counts = _rows("SELECT status, count(*) AS n, count(*) FILTER (WHERE pseudo_id IS NULL) AS no_pseudo_id, "
+                   "min(created_at) AS oldest FROM ledger_anchor_outbox GROUP BY status")
+    failed = _rows("SELECT event_hash, event_type, attempts, last_error, created_at, next_attempt_at "
+                   "FROM ledger_anchor_outbox WHERE status = 'FAILED' ORDER BY id LIMIT 100")
+    state = dict(ledger_anchor.STATE)
+    return {
+        "backend": state["backend"], "worker_running": state["running"], "worker_refused": state["refused"],
+        "last_run_at": state["last_run_at"], "last_result": state["last_result"], "last_error": state["last_error"],
+        "by_status": {r["status"]: {"count": int(r["n"]), "without_pseudo_id": int(r["no_pseudo_id"]),
+                                    "oldest": _s(r["oldest"])} for r in counts},
+        "failed": [{"event_hash": f["event_hash"].strip(), "event_type": f["event_type"],
+                    "attempts": int(f["attempts"]), "last_error": f["last_error"], "created_at": _s(f["created_at"]),
+                    "next_attempt_at": _s(f["next_attempt_at"])} for f in failed],
+    }

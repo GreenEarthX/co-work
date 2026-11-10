@@ -202,6 +202,17 @@ share `gex_test_suite`).
   the card cannot change or drop it; its buyer confirms it with the four-eye TRADE_CONFIRM); an
   acceptance past the planned output is refused. Without one it stays a trade. Head **094**.
 - Platform **1394 pass / 15 skip**, frontend **260**.
+**2026-11-10 (latest): head is 095 — Phase 4: the ledger anchor, built and OFF** (handoff §8 item 60).
+- Every contract event writes one `ledger_anchor_outbox` row BY TRIGGER, in its own transaction.
+  `gex_app` reads it (the record's RLS) and writes nothing.
+- New role **`gex_anchor`** (setup script; restore step 5 grants it CONNECT too): SELECT on the
+  outbox and UPDATE on its anchoring columns only.
+- `tb_contract.pseudo_id` = HMAC(`LEDGER_ANCHOR_SALT`, contract_ref), fixed by trigger. **The salt
+  never rotates** and lives in `.env` only.
+- `LEDGER_ANCHOR_BACKEND = none | hedera_testnet` (default none: no worker). Mainnet is not a value.
+- `scripts/drain_anchor_outbox.py`, `scripts/verify_anchor.py`. A fixture removal deletes its
+  outbox rows too.
+- Platform **1422 pass / 15 skip**, frontend **263**. **150** tables, **143** FORCED.
 **2026-11-05: a paused Docker Desktop used to hang the sweep and the suite** (port 55432 accepts, nothing answers). `app/core/config.py` defaults `PGCONNECT_TIMEOUT=10`; the sweep has a thread watchdog (exit 4). Check `docker info` first. Platform **1307 pass / 15 skip**, engine 275.
 **2026-11-03:** tenant `mohring_energie` created (`scripts/onboard_fortaverde_client.py`; users not yet registered, no telephone numbers). The Project Profile no longer invents verification: a recorded value is SUBMITTED, a missing one UNVERIFIED, nothing is CONFIRMED there and its click-to-confirm is gone. A missing CAPEX or coordinate is null end to end, not 0. A 401/403 readout now says "No access to this project's gates", not "Gate engine unavailable". **GEX staff read-only (JML, same day):** ABAC rule **R0P**, before R0, lets `is_platform_admin` READ `GATE_EVALUATION` and `EVIDENCE` on every project — nothing else: writes, verification, export, share, financial models, contracts, data rooms and activity still meet R0 (an admin with no project role is GUEST there). `tests/test_platform_read_only.py` (25), negative-verified three ways. Platform **1259 pass / 15 skip**, frontend 233.
 **2026-11-03 (later): GEX staff console** (`/gex-console`, CISO menu, service type PLATFORM only; JML). `routes_gex_console.py` (`/api/v1/gex-console`, domain `platform`) is GET-only and `is_platform_admin`-only: admins, companies (TEST flagged), staff rights (from R0P and `REVIEWER_GATES`), per-company onboarding steps read from the records (a registered account is matched by its `pending_…` id + company name). Its actions post to the existing `/api/v1/account/{id}/…` endpoints, which enforce separation of duties. A read failure answers 503, never zeros. **Temporary password (JML exception to the onboarding rule):** `onboard_fortaverde_client.py --register --temporary-password --execute` reads one at a getpass prompt and writes `account.temporary_password_set`; Still blocked on the two telephone numbers. Platform 1267 / 15 skip (`test_gex_console_pg.py` 8, negative-verified three ways), frontend 238.
@@ -563,8 +574,8 @@ item 43). The steps were:
 4. Promote it: `DROP DATABASE gex_platform; ALTER DATABASE gex_restore_test RENAME TO
    gex_platform;`. This skips a second restore.
 5. **Re-apply the database-level settings. A `-Fc` dump does not carry them.**
-   `GRANT CONNECT ON DATABASE gex_platform TO gex_app, gex_admin, gex_engine;` (gex_engine
-   since 082 — the PF engine's run log) and
+   `GRANT CONNECT ON DATABASE gex_platform TO gex_app, gex_admin, gex_engine, gex_anchor;` (gex_engine
+   since 082 — the PF engine's run log; gex_anchor since 095 — the ledger anchor worker) and
    `ALTER DATABASE gex_platform SET app.current_company_id = 'GUEST';`. Without the first,
    the runtime cannot connect. Without the second, the RLS default changes.
 6. Take a fresh backup straight away.

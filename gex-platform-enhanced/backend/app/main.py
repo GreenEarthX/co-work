@@ -608,6 +608,23 @@ async def startup_event_bus():
         logger.warning("Event bus unavailable (Redis not running): %s", e)
 
 
+@app.on_event("startup")
+async def startup_ledger_anchor():
+    # Phase 4 (Q11): the outbox worker runs in-process, and only when
+    # LEDGER_ANCHOR_BACKEND is not "none". Misconfigured, it does not start and says
+    # why (GEX staff console); it never stops the platform.
+    from app.core import ledger_anchor
+
+    ledger_anchor.start_worker()
+
+
+@app.on_event("shutdown")
+async def shutdown_ledger_anchor():
+    from app.core import ledger_anchor
+
+    await ledger_anchor.stop_worker()
+
+
 @app.on_event("shutdown")
 async def shutdown_event_bus():
     redis_client = getattr(app.state, "redis", None)

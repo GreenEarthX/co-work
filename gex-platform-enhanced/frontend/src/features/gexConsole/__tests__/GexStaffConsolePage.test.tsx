@@ -107,3 +107,36 @@ describe('menu', () => {
     expect(cisoMenuItems(null).map(i => i.id)).not.toContain('gex-console')
   })
 })
+
+describe('Ledger anchor on the staff console', () => {
+  it('says the anchor is off, counts by status and lists the rows that failed', async () => {
+    stub({ '/api/v1/gex-console/ledger-anchor': { status: 200, body: {
+      backend: 'none', worker_running: false, worker_refused: [], last_run_at: null, last_error: null,
+      by_status: { PENDING: { count: 4, without_pseudo_id: 0, oldest: null }, FAILED: { count: 1, without_pseudo_id: 0, oldest: null } },
+      failed: [{ event_hash: 'ab'.repeat(32), event_type: 'CONFIRMED', attempts: 8, last_error: 'AnchorUnavailable: down', created_at: null }],
+    } } })
+    render(<GexStaffConsolePage />)
+    await waitFor(() => expect(screen.getByTestId('anchor-PENDING')).toHaveTextContent('4'))
+    const panel = screen.getByTestId('ledger-anchor')
+    expect(within(panel).getByText(/Off \(LEDGER_ANCHOR_BACKEND = none\)/)).toBeInTheDocument()
+    expect(screen.getByTestId('anchor-FAILED')).toHaveTextContent('1')
+    expect(within(panel).getByText(/Failed after 8 attempts/)).toBeInTheDocument()
+    expect(within(panel).getByText(/AnchorUnavailable: down/)).toBeInTheDocument()
+  })
+
+  it('says a switched-on worker that did not start is not running, and why', async () => {
+    stub({ '/api/v1/gex-console/ledger-anchor': { status: 200, body: {
+      backend: 'hedera_testnet', worker_running: false, worker_refused: ['HEDERA_TOPIC_ID is not set'],
+      last_run_at: null, last_error: null, by_status: {}, failed: [],
+    } } })
+    render(<GexStaffConsolePage />)
+    await waitFor(() => expect(screen.getByText(/NOT running: HEDERA_TOPIC_ID is not set/)).toBeInTheDocument())
+  })
+
+  it('shows a read failure, never zeros', async () => {
+    stub({ '/api/v1/gex-console/ledger-anchor': { status: 503, body: { detail: { code: 'STORE_UNREADABLE', message: 'down' } } } })
+    render(<GexStaffConsolePage />)
+    await waitFor(() => expect(screen.getByText(/The outbox could not be read/)).toBeInTheDocument())
+    expect(screen.queryByTestId('anchor-PENDING')).toBeNull()
+  })
+})

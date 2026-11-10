@@ -73,6 +73,11 @@ services:
       ENVIRONMENT: development
       PF_ENGINE_URL: http://pf_engine:8001
       TEA_ENGINE_URL: http://tea_engine:8002
+      # Ledger anchor (Phase 4 of "One contract record"): off unless set. The salt and the
+      # gex_anchor password come from files/.env (git-ignored), never from this file.
+      LEDGER_ANCHOR_BACKEND: none
+      LEDGER_ANCHOR_SALT: ${LEDGER_ANCHOR_SALT:-}
+      LEDGER_ANCHOR_DATABASE_URL: postgresql://gex_anchor:${GEX_ANCHOR_DB_PASSWORD:-}@postgres:5432/gex_platform
     depends_on:
       postgres: {condition: service_healthy}
       redis:    {condition: service_healthy}

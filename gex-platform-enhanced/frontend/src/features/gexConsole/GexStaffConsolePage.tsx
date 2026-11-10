@@ -5,8 +5,8 @@
  * platform, which companies are on it, what GEX staff may do, and where each
  * client's onboarding stands — with the vetting actions where GEX is the actor.
  *
- * Reads: GET /api/v1/gex-console/summary, /onboarding/{company}, and
- * /api/v1/account/vetting-queue. Every action posts to /api/v1/account/{id}/…,
+ * Reads: GET /api/v1/gex-console/summary, /onboarding/{company}, /ledger-anchor
+ * and /api/v1/account/vetting-queue. Every action posts to /api/v1/account/{id}/…,
  * which enforces the rule (activator ≠ the employee who made the call, both
  * pieces of vetting on file). The screen greys out what the server would
  * refuse; it never decides alone.
@@ -137,6 +137,68 @@ export function AccountActions({ account, callerId, companyId, onDone }:
         </div>
       )}
     </div>
+  )
+}
+
+interface AnchorHealth {
+  backend: string
+  worker_running: boolean
+  worker_refused: string[]
+  last_run_at: string | null
+  last_error: string | null
+  by_status: Record<string, { count: number; without_pseudo_id: number; oldest: string | null }>
+  failed: { event_hash: string; event_type: string; attempts: number; last_error: string | null; created_at: string | null }[]
+}
+
+const ANCHOR_STATUSES = ['PENDING', 'ANCHORED', 'NOT_ANCHORED', 'FAILED'] as const
+
+/** Phase 4 of "One contract record": the ledger anchor outbox and its worker.
+ *  Hashes and statuses only; a read failure says so, never shows zeros. */
+export function LedgerAnchorPanel() {
+  const [h, setH] = useState<AnchorHealth | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    cisoCall<AnchorHealth>('/gex-console/ledger-anchor')
+      .then(r => { setH(r); setError(null) })
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+  }, [])
+  const worker = !h ? '' : h.backend === 'none'
+    ? 'Off (LEDGER_ANCHOR_BACKEND = none): no event leaves for a ledger'
+    : h.worker_running ? `On (${h.backend}), last pass ${fmt(h.last_run_at)}`
+      : `Switched on (${h.backend}) but NOT running: ${(h.worker_refused ?? []).join('; ') || 'not started'}`
+  return (
+    <section className={`${card} p-4`} data-testid="ledger-anchor">
+      <h2 className="text-sm font-bold text-[var(--text-primary)]">Ledger anchor</h2>
+      <p className="mt-1 text-xs text-[var(--text-secondary)]">
+        Each contract event's hash, under a pseudonymous id, for a public ledger. No terms, names or company ids leave.
+      </p>
+      {error && <p className="mt-2 text-xs text-red-700 dark:text-red-300">The outbox could not be read: {error}</p>}
+      {h && (
+        <>
+          <p className="mt-2 text-xs"><span className="font-semibold">Worker:</span> {worker}</p>
+          {h.last_error && <p className="mt-1 text-xs text-red-700 dark:text-red-300">Last pass failed: {h.last_error}</p>}
+          <table className="mt-3 w-full text-xs">
+            <thead><tr className="border-b border-[var(--border)]">
+              {ANCHOR_STATUSES.map(s => <th key={s} className={th}>{s.replace('_', ' ').toLowerCase()}</th>)}
+            </tr></thead>
+            <tbody><tr>
+              {ANCHOR_STATUSES.map(s => <td key={s} className={td} data-testid={`anchor-${s}`}>{h.by_status?.[s]?.count ?? 0}</td>)}
+            </tr></tbody>
+          </table>
+          {(h.failed ?? []).length > 0 && (
+            <>
+              <h3 className="mt-3 text-xs font-bold text-red-700 dark:text-red-300">Failed after {h.failed[0].attempts} attempts · {h.failed.length}</h3>
+              <ul className="mt-1 space-y-1 text-[11px] text-[var(--text-secondary)]">
+                {h.failed.map(f => (
+                  <li key={f.event_hash}><code>{f.event_hash.slice(0, 16)}…</code> {f.event_type} — {f.last_error ?? 'no error recorded'}</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-[11px] text-[var(--text-muted)]">Requeue with scripts/drain_anchor_outbox.py --requeue-failed once the cause is fixed.</p>
+            </>
+          )}
+        </>
+      )}
+    </section>
   )
 }
 
@@ -331,6 +393,8 @@ export function GexStaffConsolePage() {
           </tbody>
         </table>
       </section>
+
+      <LedgerAnchorPanel />
     </div>
   )
 }

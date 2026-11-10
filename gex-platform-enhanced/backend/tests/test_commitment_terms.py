@@ -125,6 +125,7 @@ def wired(_seeded, monkeypatch):
     from app.core.request_tenant import reset_current_company, set_current_company
 
     _owner_sql(_seeded,
+               "DELETE FROM ledger_anchor_outbox WHERE contract_id IN (SELECT id FROM tb_contract WHERE project_id = %s)",
                "DELETE FROM tb_contract_event WHERE contract_id IN (SELECT id FROM tb_contract WHERE project_id = %s)",
                "DELETE FROM tb_contract_version WHERE contract_id IN (SELECT id FROM tb_contract WHERE project_id = %s)",
                "DELETE FROM tb_contract WHERE project_id = %s")

@@ -47,6 +47,24 @@ END $$;
 GRANT CONNECT ON DATABASE gex_platform TO gex_engine;
 GRANT USAGE   ON SCHEMA public         TO gex_engine;
 
+-- ── Ledger anchor role (2026-11-10, Phase 4 of "One contract record") ────────
+-- gex_anchor — used by the outbox worker that sends contract-event hashes to the
+-- ledger anchor. Migration 095 grants it SELECT on ledger_anchor_outbox and
+-- column-level UPDATE on the anchoring columns (status, attempts, retry time,
+-- last error, ledger reference, anchored_at) and NOTHING else: no terms, no
+-- names, no other table. Created here, not in 095, because roles are not in a
+-- pg_dump. Set the real password with ALTER ROLE gex_anchor PASSWORD ... to
+-- match LEDGER_ANCHOR_DATABASE_URL.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gex_anchor') THEN
+    CREATE ROLE gex_anchor LOGIN PASSWORD 'gex_anchor_password_change_in_prod';
+  END IF;
+END $$;
+
+GRANT CONNECT ON DATABASE gex_platform TO gex_anchor;
+GRANT USAGE   ON SCHEMA public         TO gex_anchor;
+
 -- ── Set default for app.current_company_id ───────────────────────────────────
 -- If a connection forgets to SET LOCAL, the default is 'GUEST' so RLS
 -- returns nothing rather than everything.
@@ -132,6 +150,14 @@ BEGIN
   LOOP
     EXECUTE format('REVOKE ALL ON %I FROM gex_app', tbl);
   END LOOP;
+
+  -- 095: gex_app READS the ledger anchor outbox (RLS: the contract's parties) and
+  -- writes nothing; rows come from a trigger on tb_contract_event, and only
+  -- gex_anchor updates the anchoring columns. Take any write back, unconditionally.
+  IF EXISTS (SELECT 1 FROM pg_tables
+             WHERE schemaname = 'public' AND tablename = 'ledger_anchor_outbox') THEN
+    EXECUTE 'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ledger_anchor_outbox FROM gex_app';
+  END IF;
 
   FOR tbl IN
     SELECT tablename FROM pg_tables WHERE schemaname = 'public'
