@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from decimal import Decimal
 from typing import Optional
 
 # card -> field -> contract kind
@@ -279,7 +280,8 @@ def frame_state(project_id: str, conn=None) -> Optional[dict]:
         if v is None:
             return None
         t = record._row(c, "SELECT shared_hash FROM tb_terms WHERE id = ?", (str(v["terms_id"]),))
-        subs = record._rows(c, "SELECT s.id, s.seq, s.sub_leg_hash, s.card_projection, cp.company_id "
+        subs = record._rows(c, "SELECT s.id, s.seq, s.sub_leg_hash, s.card_projection, cp.company_id, "
+                               "s.source_contract_id, s.source_terms_hash "
                                "FROM tb_sub_leg s JOIN tb_counterparty cp ON cp.id = s.buyer_id "
                                "WHERE s.terms_id = ? AND s.card_projection IS NOT NULL ORDER BY s.seq",
                             (str(v["terms_id"]),))
@@ -299,6 +301,9 @@ def confirm_sub_leg(project_id: str, buyer_company: str, sub_leg_hash: str, even
         sub = next((s for s in (state or {}).get("sub_legs", []) if s["company_id"] == buyer_company), None)
         if sub is None:
             raise TokenRefusal(404, "NOT_A_BUYER_OF_THIS_FRAME", "Your company has no sub-leg in this offtake frame.")
+        if event_type == "CONFIRMED" and sub.get("source_contract_id"):
+            raise TokenRefusal(409, "CONFIRM_ON_THE_TRADE", "This sub-leg is a market trade: confirm the trade, with "
+                                                            "four eyes (TRADE_CONFIRM); that confirms the sub-leg.")
         if event_type == "CONFIRMED" and sub_leg_hash != sub["sub_leg_hash"].strip():
             raise TokenRefusal(409, "NOT_THE_LATEST_VERSION",
                                "Confirm the latest version of your sub-leg: name its sub_leg_hash (it changed).")
@@ -308,16 +313,38 @@ def confirm_sub_leg(project_id: str, buyer_company: str, sub_leg_hash: str, even
     return _run(go)
 
 
+def _locked_sub_legs(c, project_id: str) -> dict[str, dict]:
+    """The frame's market sub-legs (Q6.4), by buyer company: each locked to its trade."""
+    state = frame_state(project_id, conn=c)
+    return {s["company_id"]: s for s in (state or {}).get("sub_legs", []) if s.get("source_contract_id")}
+
+
 def _record_frame_version(c, contract_row: dict, cards: dict, sha: str, actor: str,
-                          company_id: Optional[str], note: Optional[str] = None) -> dict:
+                          company_id: Optional[str], note: Optional[str] = None,
+                          new_sources: Optional[dict] = None) -> dict:
+    """A frame version from the card. A market buyer's sub-leg (Q6.4, JML 2026-11-10) is
+    LOCKED: the card must carry it exactly as it stands — it changes only with its
+    trade — and it keeps the trade it names. `new_sources` names the trade of a buyer
+    joining now (order_book acceptance)."""
     from app.trading_book import record
     from app.trading_book.terms import SubLegIn, TermsIn
 
     shared, buyers = frame_terms(cards)
     cid = contract_row["id"]
+    locked = _locked_sub_legs(c, contract_row["project_id"])
+    in_card = dict(buyers)
+    for company, sub in locked.items():
+        if in_card.get(company) != (sub["card_projection"] or {}):
+            raise TokenRefusal(422, "MARKET_SUB_LEG_LOCKED",
+                               f"{company}'s sub-leg comes from a market trade: it changes only with that trade, "
+                               "never on the card (keep its entry as it is).")
+    sources = {company: (str(sub["source_contract_id"]), sub["source_terms_hash"].strip())
+               for company, sub in locked.items()} | (new_sources or {})
     owner = record._row(c, "SELECT owner_company_id FROM tb_contract WHERE id = ?", (cid,))["owner_company_id"]
     terms = TermsIn(profile="card", card_projection=shared,
-                    sub_legs=[SubLegIn(seq=n, buyer=record.counterparty_for(c, company), card_projection=proj)
+                    sub_legs=[SubLegIn(seq=n, buyer=record.counterparty_for(c, company), card_projection=proj,
+                                       source_contract_id=sources.get(company, (None, None))[0],
+                                       source_terms_hash=sources.get(company, (None, None))[1])
                               for n, (company, proj) in enumerate(buyers, start=1)])
     from app.trading_book.validation import validate_card
     problems = validate_card(terms)
@@ -516,6 +543,9 @@ def propose_novation(project_id: str, owner: str, outgoing: str, incoming: str, 
         sub = next((s for s in (state or {}).get("sub_legs", []) if s["company_id"] == outgoing), None)
         if sub is None:
             raise TokenRefusal(404, "NOT_A_BUYER_OF_THIS_FRAME", f"{outgoing} has no sub-leg in the offtake frame.")
+        if sub.get("source_contract_id"):
+            raise TokenRefusal(409, "MARKET_SUB_LEG_LOCKED", "This sub-leg is a market trade: it changes hands only "
+                                                             "with that trade, not by a novation of the frame.")
         if incoming in {s["company_id"] for s in state["sub_legs"]}:
             raise TokenRefusal(409, "ALREADY_A_BUYER", f"{incoming} already holds a sub-leg; a frame has one per buyer.")
         if any(n["state"] == "pending" and n["outgoing_company_id"] == outgoing for n in novations(project_id, conn=c)):
@@ -608,6 +638,98 @@ def confirm_novation(project_id: str, owner: str, proposal_hash: str, actor: str
                                    note=f"confirmed by its confirmation of novation {proposal_hash[:12]}")
         return {"event": ev, "completed": True, "version": nv, "incoming_confirmed": conf}
     return _run(go)
+
+
+# ── A market trade joins its project's frame (Phase 3, Q6.4) ────────────────
+#
+# JML 2026-11-10: when the project records a planned output and its offtake is a
+# frame (or holds no offtake terms yet), an accepted trade for the project's output
+# becomes the buyer's sub-leg of the frame in the same transaction — LOCKED to the
+# trade — and an acceptance that would take the frame past the planned output is
+# refused. Otherwise it stays a trade, which never reaches the engine. The sub-leg
+# carries the projection derived from the trade (Q4) and names the trade.
+
+def derive_projection(terms) -> tuple[Optional[dict], Optional[Decimal]]:
+    """(the card projection Q4 derives from a trade, its largest yearly quantity) — or
+    (None, None) when its physical flows are not in tonnes. first_delivery_date = the
+    first physical period_start; tenor_years = whole years covered, rounded down;
+    contracted_tonnes_per_year = the smallest FULL-year quantity (absent with none)."""
+    from datetime import timedelta
+
+    flows = [f for leg in terms.legs for f in leg.flows if str(getattr(f.flow_type, "value", f.flow_type)) == "physical"]
+    if not flows or any((f.unit or "").lower() != "t" for f in flows):
+        return None, None
+    start = min(f.period_start for f in flows)
+    end = max(f.period_end for f in flows) + timedelta(days=1)          # exclusive
+    years, windows = 0, []
+    while True:
+        a = start.replace(year=start.year + years)
+        b = start.replace(year=start.year + years + 1)
+        if a >= end:
+            break
+        qty = sum((Decimal(f.quantity) for f in flows if a <= f.period_start < b), Decimal(0))
+        windows.append((b <= end, qty))
+        years += 1
+    full = [q for whole, q in windows if whole]
+    proj = {"offtake.first_delivery_date": start.isoformat(), "offtake.tenor_years": float(len(full))}
+    if full:
+        proj["offtake.contracted_tonnes_per_year"] = float(min(full))
+    return proj, max(q for _, q in windows)
+
+
+def join_frame(c, project_id: Optional[str], trade_contract_id: str, buyer_company: str, terms, terms_hash: str,
+               actor: str, company_id: Optional[str]) -> Optional[dict]:
+    """In the acceptance's transaction: the buyer's locked sub-leg on the project's frame,
+    or None when the trade stays a trade. Raises RecordRefused when the frame's output
+    would be exceeded (the whole acceptance is then undone)."""
+    from app.core.commitment_terms import OFFTAKE_SHARED_FIELDS as OFFTAKE_SHARED_KEYS
+    from app.trading_book import record
+
+    if not project_id:
+        return None
+    cards = card_terms(project_id, conn=c)
+    off = dict(cards.get("offtake") or {})
+    planned = off.get("planned_output_tonnes_per_year")
+    single = any(f in off for f, k in FIELD_KIND["offtake"].items()
+                 if k == "offtake" and f not in OFFTAKE_SHARED_KEYS) and not off.get("buyers")
+    proj, yearly = derive_projection(terms)
+    if not planned or single or proj is None:
+        return None                       # no planned output, a single-counterparty offtake, or not in tonnes
+    buyers = list(off.get("buyers") or [])
+    if any(b.get("company_id") == buyer_company for b in buyers):
+        return None                       # one sub-leg per buyer: a second trade stays a trade
+    already = sum(float(b.get("contracted_tonnes_per_year") or 0) for b in buyers)
+    if already + float(yearly) > float(planned) * 1.000001:
+        raise record.RecordRefused(409, "EXCEEDS_FRAME_OUTPUT",
+                                   f"Accepting would put {already + float(yearly):,.0f} t/year under offtake terms, "
+                                   f"over the {float(planned):,.0f} t/year the project plans to produce.")
+    buyers.append({"company_id": buyer_company, **{k.split(".", 1)[1]: v for k, v in proj.items()}})
+    cards["offtake"] = {**off, "buyers": buyers}
+    record_versions(project_id, cards, actor, company_id, conn=c, card_type="offtake",
+                    new_sources={buyer_company: (trade_contract_id, terms_hash)})
+    state = frame_state(project_id, conn=c)
+    return next(s for s in state["sub_legs"] if s["company_id"] == buyer_company)
+
+
+def confirm_from_trade(c, trade_contract_id: str, trade_terms_hash: str, actor: str, buyer_company: str,
+                       note: str) -> Optional[dict]:
+    """The buyer's four-eye TRADE_CONFIRM confirms its locked sub-leg (Q7.3), when the
+    frame's current version still carries that trade version. Idempotent by note."""
+    from app.trading_book import record
+
+    sub = record._row(c, "SELECT s.id, s.sub_leg_hash, v.id AS version_id, v.contract_id FROM tb_sub_leg s "
+                         "JOIN tb_contract_version v ON v.terms_id = s.terms_id AND v.superseded_at IS NULL "
+                         "JOIN tb_counterparty cp ON cp.id = s.buyer_id WHERE s.source_contract_id = ? "
+                         "AND s.source_terms_hash = ? AND cp.company_id = ?",
+                      (trade_contract_id, trade_terms_hash, buyer_company))
+    if sub is None:
+        return None
+    if record._row(c, "SELECT 1 AS x FROM tb_contract_event WHERE contract_id = ? AND event_type = 'CONFIRMED' "
+                      "AND sub_leg_id = ? AND note = ?", (str(sub["contract_id"]), str(sub["id"]), note)):
+        return None
+    return record.append_event(c, str(sub["contract_id"]), "CONFIRMED", actor, buyer_company,
+                               version_id=str(sub["version_id"]), sub_leg_id=str(sub["id"]),
+                               terms_hash=sub["sub_leg_hash"].strip(), note=note)
 
 
 # ── Adverse facts (Q10) ─────────────────────────────────────────────────────
@@ -856,7 +978,7 @@ def confirmed_terms(project_id: str) -> dict[str, dict]:
 
 
 def record_versions(project_id: str, cards: dict, actor: str, company_id: Optional[str], conn=None,
-                    card_type: Optional[str] = None) -> list[str]:
+                    card_type: Optional[str] = None, new_sources: Optional[dict] = None) -> list[str]:
     """After a card save: a new VERSION on every contract whose terms changed. With
     `conn`, inside the caller's transaction (the card save, Phase 0 Q9). Since
     Phase 3 the record IS the card store (card_view): `card_type` names the card
@@ -872,9 +994,12 @@ def record_versions(project_id: str, cards: dict, actor: str, company_id: Option
                 last = latest_version(row["id"], conn=c)
                 sha = frame_hash(*frame_terms(cards))
                 if last is None or last["terms_sha256"] != sha:
-                    _record_frame_version(c, row, cards, sha, actor, company_id, note=save)
+                    _record_frame_version(c, row, cards, sha, actor, company_id, note=save, new_sources=new_sources)
                     changed.append(kind)
                 continue
+            if kind == "offtake" and _locked_sub_legs(c, project_id):
+                raise TokenRefusal(422, "MARKET_SUB_LEG_LOCKED", "The offtake frame holds a market trade's sub-leg: "
+                                                                 "it stays a frame (keep its buyers).")
             terms = kind_terms(cards, kind)
             row = contract(project_id, kind, create=bool(terms), conn=c)
             if row is None:

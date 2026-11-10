@@ -173,7 +173,7 @@ interface TermsResponse {
   card_gates: Record<CardType, string>;
   // The offtake frame (contract record Phase 3, Q2): with buyers, each buyer's terms sit in its
   // own entry and are confirmed by that buyer; the shared terms stay at the top of the card.
-  offtake_frame?: { shared_fields: string[]; buyer_fields: string[]; possible_buyers: string[] };
+  offtake_frame?: { shared_fields: string[]; buyer_fields: string[]; possible_buyers: string[]; locked_buyers?: string[] };
 }
 
 interface BuyerForm {
@@ -2373,8 +2373,10 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
               </button>
             )}
           </div>
-          {buyers.map((b, i) =>
-            b.hidden ? (
+          {buyers.map((b, i) => {
+            // A market buyer's sub-leg (Q6.4) comes from its trade: shown, never edited here.
+            const locked = (frame.locked_buyers ?? []).includes(b.company_id);
+            return b.hidden ? (
               <div key={i} className="mt-2 rounded border border-dashed border-slate-200 px-2 py-1 text-[11px] text-slate-500">
                 Another buyer
                 {b.volume_share != null && ` · ${Math.round(b.volume_share * 100)}% of the contracted volume`}
@@ -2383,11 +2385,16 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
             <div key={i} className="mt-2 rounded border border-slate-200 p-2">
               <div className="mb-1 flex items-center gap-2 text-xs">
                 <span className="font-medium text-slate-700">Buyer {i + 1}</span>
+                {locked && (
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                    from a market trade — changes only with the trade
+                  </span>
+                )}
                 <select
                   aria-label={`Buyer ${i + 1} company`}
                   className="rounded border px-1 py-0.5 text-xs"
                   value={b.company_id}
-                  disabled={!editable || busy}
+                  disabled={!editable || busy || locked}
                   onChange={(e) =>
                     setBuyers((bs) => bs.map((x, j) => (j === i ? { ...x, company_id: e.target.value } : x)))
                   }
@@ -2399,7 +2406,7 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
                     </option>
                   ))}
                 </select>
-                {editable && (
+                {editable && !locked && (
                   <button
                     type="button"
                     className="ml-auto text-[11px] text-slate-500 underline"
@@ -2416,7 +2423,7 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
                     <TermsInput
                       kind={kind}
                       value={b.form[field] ?? ""}
-                      disabled={!editable || busy}
+                      disabled={!editable || busy || locked}
                       onChange={(v) =>
                         setBuyers((bs) => bs.map((x, j) => (j === i ? { ...x, form: { ...x.form, [field]: v } } : x)))
                       }
@@ -2425,8 +2432,8 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
                 ))}
               </div>
             </div>
-            ),
-          )}
+            );
+          })}
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-3 py-2">

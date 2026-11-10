@@ -219,6 +219,7 @@ def _frame_buyers_for(frame: dict, in_force: set, viewer: Optional[str], owner: 
         out.append({"company_id": s["company_id"] if (mine or not is_buyer) else None,
                     "sub_leg_hash": s["sub_leg_hash"].strip(),
                     "confirmed": (s["company_id"], s["sub_leg_hash"].strip(), shared) in in_force,
+                    "locked": bool(s.get("source_contract_id")),       # a market trade's sub-leg (Q6.4)
                     "volume_share": round(vol / total, 4) if total else None})
     return out
 

@@ -125,10 +125,11 @@ def write_terms(conn, terms: TermsIn, owner_company_id: str, *, profile: Optiona
         sid = str(uuid.uuid4())
         legs = [leg for leg in terms.legs if leg.sub_leg == n]
         card = cards.get(n)
-        conn.execute("INSERT INTO tb_sub_leg (id, terms_id, seq, buyer_id, rank, sub_leg_hash, card_projection) "
-                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        conn.execute("INSERT INTO tb_sub_leg (id, terms_id, seq, buyer_id, rank, sub_leg_hash, card_projection, "
+                     "source_contract_id, source_terms_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      (sid, terms_id, n, card.buyer if card else _buyer_of(legs), ranks.get(n), h["sub_legs"][n],
-                      json.dumps(card.card_projection, sort_keys=True, default=str) if card else None))
+                      json.dumps(card.card_projection, sort_keys=True, default=str) if card else None,
+                      card.source_contract_id if card else None, card.source_terms_hash if card else None))
         subs[n] = {"id": sid, "hash": h["sub_legs"][n]}
     flow_ids: dict[str, str] = {}
     sources: list[tuple[str, str]] = []
@@ -198,7 +199,9 @@ def load_terms(conn, terms_id: str) -> TermsIn:
                   "flows": [flow(f) for f in flows if f["leg_seq"] == l["seq"]]} for l in legs],
         "sub_legs": [{"seq": s["seq"], "rank": s["rank"],
                       **({"buyer": str(s["buyer_id"]) if s["buyer_id"] else None,
-                          "card_projection": s["card_projection"]}
+                          "card_projection": s["card_projection"],
+                          "source_contract_id": str(s["source_contract_id"]) if s.get("source_contract_id") else None,
+                          "source_terms_hash": s["source_terms_hash"].strip() if s.get("source_terms_hash") else None}
                          if s.get("card_projection") is not None else {})}
                      for s in subs.values() if s["rank"] is not None or s.get("card_projection") is not None],
         "clauses": [{"seq": c["seq"], "clause_type": c["clause_type"], "sub_leg": c["sub_leg"],

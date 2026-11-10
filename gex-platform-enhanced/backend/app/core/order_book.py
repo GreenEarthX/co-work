@@ -304,11 +304,22 @@ def _accept(conn, party: Party, order_id: str, quantity: Optional[Decimal], *, q
         note=note or (f"order {order_id} accepted" + (f" (quote on RFQ {quote_of['id']})" if quote_of else "")),
         fill_id=fill_id, token_ids=token_ids)
     conn.execute("UPDATE tb_fill SET contract_id = ? WHERE id = ?", (made["id"], fill_id))
+    # Q6.4 (JML 2026-11-10): a trade for a project's output joins the project's offtake
+    # frame as the buyer's LOCKED sub-leg when the project records a planned output —
+    # refused here if it would exceed it; otherwise it stays a trade.
+    from app.core import contract_tokens as ct
+    try:
+        frame_sub_leg = ct.join_frame(conn, project_id or _project_of(conn, contract_terms),
+                                      made["id"], record.company_of_counterparty(conn, buyer), contract_terms,
+                                      made["terms_hash"], party.user_id, party.company_id)
+    except ct.TokenRefusal as exc:
+        raise RecordRefused(exc.status, exc.code, exc.message)
     new_status = "filled" if q == remaining else "partially_filled"
     conn.execute("UPDATE tb_order SET status = ?, updated_at = now() WHERE id = ?", (new_status, order_id))
     _event(conn, order_id, o["status"], new_status, party.user_id, f"accepted: fill {fill_id}")
     return {"fill_id": fill_id, "quantity": str(q), "contract_id": made["id"], "contract_ref": made["contract_ref"],
-            "terms_hash": made["terms_hash"]}
+            "terms_hash": made["terms_hash"],
+            "frame_sub_leg_hash": frame_sub_leg["sub_leg_hash"].strip() if frame_sub_leg else None}
 
 
 @_guard
@@ -555,6 +566,11 @@ def approve_confirmation(party: Party, contract_id: str, request_id: str) -> dic
                           "AND note = ?", (contract_id, note)):
             record.append_event(conn, contract_id, "CONFIRMED", party.user_id, party.company_id,
                                 version_id=str(v["id"]), terms_hash=v["terms_hash"], note=note)
+        # The buyer's four-eye confirmation of a trade that is a frame's market sub-leg
+        # confirms that sub-leg too (Q7.3), in this transaction.
+        from app.core import contract_tokens as ct
+        if party.company_id in who["buyers"]:
+            ct.confirm_from_trade(conn, contract_id, v["terms_hash"], party.user_id, party.company_id, note)
         status = c["trade_status"]
         if status == "pending_confirmation" and who["companies"] <= _confirmed_companies(conn, contract_id):
             conn.execute("UPDATE tb_contract SET trade_status = 'confirmed', updated_at = now() WHERE id = ?",

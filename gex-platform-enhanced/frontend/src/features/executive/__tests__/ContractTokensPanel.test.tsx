@@ -86,3 +86,15 @@ describe('ContractTokensPanel — adverse facts and novations', () => {
     expect(screen.getByRole('button', { name: 'Confirm this novation' })).toBeTruthy()
   })
 })
+
+describe('ContractTokensPanel — a market trade in the frame (Q6.4)', () => {
+  it('offers its buyer no frame confirmation or hand-over: it is confirmed on the trade', async () => {
+    const frame = { ...FRAME, buyers: [{ company_id: 'test_buyer_b', sub_leg_hash: 'b'.repeat(64), confirmed: false,
+      volume_share: 1, locked: true }] }
+    stub([offtake(frame)], { company_id: 'test_buyer_b', is_gex: false, is_owner_executive: false })
+    render(<ContractTokensPanel projectId="p" onChanged={() => {}} />)
+    expect(await screen.findByText(/confirmed on the trade, with four eyes/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Confirm my sub-leg' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Hand over…' })).toBeNull()
+  })
+})

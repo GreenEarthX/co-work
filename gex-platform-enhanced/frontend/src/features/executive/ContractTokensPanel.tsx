@@ -13,7 +13,7 @@ import { getAuthHeader } from '@/lib/authToken'
 
 interface TokenEvent { seq: number; event_type: string; terms_sha256: string | null; actor: string; company_id: string | null; note: string | null; at: string }
 // The offtake frame (contract record Phase 3, Q2): one sub-leg per buyer, each confirmed by that buyer.
-interface FrameBuyer { company_id: string; sub_leg_hash: string; confirmed: boolean }
+interface FrameBuyer { company_id: string; sub_leg_hash: string; confirmed: boolean; locked?: boolean }
 interface Frame { version: number; shared_hash: string; buyers: FrameBuyer[] }
 interface Token {
   kind: string; counterparty_company_id: string | null; confirmed_by: string; frame?: Frame | null
@@ -90,13 +90,14 @@ export function ContractTokensPanel({ projectId, onChanged }: { projectId: strin
                       {b.confirmed
                         ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">confirmed its sub-leg</span>
                         : <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">awaiting its confirmation</span>}
-                      {b.company_id === data.you.company_id && !data.you.is_gex && !b.confirmed && (
+                      {b.locked && <span className="text-[10px] text-gray-500">market trade · confirmed on the trade, with four eyes</span>}
+                      {b.company_id === data.you.company_id && !data.you.is_gex && !b.confirmed && !b.locked && (
                         <button className="rounded bg-teal-700 px-2 py-0.5 text-[11px] font-semibold text-white"
                           onClick={() => call('POST', `/offtake/buyers/${encodeURIComponent(b.company_id)}/confirm`, { sub_leg_hash: b.sub_leg_hash })}>
                           Confirm my sub-leg
                         </button>
                       )}
-                      {b.company_id && (b.company_id === data.you.company_id || data.you.is_owner_executive) && !data.you.is_gex && (
+                      {b.company_id && !b.locked && (b.company_id === data.you.company_id || data.you.is_owner_executive) && !data.you.is_gex && (
                         <button className="rounded border border-gray-300 px-2 py-0.5 text-[11px] text-gray-700"
                           onClick={() => { const incoming = window.prompt('Hand this sub-leg over to which company (its id)?'); if (incoming) call('POST', `/offtake/buyers/${encodeURIComponent(b.company_id!)}/novation`, { incoming_company_id: incoming }) }}>
                           Hand over…

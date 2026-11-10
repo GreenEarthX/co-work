@@ -3232,12 +3232,28 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       revenue only in the years each contract runs.
     - **Screens:** the commitment-card editor's buyers panel; the contracts panel's per-buyer
       confirm, dispute and hand-over, adverse facts with their clearing, pending novations.
-    - **Not done — for JML (Q6.4):** a market contract does not yet join its project's frame as a
-      buyer's sub-leg; it stays a `trade` contract that never reaches the engine (Phase 1's rule).
-      Two points need a decision first: an owner's card save rebuilds the frame from the card, so
-      a market buyer's sub-leg (with legs and flows) must be locked against it; and "an acceptance
-      that would exceed the frame's output is refused" needs a planned output in t/year, which
-      many projects do not record — refuse, or keep it a trade until one is recorded?
+    - **A market trade joins its project's frame (Q6.4; 094). JML decided the same day: lock it,
+      keep it as a trade.** When the project records a planned output and its offtake is a frame
+      (or holds no offtake terms yet), an accepted trade for the project's output becomes the
+      buyer's sub-leg of the frame in the acceptance's transaction (`contract_tokens.join_frame`,
+      from `order_book._accept`). The trade stays the one record of its terms (legs, flows,
+      settlement); the sub-leg names it (`tb_sub_leg.source_contract_id` and `source_terms_hash`,
+      094, inside the sub-leg hash) and carries the projection Q4 derives from it (first
+      delivery, whole years covered, the smallest full year). An acceptance that would take the
+      frame past the planned output is refused whole (`EXCEEDS_FRAME_OUTPUT`, no fill). It stays a
+      trade, never reaching the engine, without a planned output, on a single-counterparty offtake
+      card, outside tonnes, or for a buyer that already has a sub-leg.
+      - **Locked:** a card save that changes or drops a market sub-leg, or turns the frame back
+        into one buyer, is refused (`MARKET_SUB_LEG_LOCKED`, 422); novating one is refused too
+        (it changes hands with its trade). The card shows it read-only.
+      - **Confirmed on the trade:** the buyer's four-eye TRADE_CONFIRM writes its CONFIRMED on the
+        frame's sub-leg as well (`confirm_from_trade`, Q7.3); the single-eye frame route refuses a
+        market sub-leg (`CONFIRM_ON_THE_TRADE`).
+      - The derived projection carries no commitment form, so under the conservative aggregate
+        a frame with a market buyer reads no form until the rule for market trades says one.
+      - `tests/test_market_frame_pg.py` (7); 9 deliberate breaks, all caught; frontend +1.
+        094 round-tripped on dev. **Platform 1394 pass / 15 skip / 0 fail, frontend 260**;
+        parity identical for all 16 projects.
     - **Tests:** new `test_offtake_frame_pg.py` (18), `test_adverse_facts_pg.py` (7),
       `test_novation_pg.py` (4), `test_market_chain.py` +1 (revenue route);
       `test_commitment_terms_pg.py` rewritten (the two retired tables stay retired; a stranger
@@ -3369,18 +3385,14 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
-**2026-11-10 (later): One contract record — Phase 3 done but for Q6.4; report to JML before
-Phase 4** (§8 items 56–59; plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head **093**.
-M3–M6 (the order model, record cashflows, the old stores dropped) and step 4 (the offtake frame
-with per-buyer confirmation and the conservative aggregate, adverse facts as events, the cards as
-a view over the record, novation, the revenue screen on the record) are built and verified.
-Platform 1387 pass / 15 skip / 0 fail, frontend 259. Gate-engine parity identical for all 16 projects. Committed to `co-work` branch
-`contract-record-phase1`; not pushed.
-**Waiting on JML:** Q6.4 (a market contract joining its project's frame: lock a market sub-leg
-against card saves? refuse, or keep it a trade, when no planned output is recorded?); the
-aggregate's treatment of the fields the decision does not name (§8 item 59); 064's linked-trade
-header row (§8 item 58). **Then Phase 4:** the ledger anchor (outbox, NullAnchor/HederaHcsAnchor,
-off by default).
+**2026-11-10 (latest): One contract record — Phase 3 done; Phase 4 waits for JML's go-ahead**
+(§8 items 56–59; plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head **094**. M3–M6 and
+step 4 are built and verified, Q6.4 included (a market trade joins its project's frame, locked,
+or stays a trade). Platform 1394 pass / 15 skip / 0 fail, frontend 260. Gate-engine parity
+identical for all 16 projects. Committed to `co-work` branch `contract-record-phase1`; not pushed.
+**Open for JML:** the aggregate's treatment of the fields the decision does not name, and of a
+market buyer with no commitment form (§8 item 59); 064's linked-trade header row (§8 item 58).
+**Next, Phase 4:** the ledger anchor (outbox, NullAnchor/HederaHcsAnchor, off by default).
 
 **2026-11-04:** nothing in flight. Done today (§8 items 53–55): the PF engine keeps nothing in
 SQLite (migration **082**, role `gex_engine`, fuels from the platform API; head 082, platform

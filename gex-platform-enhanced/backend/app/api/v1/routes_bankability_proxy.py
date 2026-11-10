@@ -1349,7 +1349,18 @@ async def get_commitment_terms(project_id: str = Query(...),
     return {"project_id": project_id, "cards": cards, "can_edit": can_edit,
             "card_fields": COMMITMENT_CARD_FIELDS, "card_gates": TERMS_CARD_GATE,
             "offtake_frame": {"shared_fields": list(OFFTAKE_SHARED_FIELDS), "buyer_fields": list(OFFTAKE_BUYER_FIELDS),
-                              "possible_buyers": possible}}
+                              "possible_buyers": possible,
+                              # market buyers' sub-legs (Q6.4): read-only on the card; the owner's view only
+                              "locked_buyers": sorted(_locked_buyers(project_id)) if can_edit else []}}
+
+
+def _locked_buyers(project_id: str) -> set[str]:
+    from app.core import contract_tokens as ct
+    try:
+        state = ct.frame_state(project_id)
+    except Exception:  # noqa: BLE001 — the card still loads; nothing is offered as editable that is locked
+        return set()
+    return {s["company_id"] for s in (state or {}).get("sub_legs", []) if s.get("source_contract_id")}
 
 
 def _hide_other_buyers(cards: dict, viewer: str | None, owner: str | None) -> None:
@@ -1402,7 +1413,7 @@ async def put_commitment_terms(request: TermsWriteRequest,
             "code": "TERMS_INVALID", "problems": exc.problems,
             "message": "The card was not saved: " + "; ".join(exc.problems)})
 
-    from app.core.contract_tokens import card_terms, record_versions
+    from app.core.contract_tokens import TokenRefusal, card_terms, record_versions
 
     who = actor.get("user_id") or actor.get("email") or "unknown"
     new_json = json.dumps(clean, sort_keys=True)
@@ -1421,6 +1432,10 @@ async def put_commitment_terms(request: TermsWriteRequest,
         try:
             record_versions(request.project_id, cards, who, actor.get("company_id"), conn=conn,
                             card_type=request.card_type)
+        except TokenRefusal as exc:          # a rule of the record (e.g. a locked market sub-leg): nothing saved
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": exc.message})
         except Exception as exc:  # noqa: BLE001 — nothing saved, and the caller is told
             conn.rollback()
             conn.close()

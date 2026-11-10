@@ -68,6 +68,10 @@ class SubLegIn(BaseModel):
     # {card.field: value} projection (Q3). Both are hashed only when present.
     buyer: Optional[str] = None
     card_projection: Optional[dict[str, Any]] = None
+    # A market buyer's sub-leg (Q6.4, alembic 094): the trade it comes from and that
+    # trade version's terms hash. Locked: it changes only with its trade.
+    source_contract_id: Optional[str] = None
+    source_terms_hash: Optional[str] = None
 
 
 class LegIn(BaseModel):

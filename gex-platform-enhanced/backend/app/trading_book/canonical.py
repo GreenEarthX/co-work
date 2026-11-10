@@ -141,6 +141,8 @@ def sub_leg_dict(terms: TermsIn, n: int) -> dict:
     card = next((s for s in terms.sub_legs if s.seq == n and s.card_projection is not None), None)
     if card is not None:          # a frame buyer's card sub-leg (Phase 3): absent elsewhere, so no hash moves
         out["buyer"], out["card_projection"] = card.buyer, card.card_projection
+        if card.source_contract_id:   # a market buyer's sub-leg names its trade (094)
+            out["source"] = {"contract_id": card.source_contract_id, "terms_hash": card.source_terms_hash}
     return out
 
 
