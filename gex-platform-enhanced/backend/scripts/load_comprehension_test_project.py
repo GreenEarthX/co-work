@@ -191,18 +191,16 @@ RECORD_DELETES = [
     ("tb_terms", f"DELETE FROM tb_terms WHERE id IN ({_TERMS})"),
     ("tb_contract_version", f"DELETE FROM tb_contract_version WHERE contract_id IN ({_RECORD})"),
     ("tb_contract", "DELETE FROM tb_contract WHERE project_id = %s AND contract_type = 'terms'"),
-    ("project_contract_event", "DELETE FROM project_contract_event WHERE project_id = %s"),
-    ("project_contract", "DELETE FROM project_contract WHERE project_id = %s"),
 ]
 
 
 def _remove_contracts(cur, execute: bool) -> None:
-    cur.execute(f"SELECT (SELECT count(*) FROM tb_contract WHERE project_id = %s AND contract_type = 'terms'), "
-                f"(SELECT count(*) FROM project_contract WHERE project_id = %s)", (PROJECT_ID, PROJECT_ID))
-    record, legacy = cur.fetchone()
-    if not (record or legacy):
+    # The 078 tables went in M6 (alembic 090); the record is the only contract store.
+    cur.execute("SELECT count(*) FROM tb_contract WHERE project_id = %s AND contract_type = 'terms'", (PROJECT_ID,))
+    record = cur.fetchone()[0]
+    if not record:
         return
-    print(f"  {'delete' if execute else 'would delete'} {record} record contract(s), {legacy} 078 contract(s)")
+    print(f"  {'delete' if execute else 'would delete'} {record} record contract(s)")
     if not execute:
         return
     cur.execute("SET LOCAL session_replication_role = replica")

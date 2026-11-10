@@ -6,8 +6,11 @@ none of these tables has a `project_id`.
 
 TENANCY IS IMPLICIT IN AN OVERLOADED PRIMARY KEY
     capacities.id IS a project id — nothing in the schema says so. The chain
-    tokens -> offers -> matches hangs off it, so isolation has to be resolved
-    three joins deep via app_company_can_see_capacity().
+    tokens -> offers -> matches hung off it, so isolation had to be resolved
+    three joins deep via app_company_can_see_capacity(). Since M6 (alembic 091,
+    2026-11-10) listings, RFQs and proposals are the order model's (tb_order,
+    tb_rfq; tests/test_order_book_pg.py) and offers/matches are gone; the chain
+    here is capacity -> token.
 
 That indirection is the thing most likely to be broken by a later edit, and the
 thing least likely to be noticed — which is what these tests are for. `tokens`
@@ -21,29 +24,25 @@ import pytest
 
 from pg_support import pg_admin as _pg, pg_connect
 
-MARKET_TABLES = ("capacities", "tokens", "offers", "matches", "buyer_mandates")
+MARKET_TABLES = ("capacities", "tokens", "buyer_mandates")
 TB_TABLES = (
     "tb_asset", "tb_counterparty", "tb_index_definition", "tb_index_history",
-    "tb_contract", "tb_contract_fixed_price", "tb_contract_index_linked",
-    "tb_project_finance_link",
+    "tb_contract", "tb_project_finance_link",
 )
+# Dropped by M6 (088-091): the JTI subtypes, 063's contracts, 078's tokens, the market's own tables.
+DROPPED = ("tb_contract_fixed_price", "tb_contract_index_linked", "contracts", "project_contract",
+           "project_contract_event", "offers", "rfqs", "matches")
 
 
 
 
 def _seed_chain(cur):
-    """capacity(proj_bremen_h2) -> token -> offer -> match."""
+    """capacity(proj_bremen_h2) -> token."""
     cur.execute("INSERT INTO tokens (id, capacity_id, lifecycle_state) "
                 "VALUES ('gt_tk','proj_bremen_h2','MINTED') ON CONFLICT (id) DO NOTHING")
-    cur.execute("INSERT INTO offers (id, token_id) VALUES ('gt_of','gt_tk') "
-                "ON CONFLICT (id) DO NOTHING")
-    cur.execute("INSERT INTO matches (id, offer_id) VALUES ('gt_mt','gt_of') "
-                "ON CONFLICT (id) DO NOTHING")
 
 
 def _drop_chain(cur):
-    cur.execute("DELETE FROM matches WHERE id='gt_mt'")
-    cur.execute("DELETE FROM offers WHERE id='gt_of'")
     cur.execute("DELETE FROM tokens WHERE id='gt_tk'")
 
 
@@ -56,7 +55,7 @@ def _counts_as(dsn_company: str):
     cur.execute("SET LOCAL ROLE gex_app")
     cur.execute("SET LOCAL app.current_company_id = %s", (dsn_company,))
     out = {}
-    for t in MARKET_TABLES[:4]:
+    for t in MARKET_TABLES[:2]:
         cur.execute(f"SELECT count(*) FROM {t}")
         out[t] = cur.fetchone()[0]
     conn.rollback()
@@ -66,11 +65,11 @@ def _counts_as(dsn_company: str):
 
 # ── The indirect chain actually isolates ────────────────────────────────────
 
-def test_the_marketplace_chain_isolates_three_joins_deep():
+def test_the_marketplace_chain_isolates_through_the_capacity():
     """
     proj_bremen_h2 is owned by heliosnord_gmbh, with allianz as an associated
     company. An unrelated tenant must see NONE of the chain — not the capacity,
-    not the token, not the offer, not the match.
+    not the token.
     """
     conn, cur = _pg()
     try:
@@ -83,7 +82,6 @@ def test_the_marketplace_chain_isolates_three_joins_deep():
         unknown = _counts_as("acme_totally_unrelated")
 
         assert owner["capacities"] >= 1 and owner["tokens"] == 1, owner
-        assert owner["offers"] == 1 and owner["matches"] == 1, owner
         assert granted["tokens"] == 1, "a company WITH project access lost the chain"
 
         for label, counts in (("etfuels_sa", stranger), ("unknown", unknown)):
@@ -260,14 +258,26 @@ def test_the_annulment_columns_survived_the_migration():
 
 # ── The market chain lives in PostgreSQL only (JML, 2026-10-23) ─────────────
 
-@pytest.mark.parametrize("table", ["contracts", "rfqs"])
+@pytest.mark.parametrize("table", ["tb_order", "tb_rfq", "tb_fill", "tb_contract", "tb_contract_event"])
 def test_the_market_chain_tables_exist_in_postgres(table):
-    """`contracts` and `rfqs` were routed and queried but defined nowhere, so
-    every contract and RFQ call failed (gap register G-01). Alembic 063 owns them."""
+    """The market runs on the order model and the one record (065/083/087).
+    `contracts` and `rfqs` were once routed and queried but defined nowhere
+    (gap register G-01); 063 created them and M6 (089, 091) dropped them."""
     conn, cur = _pg()
     try:
         cur.execute("SELECT to_regclass(%s) AS t", (f"public.{table}",))
         assert cur.fetchone()["t"] is not None, f"`{table}` is missing from PostgreSQL"
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("table", DROPPED)
+def test_the_tables_m6_dropped_stay_dropped(table):
+    """A ratchet: nothing may bring back a second contract or market store."""
+    conn, cur = _pg()
+    try:
+        cur.execute("SELECT to_regclass(%s) AS t", (f"public.{table}",))
+        assert cur.fetchone()["t"] is None, f"`{table}` is back in PostgreSQL"
     finally:
         conn.close()
 

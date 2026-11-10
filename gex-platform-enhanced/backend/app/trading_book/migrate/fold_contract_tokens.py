@@ -15,8 +15,9 @@ same chain under scheme '2'. Each copied chain is re-verified before the fold
 commits, and so is each terms hash against its terms (gap 2 of Phase 0 §4).
 
 Idempotent: a contract already folded (its origin_ref exists) is skipped.
-Used by alembic 085 on the migration connection, and by the tests on data they
-prepare.
+Used by alembic 085 on the migration connection. Alembic 090 (M6) checks that
+every 078 row was folded verbatim and drops the 078 tables; its downgrade
+rebuilds them from the record. The fold's own test went with them.
 """
 from __future__ import annotations
 

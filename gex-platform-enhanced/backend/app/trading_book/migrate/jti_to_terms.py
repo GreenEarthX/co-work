@@ -13,24 +13,22 @@ month). Version 1, reason `migrated`, event MIGRATED.
 Stops and reports — never guesses — when a contract has no buyer or seller, no
 platform company behind a side, a fuel with no tb_commodity, a unit tb_unit
 does not know, a status with no mapping, or a fixing rule other than
-month_avg. Idempotent: a contract already converted (origin_ref 'jti:<id>')
-is skipped. On 2026-11-06 there is nothing to convert (0 JTI rows).
+month_avg. M6 (alembic 088, 2026-11-10) dropped the JTI tables once nothing was left to
+convert (0 rows, then and on 2026-11-06), and with them this module's run() and
+command line. plan() stays: it is the mapping seed_record() builds the Rotterdam
+fixture with, and the one T10 checks against the old engine line by line.
 
 JTI status -> trade_status (no JTI row exists to test this against; see the
 Phase 1 report): draft, proposed -> pending_confirmation; committed ->
 confirmed (noted on the chain: committed in the JTI book, NOT confirmed
 through TRADE_CONFIRM); terminated -> terminated; expired -> completed.
 
-    python -m app.trading_book.migrate.jti_to_terms --dry-run
-    python -m app.trading_book.migrate.jti_to_terms --execute
 """
 from __future__ import annotations
 
-import argparse
-import sys
 from decimal import Decimal
 
-from app.trading_book import record, validation
+from app.trading_book import record
 from app.trading_book.cashflows import _count_months_in_tenor, _month_iter
 from app.trading_book.terms import TermsIn
 
@@ -38,19 +36,6 @@ STATUS = {"draft": "pending_confirmation", "proposed": "pending_confirmation", "
           "terminated": "terminated", "expired": "completed"}
 UNITS = {"t", "MWh", "kg", "m3"}
 ACTOR = "MIGRATION_M2_JTI_TO_TERMS"
-
-
-def _jti_rows(conn) -> list[dict]:
-    return record._rows(conn, """
-        SELECT c.*, fp.fixed_price, fp.price_basis, il.index_definition_id, il.spread AS index_spread,
-               il.floor AS index_floor, il.cap AS index_cap, il.fixing_rule,
-               bs.company_id AS buyer_company, ss.company_id AS seller_company
-        FROM tb_contract c
-        LEFT JOIN tb_contract_fixed_price fp ON fp.id = c.id
-        LEFT JOIN tb_contract_index_linked il ON il.id = c.id
-        LEFT JOIN tb_counterparty bs ON bs.id = c.buy_side_id
-        LEFT JOIN tb_counterparty ss ON ss.id = c.sell_side_id
-        WHERE c.contract_type <> 'terms' ORDER BY c.contract_number""")
 
 
 def plan(conn, c: dict) -> tuple[TermsIn | None, list[str]]:
@@ -101,66 +86,3 @@ def plan(conn, c: dict) -> tuple[TermsIn | None, list[str]]:
                  {"seq": 2, "leg_role": "payment", "payer": buyer, "receiver": seller, "flows": payment}],
         "clauses": clauses})
     return terms, problems
-
-
-def run(conn, execute: bool) -> dict:
-    report = {"considered": 0, "converted": [], "skipped_already_converted": [], "stopped": {}}
-    from app.core.order_book import _ctx
-
-    ctx = _ctx(conn)
-    for c in _jti_rows(conn):
-        report["considered"] += 1
-        origin = f"jti:{c['id']}"
-        if record.by_origin(conn, origin):
-            report["skipped_already_converted"].append(c["contract_number"])
-            continue
-        terms, problems = plan(conn, c)
-        if terms is not None:
-            problems = [f"rule {code}" for code in validation.validate(terms, "contract", ctx)]
-        if problems:
-            report["stopped"][c["contract_number"]] = problems
-            continue
-        if execute:
-            status = STATUS[c["status"].lower()]
-            made = record.create_contract(
-                conn, terms=terms, owner_company_id=c["owner_company_id"], kind="trade", project_id=None,
-                origin_ref=origin, correlation_id=None, actor=ACTOR, company_id=None,
-                note=f"migrated from JTI {c['contract_number']} ({c['contract_type']}, status {c['status']})"
-                     + ("; committed in the JTI book, NOT confirmed through TRADE_CONFIRM"
-                        if c["status"].lower() == "committed" else ""),
-                event_type="MIGRATED", reason="migrated", trade_status=status)
-            report["converted"].append({"from": c["contract_number"], "to": made["contract_ref"]})
-        else:
-            report["converted"].append({"from": c["contract_number"], "to": "(dry run)"})
-    return report
-
-
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    mode = ap.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--dry-run", action="store_true")
-    mode.add_argument("--execute", action="store_true")
-    args = ap.parse_args(argv)
-    from app.core import market_engine as me
-
-    conn = me._conn()
-    try:
-        report = run(conn, execute=args.execute)
-        if args.execute and not report["stopped"]:
-            conn.commit()
-        else:
-            conn.rollback()
-    finally:
-        conn.close()
-    print(f"considered {report['considered']}, converted {len(report['converted'])}, "
-          f"already converted {len(report['skipped_already_converted'])}, stopped {len(report['stopped'])}"
-          + (" (dry run: nothing written)" if args.dry_run else ""))
-    for number, problems in report["stopped"].items():
-        print(f"  STOPPED {number}: {'; '.join(problems)}")
-    if args.execute and report["stopped"]:
-        print("  nothing written: resolve the stopped contracts first")
-    return 1 if report["stopped"] else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

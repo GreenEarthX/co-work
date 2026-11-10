@@ -73,8 +73,9 @@ def _guard(fn):
 def _ctx(conn) -> validation.Context:
     pairs = {frozenset({str(r["counterparty_id"]), str(r["restricted_counterparty_id"])}) for r in _rows(
         conn, "SELECT counterparty_id, restricted_counterparty_id FROM tb_counterparty_restriction WHERE active")}
-    indices = {str(r["id"]): validation.IndexInfo(currency=r["currency"], unit=r["unit_basis"]) for r in _rows(
-        conn, "SELECT id, currency, unit_basis FROM tb_index_definition")}
+    # unit_basis is a price basis ("EUR/MWh"): the unit a flow is quoted in is its last part.
+    indices = {str(r["id"]): validation.IndexInfo(currency=r["currency"], unit=(r["unit_basis"] or "").split("/")[-1])
+               for r in _rows(conn, "SELECT id, currency, unit_basis FROM tb_index_definition")}
     return validation.Context(indices=indices, restricted_pairs=pairs)
 
 
@@ -246,7 +247,11 @@ def _project_of(conn, terms: TermsIn) -> Optional[str]:
     return projects.pop() if len(projects) == 1 else None
 
 
-def _accept(conn, party: Party, order_id: str, quantity: Optional[Decimal], *, quote_of: Optional[dict] = None) -> dict:
+def _accept(conn, party: Party, order_id: str, quantity: Optional[Decimal], *, quote_of: Optional[dict] = None,
+            origin_ref: Optional[str] = None, project_id: Optional[str] = None,
+            correlation_id: Optional[str] = None, token_ids=(), note: Optional[str] = None) -> dict:
+    """The acceptance (Q6), in the caller's transaction. The market passes the extras
+    of an agreed match: its origin ('match:<proposal>'), project, trail and token."""
     o = _row(conn, "SELECT * FROM tb_order WHERE id = ? FOR UPDATE", (order_id,))
     if o is None:
         _refuse(404, "ORDER_NOT_FOUND", "No order with that id.")
@@ -294,10 +299,10 @@ def _accept(conn, party: Party, order_id: str, quantity: Optional[Decimal], *, q
     seller_company = record.company_of_counterparty(conn, seller)
     made = record.create_contract(
         conn, terms=contract_terms, owner_company_id=seller_company, kind="trade",
-        project_id=_project_of(conn, contract_terms), origin_ref=f"fill:{fill_id}", correlation_id=None,
-        actor=party.user_id, company_id=party.company_id,
-        note=f"order {order_id} accepted" + (f" (quote on RFQ {quote_of['id']})" if quote_of else ""),
-        fill_id=fill_id)
+        project_id=project_id or _project_of(conn, contract_terms), origin_ref=origin_ref or f"fill:{fill_id}",
+        correlation_id=correlation_id, actor=party.user_id, company_id=party.company_id,
+        note=note or (f"order {order_id} accepted" + (f" (quote on RFQ {quote_of['id']})" if quote_of else "")),
+        fill_id=fill_id, token_ids=token_ids)
     conn.execute("UPDATE tb_fill SET contract_id = ? WHERE id = ?", (made["id"], fill_id))
     new_status = "filled" if q == remaining else "partially_filled"
     conn.execute("UPDATE tb_order SET status = ?, updated_at = now() WHERE id = ?", (new_status, order_id))
@@ -616,5 +621,26 @@ def change_status(party: Party, contract_id: str, new_status: str, note: Optiona
                                  version_id=str(v["id"]), note=f"{current} -> {new_status}" + (f": {note}" if note else ""))
         conn.commit()
         return {"contract_id": contract_id, "old_status": current, "new_status": new_status, "event": ev}
+    finally:
+        conn.close()
+
+
+def contract_cashflows(party: Party, contract_id: str, as_party: Optional[str] = None) -> dict:
+    """Every flow of the contract's current version, priced (spec §7, M4), with payer
+    and receiver; signed from `as_party`'s side (default: the caller's company). A
+    party reads its own contracts; GEX staff read no amounts (Q5: no terms)."""
+    from app.trading_book import flows
+
+    if party.is_admin:
+        _refuse(403, "GEX_READS_NO_TERMS", "GEX staff read a contract's state and hashes, not its amounts.")
+    conn = _conn()
+    try:
+        _, who = _contract_for(conn, party, contract_id)
+        side = as_party or party.company_id
+        if side not in who["companies"]:
+            _refuse(422, "NOT_A_PARTY", "as_party must be a party to the contract.")
+        lines = flows.contract_lines(conn, contract_id, as_party=side)
+        return {"contract_id": contract_id, "as_party": side,
+                "lines": [line.model_dump(mode="json") for line in lines]}
     finally:
         conn.close()

@@ -11,6 +11,7 @@ Order book routes — /api/v1/trading-book (spec §9; M3). Policy: core/order_bo
     POST /rfqs/{id}/quotes                       an invited firm quote — the quoting party's acceptance (Q6)
     POST /rfqs/{id}/quotes/{order_id}/accept     the requester accepts: fill + draft contract, RFQ closed
     GET  /records/{id}                           the contract record: versions, chain, chain_intact, terms
+    GET  /records/{id}/cashflows?as_party=       every flow priced, payer/receiver, signed for a party (M4)
     POST /records/{id}/confirm                   TRADE_CONFIRM, first pair of eyes
     POST /records/{id}/confirm/{request_id}/approve
     GET  /records/{id}/confirmations
@@ -142,6 +143,11 @@ def accept_quote(rfq_id: str, order_id: str, request: Request):
 @router.get("/records/{contract_id}")
 def get_record(contract_id: str, request: Request):
     return _call(ob.get_contract, _party(request), contract_id)
+
+
+@router.get("/records/{contract_id}/cashflows")
+def record_cashflows(contract_id: str, request: Request, as_party: Optional[str] = None):
+    return _call(ob.contract_cashflows, _party(request), contract_id, as_party)
 
 
 @router.post("/records/{contract_id}/confirm", status_code=201)

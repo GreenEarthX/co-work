@@ -3096,6 +3096,78 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       card version holds the projection only); adverse facts are still read from the card
       (Q10); the 078 tables and `contracts` (063) are not dropped yet.
 
+58. **10 Nov 2026 — One contract record, Phase 3 (M3–M6): one contract model, the old stores
+    dropped.** JML decided the same day: the conservative aggregate for frames (step 4) and dropping
+    `offers`/`rfqs`/`matches` after parity. Backups before each migration
+    (`gex_platform_2026-11-10_0830`, `_0911`, `_0917`, all verified). Head **091**: **151** tables,
+    **144** FORCED (`pg_class relkind='r'`).
+    - **M5 (086):** `capacities` carries commodity, asset, owner counterparty, period and quantity
+      (`trading_book/migrate/capacities_m5.py fill()`, also called by `POST /capacities` in the same
+      transaction). `v_position` (security_invoker) is CONTRACTED + PLANNED (one row per month of a
+      capacity) + ORDERED (by side; a partly filled order's share coalesced to 1). The only gap the
+      backfill reports is `asset` (tb_asset is empty on dev).
+    - **M3 (087):** the market runs on the order model (Q6, Q8). A listing is a firm sell `tb_order`
+      (platform visibility, `token_id`), an RFQ a `tb_rfq`, a proposal an invited firm `tb_order`
+      (`rfq_id` + `listing_order_id`) whose creation is the proposer's acceptance; the other side's
+      acceptance runs `order_book._accept` (one locked transaction: fill + draft record contract,
+      origin `match:<id>`). `core/market_engine.py` was rewritten for this; its 063 response shapes
+      are kept for the screens. Converter `trading_book/migrate/market_to_orders.py` (Q8 mapping,
+      stops on anything it cannot map, idempotent): 0 rows on dev.
+    - **M4:** `trading_book/flows.py` prices every flow of a record contract by `flow_type`
+      (fixed, index with collar and the latest earlier fixing as the fallback, physical), from
+      either party's side. `GET /trading-book/projects/{asset}/cashflows` reads only record
+      contracts. **T10:** the Rotterdam contract in its old (JTI) form, converted by
+      `jti_to_terms.plan`, gives the old engine's 180 monthly lines to the cent
+      (`test_cashflows_m4_pg.py`). The old engine (`cashflows.py`) stays as the frozen reference
+      over in-memory objects.
+    - **M6 (088–091), one drop each, each refusing while anything is unconverted:**
+      - 088: `tb_contract_fixed_price`, `tb_contract_index_linked`, the ten JTI columns of
+        `tb_contract` and `contract_status_enum`; the CHECK is terms-only. The JTI booking routes
+        and schemas are gone (0 callers). **The link policy (064) admitted only
+        `tb_contract.owner_company_id`, which a contract written by a match never carries, so
+        an owner could not allocate its own market contract** — it now admits a party (seller:
+        revenue; buyer: a cost such as supply or EPC), in RLS and in the route.
+      - 089: `contracts` (063). 090: `project_contract` and `project_contract_event` (078) — the
+        upgrade checks every 078 event has its verbatim copy; **the downgrade rebuilds both tables
+        from the record**, byte-identical on dev (8 rows), with 085's SELECT-only grants
+        (031's default privileges would otherwise hand back full DML).
+      - 091: `offers`, `rfqs`, `matches`; refuses any row without its converted counterpart.
+      - Round trips on dev: schema identical after each downgrade (sorted `pg_dump -s`), and a
+        fresh database builds from scratch to 091.
+    - **036 now builds from `trading_book/models_036.py`**, the models frozen as 036 built them.
+      It used to read the live models, so every model edit changed what a rebuild created at
+      036; pointed back at the live models, a fresh build now fails at 036
+      (`KeyError: 'tb_contract_fixed_price'`). The live `models.py` maps `tb_contract` as
+      `RecordContract` (for the link's foreign key) and keeps the JTI classes on their own
+      `LegacyBase`, in memory only, for T10.
+    - **Q5 holds through a link:** allocating a `trade` contract to an asset puts it in the
+      owner's projection, not in the lender's. The projection now says so:
+      `withheld_contract_count` counts linked contracts whose terms the caller may not read,
+      so a partial projection never reads as the whole one. **Open for JML:** 064's
+      `linked_visible` rule still shows such a trade's header row (reference, kind, status) to
+      the project's companies; its terms and versions stay party-only.
+    - **Not this store:** `api/endpoints/finance.py` reads a SQLite demo table also called
+      `contracts` (Phase 0 §7 finding 1, still open); `lineage.py` and `marketplace_analytics.py`
+      read SQLite `offers` (the unguarded reads listed in CLAUDE.md).
+    - **A flaky assumption found:** T14 races the buyer and the bystander to accept one order,
+      so either may become the seller's counterparty; the M5 test's "the bystander sees no
+      position" passed only when the buyer won. It now asks the restricted company, which is
+      refused every time.
+    - **Tests:** new `test_cashflows_m4_pg.py` (3), `test_order_book_pg.py` M5 and capacity
+      tests, `test_trading_book_api.py` rewritten for record contracts (+6b, +8),
+      `test_marketplace_slice.py` ratchet (8 dropped tables stay dropped). Deleted with their
+      tables: `test_market_to_orders_pg.py`, `test_contract_record_fold_pg.py` (their guarantees
+      are now the migrations' own checks). **Platform 1361 pass / 15 skip / 0 fail**
+      (both URLs exported, run alone; 1351 before Phase 3, the same 15 skips). Negative
+      verification, all caught: 9 deliberate code and migration breaks (index fallback, party
+      signs, capacity fill, the position view's RLS, a proposer accepting its own proposal, the
+      088 link rule, seller-only and absent party checks, a silently dropped withheld contract),
+      the five M6 refusals (a JTI row, a `contracts` row, an unfolded 078 contract, an uncopied
+      078 event, an unconverted offer — in a throwaway database), the ratchet against a 090
+      database, and 036 pointed at the live models.
+    - **Parity:** the engine answer and the contract-token readout are identical for all 16
+      projects before (this morning) and after M6; the fixture's `--verify` matches Appendix B.
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
@@ -3210,16 +3282,15 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
-**2026-11-06 (later): One contract record — Phases 1 and 2 done; Phase 3 waits for JML's
-go-ahead** (§8 items 56–57; plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head **085**.
-Platform 1351 pass / 15 skip / 0 fail, frontend 252, engine 275. Gate engine parity is identical
-for all 16 projects after each phase. Committed to `co-work` branch `contract-record-phase1`; not
-pushed. **Next, Phase 3 (M4–M6):**
-- the cashflow engine dispatches on `flow_type`; Rotterdam TEST fixture; T10;
-- capacities columns (M5);
-- frames with one sub-leg per buyer (Q2), adverse facts as events (Q10), cards as a view (Q9);
-- the screens read views over the record;
-- drop the JTI columns, `contracts` (063), and the 078 tables, one migration each.
+**2026-11-10: One contract record — Phase 3 in progress** (§8 items 56–58; plan and decisions
+`docs/CONTRACT_RECORD_PHASE0.md`). M3–M6 are done: head **091**, the market on the order model,
+the cashflow engine on record flows, and the JTI model, `contracts` (063), the 078 tables and
+`offers`/`rfqs`/`matches` dropped. Platform 1361 pass / 15 skip / 0 fail; gate-engine parity
+identical for all 16 projects. Committed to `co-work` branch `contract-record-phase1`; not pushed.
+**Next, Phase 3 step 4:** the offtake frame (one sub-leg per buyer, per-buyer confirmation, the
+conservative aggregate — Q2), adverse facts as events (Q10), the cards as a view over the record
+(Q9), novation (Q13), a market contract joining its project's frame (Q6.4), and the screens.
+Then report to JML before Phase 4.
 
 **2026-11-04:** nothing in flight. Done today (§8 items 53–55): the PF engine keeps nothing in
 SQLite (migration **082**, role `gex_engine`, fuels from the platform API; head 082, platform

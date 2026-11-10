@@ -105,6 +105,13 @@ async def create_capacity(capacity: CapacityCreate, request: Request):
         """, (capacity_id, capacity.project_id, capacity.project_name, capacity.molecule,
               capacity.capacity_mtpd, capacity.location, capacity.production_start, capacity.production_end,
               compliance_json, capacity.capex_eur, capacity.opex_eur_kg, "draft", correlation_id))
+        # M5 (alembic 086): commodity, owner counterparty, period and quantity for the
+        # position view, in this transaction. The owner was authorised above; registering
+        # its counterparty is an operator write, for the rest of this transaction only.
+        from app.trading_book.migrate.capacities_m5 import fill
+
+        conn.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
+        fill(conn, [capacity_id])
         conn.commit()
         cursor.execute("SELECT * FROM capacities WHERE id = ?", (capacity_id,))
         row = cursor.fetchone()

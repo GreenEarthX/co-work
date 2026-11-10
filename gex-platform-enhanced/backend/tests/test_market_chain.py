@@ -104,12 +104,18 @@ def _store(pg_store):
     _q("INSERT INTO tokens (id, capacity_id, tokenised_mtpd, delivery_start, delivery_end, molecule, "
        "lifecycle_state, correlation_id, carbon_intensity_gco2e_mj) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
        (TOKEN, "cap_TEST_market", 50, "2027-01-01", "2029-12-31", MOLECULE, "MINTED", CHAIN, 12.5))
-    _q("INSERT INTO offers (id, token_id, molecule, volume_mtpd, price_eur_kg, delivery_start, delivery_end, "
-       "location, status, listing_state, correlation_id, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-       (OFFER, TOKEN, MOLECULE, 50, 1.10, "2027-01-01", "2029-12-31", "TEST Hamburg berth 7",
-        "draft", "DRAFT", CHAIN, "2026-10-23T00:00:00+00:00"))
     saved = session._sync_engine            # account lookups (wae._account) read the throwaway database
     session._sync_engine = None
+    # Phase 3 (alembic 087): a listing is a firm SELL order of the one contract model, made
+    # through the engine — there is no offers row to insert any more.
+    from app.core import market_engine as me
+
+    global OFFER
+    token = dict(_q("SELECT t.*, c.molecule, c.project_id AS capacity_project_id FROM tokens t "
+                    "JOIN capacities c ON c.id = t.capacity_id WHERE t.id = %s", (TOKEN,)))
+    seller = me.Party(user_id="u_seller", company_id=reg.company_slug(SELLER), company_name=SELLER)
+    OFFER = me.create_listing(seller, token, volume_mtpd=50, price_eur_kg=1.10, delivery_start="2027-01-01",
+                              delivery_end="2029-12-31", location="TEST Hamburg berth 7")["id"]
     yield
     if session._sync_engine is not None:
         session._sync_engine.dispose()
@@ -197,22 +203,28 @@ def test_4_matching_is_bilateral_the_buyer_proposes_to_the_listing(client):
 
 
 def test_5_both_parties_must_accept(client):
+    """Q6 (2026-11-06): the proposal IS the proposer's acceptance (here the buyer's);
+    the other side's acceptance completes it — fill and contract in one transaction."""
     m = STATE["match"]
     assert _code(client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_other"))) == "MATCH_NOT_FOUND"
     assert _code(client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_gex"))) == "GEX_DOES_NOT_TRADE"
-    r = client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_seller"))
-    assert r.json()["status"] == "pending" and r.json()["seller_accepted_by"] == "u_seller"
+    pending = next(x for x in client.get("/api/v1/market/matches/mine", headers=_auth("u_seller")).json()["matches"]
+                   if x["id"] == m)
+    assert pending["status"] == "pending" and pending["buyer_accepted_by"] == "u_buyer"
+    assert pending["seller_accepted_by"] is None
     assert _token_row()["lifecycle_state"] == "RESERVED"           # one side is not enough
-    assert _code(client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_seller"))) == "ALREADY_ACCEPTED"
-    r = client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_buyer"))
-    assert r.json()["status"] == "accepted" and r.json()["buyer_accepted_by"] == "u_buyer"
+    assert _code(client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_buyer"))) == "ALREADY_ACCEPTED"
+    r = client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_seller"))
+    assert r.json()["status"] == "accepted" and r.json()["seller_accepted_by"] == "u_seller", r.text
+    assert r.json()["buyer_accepted_by"] == "u_buyer"
     assert _token_row()["lifecycle_state"] == "MATCHED"
+    assert _q("SELECT count(*) AS n FROM tb_fill f JOIN tb_order o ON o.id IN (f.buy_order_id, f.sell_order_id) "
+              "WHERE o.id = %s", (m,))["n"] == 1
     # The agreement made the contract in the one record, in the same transaction — nowhere else.
     c = _q("SELECT id, trade_status, verification_state, kind, project_id, origin_ref, correlation_id "
            "FROM tb_contract WHERE origin_ref = %s", (f"match:{m}",))
     assert (c["trade_status"], c["verification_state"], c["kind"], c["project_id"], c["correlation_id"]) == \
         ("pending_confirmation", "UNVERIFIED", "trade", PID, CHAIN)
-    assert _q("SELECT count(*) AS n FROM contracts")["n"] == 0
     STATE["contract"] = str(c["id"])
     assert _code(client.post(f"/api/v1/market/offers/{OFFER}/withdraw", headers=_auth("u_seller"))) == "LISTING_STATE"
 
@@ -334,7 +346,7 @@ def test_10_trader_rfqs_are_the_callers_own_and_the_body_names_no_buyer(legacy):
     bad = legacy.patch(f"/api/v1/trader/rfqs/{rfq['id']}/status?new_status=matched", headers=_auth("u_other"))
     assert bad.status_code == 409, bad.text                           # 'matched' is set by the market
     ok = legacy.patch(f"/api/v1/trader/rfqs/{rfq['id']}/status?new_status=cancelled", headers=_auth("u_other"))
-    assert ok.json()["status"] == "cancelled", ok.text
+    assert ok.json()["status"] == "withdrawn", ok.text          # Q8: a cancelled draft is withdrawn
 
 
 def test_11_matching_routes_show_my_matches_only(legacy):

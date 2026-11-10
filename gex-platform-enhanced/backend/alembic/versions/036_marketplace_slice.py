@@ -190,9 +190,11 @@ def upgrade() -> None:
     conn = op.get_bind()
 
     # ── Trading-book tables, from the SQLAlchemy models ─────────────────────
-    # Hand-writing these 8 would risk drifting from app/trading_book/models.py,
-    # which is their single definition. Build them from the models instead.
-    from app.trading_book.models import Base as TBBase
+    # Built from app/trading_book/models_036.py: the models FROZEN as this
+    # migration built them until 2026-11-10. It used to read the live models,
+    # so every later model edit changed what a rebuild created here; M6 (088)
+    # dropped the JTI tables and columns, and the live models followed.
+    from app.trading_book.models_036 import Base as TBBase
 
     # ONLY the eight tables that existed at 036 (2026-10-23 fix): create_all()
     # over the whole metadata would also build tables later migrations add (065+)
@@ -270,7 +272,7 @@ def downgrade() -> None:
         conn.execute(sa.text(f"DROP POLICY IF EXISTS {table}_admin_only ON {table}"))
     conn.execute(sa.text(
         "DROP FUNCTION IF EXISTS app_company_can_see_capacity(text, text)"))
-    from app.trading_book.models import Base as TBBase
+    from app.trading_book.models_036 import Base as TBBase
     TBBase.metadata.drop_all(conn, checkfirst=True)
     for table in ("buyer_mandates", "matches", "offers", "tokens", "capacities"):
         op.drop_table(table)

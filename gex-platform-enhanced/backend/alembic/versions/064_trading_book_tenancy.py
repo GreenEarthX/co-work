@@ -113,7 +113,7 @@ def upgrade() -> None:
         n = conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar()
         assert n == 0, f"{table} holds {n} rows; this migration adds a NOT NULL column with no backfill"
 
-    # 036 builds tb_* from app/trading_book/models.py AS IT IS NOW, so on a fresh
+    # 036 builds tb_* from the frozen models (models_036.py, which carry them), so on a fresh
     # rebuild these columns already exist (the models carry them). Add only what
     # is missing; the FK and indexes are 064's either way.
     def has(table, column):

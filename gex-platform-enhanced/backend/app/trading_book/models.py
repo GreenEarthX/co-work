@@ -294,12 +294,44 @@ class IndexHistory(Base):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Contract layer (Joined-Table Inheritance)
+# Contract layer — the one contract record (alembic 065/083/085; M6 088)
 # ──────────────────────────────────────────────────────────────────────
 
 
-class Contract(Base):
-    """Abstract base for green-fuel contracts.
+class RecordContract(Base):
+    """tb_contract as the one contract record knows it: terms -> legs -> flows,
+    versions and events, all written by trading_book/record.py (the one writer),
+    never through this mapping. Mapped only so the link table's foreign key
+    resolves and a link can be read with its contract's identity.
+
+    M6 (alembic 088, 2026-11-10) dropped the JTI columns and the two subtype
+    tables; the JTI classes below are kept, in memory only, as the frozen
+    reference the M4 golden test (T10) compares the new engine with.
+    """
+    __tablename__ = "tb_contract"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True)
+    contract_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    contract_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    kind: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    project_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    owner_company_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    pf_links: Mapped[List["ProjectFinanceLink"]] = relationship(back_populates="contract")
+
+
+class LegacyBase(DeclarativeBase):
+    """Its own MetaData: the JTI reference classes are never mapped onto the
+    live schema (their tables are gone) and never created by anything."""
+    pass
+
+
+
+
+class Contract(LegacyBase):
+    """FROZEN REFERENCE, in memory only (M6, alembic 088 dropped its tables).
+
+    Abstract base for green-fuel contracts.
 
     JTI: tb_contract holds shared columns; tb_contract_fixed_price and
     tb_contract_index_linked hold subtype-specific columns and join on PK.
@@ -329,12 +361,8 @@ class Contract(Base):
     # ^^^ The company whose book this is (alembic 064) — set from the caller,
     # never from the body. Still no project here: the link table allocates.
 
-    buy_side_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), ForeignKey("tb_counterparty.id"), nullable=False
-    )
-    sell_side_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), ForeignKey("tb_counterparty.id"), nullable=False
-    )
+    buy_side_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False)
+    sell_side_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False)
 
     fuel_type: Mapped[str] = mapped_column(String(50), nullable=False)
     # ^^^ DECISION (override-candidate): free string, validated at Pydantic
@@ -371,13 +399,6 @@ class Contract(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
-    )
-
-    # Relationships
-    buy_side: Mapped["Counterparty"] = relationship(foreign_keys=[buy_side_id])
-    sell_side: Mapped["Counterparty"] = relationship(foreign_keys=[sell_side_id])
-    pf_links: Mapped[List["ProjectFinanceLink"]] = relationship(
-        back_populates="contract", cascade="all, delete-orphan"
     )
 
     __mapper_args__ = {
@@ -427,9 +448,7 @@ class IndexLinkedContract(Contract):
         ForeignKey("tb_contract.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    index_definition_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), ForeignKey("tb_index_definition.id"), nullable=False
-    )
+    index_definition_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False)
     spread: Mapped[Decimal] = mapped_column(
         Numeric(18, 6), nullable=False, default=Decimal("0")
     )
@@ -441,8 +460,6 @@ class IndexLinkedContract(Contract):
     # ^^^ "month_avg", "spot_at_settlement", "5_day_avg_prior",
     # "5_day_avg_around", "quarterly_avg". The fixing engine (B2) will
     # implement these; B1's CFO Report uses month_avg as the default.
-
-    index_definition: Mapped["IndexDefinition"] = relationship()
 
     __mapper_args__ = {
         "polymorphic_identity": "index_linked",
@@ -504,7 +521,7 @@ class ProjectFinanceLink(Base):
     )
 
     project_asset: Mapped["Asset"] = relationship(back_populates="pf_links")
-    contract: Mapped["Contract"] = relationship(back_populates="pf_links")
+    contract: Mapped["RecordContract"] = relationship(back_populates="pf_links")
 
     __table_args__ = (
         Index("ix_pf_link_project", "project_asset_id"),
@@ -525,6 +542,8 @@ __all__ = [
     "Counterparty",
     "IndexDefinition",
     "IndexHistory",
+    "RecordContract",
+    "LegacyBase",
     "Contract",
     "FixedPriceContract",
     "IndexLinkedContract",

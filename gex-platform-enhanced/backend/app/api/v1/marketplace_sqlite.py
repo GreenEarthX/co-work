@@ -176,126 +176,23 @@ async def create_offer(offer: OfferCreate, request: Request):
         # Only the project's owner offers its token; GEX trades nothing (2026-10-23).
         from app.core import market_engine as me
         party = _market_party(request)
-        user_id = party.user_id
         if party.is_admin or me.seller_company(token['capacity_project_id']) != party.company_id:
             conn.close()
             raise HTTPException(status_code=403, detail={"code": "NOT_YOUR_TOKEN",
                                 "message": "Only the company that owns the project can offer its token."})
-        wants_open = (offer.listing_state or "DRAFT") == "OPEN"
-        
-        # INHERIT correlation_id from token (CHAIN OF CUSTODY!)
-        correlation_id = token['correlation_id'] if 'correlation_id' in token.keys() else f"TOK-{offer.token_id[:8]}"
-        
-        # Check if offering too much volume
-        cursor.execute("""
-            SELECT COALESCE(SUM(volume_mtpd), 0) as total_offered 
-            FROM offers 
-            WHERE token_id = ? AND status = 'active'
-        """, (offer.token_id,))
-        result = cursor.fetchone()
-        total_offered = result['total_offered']
-        
-        if total_offered + offer.volume_mtpd > token['tokenised_mtpd']:
-            conn.close()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot offer {offer.volume_mtpd} MTPD. Available: {token['tokenised_mtpd'] - total_offered} MTPD"
-            )
-        
-        # Generate UUID
-        offer_id = str(uuid.uuid4())
-        
-        # 1. EMIT EVENT (with inherited correlation_id)
-        append_event(
-            event_type="offer.created",
-            aggregate_type="offer",
-            aggregate_id=offer_id,
-            data={
-                "token_id": offer.token_id,
-                "molecule": token['molecule'],
-                "volume_mtpd": offer.volume_mtpd,
-                "price_eur_kg": offer.price_eur_kg,
-                "delivery_start": offer.delivery_start,
-                "delivery_end": offer.delivery_end,
-                "location": offer.location,
-                "offer_type": offer.offer_type,
-                "status": "active"
-            },
-            user_id=user_id,
-            correlation_id=correlation_id  # INHERITED - creates chain!
-        )
-        
-        # Serialize certification_pathway_required
-        cert_req_json = json.dumps(offer.certification_pathway_required) if offer.certification_pathway_required else None
-
-        # 2. CREATE OFFER in database (v4.0 extended)
-        cursor.execute("""
-            INSERT INTO offers (
-                id, token_id, molecule, volume_mtpd, price_eur_kg,
-                delivery_start, delivery_end, location, status, offer_type, correlation_id,
-                delivery_type, delivery_basis, price_basis,
-                certification_pathway_required, min_order_kg, esg_tier, listing_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            offer_id,
-            offer.token_id,
-            token['molecule'],
-            offer.volume_mtpd,
-            offer.price_eur_kg,
-            offer.delivery_start,
-            offer.delivery_end,
-            offer.location,
-            'active',
-            offer.offer_type,
-            correlation_id,
-            offer.delivery_type or "SPOT",
-            offer.delivery_basis,
-            offer.price_basis,
-            cert_req_json,
-            offer.min_order_kg,
-            offer.esg_tier,
-            "DRAFT",          # live only through the engine, which reserves the token
-        ))
-
-        conn.commit()
-
-        # Get created offer
-        cursor.execute("SELECT * FROM offers WHERE id = ?", (offer_id,))
-        row = cursor.fetchone()
         conn.close()
-
-        if not row:
-            raise HTTPException(status_code=500, detail="Failed to retrieve created offer")
-
-        if wants_open:
-            row = _market_call(me.open_offer, party, offer_id)
-
-        cert_req = None
-        if 'certification_pathway_required' in row.keys() and row['certification_pathway_required']:
-            cert_req = json.loads(row['certification_pathway_required'])
-
-        return {
-            "id": row['id'],
-            "token_id": row['token_id'],
-            "molecule": row['molecule'],
-            "volume_mtpd": row['volume_mtpd'],
-            "price_eur_kg": row['price_eur_kg'],
-            "delivery_start": row['delivery_start'],
-            "delivery_end": row['delivery_end'],
-            "location": row['location'],
-            "status": row['status'],
-            "offer_type": row['offer_type'],
-            "created_at": row['created_at'],
-            "correlation_id": row['correlation_id'] if 'correlation_id' in row.keys() else correlation_id,
-            "delivery_type": row['delivery_type'] if 'delivery_type' in row.keys() else "SPOT",
-            "delivery_basis": row['delivery_basis'] if 'delivery_basis' in row.keys() else None,
-            "price_basis": row['price_basis'] if 'price_basis' in row.keys() else None,
-            "certification_pathway_required": cert_req,
-            "min_order_kg": row['min_order_kg'] if 'min_order_kg' in row.keys() else None,
-            "esg_tier": row['esg_tier'] if 'esg_tier' in row.keys() else None,
-            "listing_state": row['listing_state'] if 'listing_state' in row.keys() else "DRAFT",
-        }
-        
+        if offer.volume_mtpd > (token['tokenised_mtpd'] or 0):
+            raise HTTPException(status_code=400, detail=f"Cannot offer {offer.volume_mtpd} MTPD. "
+                                                        f"Available: {token['tokenised_mtpd']} MTPD")
+        # Phase 3 (alembic 087): a listing is a firm SELL order of the one contract model.
+        return _market_call(me.create_listing, party, dict(token), volume_mtpd=offer.volume_mtpd,
+                            price_eur_kg=offer.price_eur_kg, delivery_start=offer.delivery_start,
+                            delivery_end=offer.delivery_end, location=offer.location, offer_type=offer.offer_type,
+                            delivery_type=offer.delivery_type, delivery_basis=offer.delivery_basis,
+                            price_basis=offer.price_basis,
+                            certification_pathway_required=offer.certification_pathway_required,
+                            min_order_kg=offer.min_order_kg, esg_tier=offer.esg_tier,
+                            open_now=(offer.listing_state or "DRAFT").upper() == "OPEN")
     except HTTPException:
         raise
     except Exception as e:
@@ -304,125 +201,21 @@ async def create_offer(offer: OfferCreate, request: Request):
 
 
 @router.get("/offers", response_model=dict)
-async def list_offers(
-    molecule: Optional[str] = None,
-    status: Optional[str] = None,
-    country_of_origin: Optional[str] = None,
-    dfi_funded: Optional[bool] = None,
-    sovereign_cert_scheme: Optional[str] = None,
-    min_esg_score: Optional[float] = None,
-    listing_state: Optional[str] = None,
-):
-    """
-    List all offers with optional filtering
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        query = """
-            SELECT o.*, c.project_name 
-            FROM offers o
-            JOIN tokens t ON o.token_id = t.id
-            JOIN capacities c ON t.capacity_id = c.id
-            WHERE 1=1
-        """
-        params = []
-        
-        if molecule:
-            query += " AND o.molecule = ?"
-            params.append(molecule)
-        
-        if status:
-            query += " AND o.status = ?"
-            params.append(status)
-
-        # Sovereign provenance filters
-        if country_of_origin:
-            query += " AND o.country_of_origin = ?"
-            params.append(country_of_origin)
-
-        if dfi_funded is not None:
-            query += " AND o.dfi_funded = ?"
-            params.append(1 if dfi_funded else 0)
-
-        if sovereign_cert_scheme:
-            query += " AND o.sovereign_cert_scheme = ?"
-            params.append(sovereign_cert_scheme)
-
-        if min_esg_score is not None:
-            query += " AND o.esg_score >= ?"
-            params.append(min_esg_score)
-
-        if listing_state:
-            query += " AND o.listing_state = ?"
-            params.append(listing_state)
-
-        query += " ORDER BY o.created_at DESC"
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
-        
-        offers = []
-        for row in rows:
-            offers.append({
-                "id": row['id'],
-                "token_id": row['token_id'],
-                "project_name": row['project_name'],
-                "molecule": row['molecule'],
-                "volume_mtpd": row['volume_mtpd'],
-                "price_eur_kg": row['price_eur_kg'],
-                "delivery_start": row['delivery_start'],
-                "delivery_end": row['delivery_end'],
-                "location": row['location'],
-                "status": row['status'],
-                "offer_type": row['offer_type'],
-                "created_at": row['created_at'],
-            })
-        
-        return {"offers": offers}
-        
-    except Exception as e:
-        print(f"Error listing offers: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list offers: {str(e)}")
+async def list_offers(request: Request, molecule: Optional[str] = None, status: Optional[str] = None,
+                      listing_state: Optional[str] = None):
+    """The caller's own listings (GEX: all), from the order model (alembic 087). The
+    open market is GET /api/v1/market/listings/offers, anonymised."""
+    from app.core import market_engine as me
+    rows = _market_call(me.my_listings, _market_party(request))
+    rows = [r for r in rows if (not molecule or r["molecule"] == molecule) and (not status or r["status"] == status)
+            and (not listing_state or r["listing_state"] == listing_state)]
+    return {"offers": rows}
 
 
 @router.get("/offers/{offer_id}", response_model=OfferResponse)
-async def get_offer(offer_id: str):
-    """
-    Get a specific offer by ID
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM offers WHERE id = ?", (offer_id,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Offer not found")
-        
-        return {
-            "id": row['id'],
-            "token_id": row['token_id'],
-            "molecule": row['molecule'],
-            "volume_mtpd": row['volume_mtpd'],
-            "price_eur_kg": row['price_eur_kg'],
-            "delivery_start": row['delivery_start'],
-            "delivery_end": row['delivery_end'],
-            "location": row['location'],
-            "status": row['status'],
-            "offer_type": row['offer_type'],
-            "created_at": row['created_at'],
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error getting offer: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get offer: {str(e)}")
+async def get_offer(offer_id: str, request: Request):
+    from app.core import market_engine as me
+    return _market_call(me.my_listing, _market_party(request), offer_id)
 
 
 @router.patch("/offers/{offer_id}/status", status_code=409)
@@ -450,15 +243,7 @@ async def transition_listing(offer_id: str, transition: ListingTransition, reque
     if target == "OPEN":
         row = _market_call(me.open_offer, party, offer_id)
     elif target in ("WITHDRAWN", "EXPIRED"):
-        row = _market_call(me.withdraw_offer, party, offer_id)
-        if target == "EXPIRED":
-            conn = me._conn()
-            try:
-                conn.execute("UPDATE offers SET listing_state = 'EXPIRED' WHERE id = ?", (offer_id,))
-                conn.commit()
-                row = me._row(conn, "SELECT * FROM offers WHERE id = ?", (offer_id,))
-            finally:
-                conn.close()
+        row = _market_call(me.withdraw_offer, party, offer_id, expire=target == "EXPIRED")
     else:
         raise HTTPException(status_code=409, detail={"code": "SET_BY_THE_MARKET",
                             "message": f"{target or 'That state'} is set by the market, not by hand."})
@@ -468,21 +253,18 @@ async def transition_listing(offer_id: str, transition: ListingTransition, reque
 
 @router.delete("/offers/{offer_id}", status_code=204)
 async def delete_offer(offer_id: str, request: Request):
-    """Only the owner's own DRAFT. A listing that was ever live is a record: withdraw it."""
+    """Only the owner's own DRAFT, and it is withdrawn rather than erased: an order is a
+    record (its events reference it). A listing that was ever live: withdraw it."""
     from app.core import market_engine as me
     party = _market_party(request)
-    conn = me._conn()
+    if party.is_admin:
+        raise HTTPException(status_code=404, detail="Offer not found")
     try:
-        o = me._row(conn, "SELECT o.listing_state, c.project_id FROM offers o JOIN tokens t "
-                          "ON t.id = o.token_id JOIN capacities c ON c.id = t.capacity_id "
-                          "WHERE o.id = ?", (offer_id,))
-        if o is None or party.is_admin or me.seller_company(o["project_id"]) != party.company_id:
-            raise HTTPException(status_code=404, detail="Offer not found")
-        if (o["listing_state"] or "DRAFT") != "DRAFT":
-            raise HTTPException(status_code=409, detail={"code": "LISTING_IS_A_RECORD",
-                                "message": "Only a draft can be deleted; withdraw a live listing."})
-        conn.execute("DELETE FROM offers WHERE id = ?", (offer_id,))
-        conn.commit()
-    finally:
-        conn.close()
+        row = me.my_listing(party, offer_id)
+    except me.MarketRefused:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    if row["listing_state"] != "DRAFT":
+        raise HTTPException(status_code=409, detail={"code": "LISTING_IS_A_RECORD",
+                            "message": "Only a draft can be deleted; withdraw a live listing."})
+    _market_call(me.withdraw_offer, party, offer_id)
     return None

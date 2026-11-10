@@ -10,8 +10,10 @@ processes — they are NOT duplicated here.
 
 Public surface:
     - Models: Asset, Counterparty, IndexDefinition, IndexHistory,
-              Contract, FixedPriceContract, IndexLinkedContract,
-              ProjectFinanceLink
+              RecordContract, ProjectFinanceLink; and Contract,
+              FixedPriceContract, IndexLinkedContract — the JTI model, a
+              FROZEN in-memory reference since M6 (alembic 088 dropped
+              its tables); contracts are the one record (record.py)
     - Schemas: *Create, *Read, *Update for each entity
     - Cashflow generator: generate_cashflows_for_project()
     - FastAPI router: router
@@ -42,6 +44,7 @@ from app.trading_book.models import (
     IndexLinkedContract,
     PFLineItemType,
     ProjectFinanceLink,
+    RecordContract,
 )
 from app.trading_book.cashflows import (
     CashflowProjection,
@@ -64,6 +67,7 @@ __all__ = [
     "FixedPriceContract",
     "IndexLinkedContract",
     "ProjectFinanceLink",
+    "RecordContract",
     # Cashflows
     "CashflowRow",
     "PeriodSummary",

@@ -22,13 +22,9 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
-    model_validator,
 )
 
-from app.trading_book.models import (
-    ContractStatus,
-    PFLineItemType,
-)
+from app.trading_book.models import PFLineItemType
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -244,134 +240,10 @@ class IndexHistoryRead(IndexHistoryBase):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Contract — common base + subtype variants
+# Contracts: none here. Since M6 (alembic 088, 2026-11-10) a contract is the
+# one record (trading_book/terms.py, record.py), written by an agreed match or
+# an accepted order; the JTI booking schemas went with their routes and tables.
 # ──────────────────────────────────────────────────────────────────────
-
-
-class _ContractCommonFields(BaseModel):
-    """Shared by both subtype create schemas."""
-    contract_number: str = Field(min_length=1, max_length=50)
-    buy_side_id: uuid.UUID
-    sell_side_id: uuid.UUID
-    fuel_type: str = Field(min_length=1, max_length=50)
-    trade_date: date
-    effective_date: date
-    termination_date: date
-    notional_quantity: Decimal = Field(gt=0)
-    quantity_unit: str = Field(min_length=1, max_length=10)
-    currency: str = Field(min_length=3, max_length=3)
-    status: ContractStatus = ContractStatus.DRAFT
-
-    @field_validator("currency")
-    @classmethod
-    def _currency_upper(cls, v: str) -> str:
-        return v.upper()
-
-    @field_validator("fuel_type")
-    @classmethod
-    def _fuel_type_norm(cls, v: str) -> str:
-        # Advisory: accept unknown, normalize to upper-snake.
-        return v.upper().replace("-", "_").replace(" ", "_")
-
-    @field_validator("quantity_unit")
-    @classmethod
-    def _quantity_unit_check(cls, v: str) -> str:
-        # Advisory.
-        return v
-
-    @model_validator(mode="after")
-    def _check_dates(self) -> "_ContractCommonFields":
-        if self.trade_date > self.effective_date:
-            raise ValueError("trade_date must be on or before effective_date")
-        if self.effective_date > self.termination_date:
-            raise ValueError("effective_date must be on or before termination_date")
-        return self
-
-    @model_validator(mode="after")
-    def _check_sides_distinct(self) -> "_ContractCommonFields":
-        if self.buy_side_id == self.sell_side_id:
-            raise ValueError("buy_side and sell_side must be different counterparties")
-        return self
-
-
-class FixedPriceContractCreate(_ContractCommonFields):
-    fixed_price: Decimal = Field(gt=0)
-    price_basis: str = Field(default="flat", max_length=50)
-
-
-class IndexLinkedContractCreate(_ContractCommonFields):
-    index_definition_id: uuid.UUID
-    spread: Decimal = Decimal("0")
-    floor: Optional[Decimal] = None
-    cap: Optional[Decimal] = None
-    fixing_rule: str = Field(default="month_avg", max_length=50)
-
-    @model_validator(mode="after")
-    def _check_floor_cap(self) -> "IndexLinkedContractCreate":
-        if (
-            self.floor is not None
-            and self.cap is not None
-            and self.floor > self.cap
-        ):
-            raise ValueError("floor must be <= cap")
-        return self
-
-
-class ContractStatusUpdate(BaseModel):
-    """B1 lifecycle update. B3 will replace this with explicit transition
-    endpoints (advance_to_proposed, advance_to_committed, etc.) wired to the
-    seven-step decision chain.
-    """
-    status: ContractStatus
-
-
-class FixedPriceContractRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    contract_number: str
-    owner_company_id: str
-    contract_type: str
-    buy_side_id: uuid.UUID
-    sell_side_id: uuid.UUID
-    fuel_type: str
-    trade_date: date
-    effective_date: date
-    termination_date: date
-    notional_quantity: Decimal
-    quantity_unit: str
-    currency: str
-    status: ContractStatus
-    fixed_price: Decimal
-    price_basis: str
-    created_at: datetime
-    updated_at: datetime
-
-
-class IndexLinkedContractRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    contract_number: str
-    owner_company_id: str
-    contract_type: str
-    buy_side_id: uuid.UUID
-    sell_side_id: uuid.UUID
-    fuel_type: str
-    trade_date: date
-    effective_date: date
-    termination_date: date
-    notional_quantity: Decimal
-    quantity_unit: str
-    currency: str
-    status: ContractStatus
-    index_definition_id: uuid.UUID
-    spread: Decimal
-    floor: Optional[Decimal]
-    cap: Optional[Decimal]
-    fixing_rule: str
-    created_at: datetime
-    updated_at: datetime
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -169,6 +169,22 @@ share `gex_test_suite`).
 - **A `pg_store` module must save, reset and restore `app.db.session._sync_engine`** (see
   `test_commitment_terms._seeded`), or the throwaway URL leaks into every later module.
 - Platform **1351 pass / 15 skip**.
+**2026-11-10: head is 091 — Phase 3 M3–M6: one contract model, the old stores dropped** (handoff §8 item 58).
+- 086 capacities for `v_position`; 087 the market on the order model (listing = firm sell
+  `tb_order`, RFQ = `tb_rfq`, proposal = invited `tb_order`); M4 `trading_book/flows.py` prices
+  record flows (T10: the old engine's 180 lines to the cent).
+- **Dropped:** 088 the JTI contract model (subtype tables, ten `tb_contract` columns);
+  089 `contracts` (063); 090 the 078 tables (downgrade rebuilds them from the record);
+  091 `offers`/`rfqs`/`matches`. Each refuses while anything is unconverted.
+  `test_marketplace_slice` pins that they stay dropped. **151** tables, **144** FORCED.
+- Platform **1361 pass / 15 skip** (both exported, run alone).
+- **036 builds from `trading_book/models_036.py`** (frozen). Never point it back at the live
+  models: a fresh rebuild then fails at 036. Never edit `models_036.py`.
+- A link (`tb_project_finance_link`) admits a PARTY to the contract (seller: revenue; buyer: a
+  cost), not only `owner_company_id`. A projection states `withheld_contract_count` for linked
+  contracts the caller may not read (a `trade` is party-only, Q5).
+- On a database still holding `offers`/`rfqs`/`matches` rows, run
+  `python -m app.trading_book.migrate.market_to_orders --execute` at 090, before 091.
 **2026-11-05: a paused Docker Desktop used to hang the sweep and the suite** (port 55432 accepts, nothing answers). `app/core/config.py` defaults `PGCONNECT_TIMEOUT=10`; the sweep has a thread watchdog (exit 4). Check `docker info` first. Platform **1307 pass / 15 skip**, engine 275.
 **2026-11-03:** tenant `mohring_energie` created (`scripts/onboard_fortaverde_client.py`; users not yet registered, no telephone numbers). The Project Profile no longer invents verification: a recorded value is SUBMITTED, a missing one UNVERIFIED, nothing is CONFIRMED there and its click-to-confirm is gone. A missing CAPEX or coordinate is null end to end, not 0. A 401/403 readout now says "No access to this project's gates", not "Gate engine unavailable". **GEX staff read-only (JML, same day):** ABAC rule **R0P**, before R0, lets `is_platform_admin` READ `GATE_EVALUATION` and `EVIDENCE` on every project — nothing else: writes, verification, export, share, financial models, contracts, data rooms and activity still meet R0 (an admin with no project role is GUEST there). `tests/test_platform_read_only.py` (25), negative-verified three ways. Platform **1259 pass / 15 skip**, frontend 233.
 **2026-11-03 (later): GEX staff console** (`/gex-console`, CISO menu, service type PLATFORM only; JML). `routes_gex_console.py` (`/api/v1/gex-console`, domain `platform`) is GET-only and `is_platform_admin`-only: admins, companies (TEST flagged), staff rights (from R0P and `REVIEWER_GATES`), per-company onboarding steps read from the records (a registered account is matched by its `pending_…` id + company name). Its actions post to the existing `/api/v1/account/{id}/…` endpoints, which enforce separation of duties. A read failure answers 503, never zeros. **Temporary password (JML exception to the onboarding rule):** `onboard_fortaverde_client.py --register --temporary-password --execute` reads one at a getpass prompt and writes `account.temporary_password_set`; Still blocked on the two telephone numbers. Platform 1267 / 15 skip (`test_gex_console_pg.py` 8, negative-verified three ways), frontend 238.

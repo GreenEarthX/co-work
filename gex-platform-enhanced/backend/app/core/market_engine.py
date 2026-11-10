@@ -324,22 +324,281 @@ def project_economics(party: Party) -> dict:
             "input_lines": by_project, "input_classification": {r["feedstock"]: r for r in classes}}
 
 
+# ── the market on the order model (Phase 3, alembic 087) ────────────────────
+#
+# Phase 0 Q6/Q8, JML 2026-11-06. A listing is a firm SELL tb_order; an RFQ a BUY
+# tb_rfq; a proposal an invited firm tb_order answering the RFQ against the listing
+# (listing_order_id + rfq_id) — the proposer's acceptance. The other party's
+# acceptance runs order_book._accept: fill + draft contract in one locked
+# transaction. The functions below keep the names and the response shapes the
+# screens read (offer / RFQ / match dicts); the rows behind them are the order
+# model's, and offers / rfqs / matches are no longer written (dropped in M6).
+
+def _monthly(start, end):
+    """[(period_start, period_end)] month by month over the delivery window."""
+    from datetime import date as _date, timedelta
+
+    out, cur = [], start
+    while cur <= end:
+        nxt = _date(cur.year + (cur.month == 12), cur.month % 12 + 1, 1)
+        out.append((cur, min(end, nxt - timedelta(days=1))))
+        cur = nxt
+    return out
+
+
+def _day(v):
+    from datetime import date as _date
+
+    return _date.fromisoformat(str(v)[:10])
+
+
+def market_terms(conn, *, molecule: str, volume_mtpd, price_eur_kg, delivery_start, delivery_end,
+                 quality: Optional[dict] = None, clauses: Optional[list] = None,
+                 seller_cp: Optional[str] = None, buyer_cp: Optional[str] = None):
+    """The market's terms in the terms model: a physical product leg (seller ->
+    buyer) and, when there is a price, a fixed-price payment leg (buyer -> seller),
+    one flow per delivery month. Volume is t/day × days; €/kg × 1000 per tonne;
+    payment on the delivered quantity (decided 2026-10-23). Parties only on a
+    contract; an order or RFQ names none (D3)."""
+    from decimal import Decimal
+
+    from app.trading_book import record
+    from app.trading_book.terms import TermsIn
+
+    code = record.commodity_for_molecule(conn, molecule)
+    if code is None:
+        _refuse(409, "UNKNOWN_COMMODITY", f"{molecule!r} is not a traded commodity (tb_commodity).")
+    start, end = _day(delivery_start), _day(delivery_end)
+    if end < start:
+        _refuse(422, "DELIVERY_WINDOW", "The delivery window ends before it starts.")
+    rate = Decimal(str(volume_mtpd))
+    product, payment = [], []
+    for i, (a, b) in enumerate(_monthly(start, end), start=1):
+        qty = (rate * ((b - a).days + 1)).quantize(Decimal("0.000001"))
+        product.append({"seq": i, "flow_type": "physical", "period_start": a, "period_end": b, "settle_date": b,
+                        "quantity": qty, "unit": "t"})
+        if price_eur_kg is not None:
+            payment.append({"seq": i, "flow_type": "fixed_cash", "period_start": a, "period_end": b,
+                            "settle_date": b, "quantity": qty, "unit": "t",
+                            "unit_price": (Decimal(str(price_eur_kg)) * 1000).quantize(Decimal("0.00000001")),
+                            "quantity_basis": "delivered", "quantity_source_flow": f"1.{i}"})
+    legs = [{"seq": 1, "leg_role": "product", "payer": seller_cp, "receiver": buyer_cp, "flows": product}]
+    if payment:
+        legs.append({"seq": 2, "leg_role": "payment", "payer": buyer_cp, "receiver": seller_cp, "flows": payment})
+    return TermsIn.model_validate({"settlement": "physical", "commodity": code, "quality_spec": quality or {},
+                                   "currency": "EUR", "legs": legs,
+                                   "clauses": [{"seq": n, **c} for n, c in enumerate(clauses or [], start=1)]})
+
+
+def _terms_summary(conn, terms_id: str) -> dict:
+    """molecule, volume_mtpd, price_eur_kg, delivery window and clause attributes of stored terms."""
+    from decimal import Decimal
+
+    from app.trading_book import record
+
+    t = record._row(conn, "SELECT co.market_molecule FROM tb_terms t JOIN tb_commodity co ON co.id = t.commodity_id "
+                          "WHERE t.id = ?", (terms_id,))
+    terms = record.load_terms(conn, terms_id)
+    product = [f for leg in terms.legs if leg.leg_role.value == "product" for f in leg.flows]
+    priced = [f for leg in terms.legs if leg.leg_role.value == "payment" for f in leg.flows if f.unit_price is not None]
+    start = min((f.period_start for f in product), default=None)
+    end = max((f.period_end for f in product), default=None)
+    days = (end - start).days + 1 if start and end else None
+    total = sum((f.quantity for f in product), Decimal(0))
+    attrs = {}
+    for c in terms.clauses:
+        attrs.update({k: v for k, v in (c.attrs or {}).items()})
+        if c.clause_type in ("delivery", "payment") and "text" in (c.attrs or {}):
+            attrs[f"{c.clause_type}_terms"] = c.attrs["text"]
+    return {"molecule": (t or {}).get("market_molecule"), "volume_mtpd": float(total / days) if days else None,
+            "price_eur_kg": float(priced[0].unit_price / 1000) if priced else None,
+            "delivery_start": start.isoformat() if start else None, "delivery_end": end.isoformat() if end else None,
+            "quality": terms.quality_spec, "attrs": attrs}
+
+
+def _company_of(conn, cp) -> Optional[str]:
+    r = _row(conn, "SELECT company_id FROM tb_counterparty WHERE id = ?", (str(cp),)) if cp else None
+    return r["company_id"] if r else None
+
+
+def _iso(v) -> Optional[str]:
+    return v.isoformat() if hasattr(v, "isoformat") else (str(v) if v is not None else None)
+
+
+# Order status -> the listing's states the screens know (063's vocabulary).
+LISTING_STATE = {"draft": "DRAFT", "open": "OPEN", "partially_filled": "OPEN", "filled": "MATCHED",
+                 "cancelled": "WITHDRAWN", "expired": "EXPIRED", "rejected": "WITHDRAWN"}
+LISTING_STATUS = {"draft": "draft", "open": "active", "partially_filled": "active", "filled": "matched",
+                  "cancelled": "expired", "expired": "expired", "rejected": "expired"}
+# tb_rfq status -> the RFQ states the screens know (Q8 read backwards).
+RFQ_STATE = {"draft": "draft", "published": "open", "closed": "matched", "withdrawn": "withdrawn",
+             "expired": "expired"}
+
+
+def _listing(conn, o: dict) -> dict:
+    """A listing (a sell tb_order) in the offer shape, with its token's state and project."""
+    s = _terms_summary(conn, str(o["terms_id"]))
+    tok = _row(conn, "SELECT t.lifecycle_state, t.correlation_id, t.capacity_id, t.carbon_intensity_gco2e_mj, "
+                     "t.certification_pathway, c.project_id FROM tokens t JOIN capacities c ON c.id = t.capacity_id "
+                     "WHERE t.id = ?", (o["token_id"],)) if o.get("token_id") else None
+    state = LISTING_STATE.get(o["status"], "WITHDRAWN")
+    if state == "MATCHED" and tok and tok["lifecycle_state"] == "SETTLED":
+        state = "SETTLED"
+    a = s["attrs"]
+    return {"id": str(o["id"]), "token_id": o.get("token_id"), "molecule": s["molecule"],
+            "volume_mtpd": s["volume_mtpd"], "price_eur_kg": s["price_eur_kg"],
+            "delivery_start": s["delivery_start"], "delivery_end": s["delivery_end"], "location": o.get("location"),
+            "status": LISTING_STATUS.get(o["status"], "expired"), "listing_state": state,
+            "offer_type": o["order_type"], "correlation_id": o.get("correlation_id"),
+            "delivery_type": a.get("delivery_type"), "delivery_basis": a.get("delivery_basis"),
+            "price_basis": a.get("price_basis"),
+            "certification_pathway_required": s["quality"].get("certification_pathway_required"),
+            "min_order_kg": float(o["min_fill_quantity"]) * 1000 if o.get("min_fill_quantity") else None,
+            "esg_tier": s["quality"].get("esg_tier"), "created_at": _iso(o["created_at"]),
+            "capacity_id": (tok or {}).get("capacity_id"), "capacity_project_id": (tok or {}).get("project_id"),
+            "token_state": (tok or {}).get("lifecycle_state"), "token_correlation_id": (tok or {}).get("correlation_id"),
+            "carbon_intensity_gco2e_mj": (tok or {}).get("carbon_intensity_gco2e_mj"),
+            "certification_pathway": (tok or {}).get("certification_pathway"),
+            "seller_company_id": _company_of(conn, o["owner_id"])}
+
+
+def _listing_by_id(conn, offer_id: str, lock: bool = False) -> dict:
+    o = _row(conn, "SELECT * FROM tb_order WHERE id = ? AND listing_order_id IS NULL AND rfq_id IS NULL"
+                   + (" FOR UPDATE" if lock else ""), (offer_id,)) if _is_uuid(offer_id) else None
+    if o is None:
+        _refuse(404, "OFFER_NOT_FOUND", "No offer with that id.")
+    return o
+
+
+def _is_uuid(v) -> bool:
+    try:
+        uuid.UUID(str(v))
+        return True
+    except ValueError:
+        return False
+
+
+def _rfq(conn, r: dict) -> dict:
+    """An RFQ (a tb_rfq) in the shape the screens know."""
+    s = _terms_summary(conn, str(r["terms_id"]))
+    return {"id": str(r["id"]), "buyer_company_id": _company_of(conn, r["requester_id"]),
+            "created_by": r.get("created_by_user"), "molecule": s["molecule"], "volume_mtpd": s["volume_mtpd"],
+            "max_price_eur_kg": s["price_eur_kg"], "delivery_start": s["delivery_start"],
+            "delivery_end": s["delivery_end"], "location": r.get("location"), "buyer_name": r.get("buyer_name"),
+            "buyer_contact": r.get("buyer_contact"),
+            "compliance_requirements": r.get("compliance_requirements") or [],
+            "status": RFQ_STATE.get(r["status"], r["status"]), "correlation_id": r.get("correlation_id"),
+            "created_at": _iso(r["created_at"]), "updated_at": _iso(r["updated_at"])}
+
+
+def _rfq_by_id(conn, rfq_id: str, lock: bool = False) -> Optional[dict]:
+    if not _is_uuid(rfq_id):
+        return None
+    return _row(conn, "SELECT * FROM tb_rfq WHERE id = ?" + (" FOR UPDATE" if lock else ""), (rfq_id,))
+
+
+def _order_event(conn, order_id: str, from_status: Optional[str], to_status: str, actor: str, reason: str) -> None:
+    conn.execute("INSERT INTO tb_order_event (order_id, from_status, to_status, actor_id, reason) "
+                 "VALUES (?, ?, ?, ?, ?)", (order_id, from_status, to_status, actor, reason))
+
+
+# ── listings ────────────────────────────────────────────────────────────────
+
+def create_listing(party: Party, token: dict, *, volume_mtpd: float, price_eur_kg: float, delivery_start: str,
+                   delivery_end: str, location: Optional[str] = None, offer_type: str = "firm",
+                   delivery_type: Optional[str] = None, delivery_basis: Optional[str] = None,
+                   price_basis: Optional[str] = None, certification_pathway_required: Optional[str] = None,
+                   min_order_kg: Optional[float] = None, esg_tier: Optional[str] = None,
+                   open_now: bool = False) -> dict:
+    """A draft listing (a firm SELL order) of the caller's own token. The caller has
+    already been checked as the token's project owner (marketplace route)."""
+    from decimal import Decimal
+
+    from app.trading_book import record
+
+    _trader(party)
+    if volume_mtpd <= 0 or price_eur_kg <= 0:
+        _refuse(422, "LISTING_TERMS", "Volume and price must be positive.")
+    conn, trail = _conn(), _Trail(party)
+    try:
+        quality = {k: v for k, v in (("certification_pathway", token.get("certification_pathway")),
+                                     ("carbon_intensity_gco2e_mj", token.get("carbon_intensity_gco2e_mj")),
+                                     ("certification_pathway_required", certification_pathway_required),
+                                     ("esg_tier", esg_tier)) if v is not None}
+        quality = {k: (v if isinstance(v, (list, str)) else str(v)) for k, v in quality.items()}
+        clauses = []
+        if delivery_type or delivery_basis:
+            clauses.append({"clause_type": "delivery", "attrs": {k: v for k, v in (
+                ("delivery_type", delivery_type), ("delivery_basis", delivery_basis)) if v}})
+        if price_basis:
+            clauses.append({"clause_type": "price", "attrs": {"price_basis": price_basis}})
+        terms = market_terms(conn, molecule=token["molecule"], volume_mtpd=volume_mtpd, price_eur_kg=price_eur_kg,
+                             delivery_start=delivery_start, delivery_end=delivery_end, quality=quality, clauses=clauses)
+        from app.trading_book import validation
+
+        failed = validation.validate(terms, "order")
+        if failed:
+            _refuse(422, "TERMS_INVALID", "The listing's terms break rules " + ", ".join(failed) + ".")
+        w = record.write_terms(conn, terms, party.company_id, freeze=False)
+        order_id = str(uuid.uuid4())
+        conn.execute("INSERT INTO tb_order (id, owner_id, side, terms_id, order_type, all_or_nothing, min_fill_quantity, "
+                     "valid_until, status, visibility, token_id, correlation_id, location, created_by_user) "
+                     "VALUES (?, ?, 'sell', ?, ?, false, ?, ?, 'draft', 'platform', ?, ?, ?, ?)",
+                     (order_id, record.counterparty_for(conn, party.company_id), w["terms_id"],
+                      "firm" if offer_type != "indicative" else "indicative",
+                      Decimal(str(min_order_kg)) / 1000 if min_order_kg else None,
+                      _day(delivery_end).isoformat() + "T23:59:59+00:00", token["id"], token.get("correlation_id"),
+                      location, party.user_id))
+        _order_event(conn, order_id, None, "draft", party.user_id, "listing created")
+        trail.add("offer.created", "offer", order_id, {"token_id": token["id"], "volume_mtpd": volume_mtpd},
+                  token.get("correlation_id"), token.get("capacity_project_id"))
+        _commit(conn, trail)
+    finally:
+        conn.close()
+    return open_offer(party, order_id) if open_now else my_listing(party, order_id)
+
+
+def my_listing(party: Party, offer_id: str) -> dict:
+    conn = _conn()
+    try:
+        o = _listing(conn, _listing_by_id(conn, offer_id))
+        if not party.is_admin and o["seller_company_id"] != party.company_id:
+            _refuse(404, "OFFER_NOT_FOUND", "No offer of yours with that id.")
+        return o
+    finally:
+        conn.close()
+
+
+def my_listings(party: Party) -> list[dict]:
+    conn = _conn()
+    try:
+        cp = _row(conn, "SELECT id FROM tb_counterparty WHERE company_id = ?", (party.company_id,))
+        if cp is None and not party.is_admin:
+            return []
+        sql = "SELECT * FROM tb_order WHERE listing_order_id IS NULL AND rfq_id IS NULL AND token_id IS NOT NULL"
+        params: list = []
+        if not party.is_admin:
+            sql += " AND owner_id = ?"
+            params.append(str(cp["id"]))
+        return [_listing(conn, o) for o in _rows(conn, sql + " ORDER BY created_at DESC", params)]
+    finally:
+        conn.close()
+
+
 def offer_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
     conn = _conn()
     try:
-        sql = ("SELECT o.*, t.capacity_id, c.project_id AS capacity_project_id, t.carbon_intensity_gco2e_mj, "
-               "t.certification_pathway FROM offers o JOIN tokens t ON t.id = o.token_id "
-               "JOIN capacities c ON c.id = t.capacity_id WHERE o.listing_state = 'OPEN'")
-        params: list = []
-        if molecule:
-            sql += " AND o.molecule = ?"
-            params.append(molecule)
         out = []
-        for r in _rows(conn, sql + " ORDER BY o.created_at DESC", params):
+        for o in _rows(conn, "SELECT * FROM tb_order WHERE listing_order_id IS NULL AND rfq_id IS NULL "
+                             "AND token_id IS NOT NULL AND status = 'open' AND visibility = 'platform' "
+                             "ORDER BY created_at DESC"):
+            r = _listing(conn, o)
+            if molecule and r["molecule"] != molecule:
+                continue
             item = {k: r.get(k) for k in OFFER_LISTING_FIELDS}
-            item["carbon_intensity_gco2e_mj"] = r.get("carbon_intensity_gco2e_mj")
-            item["certification_pathway"] = r.get("certification_pathway")
-            item["mine"] = bool(party.company_id) and seller_company(r["capacity_project_id"]) == party.company_id
+            item["carbon_intensity_gco2e_mj"] = r["carbon_intensity_gco2e_mj"]
+            item["certification_pathway"] = r["certification_pathway"]
+            item["mine"] = bool(party.company_id) and r["seller_company_id"] == party.company_id
             if item["mine"]:
                 item["project_id"] = r["capacity_project_id"]      # the seller's own; never anyone else's
             out.append(item)
@@ -348,19 +607,70 @@ def offer_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
         conn.close()
 
 
-def rfq_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
-    conn = _conn()
+def open_offer(party: Party, offer_id: str) -> dict:
+    """draft -> open: the listing goes live, its terms freeze, its token is reserved (MINTED -> RESERVED)."""
+    from app.trading_book import record
+
+    _trader(party)
+    conn, trail = _conn(), _Trail(party)
     try:
-        sql, params = "SELECT * FROM rfqs WHERE status = 'open'", []
-        if molecule:
-            sql += " AND molecule = ?"
-            params.append(molecule)
-        out = []
-        for r in _rows(conn, sql + " ORDER BY created_at DESC", params):
-            item = {k: r.get(k) for k in RFQ_LISTING_FIELDS}
-            item["mine"] = bool(party.company_id) and r["buyer_company_id"] == party.company_id
-            out.append(item)
-        return out
+        o = _listing_by_id(conn, offer_id, lock=True)
+        lv = _listing(conn, o)
+        if lv["seller_company_id"] != party.company_id:
+            _refuse(403, "NOT_YOUR_OFFER", "Only the company that owns the project can list its offer.")
+        if o["status"] != "draft":
+            _refuse(409, "LISTING_STATE", f"The listing is {lv['listing_state']}, not DRAFT.")
+        if _row(conn, "SELECT 1 AS x FROM tb_order WHERE token_id = ? AND id <> ? AND listing_order_id IS NULL "
+                      "AND rfq_id IS NULL AND status IN ('open', 'partially_filled', 'filled')", (o["token_id"], offer_id)):
+            _refuse(409, "TOKEN_ALREADY_LISTED", "This token already backs a live listing. One token is one "
+                                                 "tradeable lot: mint another token to list more volume.")
+        record.freeze(conn, str(o["terms_id"]))
+        conn.execute("UPDATE tb_order SET status = 'open', valid_from = now(), updated_at = now() WHERE id = ?", (offer_id,))
+        _order_event(conn, offer_id, "draft", "open", party.user_id, "listed")
+        _move_token(conn, trail, o["token_id"], {"MINTED"}, "RESERVED", f"listed as offer {offer_id}")
+        trail.add("offer.opened", "offer", offer_id, {"token_id": o["token_id"]}, lv["token_correlation_id"],
+                  lv["capacity_project_id"])
+        _commit(conn, trail)
+        return _listing(conn, _listing_by_id(conn, offer_id))
+    finally:
+        conn.close()
+
+
+def _close_proposals(conn, trail: _Trail, party: Party, column: str, value: str, reason: str,
+                     keep: Optional[str] = None) -> None:
+    for p in _rows(conn, f"SELECT id, status, correlation_id FROM tb_order WHERE {column} = ? AND "
+                         "listing_order_id IS NOT NULL AND status = 'open'", (value,)):
+        if keep and str(p["id"]) == keep:
+            continue
+        conn.execute("UPDATE tb_order SET status = 'cancelled', updated_at = now() WHERE id = ?", (str(p["id"]),))
+        _order_event(conn, str(p["id"]), "open", "cancelled", party.user_id, reason)
+        trail.add("match.superseded" if reason.startswith("superseded") else "match.cancelled", "match",
+                  str(p["id"]), {"reason": reason}, p["correlation_id"])
+
+
+def withdraw_offer(party: Party, offer_id: str, expire: bool = False) -> dict:
+    """Withdraw (or expire) a draft or open listing: its token is released and pending proposals close."""
+    _trader(party)
+    conn, trail = _conn(), _Trail(party)
+    try:
+        o = _listing_by_id(conn, offer_id, lock=True)
+        lv = _listing(conn, o)
+        if lv["seller_company_id"] != party.company_id:
+            _refuse(403, "NOT_YOUR_OFFER", "Only the company that owns the project can withdraw its offer.")
+        if o["status"] not in ("draft", "open"):
+            _refuse(409, "LISTING_STATE", f"A {lv['listing_state']} listing cannot be withdrawn: a match has "
+                                          f"been agreed on it.")
+        _close_proposals(conn, trail, party, "listing_order_id", offer_id, "cancelled: listing withdrawn")
+        target = "expired" if expire else "cancelled"
+        conn.execute("UPDATE tb_order SET status = ?, updated_at = now() WHERE id = ?", (target, offer_id))
+        _order_event(conn, offer_id, o["status"], target, party.user_id,
+                     "listing expired" if expire else "listing withdrawn")
+        if o["status"] == "open":
+            _move_token(conn, trail, o["token_id"], {"RESERVED"}, "MINTED", f"listing {offer_id} withdrawn")
+        trail.add("offer.withdrawn", "offer", offer_id, {"from": lv["listing_state"]}, lv["token_correlation_id"],
+                  lv["capacity_project_id"])
+        _commit(conn, trail)
+        return _listing(conn, _listing_by_id(conn, offer_id))
     finally:
         conn.close()
 
@@ -368,12 +678,16 @@ def rfq_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
 # ── RFQs ────────────────────────────────────────────────────────────────────
 
 RFQ_TRANSITIONS = {"draft": ("open", "cancelled"), "open": ("withdrawn", "expired")}
+# The screens' RFQ moves -> tb_rfq (Q8: a cancelled draft is withdrawn).
+RFQ_MOVE = {"open": "published", "cancelled": "withdrawn", "withdrawn": "withdrawn", "expired": "expired"}
 
 
 def create_rfq(party: Party, *, molecule: str, volume_mtpd: float, delivery_start: str,
                delivery_end: str, max_price_eur_kg: Optional[float] = None,
                location: Optional[str] = None, buyer_contact: Optional[str] = None,
                compliance_requirements: Optional[list] = None, status: str = "open") -> dict:
+    from app.trading_book import record, validation
+
     _trader(party)
     if status not in ("draft", "open"):
         _refuse(422, "RFQ_STATUS", "A new RFQ is either 'draft' or 'open'.")
@@ -383,43 +697,50 @@ def create_rfq(party: Party, *, molecule: str, volume_mtpd: float, delivery_star
         _refuse(422, "RFQ_WINDOW", "The delivery window ends before it starts.")
     rfq_id = str(uuid.uuid4())
     correlation_id = f"RFQ-{rfq_id[:8]}"
-    now = _now()
     conn, trail = _conn(), _Trail(party)
     try:
-        conn.execute(
-            "INSERT INTO rfqs (id, buyer_company_id, created_by, molecule, volume_mtpd, "
-            "max_price_eur_kg, delivery_start, delivery_end, location, buyer_name, buyer_contact, "
-            "compliance_requirements, status, correlation_id, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (rfq_id, party.company_id, party.user_id, molecule, volume_mtpd, max_price_eur_kg,
-             delivery_start, delivery_end, location, party.company_name, buyer_contact,
-             json.dumps(compliance_requirements or []), status, correlation_id, now, now))
+        terms = market_terms(conn, molecule=molecule, volume_mtpd=volume_mtpd, price_eur_kg=max_price_eur_kg,
+                             delivery_start=delivery_start, delivery_end=delivery_end)
+        failed = validation.validate(terms, "rfq")
+        if failed:
+            _refuse(422, "TERMS_INVALID", "The RFQ's terms break rules " + ", ".join(failed) + ".")
+        w = record.write_terms(conn, terms, party.company_id, freeze=status == "open")
+        conn.execute("INSERT INTO tb_rfq (id, requester_id, side, terms_id, valid_until, status, buyer_name, "
+                     "buyer_contact, location, compliance_requirements, correlation_id, created_by_user) "
+                     "VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (rfq_id, record.counterparty_for(conn, party.company_id), w["terms_id"],
+                      _day(delivery_end).isoformat() + "T23:59:59+00:00", "published" if status == "open" else "draft",
+                      party.company_name, buyer_contact, location, json.dumps(compliance_requirements or []),
+                      correlation_id, party.user_id))
         trail.add("rfq.created", "rfq", rfq_id, {"molecule": molecule, "volume_mtpd": volume_mtpd,
                                                  "status": status}, correlation_id)
         _commit(conn, trail)
-        return _row(conn, "SELECT * FROM rfqs WHERE id = ?", (rfq_id,))
+        return _rfq(conn, _rfq_by_id(conn, rfq_id))
     finally:
         conn.close()
 
 
 def transition_rfq(party: Party, rfq_id: str, new_status: str) -> dict:
+    from app.trading_book import record
+
     _trader(party)
     conn, trail = _conn(), _Trail(party)
     try:
-        rfq = _row(conn, "SELECT * FROM rfqs WHERE id = ?", (rfq_id,))
-        if rfq is None or rfq["buyer_company_id"] != party.company_id:
+        r = _rfq_by_id(conn, rfq_id, lock=True)
+        if r is None or _company_of(conn, r["requester_id"]) != party.company_id:
             _refuse(404, "RFQ_NOT_FOUND", "No RFQ of yours with that id.")
-        if new_status not in RFQ_TRANSITIONS.get(rfq["status"], ()):
-            _refuse(409, "RFQ_TRANSITION", f"An RFQ that is {rfq['status']} cannot become "
+        current = RFQ_STATE.get(r["status"], r["status"])
+        if new_status not in RFQ_TRANSITIONS.get(current, ()):
+            _refuse(409, "RFQ_TRANSITION", f"An RFQ that is {current} cannot become "
                                            f"{new_status}. 'matched' is set by the market.")
         if new_status in ("withdrawn", "expired"):
-            _close_pending_matches(conn, trail, "rfq_id", rfq_id, "cancelled")
-        conn.execute("UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?",
-                     (new_status, _now(), rfq_id))
-        trail.add(f"rfq.{new_status}", "rfq", rfq_id, {"from": rfq["status"], "to": new_status},
-                  rfq["correlation_id"])
+            _close_proposals(conn, trail, party, "rfq_id", rfq_id, "cancelled: RFQ closed")
+        if new_status == "open":
+            record.freeze(conn, str(r["terms_id"]))
+        conn.execute("UPDATE tb_rfq SET status = ?, updated_at = now() WHERE id = ?", (RFQ_MOVE[new_status], rfq_id))
+        trail.add(f"rfq.{new_status}", "rfq", rfq_id, {"from": current, "to": new_status}, r["correlation_id"])
         _commit(conn, trail)
-        return _row(conn, "SELECT * FROM rfqs WHERE id = ?", (rfq_id,))
+        return _rfq(conn, _rfq_by_id(conn, rfq_id))
     finally:
         conn.close()
 
@@ -427,90 +748,32 @@ def transition_rfq(party: Party, rfq_id: str, new_status: str) -> dict:
 def my_rfqs(party: Party) -> list[dict]:
     conn = _conn()
     try:
-        return _rows(conn, "SELECT * FROM rfqs WHERE buyer_company_id = ? ORDER BY created_at DESC",
-                     (party.company_id,))
+        cp = _row(conn, "SELECT id FROM tb_counterparty WHERE company_id = ?", (party.company_id,))
+        if cp is None:
+            return []
+        return [_rfq(conn, r) for r in _rows(conn, "SELECT * FROM tb_rfq WHERE requester_id = ? "
+                                                   "ORDER BY created_at DESC", (str(cp["id"]),))]
     finally:
         conn.close()
 
 
-# ── offer listings and the token they reserve ───────────────────────────────
-
-def _offer_with_token(conn, offer_id: str) -> dict:
-    o = _row(conn, "SELECT o.*, t.capacity_id, c.project_id AS capacity_project_id, "
-                   "t.lifecycle_state AS token_state, t.correlation_id AS token_correlation_id, "
-                   "t.certification_pathway, t.carbon_intensity_gco2e_mj "
-                   "FROM offers o JOIN tokens t ON t.id = o.token_id JOIN capacities c ON c.id = t.capacity_id "
-                   "WHERE o.id = ?", (offer_id,))
-    if o is None:
-        _refuse(404, "OFFER_NOT_FOUND", "No offer with that id.")
-    return o
-
-
-def open_offer(party: Party, offer_id: str) -> dict:
-    """DRAFT -> OPEN: the listing goes live and reserves its token (MINTED -> RESERVED)."""
-    _trader(party)
-    conn, trail = _conn(), _Trail(party)
+def rfq_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
+    conn = _conn()
     try:
-        o = _offer_with_token(conn, offer_id)
-        if seller_company(o["capacity_project_id"]) != party.company_id:
-            _refuse(403, "NOT_YOUR_OFFER", "Only the company that owns the project can list its offer.")
-        if (o.get("listing_state") or "DRAFT") != "DRAFT":
-            _refuse(409, "LISTING_STATE", f"The listing is {o.get('listing_state')}, not DRAFT.")
-        other = _row(conn, "SELECT id FROM offers WHERE token_id = ? AND id <> ? AND listing_state IN "
-                           "('OPEN','RESERVED','MATCHED')", (o["token_id"], offer_id))
-        if other:
-            _refuse(409, "TOKEN_ALREADY_LISTED",
-                    "This token already backs a live listing. One token is one tradeable lot: "
-                    "mint another token to list more volume.")
-        conn.execute("UPDATE offers SET listing_state = 'OPEN', status = 'active' WHERE id = ?",
-                     (offer_id,))
-        _move_token(conn, trail, o["token_id"], {"MINTED"}, "RESERVED", f"listed as offer {offer_id}")
-        trail.add("offer.opened", "offer", offer_id, {"token_id": o["token_id"]},
-                  o["token_correlation_id"], o["capacity_project_id"])
-        _commit(conn, trail)
-        return _row(conn, "SELECT * FROM offers WHERE id = ?", (offer_id,))
+        out = []
+        for r in _rows(conn, "SELECT * FROM tb_rfq WHERE status = 'published' ORDER BY created_at DESC"):
+            v = _rfq(conn, r)
+            if molecule and v["molecule"] != molecule:
+                continue
+            item = {k: v.get(k) for k in RFQ_LISTING_FIELDS}
+            item["mine"] = bool(party.company_id) and v["buyer_company_id"] == party.company_id
+            out.append(item)
+        return out
     finally:
         conn.close()
 
 
-def withdraw_offer(party: Party, offer_id: str) -> dict:
-    """OPEN -> WITHDRAWN: releases the token (RESERVED -> MINTED) and cancels pending matches."""
-    _trader(party)
-    conn, trail = _conn(), _Trail(party)
-    try:
-        o = _offer_with_token(conn, offer_id)
-        if seller_company(o["capacity_project_id"]) != party.company_id:
-            _refuse(403, "NOT_YOUR_OFFER", "Only the company that owns the project can withdraw its offer.")
-        state = o.get("listing_state") or "DRAFT"
-        if state not in ("DRAFT", "OPEN"):
-            _refuse(409, "LISTING_STATE", f"A {state} listing cannot be withdrawn: a match has "
-                                          f"been agreed on it.")
-        _close_pending_matches(conn, trail, "offer_id", offer_id, "cancelled")
-        conn.execute("UPDATE offers SET listing_state = 'WITHDRAWN', status = 'expired' WHERE id = ?",
-                     (offer_id,))
-        if state == "OPEN":
-            _move_token(conn, trail, o["token_id"], {"RESERVED"}, "MINTED",
-                        f"listing {offer_id} withdrawn")
-        trail.add("offer.withdrawn", "offer", offer_id, {"from": state},
-                  o["token_correlation_id"], o["capacity_project_id"])
-        _commit(conn, trail)
-        return _row(conn, "SELECT * FROM offers WHERE id = ?", (offer_id,))
-    finally:
-        conn.close()
-
-
-# ── matches ─────────────────────────────────────────────────────────────────
-
-def _close_pending_matches(conn, trail: _Trail, column: str, value: str, status: str,
-                           keep: Optional[str] = None) -> None:
-    for m in _rows(conn, f"SELECT id, correlation_id FROM matches WHERE {column} = ? "
-                         f"AND status = 'pending'", (value,)):
-        if m["id"] == keep:
-            continue
-        conn.execute("UPDATE matches SET status = ? WHERE id = ?", (status, m["id"]))
-        trail.add(f"match.{status}", "match", m["id"], {"because": f"{column} {value}"},
-                  m["correlation_id"])
-
+# ── proposals (matches) ─────────────────────────────────────────────────────
 
 def _score(offer: dict, rfq: dict) -> int:
     from app.api.v1.matching_sqlite import calculate_match_score
@@ -518,36 +781,56 @@ def _score(offer: dict, rfq: dict) -> int:
     return calculate_match_score(offer, rfq)
 
 
-def _insert_match(conn, trail: _Trail, party: Party, o: dict, rfq: dict, score: int,
-                  delivery_terms: Optional[str] = None, payment_terms: Optional[str] = None) -> dict:
-    match_id = str(uuid.uuid4())
-    seller = seller_company(o["capacity_project_id"])
-    conn.execute(
-        "INSERT INTO matches (id, offer_id, rfq_id, match_score, volume_mtpd, price_eur_kg, status, "
-        "created_at, project_id, token_id, seller_company_id, buyer_company_id, molecule, "
-        "delivery_start, delivery_end, correlation_id, created_by, delivery_terms, payment_terms) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (match_id, o["id"], rfq["id"], score, min(o["volume_mtpd"], rfq["volume_mtpd"]),
-         o["price_eur_kg"], "pending", _now(), o["capacity_project_id"], o["token_id"], seller,
-         rfq["buyer_company_id"], o["molecule"], max(o["delivery_start"], rfq["delivery_start"]),
-         min(o["delivery_end"], rfq["delivery_end"]), o["token_correlation_id"], party.user_id,
-         delivery_terms, payment_terms))
-    trail.add("match.created", "match", match_id,
-              {"offer_id": o["id"], "rfq_id": rfq["id"], "score": score,
-               "rfq_correlation_id": rfq["correlation_id"]},
-              o["token_correlation_id"], o["capacity_project_id"])
-    return {"id": match_id, "score": score}
+def _match(conn, p: dict) -> dict:
+    """A proposal (an invited firm order answering an RFQ against a listing) in the match shape."""
+    listing = _listing(conn, _row(conn, "SELECT * FROM tb_order WHERE id = ?", (str(p["listing_order_id"]),)))
+    rfq = _rfq(conn, _rfq_by_id(conn, str(p["rfq_id"])))
+    s = _terms_summary(conn, str(p["terms_id"]))
+    proposer = _company_of(conn, p["owner_id"])
+    events = _rows(conn, "SELECT * FROM tb_order_event WHERE order_id = ? ORDER BY id", (str(p["id"]),))
+    created, closed = (events[0] if events else {}), (events[-1] if len(events) > 1 else {})
+    seller, buyer = listing["seller_company_id"], rfq["buyer_company_id"]
+    status = {"open": "pending", "filled": "accepted"}.get(p["status"])
+    if status is None:
+        reason = (closed.get("reason") or "")
+        status = "declined" if reason.startswith("declined") else "superseded" if reason.startswith(
+            "superseded") else "cancelled"
+    accepted = {}
+    if created:
+        accepted["seller" if proposer == seller else "buyer"] = (created["actor_id"], _iso(created["at"]))
+    if p["status"] == "filled" and closed:
+        accepted["buyer" if proposer == seller else "seller"] = (closed["actor_id"], _iso(closed["at"]))
+    return {"id": str(p["id"]), "offer_id": str(p["listing_order_id"]), "rfq_id": str(p["rfq_id"]),
+            "match_score": p.get("match_score"), "volume_mtpd": s["volume_mtpd"], "price_eur_kg": s["price_eur_kg"],
+            "status": status, "created_at": _iso(p["created_at"]), "project_id": listing["capacity_project_id"],
+            "token_id": listing["token_id"], "seller_company_id": seller, "buyer_company_id": buyer,
+            "molecule": s["molecule"], "delivery_start": s["delivery_start"], "delivery_end": s["delivery_end"],
+            "correlation_id": p.get("correlation_id"), "created_by": p.get("created_by_user"),
+            "seller_accepted_by": accepted.get("seller", (None, None))[0],
+            "seller_accepted_at": accepted.get("seller", (None, None))[1],
+            "buyer_accepted_by": accepted.get("buyer", (None, None))[0],
+            "buyer_accepted_at": accepted.get("buyer", (None, None))[1],
+            "delivery_terms": s["attrs"].get("delivery_terms"), "payment_terms": s["attrs"].get("payment_terms"),
+            "buyer_name": rfq["buyer_name"], "proposer_company_id": proposer}
+
+
+def _proposal(conn, match_id: str, lock: bool = False) -> dict:
+    p = _row(conn, "SELECT * FROM tb_order WHERE id = ? AND listing_order_id IS NOT NULL"
+                   + (" FOR UPDATE" if lock else ""), (match_id,)) if _is_uuid(match_id) else None
+    if p is None:
+        _refuse(404, "MATCH_NOT_FOUND", "No match with that id.")
+    return p
 
 
 def _matchable(conn, o: dict, rfq: dict, minimum: int = MIN_MATCH_SCORE) -> Optional[int]:
-    """Score if this pair may be matched now, else None."""
-    if (o.get("listing_state") != "OPEN" or o.get("token_state") != "RESERVED"
-            or rfq["status"] != "open" or o.get("molecule") != rfq.get("molecule")):
+    """Score if this listing and RFQ may be matched now, else None."""
+    if (o["listing_state"] != "OPEN" or o["token_state"] != "RESERVED" or rfq["status"] != "open"
+            or o["molecule"] != rfq["molecule"]):
         return None
-    if seller_company(o["capacity_project_id"]) == rfq["buyer_company_id"]:
+    if o["seller_company_id"] == rfq["buyer_company_id"]:
         return None                                    # no self-trade
-    if _row(conn, "SELECT id FROM matches WHERE offer_id = ? AND rfq_id = ? AND status IN "
-                  "('pending','accepted')", (o["id"], rfq["id"])):
+    if _row(conn, "SELECT 1 AS x FROM tb_order WHERE listing_order_id = ? AND rfq_id = ? AND status IN "
+                  "('open', 'filled')", (o["id"], rfq["id"])):
         return None
     score = _score(o, rfq)
     return score if score >= minimum else None
@@ -555,77 +838,76 @@ def _matchable(conn, o: dict, rfq: dict, minimum: int = MIN_MATCH_SCORE) -> Opti
 
 def create_match(party: Party, offer_id: str, rfq_id: str, *, delivery_terms: Optional[str] = None,
                  payment_terms: Optional[str] = None) -> dict:
-    """Propose one listing against one RFQ. The delivery and payment terms are
-    agreed WITH the proposal (Phase 0 Q6): when both sides accept, the contract
-    is made from exactly what they accepted, and nothing is typed afterwards."""
-    from app.trading_book import record
+    """Propose one listing against one RFQ (Q6): an invited firm order on the proposer's
+    side — the proposer's acceptance — on the listing's price, over the overlap of the
+    two windows, for the smaller volume, with the delivery and payment terms agreed
+    with the proposal. The other party's acceptance makes the contract."""
+    from app.trading_book import record, validation
 
     _trader(party)
     conn, trail = _conn(), _Trail(party)
     try:
-        o = _offer_with_token(conn, offer_id)
-        rfq = _row(conn, "SELECT * FROM rfqs WHERE id = ?", (rfq_id,))
-        if rfq is None:
+        o = _listing(conn, _listing_by_id(conn, offer_id))
+        r = _rfq_by_id(conn, rfq_id, lock=True)
+        if r is None:
             _refuse(404, "RFQ_NOT_FOUND", "No RFQ with that id.")
-        seller = seller_company(o["capacity_project_id"])
-        if party.company_id not in (seller, rfq["buyer_company_id"]):
+        rfq = _rfq(conn, r)
+        seller, buyer = o["seller_company_id"], rfq["buyer_company_id"]
+        if party.company_id not in (seller, buyer):
             _refuse(403, "NOT_A_PARTY", "You can only match your own offer or your own RFQ.")
-        if seller == rfq["buyer_company_id"]:
+        if seller == buyer:
             _refuse(409, "SELF_TRADE", "A company cannot match its own offer with its own RFQ.")
-        # Bilateral (spec decision 2B): the party chose this counterpart itself, so
-        # GEX's score is recorded for information but does not gate the choice.
-        score = _matchable(conn, o, rfq, minimum=0)
+        score = _matchable(conn, o, rfq, minimum=0)    # bilateral (2B): the score informs, never gates
         if score is None:
             _refuse(409, "NOT_MATCHABLE", "This pair cannot be matched: the listing or RFQ is not "
                                           "open, the molecules differ, or a match already exists.")
-        if record.commodity_for_molecule(conn, o["molecule"]) is None:
-            _refuse(409, "UNKNOWN_COMMODITY", f"{o['molecule']!r} is not a traded commodity (tb_commodity).")
-        made = _insert_match(conn, trail, party, o, rfq, score, (delivery_terms or "").strip() or None,
-                             (payment_terms or "").strip() or None)
+        clauses = [{"clause_type": k, "attrs": {"text": t.strip()}} for k, t in
+                   (("delivery", delivery_terms), ("payment", payment_terms)) if t and t.strip()]
+        terms = market_terms(conn, molecule=o["molecule"], volume_mtpd=min(o["volume_mtpd"], rfq["volume_mtpd"]),
+                             price_eur_kg=o["price_eur_kg"], delivery_start=max(o["delivery_start"], rfq["delivery_start"]),
+                             delivery_end=min(o["delivery_end"], rfq["delivery_end"]),
+                             quality=_terms_summary(conn, str(_listing_by_id(conn, offer_id)["terms_id"]))["quality"],
+                             clauses=clauses)
+        failed = validation.validate(terms, "order")
+        if failed:
+            _refuse(409, "TERMS_INVALID", "The proposed terms break rules " + ", ".join(failed) + ".")
+        w = record.write_terms(conn, terms, party.company_id)
+        proposal_id = str(uuid.uuid4())
+        other = buyer if party.company_id == seller else seller
+        conn.execute("INSERT INTO tb_order (id, owner_id, side, terms_id, order_type, all_or_nothing, valid_until, "
+                     "status, rfq_id, visibility, token_id, correlation_id, listing_order_id, match_score, "
+                     "created_by_user) VALUES (?, ?, ?, ?, 'firm', true, ?, 'open', ?, 'invited', ?, ?, ?, ?, ?)",
+                     (proposal_id, record.counterparty_for(conn, party.company_id),
+                      "sell" if party.company_id == seller else "buy", w["terms_id"],
+                      r["valid_until"], rfq_id, o["token_id"], o["token_correlation_id"], offer_id, score,
+                      party.user_id))
+        conn.execute("INSERT INTO tb_order_invitee (order_id, counterparty_id) VALUES (?, ?)",
+                     (proposal_id, record.counterparty_for(conn, other)))
+        _order_event(conn, proposal_id, None, "open", party.user_id, "proposal: the proposer's acceptance")
+        trail.add("match.created", "match", proposal_id,
+                  {"offer_id": offer_id, "rfq_id": rfq_id, "score": score,
+                   "rfq_correlation_id": rfq["correlation_id"]}, o["token_correlation_id"], o["capacity_project_id"])
+        trail.add("match.accepted", "match", proposal_id,
+                  {"side": "seller" if party.company_id == seller else "buyer"}, o["token_correlation_id"],
+                  o["capacity_project_id"])
         _commit(conn, trail)
-        return _row(conn, "SELECT * FROM matches WHERE id = ?", (made["id"],))
+        return _match(conn, _proposal(conn, proposal_id))
     finally:
         conn.close()
 
 
 def run_matching(party: Party) -> dict:
-    """GEX runs it for the whole market; a company runs it for its own open items.
-
-    SUSPENDED unless MARKET_AUTO_MATCHING (JML, 2026-10-23, spec decision 2B):
-    GEX pairing third parties' interests may make it a trading venue, which counsel
-    must rule on first. Until then a match is made only by create_match — a party
-    choosing a specific counterpart listing — and binds only when both accept.
-    """
+    """SUSPENDED unless MARKET_AUTO_MATCHING (JML, 2026-10-23, spec decision 2B): GEX
+    pairing third parties' interests may make it a trading venue, which counsel must
+    rule on first. On the order model a GEX-made proposal would also be GEX trading,
+    so with the switch on this still refuses until counsel and JML say how it works."""
     from app.core.config import settings
 
     if not settings.MARKET_AUTO_MATCHING:
         _refuse(409, "AUTO_MATCHING_SUSPENDED",
                 "Automated matching is switched off. Choose a listing and propose a match to it; "
                 "it binds only when both parties accept.")
-    if not party.is_admin:
-        _trader(party)
-    conn, trail = _conn(), _Trail(party)
-    try:
-        offers = _rows(conn, "SELECT o.*, t.capacity_id, c.project_id AS capacity_project_id, "
-                             "t.lifecycle_state AS token_state, t.correlation_id AS token_correlation_id "
-                             "FROM offers o JOIN tokens t ON t.id = o.token_id "
-                             "JOIN capacities c ON c.id = t.capacity_id WHERE o.listing_state = 'OPEN'")
-        rfqs = _rows(conn, "SELECT * FROM rfqs WHERE status = 'open'")
-        created = []
-        for o in offers:
-            seller = seller_company(o["capacity_project_id"])
-            for rfq in rfqs:
-                mine = party.is_admin or party.company_id in (seller, rfq["buyer_company_id"])
-                if not mine:
-                    continue
-                score = _matchable(conn, o, rfq)
-                if score is not None:
-                    created.append(_insert_match(conn, trail, party, o, rfq, score))
-        _commit(conn, trail)
-        return {"matches_created": len(created), "offers_considered": len(offers),
-                "rfqs_considered": len(rfqs)}
-    finally:
-        conn.close()
+    _refuse(501, "AUTO_MATCHING_NOT_BUILT", "Automated matching is not built on the order model.")
 
 
 def _side(party: Party, m: dict) -> str:
@@ -646,55 +928,59 @@ def _reveal(m: dict) -> dict:
 def my_matches(party: Party) -> list[dict]:
     conn = _conn()
     try:
-        rows = _rows(conn, "SELECT m.*, r.buyer_name FROM matches m LEFT JOIN rfqs r ON r.id = m.rfq_id "
-                           "WHERE m.seller_company_id = ? OR m.buyer_company_id = ? "
-                           "ORDER BY m.created_at DESC", (party.company_id, party.company_id))
-        return [{**_reveal(r), "side": "seller" if r["seller_company_id"] == party.company_id else "buyer"}
-                for r in rows]
+        out = []
+        for p in _rows(conn, "SELECT * FROM tb_order WHERE listing_order_id IS NOT NULL ORDER BY created_at DESC"):
+            m = _match(conn, p)
+            if party.company_id in (m["seller_company_id"], m["buyer_company_id"]):
+                out.append({**_reveal(m), "side": "seller" if m["seller_company_id"] == party.company_id else "buyer"})
+        return out
     finally:
         conn.close()
 
 
 def accept_match(party: Party, match_id: str) -> dict:
+    """The other party's acceptance (Q6): fill and draft contract in one locked
+    transaction (order_book._accept); the listing is consumed, the RFQ closes, the
+    other proposals on either are superseded, and the token moves RESERVED -> MATCHED."""
+    from app.core import order_book
+    from app.trading_book.record import RecordRefused
+
     _trader(party)
     conn, trail = _conn(), _Trail(party)
     try:
-        m = _row(conn, "SELECT * FROM matches WHERE id = ?", (match_id,))
-        if m is None:
-            _refuse(404, "MATCH_NOT_FOUND", "No match with that id.")
+        p = _proposal(conn, match_id, lock=True)
+        m = _match(conn, p)
         side = _side(party, m)
         if m["status"] != "pending":
             _refuse(409, "MATCH_STATE", f"The match is {m['status']}, not pending.")
-        if m[f"{side}_accepted_by"]:
-            _refuse(409, "ALREADY_ACCEPTED", f"The {side} side has already accepted.")
-        now = _now()
-        conn.execute(f"UPDATE matches SET {side}_accepted_by = ?, {side}_accepted_at = ? WHERE id = ?",
-                     (party.user_id, now, match_id))
-        trail.add("match.accepted", "match", match_id, {"side": side}, m["correlation_id"],
-                  m["project_id"])
-        other = "buyer" if side == "seller" else "seller"
-        if m[f"{other}_accepted_by"]:
-            o = _offer_with_token(conn, m["offer_id"])
-            rfq = _row(conn, "SELECT status FROM rfqs WHERE id = ?", (m["rfq_id"],))
-            if o.get("listing_state") != "OPEN" or (rfq or {}).get("status") != "open":
-                _refuse(409, "NO_LONGER_AVAILABLE", "The listing or the RFQ is no longer open.")
-            conn.execute("UPDATE matches SET status = 'accepted' WHERE id = ?", (match_id,))
-            conn.execute("UPDATE offers SET listing_state = 'MATCHED', status = 'matched' WHERE id = ?",
-                         (m["offer_id"],))
-            conn.execute("UPDATE rfqs SET status = 'matched', updated_at = ? WHERE id = ?",
-                         (now, m["rfq_id"]))
-            _close_pending_matches(conn, trail, "offer_id", m["offer_id"], "superseded", keep=match_id)
-            _close_pending_matches(conn, trail, "rfq_id", m["rfq_id"], "superseded", keep=match_id)
-            _move_token(conn, trail, m["token_id"], {"RESERVED"}, "MATCHED", f"match {match_id} agreed")
-            trail.add("match.agreed", "match", match_id, {"offer_id": m["offer_id"],
-                                                          "rfq_id": m["rfq_id"]},
-                      m["correlation_id"], m["project_id"])
-            made = _contract_from_match(conn, party, m, o)
-            trail.add("contract.created", "contract", made["id"],
-                      {"match_id": match_id, "token_id": m["token_id"], "contract_ref": made["contract_ref"],
-                       "terms_hash": made["terms_hash"]}, m["correlation_id"], m["project_id"])
+        if party.company_id == m["proposer_company_id"]:
+            _refuse(409, "ALREADY_ACCEPTED", f"The {side} side has already accepted: it proposed the match.")
+        listing = _listing_by_id(conn, m["offer_id"], lock=True)
+        r = _rfq_by_id(conn, m["rfq_id"], lock=True)
+        if listing["status"] != "open" or r["status"] != "published":
+            _refuse(409, "NO_LONGER_AVAILABLE", "The listing or the RFQ is no longer open.")
+        try:
+            made = order_book._accept(conn, party, match_id, None, origin_ref=f"match:{match_id}",
+                                      project_id=m["project_id"], correlation_id=m["correlation_id"],
+                                      token_ids=[m["token_id"]] if m["token_id"] else (),
+                                      note=f"match {match_id} accepted by both parties")
+        except RecordRefused as exc:
+            _refuse(exc.status, exc.code, exc.message)
+        conn.execute("UPDATE tb_order SET status = 'filled', updated_at = now() WHERE id = ?", (m["offer_id"],))
+        _order_event(conn, m["offer_id"], "open", "filled", party.user_id, f"listing taken by match {match_id}")
+        conn.execute("UPDATE tb_rfq SET status = 'closed', updated_at = now() WHERE id = ?", (m["rfq_id"],))
+        _close_proposals(conn, trail, party, "listing_order_id", m["offer_id"], f"superseded by {match_id}",
+                         keep=match_id)
+        _close_proposals(conn, trail, party, "rfq_id", m["rfq_id"], f"superseded by {match_id}", keep=match_id)
+        _move_token(conn, trail, m["token_id"], {"RESERVED"}, "MATCHED", f"match {match_id} agreed")
+        trail.add("match.accepted", "match", match_id, {"side": side}, m["correlation_id"], m["project_id"])
+        trail.add("match.agreed", "match", match_id, {"offer_id": m["offer_id"], "rfq_id": m["rfq_id"]},
+                  m["correlation_id"], m["project_id"])
+        trail.add("contract.created", "contract", made["contract_id"],
+                  {"match_id": match_id, "token_id": m["token_id"], "contract_ref": made["contract_ref"],
+                   "terms_hash": made["terms_hash"]}, m["correlation_id"], m["project_id"])
         _commit(conn, trail)
-        return _reveal(_row(conn, "SELECT * FROM matches WHERE id = ?", (match_id,)))
+        return _reveal(_match(conn, _proposal(conn, match_id)))
     finally:
         conn.close()
 
@@ -703,17 +989,16 @@ def decline_match(party: Party, match_id: str) -> dict:
     _trader(party)
     conn, trail = _conn(), _Trail(party)
     try:
-        m = _row(conn, "SELECT * FROM matches WHERE id = ?", (match_id,))
-        if m is None:
-            _refuse(404, "MATCH_NOT_FOUND", "No match with that id.")
+        p = _proposal(conn, match_id, lock=True)
+        m = _match(conn, p)
         side = _side(party, m)
         if m["status"] != "pending":
             _refuse(409, "MATCH_STATE", f"The match is {m['status']}, not pending.")
-        conn.execute("UPDATE matches SET status = 'declined' WHERE id = ?", (match_id,))
-        trail.add("match.declined", "match", match_id, {"side": side}, m["correlation_id"],
-                  m["project_id"])
+        conn.execute("UPDATE tb_order SET status = 'cancelled', updated_at = now() WHERE id = ?", (match_id,))
+        _order_event(conn, match_id, "open", "cancelled", party.user_id, f"declined by the {side}")
+        trail.add("match.declined", "match", match_id, {"side": side}, m["correlation_id"], m["project_id"])
         _commit(conn, trail)
-        return _reveal(_row(conn, "SELECT * FROM matches WHERE id = ?", (match_id,)))
+        return _reveal(_match(conn, _proposal(conn, match_id)))
     finally:
         conn.close()
 
@@ -726,78 +1011,6 @@ def decline_match(party: Party, match_id: str) -> dict:
 # The contract is a draft — version 1, pending_confirmation, UNVERIFIED — until
 # both parties confirm it with four eyes each (TRADE_CONFIRM, core/order_book).
 # A contract is a commercial record: it never reaches the gate engine.
-
-def _monthly(start, end):
-    """[(period_start, period_end)] month by month over the delivery window."""
-    from datetime import date as _date, timedelta
-
-    out, cur = [], start
-    while cur <= end:
-        nxt = _date(cur.year + (cur.month == 12), cur.month % 12 + 1, 1)
-        out.append((cur, min(end, nxt - timedelta(days=1))))
-        cur = nxt
-    return out
-
-
-def terms_from_match(conn, m: dict, o: dict, seller_cp: str, buyer_cp: str):
-    """The contract terms of an agreed match — exactly what was listed and
-    accepted, in the terms model: a physical product leg (seller -> buyer) and a
-    fixed-price payment leg (buyer -> seller), one flow per delivery month.
-    Volume is t/day × days; price €/kg × 1000 per tonne; payment on the delivered
-    quantity (decided 2026-10-23). Delivery and payment terms are clauses."""
-    from datetime import date as _date
-    from decimal import Decimal
-
-    from app.trading_book import record
-    from app.trading_book.terms import TermsIn
-
-    code = record.commodity_for_molecule(conn, m["molecule"])
-    if code is None:
-        _refuse(409, "UNKNOWN_COMMODITY", f"{m['molecule']!r} is not a traded commodity (tb_commodity).")
-    start, end = _date.fromisoformat(str(m["delivery_start"])[:10]), _date.fromisoformat(str(m["delivery_end"])[:10])
-    if end < start:
-        _refuse(409, "DELIVERY_WINDOW", "The agreed delivery window ends before it starts.")
-    rate = Decimal(str(m["volume_mtpd"]))
-    price = (Decimal(str(m["price_eur_kg"])) * 1000).quantize(Decimal("0.00000001"))
-    product, payment = [], []
-    for i, (a, b) in enumerate(_monthly(start, end), start=1):
-        qty = (rate * ((b - a).days + 1)).quantize(Decimal("0.000001"))
-        product.append({"seq": i, "flow_type": "physical", "period_start": a, "period_end": b, "settle_date": b,
-                        "quantity": qty, "unit": "t"})
-        payment.append({"seq": i, "flow_type": "fixed_cash", "period_start": a, "period_end": b, "settle_date": b,
-                        "quantity": qty, "unit": "t", "unit_price": price, "quantity_basis": "delivered",
-                        "quantity_source_flow": f"1.{i}"})
-    quality = {k: str(o[k]) for k in ("certification_pathway", "carbon_intensity_gco2e_mj") if o.get(k) is not None}
-    clauses = [{"seq": n, "clause_type": kind, "attrs": {"text": text}} for n, (kind, text) in enumerate(
-        [(k, t) for k, t in (("delivery", m.get("delivery_terms")), ("payment", m.get("payment_terms"))) if t],
-        start=1)]
-    return TermsIn.model_validate({
-        "settlement": "physical", "commodity": code, "quality_spec": quality, "currency": "EUR",
-        "legs": [{"seq": 1, "leg_role": "product", "payer": seller_cp, "receiver": buyer_cp, "flows": product},
-                 {"seq": 2, "leg_role": "payment", "payer": buyer_cp, "receiver": seller_cp, "flows": payment}],
-        "clauses": clauses})
-
-
-def _contract_from_match(conn, party: Party, m: dict, o: dict) -> dict:
-    from app.trading_book import record, validation
-
-    try:
-        seller_cp = record.counterparty_for(conn, m["seller_company_id"])
-        buyer_cp = record.counterparty_for(conn, m["buyer_company_id"])
-        terms = terms_from_match(conn, m, o, seller_cp, buyer_cp)
-        pairs = {frozenset({str(r["counterparty_id"]), str(r["restricted_counterparty_id"])}) for r in _rows(
-            conn, "SELECT counterparty_id, restricted_counterparty_id FROM tb_counterparty_restriction WHERE active")}
-        failed = validation.validate(terms, "contract", validation.Context(restricted_pairs=pairs))
-        if failed:
-            _refuse(409, "TERMS_INVALID", "The agreed terms break rules " + ", ".join(failed) + ".")
-        return record.create_contract(
-            conn, terms=terms, owner_company_id=m["seller_company_id"], kind="trade", project_id=m["project_id"],
-            origin_ref=f"match:{m['id']}", correlation_id=m["correlation_id"], actor=party.user_id,
-            company_id=party.company_id, note=f"match {m['id']} accepted by both parties",
-            token_ids=[m["token_id"]] if m.get("token_id") else ())
-    except record.RecordRefused as exc:
-        _refuse(exc.status, exc.code, exc.message)
-
 
 def _contract_view(conn, party: Party, contract_id: str) -> dict:
     from app.trading_book import record
@@ -819,9 +1032,7 @@ def create_contract(party: Party, match_id: str, *, delivery_terms: Optional[str
     _trader(party)
     conn = _conn()
     try:
-        m = _row(conn, "SELECT * FROM matches WHERE id = ?", (match_id,))
-        if m is None:
-            _refuse(404, "MATCH_NOT_FOUND", "No match with that id.")
+        m = _match(conn, _proposal(conn, match_id))
         _side(party, m)
         if m["status"] != "accepted":
             _refuse(409, "MATCH_NOT_AGREED", "A contract needs a match both parties have accepted.")
@@ -919,8 +1130,6 @@ def confirm_settlement(party: Party, settlement_id: str, *, payment_reference: s
                    field="settlement_status", old_val="PENDING", new_val="CONFIRMED")
         _move_token(conn, trail, s["token_id"], {"MATCHED"}, "SETTLED", f"settlement {settlement_id}",
                     extra={"holder_company_id": s["counterparty_buyer_id"]})
-        conn.execute("UPDATE offers SET listing_state = 'SETTLED' WHERE token_id = ? AND listing_state = 'MATCHED'",
-                     (s["token_id"],))
         trail.add("settlement.confirmed", "settlement", settlement_id,
                   {"payment_reference": payment_reference, "title_to": s["counterparty_buyer_id"]},
                   s["correlation_id"], s["project_id"])
@@ -937,15 +1146,16 @@ def trail_for(party: Party, correlation_id: str) -> list[dict]:
     conn = _conn()
     try:
         if not party.is_admin:
-            seen = _row(conn, "SELECT 1 AS ok FROM matches WHERE correlation_id = ? AND "
-                              "(seller_company_id = ? OR buyer_company_id = ?)",
-                        (correlation_id, party.company_id, party.company_id))
+            seen = any(party.company_id in (m["seller_company_id"], m["buyer_company_id"])
+                       for m in (_match(conn, p) for p in _rows(
+                           conn, "SELECT * FROM tb_order WHERE listing_order_id IS NOT NULL AND correlation_id = ?",
+                           (correlation_id,))))
             if not seen:
                 for t in _rows(conn, "SELECT c.project_id, t.holder_company_id FROM tokens t "
                                      "JOIN capacities c ON c.id = t.capacity_id "
                                      "WHERE t.correlation_id = ?", (correlation_id,)):
                     if party.company_id in (seller_company(t["project_id"]), t["holder_company_id"]):
-                        seen = {"ok": 1}
+                        seen = True
                         break
             if not seen:
                 _refuse(404, "TRAIL_NOT_FOUND", "No chain of yours with that id.")

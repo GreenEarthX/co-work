@@ -107,6 +107,10 @@ class CashflowProjection(BaseModel):
     summary_by_period: List[PeriodSummary] = Field(default_factory=list)
     has_estimates: bool = False
     estimate_period_count: int = 0
+    # Linked contracts left out because the caller may not read their terms
+    # (Phase 0 Q5: a trade contract is its parties' only). Stated, so a partial
+    # projection never reads as the whole one.
+    withheld_contract_count: int = 0
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -345,7 +349,26 @@ def generate_cashflows_for_project(
     )
 
 
+def merge_projections(a: CashflowProjection, b: CashflowProjection) -> CashflowProjection:
+    """One projection from two — the JTI book and the contract record — until M6
+    removes the JTI side. Rows are re-sorted and the summaries recomputed."""
+    rows = sorted([*a.rows, *b.rows], key=lambda r: (r.period_start, r.contract_number))
+    by_item: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    by_period: dict = defaultdict(lambda: defaultdict(lambda: Decimal("0")))
+    for r in rows:
+        if r.allocated_amount is not None:
+            by_item[r.line_item_type.value] += r.allocated_amount
+            by_period[(r.period_start, r.period_end)][r.line_item_type.value] += r.allocated_amount
+    estimates = sum(1 for r in rows if r.is_estimate)
+    return a.model_copy(update={
+        "rows": rows, "summary_by_line_item": dict(by_item),
+        "summary_by_period": [PeriodSummary(period_start=s, period_end=e, by_line_item=dict(v),
+                                            net=sum(v.values(), Decimal("0"))) for (s, e), v in sorted(by_period.items())],
+        "has_estimates": estimates > 0, "estimate_period_count": estimates})
+
+
 __all__ = [
+    "merge_projections",
     "CashflowRow",
     "PeriodSummary",
     "CashflowProjection",

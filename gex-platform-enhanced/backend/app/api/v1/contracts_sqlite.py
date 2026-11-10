@@ -85,20 +85,20 @@ async def list_contracts(request: Request, molecule: Optional[str] = None, statu
 async def get_accepted_matches(request: Request):
     """My agreed matches that have no contract yet."""
     party = _party(request)
+    try:
+        matches = [m for m in me.my_matches(party) if m["status"] == "accepted"]
+    except me.MarketRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
+    # An agreed match has its contract from the moment of agreement, so this lists only an
+    # agreement whose record is missing (there should be none).
     conn = me._conn()
     try:
-        # Since Phase 1 an agreed match has its contract from the moment of agreement,
-        # so this lists only an agreement whose record is missing (should be none).
-        rows = me._rows(conn, "SELECT m.*, p.project_name FROM matches m LEFT JOIN projects p "
-                              "ON p.project_id = m.project_id WHERE m.status = 'accepted' AND "
-                              "(m.seller_company_id = ? OR m.buyer_company_id = ?) AND NOT EXISTS "
-                              "(SELECT 1 FROM tb_contract c WHERE c.origin_ref = 'match:' || m.id) "
-                              "ORDER BY m.created_at DESC", (party.company_id, party.company_id))
+        from app.trading_book import record
+        rows = [m for m in matches if record.by_origin(conn, f"match:{m['id']}") is None]
     finally:
         conn.close()
     return {"matches": [{k: r.get(k) for k in ("id", "match_score", "volume_mtpd", "price_eur_kg",
-                                               "molecule", "delivery_start", "delivery_end",
-                                               "project_name")} for r in rows]}
+                                               "molecule", "delivery_start", "delivery_end")} for r in rows]}
 
 
 @router.get("/{contract_id}")

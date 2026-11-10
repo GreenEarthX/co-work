@@ -281,6 +281,20 @@ def test_four_eyes_inside_each_party(client):
     assert [c["status"] for c in mine] == ["APPROVED"]
 
 
+def test_m4_a_partys_cashflows_are_signed_from_its_side_and_gex_reads_none(client):
+    base = f"/api/v1/trading-book/records/{STATE['contract']}/cashflows"
+    buyer = client.get(base, headers=_auth("u_ob_b1")).json()
+    seller = client.get(base, headers=_auth("u_ob_s1")).json()
+    pay = lambda doc: [l for l in doc["lines"] if l["flow_type"] == "fixed_cash"]  # noqa: E731
+    assert [l["amount"] for l in pay(buyer)] == ["22500.00", "22500.00"]          # 25 t x EUR 900
+    assert [l["signed_amount"] for l in pay(buyer)] == ["-22500.00", "-22500.00"]
+    assert [l["signed_amount"] for l in pay(seller)] == ["22500.00", "22500.00"]
+    assert {(l["payer"], l["receiver"]) for l in pay(buyer)} == {(BUYER, SELLER)}
+    assert _code(client.get(base, headers=_auth("u_ob_gex"))) == "GEX_READS_NO_TERMS"
+    assert client.get(base, headers=_auth("u_ob_o1")).status_code == 404
+    assert _code(client.get(base + "?as_party=" + OTHER, headers=_auth("u_ob_b1"))) == "NOT_A_PARTY"
+
+
 def test_gex_reads_state_chain_and_hashes_never_terms(client):
     rec = client.get(f"/api/v1/trading-book/records/{STATE['contract']}", headers=_auth("u_ob_gex")).json()
     assert rec["chain_intact"] and rec["trade_status"] == "confirmed"
@@ -352,7 +366,9 @@ def test_frozen_contract_terms_cannot_change(client):
 
 # ── around the record ───────────────────────────────────────────────────────
 
-def test_the_legacy_jti_routes_survive_record_rows(client):
+def test_the_trading_book_lists_record_contracts_and_books_none(client):
+    """M6 (alembic 088): the JTI booking routes went with their tables; the
+    trading book reads record contracts through a link and books none."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -363,54 +379,11 @@ def test_the_legacy_jti_routes_survive_record_rows(client):
     api.dependency_overrides[tb.get_db] = tb.tenant_session_dependency(
         sessionmaker(bind=create_engine(DSN["url"]), autoflush=False, expire_on_commit=False))
     api.add_middleware(ABACMiddleware, phase=settings.ABAC_PHASE)
-    r = TestClient(api).get("/api/v1/trading-book/contracts", headers=_auth("u_ob_s1"))
-    assert r.status_code == 200, r.text                                         # no 'terms' row breaks the JTI mapper
-    assert all(c.get("contract_type") != "terms" for c in r.json())
-
-
-def test_m2_converts_jti_contracts_and_is_idempotent(client):
-    from app.core import market_engine as me
-    from app.trading_book.migrate import jti_to_terms
-
-    s = _q("SELECT id FROM tb_counterparty WHERE company_id = %s", (SELLER,))["id"]
-    b = _q("SELECT id FROM tb_counterparty WHERE company_id = %s", (BUYER,))["id"]
-    _q("INSERT INTO tb_contract (id, contract_number, owner_company_id, buy_side_id, sell_side_id, fuel_type, "
-       "trade_date, effective_date, termination_date, notional_quantity, quantity_unit, currency, status, "
-       "contract_type) VALUES ('00000000-0000-4000-8000-00000000f001', 'TEST-JTI-1', %s, %s, %s, 'EMEOH', "
-       "'2026-11-01', '2027-01-01', '2027-03-31', 300, 't', 'EUR', 'COMMITTED', 'fixed_price')", (SELLER, b, s))
-    _q("INSERT INTO tb_contract_fixed_price (id, fixed_price, price_basis) VALUES "
-       "('00000000-0000-4000-8000-00000000f001', 850, 'flat')")
-    _q("INSERT INTO tb_contract (id, contract_number, owner_company_id, buy_side_id, sell_side_id, fuel_type, "
-       "trade_date, effective_date, termination_date, notional_quantity, quantity_unit, currency, status, "
-       "contract_type) VALUES ('00000000-0000-4000-8000-00000000f002', 'TEST-JTI-2', %s, %s, %s, 'UNOBTAINIUM', "
-       "'2026-11-01', '2027-01-01', '2027-03-31', 300, 't', 'EUR', 'DRAFT', 'fixed_price')", (SELLER, b, s))
-    _q("INSERT INTO tb_contract_fixed_price (id, fixed_price, price_basis) VALUES "
-       "('00000000-0000-4000-8000-00000000f002', 850, 'flat')")
-
-    def run(execute):
-        conn = me._conn()
-        try:
-            report = jti_to_terms.run(conn, execute=execute)
-            conn.commit() if execute else conn.rollback()
-            return report
-        finally:
-            conn.close()
-
-    dry = run(False)
-    assert [c["from"] for c in dry["converted"]] == ["TEST-JTI-1"]
-    assert "UNOBTAINIUM" in " ".join(dry["stopped"]["TEST-JTI-2"])                # stops and reports, never guesses
-    assert _q("SELECT count(*) AS n FROM tb_contract WHERE origin_ref LIKE 'jti:%%'")["n"] == 0
-    run(True)
-    c = _q("SELECT id, trade_status FROM tb_contract WHERE origin_ref = 'jti:00000000-0000-4000-8000-00000000f001'")
-    assert c["trade_status"] == "confirmed"
-    flows = _q("SELECT f.quantity, f.unit_price FROM tb_flow f JOIN tb_leg l ON l.id = f.leg_id JOIN tb_contract_version v "
-               "ON v.terms_id = l.terms_id WHERE v.contract_id = %s AND f.flow_type = 'fixed_cash' ORDER BY f.seq",
-               (c["id"],), many=True)
-    assert [(r["quantity"], r["unit_price"]) for r in flows] == [(100, 850)] * 3   # the old engine's flat months
-    note = _q("SELECT note FROM tb_contract_event WHERE contract_id = %s", (c["id"],))["note"]
-    assert "NOT confirmed through TRADE_CONFIRM" in note
-    again = run(True)
-    assert again["skipped_already_converted"] == ["TEST-JTI-1"] and again["converted"] == []
+    tc = TestClient(api)
+    assert tc.get("/api/v1/trading-book/contracts", headers=_auth("u_ob_s1")).status_code in (404, 405)
+    for path in ("fixed-price", "index-linked"):
+        assert tc.post(f"/api/v1/trading-book/contracts/{path}", headers=_auth("u_ob_s1"),
+                       json={}).status_code in (404, 405)
 
 
 def test_a_producer_declares_a_capacity_of_its_own_project(client):
@@ -451,4 +424,39 @@ def test_the_generic_project_visibility_helper_still_takes_a_project_id():
     cur.execute("SELECT app_company_can_see_capacity(%s, %s) AS owner, app_company_can_see_capacity(%s, %s) AS other",
                 (PID, SELLER, PID, OTHER))
     assert dict(cur.fetchone()) == {"owner": True, "other": False}
+    conn.close()
+
+
+# ── M5 (alembic 086): capacities carry what the position view needs ──────────
+
+def test_m5_a_declared_capacity_carries_commodity_owner_period_and_quantity(client):
+    body = {"project_id": PID, "project_name": "TEST order-book plant", "molecule": "e-Methanol",
+            "capacity_mtpd": 10, "production_start": "2030-01-01", "production_end": "2030-01-31"}
+    cid = client.post("/api/v1/capacities/", headers=_auth("u_ob_s1"), json=body).json()["id"]
+    row = _q("SELECT co.code, cp.company_id, c.period_start, c.period_end, c.quantity, c.unit::text AS unit "
+             "FROM capacities c JOIN tb_commodity co ON co.id = c.commodity_id "
+             "JOIN tb_counterparty cp ON cp.id = c.owner_id WHERE c.id = %s", (cid,))
+    assert (row["code"], row["company_id"], str(row["period_start"]), str(row["period_end"]),
+            row["quantity"], row["unit"]) == ("EMEOH", SELLER, "2030-01-01", "2030-01-31", 310, "t")
+
+
+def test_m5_the_position_view_shows_planned_long_and_ordered_by_side():
+    from pg_support import connect_dsn
+
+    conn = connect_dsn(DSN["url"])
+    cur = conn.cursor()
+    cur.execute("SET app.current_company_id = %s", (SELLER,))
+    cur.execute("SELECT status_class, period, physical_qty FROM v_position WHERE party_company_id = %s "
+                "AND period = '2030-01-01'", (SELLER,))
+    rows = {r["status_class"]: r["physical_qty"] for r in cur.fetchall()}
+    assert rows.get("planned") == 310                       # the producer's capacity: long
+    cur.execute("SELECT sum(physical_qty) AS q FROM v_position WHERE party_company_id = %s "
+                "AND status_class = 'ordered' AND period = '2027-01-01'", (SELLER,))
+    assert cur.fetchone()["q"] < 0                          # open sell orders: product owed (short)
+    # RLS: nobody else's position. Not OTHER: T14 races BUYER and OTHER to accept the
+    # same order, so OTHER may genuinely be the seller's counterparty. BANNED is
+    # refused every time it tries (RESTRICTED_COUNTERPARTY), so it is never a party.
+    cur.execute("SET app.current_company_id = %s", (BANNED,))
+    cur.execute("SELECT count(*) AS n FROM v_position WHERE party_company_id = %s", (SELLER,))
+    assert cur.fetchone()["n"] == 0
     conn.close()

@@ -20,7 +20,9 @@ from typing import Literal
 from app.trading_book.conventions import LEG_ROLES, FlowType, LegRole, Settlement
 from app.trading_book.terms import CLAUSE_TYPES, FlowIn, TermsIn
 
-Kind = Literal["order", "contract"]
+Kind = Literal["order", "contract", "rfq"]
+# "rfq": an RFQ's indicative terms (Phase 3, alembic 087) — a product leg, and a payment
+# leg only when the buyer names a price; no parties, like an order (V06).
 CASH_FLOWS = {FlowType.FIXED_CASH, FlowType.FLOAT_CASH}
 
 
@@ -73,12 +75,19 @@ def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str
     cash = terms.settlement != Settlement.PHYSICAL
     sub_legs = {n: [leg for leg in terms.legs if leg.sub_leg == n] for n in terms.sub_leg_numbers()}
 
-    # V01 exactly two legs per sub-leg (and at least one sub-leg)
-    if not sub_legs or any(len(legs) != 2 for legs in sub_legs.values()):
+    # V01 exactly two legs per sub-leg (and at least one sub-leg); an RFQ may name no price
+    allowed = (1, 2) if kind == "rfq" else (2,)
+    if not sub_legs or any(len(legs) not in allowed for legs in sub_legs.values()):
         fail("V01")
-    # V02 the two roles the settlement calls for, in each sub-leg
+    # V02 the two roles the settlement calls for, in each sub-leg (an RFQ: the first at least)
     for legs in sub_legs.values():
-        if sorted(leg.leg_role for leg in legs) != sorted(LEG_ROLES[terms.settlement]):
+        roles = sorted(leg.leg_role for leg in legs)
+        expected = sorted(LEG_ROLES[terms.settlement])
+        if kind == "rfq" and len(roles) == 1:
+            ok = roles == [LEG_ROLES[terms.settlement][0]]
+        else:
+            ok = roles == expected
+        if not ok:
             fail("V02")
     # V03 physical: product leg only physical flows; payment leg only cash flows
     if not cash:
@@ -104,7 +113,7 @@ def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str
         named = leg.payer is not None or leg.receiver is not None
         if kind == "contract" and (leg.payer is None or leg.receiver is None):
             fail("V06")
-        if kind == "order" and named:
+        if kind in ("order", "rfq") and named:
             fail("V06")
     # V07 / V08 the two legs of each sub-leg run in opposite directions
     if kind == "contract":

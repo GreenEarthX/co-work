@@ -232,7 +232,9 @@ def test_the_token_is_append_only_and_its_chain_detects_tampering(client, pg_sto
     cur = conn.cursor()
     cur.execute("SET app.current_company_id = 'PLATFORM_ADMIN'")
     with pytest.raises(Exception, match="permission denied"):
-        cur.execute("UPDATE project_contract_event SET note = 'x' WHERE project_id = %s", (PID,))
+        # The 078 tables are gone (M6, alembic 090); the token's events are the record's.
+        cur.execute("UPDATE tb_contract_event SET note = 'x' WHERE contract_id IN "
+                    "(SELECT id FROM tb_contract WHERE project_id = %s)", (PID,))
     conn.rollback()
     conn.close()
     t = set_current_company(OWNER)

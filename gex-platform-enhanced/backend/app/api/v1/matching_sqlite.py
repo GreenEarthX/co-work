@@ -306,7 +306,7 @@ async def list_mandates(buyer_id: str):
 
 
 @router.post("/mandates/{mandate_id}/match", response_model=dict)
-async def run_mandate_matching(mandate_id: str):
+async def run_mandate_matching(mandate_id: str, request: Request):
     """
     Run 6-dimension ranked matching against a buyer mandate.
     Filters: ESG tier, certification, delivery basis, volume, price.
@@ -343,16 +343,11 @@ async def run_mandate_matching(mandate_id: str):
         esg_hierarchy = {"STANDARD": 0, "VERIFIED": 1, "SOVEREIGN": 2}
         min_esg = esg_hierarchy.get(esg_level, 0)
 
-        # Load active offers
-        cursor.execute("""
-            SELECT o.*, c.project_name
-            FROM offers o
-            JOIN tokens t ON o.token_id = t.id
-            JOIN capacities c ON t.capacity_id = c.id
-            WHERE o.status = 'active'
-        """)
-        offers = cursor.fetchall()
         conn.close()
+        # The open market's listings, anonymised (alembic 087: listings are sell orders of the
+        # one contract model). Every field scored below is in a listing; no counterparty is.
+        from app.core import market_engine as me
+        offers = _call(me.offer_listings, _party(request))
 
         results: list[dict] = []
 

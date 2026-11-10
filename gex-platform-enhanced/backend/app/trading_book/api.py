@@ -17,28 +17,15 @@ Dependencies:
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from typing import Iterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
-from app.trading_book.cashflows import (
-    CashflowProjection,
-    generate_cashflows_for_project,
-)
-from app.trading_book.models import (
-    Asset,
-    Contract,
-    ContractStatus,
-    Counterparty,
-    FixedPriceContract,
-    IndexDefinition,
-    IndexHistory,
-    IndexLinkedContract,
-    ProjectFinanceLink,
-)
+from app.trading_book.cashflows import CashflowProjection
+from app.trading_book.models import Asset, Counterparty, IndexDefinition, IndexHistory, ProjectFinanceLink
 from app.trading_book import schemas as sc
 
 
@@ -96,9 +83,10 @@ router = APIRouter(tags=["trading-book"])
 # Who may do what (gap register G-05, 2026-10-23; alembic 064)
 #
 #   asset        the project's companies read it; only the project owner writes it
-#   contract     the booking company (owner_company_id, from the caller, never the
-#                body) writes it; it and any company seeing a linked asset read it
-#   link         the asset's project owner, for a contract in its own book
+#   contract     the one record (trading_book/record.py), written by an agreed match
+#                or an accepted order, never booked here (M6, alembic 088); its
+#                parties, the project's companies and a linked asset's readers read it
+#   link         the asset's project owner, for a contract its company is a party to
 #   counterparty any signed-in company reads and adds; GEX corrects
 #   index        reference data: everyone reads, GEX staff write
 #
@@ -106,11 +94,6 @@ router = APIRouter(tags=["trading-book"])
 # RLS policies (064), so these checks are the clear refusal, not the only wall.
 # ──────────────────────────────────────────────────────────────────────
 
-CONTRACT_TRANSITIONS: dict[ContractStatus, tuple[ContractStatus, ...]] = {
-    ContractStatus.DRAFT: (ContractStatus.PROPOSED, ContractStatus.TERMINATED),
-    ContractStatus.PROPOSED: (ContractStatus.COMMITTED, ContractStatus.DRAFT, ContractStatus.TERMINATED),
-    ContractStatus.COMMITTED: (ContractStatus.TERMINATED, ContractStatus.EXPIRED),
-}
 
 
 def _refuse(code: int, key: str, message: str):
@@ -158,43 +141,11 @@ def _owns_project(caller: dict, project_id: str) -> bool:
     return bool(profile) and profile.owner_company_id == caller.get("company_id")
 
 
-def _sees_contract(caller: dict, db: Session, contract: Contract) -> bool:
-    if _is_gex(caller) or contract.owner_company_id == caller.get("company_id"):
-        return True
-    assets = db.execute(select(Asset).join(ProjectFinanceLink, ProjectFinanceLink.project_asset_id == Asset.id)
-                        .where(ProjectFinanceLink.contract_id == contract.id)).scalars().all()
-    return any(_sees_asset(caller, a) for a in assets)
-
-
 def _asset(db: Session, caller: dict, asset_id: uuid.UUID) -> Asset:
     asset = db.get(Asset, asset_id)
     if asset is None or not _sees_asset(caller, asset):
         raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
     return asset
-
-
-# Since alembic 065/083 tb_contract also holds the ONE contract record
-# (contract_type = 'terms', written by trading_book/record.py). The JTI mapper has
-# no polymorphic identity for it, so these legacy routes read JTI rows only, and
-# the record is served by core/order_book (M6 drops the JTI side).
-JTI_ONLY = Contract.contract_type != "terms"
-
-
-def _jti(db: Session, contract_id) -> Optional[Contract]:
-    return db.execute(select(Contract).where(Contract.id == contract_id, JTI_ONLY)).scalars().first()
-
-
-def _contract(db: Session, caller: dict, contract_id: uuid.UUID) -> Contract:
-    contract = _jti(db, contract_id)
-    if contract is None or not _sees_contract(caller, db, contract):
-        raise HTTPException(status_code=404, detail=f"Contract {contract_id} not found")
-    return contract
-
-
-def _contract_read(contract: Contract):
-    if isinstance(contract, IndexLinkedContract):
-        return sc.IndexLinkedContractRead.model_validate(contract)
-    return sc.FixedPriceContractRead.model_validate(contract)
 
 
 def _commit(db: Session, what: str) -> None:
@@ -232,10 +183,11 @@ def get_project_cashflows(
 ) -> CashflowProjection:
     """Return the cashflow projection for one project asset.
 
-    For each ProjectFinanceLink on the asset, expands the linked Contract
-    into monthly cashflow rows over [from_date, to_date], applying:
+    For each ProjectFinanceLink on the asset, expands the linked record
+    contract's flows (trading_book/flows.py, dispatch on flow_type) into
+    monthly rows over [from_date, to_date], applying:
       - sign convention from line_item_type
-      - floor/cap collar on IndexLinkedContract
+      - an index flow's floor/cap collar
       - forward-extrapolation for periods beyond IndexHistory (flagged)
       - allocation_share at the link level
 
@@ -253,41 +205,12 @@ def get_project_cashflows(
         )
 
     asset = _asset(db, _caller(request), asset_id)
+    # The one contract model (M4/M6): the flow_type engine over the record contracts linked
+    # to the asset, read on the caller's own tenant-scoped session, so RLS applies.
+    from app.trading_book import flows
+    from app.trading_book.migrate.fold_contract_tokens import SAConnection
 
-    # Fetch links + their contracts. selectinload pulls contracts in one query.
-    links = db.execute(
-        select(ProjectFinanceLink)
-        .where(ProjectFinanceLink.project_asset_id == asset_id)
-        .options(selectinload(ProjectFinanceLink.contract))
-    ).scalars().all()
-
-    # For each link, fetch the contract polymorphically (so we get the right
-    # subtype) plus relevant IndexHistory if it's an IndexLinkedContract.
-    triples: list[tuple[ProjectFinanceLink, Contract, list[IndexHistory]]] = []
-    for link in links:
-        # Reload contract polymorphically — the selectinload above gives us
-        # the parent row; we need the subtype for isinstance checks.
-        contract = _jti(db, link.contract_id)
-        if contract is None:
-            continue
-
-        history: list[IndexHistory] = []
-        if isinstance(contract, IndexLinkedContract):
-            history = db.execute(
-                select(IndexHistory)
-                .where(IndexHistory.index_definition_id == contract.index_definition_id)
-                .order_by(IndexHistory.observation_date)
-            ).scalars().all()
-
-        triples.append((link, contract, history))
-
-    return generate_cashflows_for_project(
-        asset=asset,
-        links_with_contracts=triples,
-        from_date=from_date,
-        to_date=to_date,
-        granularity=granularity,
-    )
+    return flows.project_cashflows(SAConnection(db.connection()), str(asset_id), asset.name, from_date, to_date)
 
 
 @router.get(
@@ -299,35 +222,24 @@ def list_project_contracts(
     request: Request,
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    """Lightweight listing — full contract reads via /contracts/{id}."""
+    """The record contracts linked to the asset — full reads via /records/{id}."""
+    from app.trading_book import record
+    from app.trading_book.migrate.fold_contract_tokens import SAConnection
+
     _asset(db, _caller(request), asset_id)
-
-    links = db.execute(
-        select(ProjectFinanceLink).where(ProjectFinanceLink.project_asset_id == asset_id)
-    ).scalars().all()
-
+    conn = SAConnection(db.connection())
     out: list[dict] = []
-    for link in links:
-        contract = _jti(db, link.contract_id)
-        if contract is None:
-            continue
-        out.append(
-            {
-                "link_id": str(link.id),
-                "contract_id": str(contract.id),
-                "contract_number": contract.contract_number,
-                "contract_type": contract.contract_type,
-                "fuel_type": contract.fuel_type,
-                "line_item_type": link.line_item_type.value,
-                "allocation_share": str(link.allocation_share),
-                "effective_date": contract.effective_date.isoformat(),
-                "termination_date": contract.termination_date.isoformat(),
-                "notional_quantity": str(contract.notional_quantity),
-                "quantity_unit": contract.quantity_unit,
-                "currency": contract.currency,
-                "status": contract.status.value,
-            }
-        )
+    for link in db.execute(select(ProjectFinanceLink).where(ProjectFinanceLink.project_asset_id == asset_id)
+                           ).scalars().all():
+        c = record._row(conn, "SELECT * FROM tb_contract WHERE id = ? AND contract_type = 'terms'",
+                        (str(link.contract_id),))
+        if c is None:
+            continue                      # not readable by the caller (RLS), or not a record contract
+        v = record.current_version(conn, str(c["id"]))
+        out.append({"link_id": str(link.id), "contract_id": str(c["id"]), "contract_ref": c["contract_ref"],
+                    "kind": c["kind"], "trade_status": c["trade_status"], "version": v["version"] if v else None,
+                    "terms_hash": v["terms_hash"] if v else None, "line_item_type": link.line_item_type.value,
+                    "allocation_share": str(link.allocation_share)})
     return out
 
 
@@ -470,64 +382,9 @@ def add_index_observation(index_id: uuid.UUID, body: sc.IndexHistoryCreate, requ
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Contracts — booked by the caller's company
+# Contracts — the JTI book is gone (M6, alembic 088). Contracts are made by the
+# order book and the market (core/order_book.py, /trading-book/records).
 # ──────────────────────────────────────────────────────────────────────
-
-def _book(db: Session, request: Request, cls, body) -> Contract:
-    company = _trader(_caller(request))
-    for side in (body.buy_side_id, body.sell_side_id):
-        if db.get(Counterparty, side) is None:
-            _refuse(422, "UNKNOWN_COUNTERPARTY", f"Counterparty {side} is not registered.")
-    data = body.model_dump()
-    if cls is IndexLinkedContract and db.get(IndexDefinition, body.index_definition_id) is None:
-        _refuse(422, "UNKNOWN_INDEX", f"Index {body.index_definition_id} is not registered.")
-    contract = cls(**data, owner_company_id=company)
-    db.add(contract)
-    _commit(db, "Contract")
-    db.refresh(contract)
-    return contract
-
-
-@router.post("/contracts/fixed-price", response_model=sc.FixedPriceContractRead, status_code=201)
-def create_fixed_price_contract(body: sc.FixedPriceContractCreate, request: Request,
-                                db: Session = Depends(get_db)):
-    return _book(db, request, FixedPriceContract, body)
-
-
-@router.post("/contracts/index-linked", response_model=sc.IndexLinkedContractRead, status_code=201)
-def create_index_linked_contract(body: sc.IndexLinkedContractCreate, request: Request,
-                                 db: Session = Depends(get_db)):
-    return _book(db, request, IndexLinkedContract, body)
-
-
-@router.get("/contracts", summary="My book, and contracts behind assets I can see")
-def list_contracts(request: Request, db: Session = Depends(get_db)) -> list[dict]:
-    caller = _caller(request)
-    rows = db.execute(select(Contract).where(JTI_ONLY).order_by(Contract.trade_date.desc())).scalars().all()
-    return [_contract_read(c).model_dump(mode="json") for c in rows if _sees_contract(caller, db, c)]
-
-
-@router.get("/contracts/{contract_id}")
-def get_contract(contract_id: uuid.UUID, request: Request, db: Session = Depends(get_db)) -> dict:
-    return _contract_read(_contract(db, _caller(request), contract_id)).model_dump(mode="json")
-
-
-@router.patch("/contracts/{contract_id}/status")
-def update_contract_status(contract_id: uuid.UUID, body: sc.ContractStatusUpdate, request: Request,
-                           db: Session = Depends(get_db)) -> dict:
-    caller = _caller(request)
-    company = _trader(caller)
-    contract = _contract(db, caller, contract_id)
-    if contract.owner_company_id != company:
-        _refuse(403, "NOT_YOUR_BOOK", "Only the company whose book it is changes a contract.")
-    if body.status not in CONTRACT_TRANSITIONS.get(contract.status, ()):
-        _refuse(409, "INVALID_TRANSITION",
-                f"{contract.status.value} -> {body.status.value} is not allowed; "
-                f"allowed: {[s.value for s in CONTRACT_TRANSITIONS.get(contract.status, ())]}")
-    contract.status = body.status
-    _commit(db, "Contract")
-    db.refresh(contract)
-    return _contract_read(contract).model_dump(mode="json")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -539,9 +396,17 @@ def _link_owner_check(caller: dict, db: Session, asset_id: uuid.UUID, contract_i
     asset = _asset(db, caller, asset_id)
     if not _owns_project(caller, asset.project_id):
         _refuse(403, "NOT_YOUR_PROJECT", "Only the project owner allocates cashflows to its asset.")
-    contract = _jti(db, contract_id)
-    if contract is None or contract.owner_company_id != company:
-        _refuse(403, "NOT_YOUR_BOOK", "Only a contract in your own book can be allocated.")
+    from app.trading_book import record
+    from app.trading_book.migrate.fold_contract_tokens import SAConnection
+
+    conn = SAConnection(db.connection())
+    c = record._row(conn, "SELECT id FROM tb_contract WHERE id = ? AND contract_type = 'terms'", (str(contract_id),))
+    # A party: the seller allocates its revenue, the buyer its cost (an EPC, a
+    # supply). A folded 078 card may name no party yet; its owner is the project's.
+    if c is None or (company not in record.parties(conn, str(contract_id))["companies"]
+                     and record._row(conn, "SELECT owner_company_id FROM tb_contract WHERE id = ?",
+                                     (str(contract_id),))["owner_company_id"] != company):
+        _refuse(403, "NOT_YOUR_BOOK", "Only a contract your company is a party to can be allocated to your asset.")
 
 
 @router.post("/links", response_model=sc.ProjectFinanceLinkRead, status_code=201)
