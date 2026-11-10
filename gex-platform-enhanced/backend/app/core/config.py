@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     HEDERA_TOPIC_ID: str = ""
     HEDERA_MIRROR_URL: str = "https://testnet.mirrornode.hedera.com"
 
+    # Phase 5: a confirmation or dispute MAY carry the party's own signature (verified on
+    # write). True refuses an unsigned one. Default false: existing confirmations stay
+    # valid and read "confirmed in GEX, not signed by the party".
+    REQUIRE_PARTY_SIGNATURE: bool = False
+
     @field_validator("LEDGER_ANCHOR_BACKEND", mode="after")
     @classmethod
     def _anchor_backend(cls, value: str) -> str:

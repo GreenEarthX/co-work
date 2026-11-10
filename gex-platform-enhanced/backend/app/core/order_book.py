@@ -466,9 +466,9 @@ def get_contract(party: Party, contract_id: str) -> dict:
         versions = _rows(conn, "SELECT version, terms_id, terms_hash, valid_from, superseded_at, reason, "
                                "token_event_ref FROM tb_contract_version WHERE contract_id = ? ORDER BY version",
                          (contract_id,))
-        evs = [{k: e[k] for k in ("seq", "event_type", "version", "sub_leg_seq", "terms_hash", "actor",
-                                  "company_id", "note", "at", "prev_hash", "event_hash", "hash_scheme")}
-               for e in record.events(conn, contract_id)]
+        evs = [{**{k: e[k] for k in ("seq", "event_type", "version", "sub_leg_seq", "terms_hash", "actor",
+                                     "company_id", "note", "at", "prev_hash", "event_hash", "hash_scheme")},
+                **record.signature_view(e)} for e in record.events(conn, contract_id)]
         out = {"id": str(c["id"]), "contract_ref": c["contract_ref"], "kind": c["kind"],
                "trade_status": c["trade_status"], "verification_state": c["verification_state"],
                "token_ref": c["token_ref"], "chain_intact": record.chain_intact(conn, contract_id),
@@ -527,7 +527,7 @@ def request_confirmation(party: Party, contract_id: str) -> dict:
 
 
 @_guard
-def approve_confirmation(party: Party, contract_id: str, request_id: str) -> dict:
+def approve_confirmation(party: Party, contract_id: str, request_id: str, prepare: bool = False) -> dict:
     """The second pair of eyes. On quorum the party's CONFIRMED is written on the
     chain; when the seller and every buyer have confirmed the current version,
     the contract is `confirmed`. Idempotent after quorum: a CONFIRMED that could
@@ -548,7 +548,12 @@ def approve_confirmation(party: Party, contract_id: str, request_id: str) -> dic
             _refuse(409, "NOT_THE_LATEST_VERSION", "The terms changed after this confirmation was raised.")
     finally:
         conn.close()
-    if req["status"] == "PENDING":
+    if prepare:
+        # Phase 5: only the event to sign is computed (record.SigningIntent); the approval
+        # is NOT recorded, so a prepared request is still PENDING afterwards.
+        if req["status"] not in ("PENDING", "APPROVED"):
+            _refuse(409, "CONFIRMATION_STATE", f"This confirmation is {req['status']}.")
+    elif req["status"] == "PENDING":
         result = wae.record_decision(request_id, party.user_id, wae.ApprovalDecision.APPROVE,
                                      reason_text="TRADE_CONFIRM second approval")
         if "error" in result:
@@ -562,8 +567,11 @@ def approve_confirmation(party: Party, contract_id: str, request_id: str) -> dic
     try:
         c = _row(conn, "SELECT * FROM tb_contract WHERE id = ? FOR UPDATE", (contract_id,))
         note = f"TRADE_CONFIRM {request_id}"
-        if not _row(conn, "SELECT 1 AS x FROM tb_contract_event WHERE contract_id = ? AND event_type = 'CONFIRMED' "
-                          "AND note = ?", (contract_id, note)):
+        done = _row(conn, "SELECT 1 AS x FROM tb_contract_event WHERE contract_id = ? AND event_type = 'CONFIRMED' "
+                          "AND note = ?", (contract_id, note))
+        if done and prepare:
+            _refuse(409, "ALREADY_CONFIRMED", "This confirmation is already on the record; there is nothing to sign.")
+        if not done:
             record.append_event(conn, contract_id, "CONFIRMED", party.user_id, party.company_id,
                                 version_id=str(v["id"]), terms_hash=v["terms_hash"], note=note)
         # The buyer's four-eye confirmation of a trade that is a frame's market sub-leg

@@ -485,7 +485,16 @@ def chain_for(company_id: Optional[str], is_admin: bool, contract_id: str) -> di
         out_events = []
         for e in evs:
             a = anchors.get(e["id"]) or {}
+            sig = record.signature_view(e)
+            if sig.get("signed_by_party"):
+                # Phase 5: anyone reading the chain can check the party's signature against
+                # the key it registered; the readout says whether it holds and the key's state.
+                key = record.party_key(conn, e["signer_key_ref"]) or {}
+                sig.update(signer_public_key=key.get("public_key"), signer_key_status=key.get("status"),
+                           signature_valid=bool(key) and record.signature_valid(
+                               key["public_key"], e["signature"], _hex(e["event_hash"])))
             out_events.append({
+                **sig,
                 "seq": e["seq"], "event_type": e["event_type"], "at": _s(e["at"]), "prev_hash": _hex(e["prev_hash"]),
                 "event_hash": _hex(e["event_hash"]), "hash_scheme": e["hash_scheme"],
                 "ledger_anchor": {"status": a.get("status"), "network": a.get("ledger_network"),

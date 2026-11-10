@@ -98,3 +98,18 @@ describe('ContractTokensPanel — a market trade in the frame (Q6.4)', () => {
     expect(screen.queryByRole('button', { name: 'Hand over…' })).toBeNull()
   })
 })
+
+describe('ContractTokensPanel — party signatures (Phase 5)', () => {
+  it('says which confirmations the party signed and which were confirmed in GEX only', async () => {
+    const ev = (seq: number, signed: boolean) => ({
+      seq, event_type: 'CONFIRMED', terms_sha256: 'f'.repeat(64), actor: 'u', company_id: 'test_buyer_b', note: null,
+      at: '2026-11-10', signed_by_party: signed, signer_key_ref: signed ? 'ed25519:0123456789abcdef' : null,
+      signature_label: signed ? 'signed by the party' : 'confirmed in GEX, not signed by the party' })
+    stub([{ ...offtake(null), events: [ev(1, false), ev(2, true)] }],
+         { company_id: 'test_owner', is_gex: false, is_owner_executive: true })
+    render(<ContractTokensPanel projectId="p" onChanged={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'history' }))
+    expect(screen.getByTestId('signature-1').textContent).toContain('confirmed in GEX, not signed by the party')
+    expect(screen.getByTestId('signature-2').textContent).toContain('signed by the party (ed25519:0123456789abcdef)')
+  })
+})

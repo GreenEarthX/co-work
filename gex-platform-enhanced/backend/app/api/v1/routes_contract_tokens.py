@@ -133,7 +133,26 @@ async def set_counterparty(project_id: str, kind: str, body: CounterpartyBody, r
     return {"kind": kind, "counterparty_company_id": body.company_id, "changed": True}
 
 
-class ConfirmBody(BaseModel):
+from app.api.v1.routes_order_book import SignedAct  # noqa: E402  (Phase 5: the optional party signature)
+
+
+def _act(payload: dict, body: SignedAct, fn):
+    """Run a party's confirmation or dispute as ITS act: prepared (nothing written, the
+    event hash returned to sign) or signed (verified on write), or plain when neither."""
+    from app.trading_book import record
+
+    with record.party_act(payload.get("company_id"),
+                          signature=body.signature.model_dump() if body.signature else None,
+                          prepare=body.signature_intent):
+        try:
+            return fn(), None
+        except record.SigningIntent as intent:
+            return None, {"signature_intent": intent.intent}
+        except record.RecordRefused as exc:
+            _refuse(exc.status, exc.code, exc.message)
+
+
+class ConfirmBody(SignedAct):
     terms_sha256: Optional[str] = None
     note: Optional[str] = None
 
@@ -174,8 +193,10 @@ async def confirm(project_id: str, kind: str, body: ConfirmBody, request: Reques
     if last is not None and body.terms_sha256 != last["terms_sha256"]:
         _refuse(409, "NOT_THE_LATEST_VERSION",
                 "Confirm the latest version you have read: name its terms_sha256 (the terms changed since).")
-    event = ct.append(c, "CONFIRMED", payload["user_id"], payload.get("company_id"),
-                      sha=(last or {}).get("terms_sha256"), note=body.note)
+    event, intent = _act(payload, body, lambda: ct.append(c, "CONFIRMED", payload["user_id"], payload.get("company_id"),
+                                                          sha=(last or {}).get("terms_sha256"), note=body.note))
+    if intent:
+        return intent
     verified = []
     if kind in ct.CONTRACT_EVIDENCE:
         verified = verify_by_counterparty(project_id, ct.CONTRACT_EVIDENCE[kind], payload,
@@ -186,7 +207,7 @@ async def confirm(project_id: str, kind: str, body: ConfirmBody, request: Reques
             "evidence_verified": verified, "reevaluation": changes}
 
 
-class DisputeBody(BaseModel):
+class DisputeBody(SignedAct):
     note: str
 
 
@@ -198,7 +219,10 @@ async def dispute(project_id: str, kind: str, body: DisputeBody, request: Reques
     c = ct.contract(project_id, _kind_or_404(kind))
     _refuse_frame(project_id, kind)
     _check_confirmer(payload, profile, kind, c)
-    event = ct.append(c, "DISPUTED", payload["user_id"], payload.get("company_id"), note=body.note)
+    event, intent = _act(payload, body, lambda: ct.append(c, "DISPUTED", payload["user_id"], payload.get("company_id"),
+                                                          note=body.note))
+    if intent:
+        return intent
     changes = (await reevaluate(project_id, reason=f"contract {kind} disputed", actor=payload["user_id"]))["changes"]
     return {"kind": kind, "event": event, "reevaluation": changes}
 
@@ -244,7 +268,7 @@ def _check_buyer(payload: dict, company_id: str) -> None:
         _refuse(403, "OWN_SUB_LEG_ONLY", "A buyer confirms or disputes its own sub-leg only.")
 
 
-class SubLegConfirmBody(BaseModel):
+class SubLegConfirmBody(SignedAct):
     sub_leg_hash: str
     note: Optional[str] = None
 
@@ -256,9 +280,12 @@ async def confirm_sub_leg(project_id: str, company_id: str, body: SubLegConfirmB
     payload, profile = _context(request, project_id)
     _check_buyer(payload, company_id)
     try:
-        event = ct.confirm_sub_leg(project_id, company_id, body.sub_leg_hash, "CONFIRMED", payload["user_id"], body.note)
+        event, intent = _act(payload, body, lambda: ct.confirm_sub_leg(project_id, company_id, body.sub_leg_hash,
+                                                                       "CONFIRMED", payload["user_id"], body.note))
     except ct.TokenRefusal as exc:
         _refuse(exc.status, exc.code, exc.message)
+    if intent:
+        return intent
     # The buyer is a party to the offtake it confirms: its confirmation verifies the
     # offtake's own instrument evidence (Q7.4), never a third party's instrument.
     verified = verify_by_counterparty(project_id, ct.CONTRACT_EVIDENCE["offtake"], payload,
@@ -277,9 +304,12 @@ async def dispute_sub_leg(project_id: str, company_id: str, body: DisputeBody, r
     payload, profile = _context(request, project_id)
     _check_buyer(payload, company_id)
     try:
-        event = ct.confirm_sub_leg(project_id, company_id, "", "DISPUTED", payload["user_id"], body.note)
+        event, intent = _act(payload, body, lambda: ct.confirm_sub_leg(project_id, company_id, "", "DISPUTED",
+                                                                       payload["user_id"], body.note))
     except ct.TokenRefusal as exc:
         _refuse(exc.status, exc.code, exc.message)
+    if intent:
+        return intent
     changes = (await reevaluate(project_id, reason=f"offtake sub-leg disputed by {company_id}",
                                 actor=payload["user_id"]))["changes"]
     return {"company_id": company_id, "event": event, "reevaluation": changes}

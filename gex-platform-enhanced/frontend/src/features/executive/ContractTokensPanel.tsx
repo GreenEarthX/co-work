@@ -11,7 +11,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link2, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { getAuthHeader } from '@/lib/authToken'
 
-interface TokenEvent { seq: number; event_type: string; terms_sha256: string | null; actor: string; company_id: string | null; note: string | null; at: string }
+interface TokenEvent {
+  seq: number; event_type: string; terms_sha256: string | null; actor: string; company_id: string | null; note: string | null; at: string
+  /** Phase 5: on a CONFIRMED or DISPUTED event — "signed by the party" or "confirmed in GEX, not signed by the party". */
+  signed_by_party?: boolean; signature_label?: string; signer_key_ref?: string | null
+}
 // The offtake frame (contract record Phase 3, Q2): one sub-leg per buyer, each confirmed by that buyer.
 interface FrameBuyer { company_id: string; sub_leg_hash: string; confirmed: boolean; locked?: boolean }
 interface Frame { version: number; shared_hash: string; buyers: FrameBuyer[] }
@@ -142,7 +146,13 @@ export function ContractTokensPanel({ projectId, onChanged }: { projectId: strin
                 <div className="mt-2 space-y-0.5 font-mono text-[11px] text-gray-500">
                   {t.events.map(e => (
                     <div key={e.seq}>#{e.seq} {e.event_type} · {e.actor}{e.company_id ? ` (${e.company_id})` : ''}
-                      {e.terms_sha256 ? ` · ${e.terms_sha256.slice(0, 12)}…` : ''}{e.note ? ` — ${e.note}` : ''}</div>
+                      {e.terms_sha256 ? ` · ${e.terms_sha256.slice(0, 12)}…` : ''}{e.note ? ` — ${e.note}` : ''}
+                      {e.signature_label && (
+                        <span data-testid={`signature-${e.seq}`}
+                              className={e.signed_by_party ? 'ml-1 text-emerald-700 dark:text-emerald-300' : 'ml-1 text-amber-700 dark:text-amber-300'}>
+                          · {e.signature_label}{e.signed_by_party && e.signer_key_ref ? ` (${e.signer_key_ref})` : ''}
+                        </span>
+                      )}</div>
                   ))}
                   {t.verifies_evidence.length > 0 && <div>Confirmation verifies: {t.verifies_evidence.join(', ')}</div>}
                 </div>

@@ -3347,6 +3347,64 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       `drain_anchor_outbox.py --status` → 4 PENDING as `gex_anchor`; `verify_anchor.py` → 4 chains
       intact, 0 anchored.
 
+61. **10 Nov 2026 — One contract record, Phase 5: party signatures, recorded and verified, not
+    required.** Backup `gex_platform_2026-11-10_2315` first. Head **096**, round-tripped on dev
+    (schema identical after down and up). **151** tables, **144** FORCED.
+    - **What a signature is:** ed25519 over `"GEX-CONTRACT-EVENT-v1:" + event_hash` (UTF-8, the
+      hash as 64 lowercase hex), on a CONFIRMED or DISPUTED event, by an ACTIVE key of the event's
+      own company. Stored beside the hash (`tb_contract_event.signature`, `signature_scheme`
+      none | ed25519, `signer_key_ref`), not inside it: event hashes, chains and ledger anchors
+      are unchanged. Verified on write; a bad one is refused and nothing is written.
+    - **How a party signs (two calls):** the hash covers the server's timestamp and the chain
+      head, so it cannot be known in advance. With `signature_intent: true` the confirmation runs
+      as usual up to its event, which is computed and NOT written (`record.SigningIntent`
+      discards the transaction; a trade's four-eye approval is not recorded either). The answer
+      carries `event_hash`, `at` and the `message` to sign. The party sends the same request with
+      `signature` {scheme, signer_key_ref, signature (base64), at, event_hash}; the event is
+      recomputed with the prepared time. Refusals: `SIGNATURE_STALE` (the chain moved; checked
+      both by time and by hash), `SIGNATURE_INTENT_EXPIRED` (over 15 minutes), `INVALID_SIGNATURE`,
+      `SIGNER_KEY_NOT_YOURS`, `SIGNER_KEY_NOT_ACTIVE`. Routes: the card confirm and dispute,
+      the frame buyer's confirm and dispute (`/api/v1/contract-tokens/…`), and the trade's
+      second approval (`/api/v1/trading-book/records/{id}/confirm/{request}/approve`).
+    - **Only the party's own act is signed:** the routes open `record.party_act(company)`; the
+      first CONFIRMED/DISPUTED of that company inside it is the act. What the act causes on
+      another record (a trade's confirmation confirming its frame sub-leg, Q7.3) and what the
+      system writes (a counterparty change withdrawing confirmations) carry no signature.
+      **For JML to confirm** — with signatures required, those stay unsigned by design.
+    - **Keys (096 `party_signing_key`, `core/party_keys.py`):** `/api/v1/trading-book/party-keys`
+      list / propose / `{ref}/activate` / `{ref}/reject` / `{ref}/revoke` (reason). An EXECUTIVE
+      proposes (ACTIVE account, never GEX: `GEX_DOES_NOT_SIGN`); a SECOND executive of the same
+      company activates (`FOUR_EYES`, and a CHECK in the database); any executive revokes. Each
+      step is in the platform ledger (`party_key.proposed|activated|rejected|revoked`), written
+      BEFORE the change commits, so a change the ledger cannot record is not made. Triggers: the
+      key material never changes, a key is inserted PROPOSED, the states move PROPOSED → ACTIVE |
+      REJECTED and ACTIVE → REVOKED only, no row is deleted. RLS: a company reads and writes its
+      own keys, GEX staff read them; one SECURITY DEFINER lookup serves verification. A trigger on
+      `tb_contract_event` also refuses a signature by a key that is not an ACTIVE key of the
+      event's company. GEX stores public keys only.
+    - **`REQUIRE_PARTY_SIGNATURE`** (config, default **false**): true refuses an unsigned act
+      with 428 `PARTY_SIGNATURE_REQUIRED`. Existing confirmations stay valid; every CONFIRMED and
+      DISPUTED readout says `signed by the party` or `confirmed in GEX, not signed by the party`
+      (`record.signature_view`): the token readout and its screen, the record readout, and the
+      chain readout, which also checks the signature against the key (`signature_valid`, and
+      the key's state) rather than trusting the column.
+    - **Not in this phase:** no wallet integration, no eIDAS seal validation (the scheme column
+      is ready); no key-management screen yet (API only); novation confirmations are not
+      signable (they are NOVATION events, outside "CONFIRMED or DISPUTED").
+    - **Tests:** `test_party_signatures_pg.py` (11, on `pg_store`); frontend
+      `ContractTokensPanel.test.tsx` +1. **Platform 1433 pass / 15 skip / 0 fail** (1422 + 11;
+      both exported, run alone), **frontend 264**, `tsc` clean. Negative verification, all caught:
+      22 backend breaks (the signature not verified, no domain separation, a prepare that writes,
+      a trade prepare that records the approval, a foreign key, a revoked key in the application
+      and in the database, staleness unchecked, four eyes off in the application and in the
+      database, a non-executive or GEX managing keys, an unaudited change kept, key material
+      changeable, a key inserted active, a key row deleted, another company registering a key, the
+      requirement ignored, any event signable, a consequence signed too, no unsigned label, the
+      readout trusting the column) and 1 on the screen. Removing only ONE of the two staleness
+      checks still refuses, by design; removing both is caught. One harness "break" first changed
+      nothing (`{} or {...}`) and was redone.
+    - **Parity:** identical for all 16 projects (`parity_after_p5.json`).
+
 ---
 
 ## 9. Rejected and superseded — do not reintroduce
@@ -3461,7 +3519,16 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
-**2026-11-10 (latest): One contract record — Phase 4 done (the ledger anchor, OFF); Phase 5 waits
+**2026-11-10 (latest): One contract record — Phases 0–5 done** (§8 items 56–61). Head **096**.
+Phase 5: a confirmation or dispute may carry the party's own ed25519 signature over its event
+hash, prepared then signed, verified on write; keys proposed by an executive, activated by a
+second, revoked with a reason, all in the ledger; `REQUIRE_PARTY_SIGNATURE` false. Platform 1433
+pass / 15 skip / 0 fail, frontend 264; parity identical for all 16 projects. Committed to
+`co-work` branch `contract-record-phase1`; not pushed. **Open for JML:** derived and system
+events stay unsigned when signatures are required; no key screen yet; the Phase 4 items (testnet
+run, salt copy, worker columns).
+
+**2026-11-10 (earlier): One contract record — Phase 4 done (the ledger anchor, OFF); Phase 5 waits
 for JML's go-ahead** (§8 item 60). Head **095**. The outbox, the pseudonymous id, NullAnchor and a
 Hedera testnet adapter, the worker, the parties' chain readout and `verify_anchor.py` are built and
 verified against a fake ledger; `LEDGER_ANCHOR_BACKEND = none`, so nothing leaves. Platform 1422

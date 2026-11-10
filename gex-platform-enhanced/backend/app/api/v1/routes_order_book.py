@@ -76,6 +76,32 @@ class RFQIn(BaseModel):
     valid_until: datetime
 
 
+class PartySignature(BaseModel):
+    """The party's own signature over a prepared event (Phase 5): ed25519 over
+    "GEX-CONTRACT-EVENT-v1:" + event_hash, by an ACTIVE key of the party's company."""
+    scheme: Literal["ed25519"] = "ed25519"
+    signer_key_ref: str
+    signature: str                                  # base64
+    at: str                                         # the prepared event's time, as returned
+    event_hash: str                                 # the prepared event's hash, as signed
+
+
+class SignedAct(BaseModel):
+    """Optional on a confirmation or dispute. `signature_intent: true` prepares the
+    event and returns its hash to sign, writing nothing; `signature` then signs it."""
+    signature_intent: bool = False
+    signature: Optional[PartySignature] = None
+
+
+class KeyIn(BaseModel):
+    public_key: str                                 # ed25519, 32 bytes, base64
+    label: Optional[str] = None
+
+
+class RevokeIn(BaseModel):
+    reason: str
+
+
 class QuoteIn(BaseModel):
     terms: TermsIn
     valid_until: datetime
@@ -156,8 +182,69 @@ def request_confirmation(contract_id: str, request: Request):
 
 
 @router.post("/records/{contract_id}/confirm/{request_id}/approve")
-def approve_confirmation(contract_id: str, request_id: str, request: Request):
-    return _call(ob.approve_confirmation, _party(request), contract_id, request_id)
+def approve_confirmation(contract_id: str, request_id: str, request: Request, body: Optional[SignedAct] = None):
+    from app.trading_book import record
+
+    party, body = _party(request), body or SignedAct()
+    with record.party_act(party.company_id, signature=body.signature.model_dump() if body.signature else None,
+                          prepare=body.signature_intent):
+        try:
+            return _call(ob.approve_confirmation, party, contract_id, request_id, prepare=body.signature_intent)
+        except record.SigningIntent as intent:
+            return {"signature_intent": intent.intent}
+
+
+# ── a company's signing keys (Phase 5) ──────────────────────────────────────
+
+def _keys(fn, *args):
+    from app.core import party_keys as pk
+
+    try:
+        return fn(*args)
+    except pk.KeyRefused as exc:
+        raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from exc
+
+
+def _payload(request: Request) -> dict:
+    payload = getattr(request.state, "user_payload", None) or {}
+    if not (payload.get("user_id") or payload.get("sub")):
+        raise HTTPException(401, {"code": "AUTHENTICATION_REQUIRED", "message": "Sign in first."})
+    return {**payload, "user_id": payload.get("user_id") or payload.get("sub")}
+
+
+@router.get("/party-keys")
+def list_party_keys(request: Request):
+    from app.core import party_keys as pk
+
+    return {"keys": _keys(pk.list_keys, _payload(request))}
+
+
+@router.post("/party-keys", status_code=201)
+def propose_party_key(body: KeyIn, request: Request):
+    from app.core import party_keys as pk
+
+    return _keys(pk.propose, _payload(request), body.public_key, body.label)
+
+
+@router.post("/party-keys/{key_ref}/activate")
+def activate_party_key(key_ref: str, request: Request):
+    from app.core import party_keys as pk
+
+    return _keys(pk.activate, _payload(request), key_ref)
+
+
+@router.post("/party-keys/{key_ref}/reject")
+def reject_party_key(key_ref: str, request: Request):
+    from app.core import party_keys as pk
+
+    return _keys(pk.reject, _payload(request), key_ref)
+
+
+@router.post("/party-keys/{key_ref}/revoke")
+def revoke_party_key(key_ref: str, body: RevokeIn, request: Request):
+    from app.core import party_keys as pk
+
+    return _keys(pk.revoke, _payload(request), key_ref, body.reason)
 
 
 @router.get("/records/{contract_id}/anchors")

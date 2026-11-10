@@ -202,7 +202,17 @@ share `gex_test_suite`).
   the card cannot change or drop it; its buyer confirms it with the four-eye TRADE_CONFIRM); an
   acceptance past the planned output is refused. Without one it stays a trade. Head **094**.
 - Platform **1394 pass / 15 skip**, frontend **260**.
-**2026-11-10 (latest): head is 095 — Phase 4: the ledger anchor, built and OFF** (handoff §8 item 60).
+**2026-11-10 (latest): head is 096 — Phase 5: party signatures, recorded and verified, NOT required** (handoff §8 item 61).
+- A CONFIRMED/DISPUTED event MAY carry ed25519 over `"GEX-CONTRACT-EVENT-v1:" + event_hash`, beside
+  the hash (hashes and anchors unchanged).
+- Two calls: `signature_intent: true` returns the hash and writes NOTHING; then send `signature`.
+- Only the first act of the caller's company inside `record.party_act` is signed.
+- Keys: `/api/v1/trading-book/party-keys`. An executive proposes, a SECOND executive activates;
+  each step is in the ledger before commit.
+- `REQUIRE_PARTY_SIGNATURE` defaults to false.
+- A pg_store test's manual rollback on the shim connection drops its tenant setting: reopen it.
+- Platform **1433 pass / 15 skip**, frontend **264**. **151** tables, **144** FORCED.
+**2026-11-10 (earlier): head is 095 — Phase 4: the ledger anchor, built and OFF** (handoff §8 item 60).
 - Every contract event writes one `ledger_anchor_outbox` row BY TRIGGER, in its own transaction.
   `gex_app` reads it (the record's RLS) and writes nothing.
 - New role **`gex_anchor`** (setup script; restore step 5 grants it CONNECT too): SELECT on the

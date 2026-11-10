@@ -46,6 +46,127 @@ class RecordRefused(Exception):
         self.status, self.code, self.message = status, code, message
 
 
+# ── party signatures (Phase 5; alembic 096) ─────────────────────────────────
+#
+# A CONFIRMED or DISPUTED event MAY carry the party's own ed25519 signature over
+#     SIGN_DOMAIN + event_hash        (UTF-8; the hash as 64 lowercase hex)
+# by an ACTIVE key its company registered (core/party_keys.py). The signature sits
+# beside the event hash, not inside it, so hashes and ledger anchors are unchanged.
+#
+# The hash covers the server's timestamp and the chain head, so a party cannot know
+# it in advance. Two calls: with `prepare`, the action runs as usual up to its event,
+# which is computed and NOT written — SigningIntent carries {event_hash, at, prev_hash,
+# message} and the caller's transaction is discarded. The party signs `message` and
+# repeats the action with the signature: the event is recomputed with the prepared
+# `at`; a chain that moved meanwhile gives another hash, refused as SIGNATURE_STALE.
+#
+# Only a party's OWN act is signed: the routes open `party_act(company)` around it, and
+# the FIRST CONFIRMED/DISPUTED event of that company inside it is the act. Events a
+# party's act causes on other records (a trade's confirmation confirming its frame
+# sub-leg, Q7.3), and events the system writes (a counterparty change withdrawing
+# confirmations), carry no signature and read "confirmed in GEX, not signed by the
+# party". REQUIRE_PARTY_SIGNATURE (default false) refuses an unsigned act.
+
+SIGNABLE = ("CONFIRMED", "DISPUTED")
+SIGN_DOMAIN = "GEX-CONTRACT-EVENT-v1:"
+INTENT_TTL_SECONDS = 900
+UNSIGNED_LABEL = "confirmed in GEX, not signed by the party"
+SIGNED_LABEL = "signed by the party"
+
+import contextlib  # noqa: E402
+import contextvars  # noqa: E402
+
+_PARTY_ACT: contextvars.ContextVar = contextvars.ContextVar("gex_party_act", default=None)
+
+
+class SigningIntent(BaseException):
+    """Raised (as a BaseException, so no `except Exception` swallows it and no caller
+    commits) when a prepared action reaches its event. Carries what the party signs."""
+
+    def __init__(self, intent: dict):
+        super().__init__("signing intent prepared; nothing written")
+        self.intent = intent
+
+
+@contextlib.contextmanager
+def party_act(company_id: Optional[str], signature: Optional[dict] = None, prepare: bool = False):
+    state = {"company": company_id, "signature": signature, "prepare": prepare, "used": False}
+    token = _PARTY_ACT.set(state)
+    try:
+        yield state
+    finally:
+        _PARTY_ACT.reset(token)
+
+
+def sign_message(event_hash: str) -> bytes:
+    return (SIGN_DOMAIN + event_hash.strip()).encode("utf-8")
+
+
+def _require_signature() -> bool:
+    from app.core.config import settings
+
+    return bool(settings.REQUIRE_PARTY_SIGNATURE)
+
+
+def party_key(conn, key_ref: Optional[str]) -> Optional[dict]:
+    return _row(conn, "SELECT * FROM app_party_signing_key(?)", (key_ref,)) if key_ref else None
+
+
+def signature_valid(public_key_b64: str, signature_b64: str, event_hash: str) -> bool:
+    import base64
+
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key_b64, validate=True)).verify(
+            base64.b64decode(signature_b64, validate=True), sign_message(event_hash))
+        return True
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+
+
+def _verify_party_signature(conn, sig: dict, company_id: Optional[str], digest: str) -> None:
+    if sig.get("scheme") != "ed25519":
+        raise RecordRefused(422, "SIGNATURE_SCHEME_UNSUPPORTED", "Only ed25519 signatures are accepted for now.")
+    if (sig.get("event_hash") or "").strip() != digest:
+        raise RecordRefused(409, "SIGNATURE_STALE", "The record changed after this event was prepared: "
+                                                    "prepare it again and sign the new hash.")
+    key = party_key(conn, sig.get("signer_key_ref"))
+    if key is None or key["company_id"] != company_id:
+        raise RecordRefused(403, "SIGNER_KEY_NOT_YOURS", "The signing key is not one your company registered.")
+    if key["status"] != "ACTIVE" or key["scheme"] != sig["scheme"]:
+        raise RecordRefused(403, "SIGNER_KEY_NOT_ACTIVE", f"The signing key is {key['status']}.")
+    if not signature_valid(key["public_key"], sig.get("signature") or "", digest):
+        raise RecordRefused(422, "INVALID_SIGNATURE", "The signature does not verify against the event hash.")
+
+
+def _prepared_at(value: Optional[str], last_at) -> datetime:
+    try:
+        at = datetime.fromisoformat(value) if value else None
+    except ValueError:
+        at = None
+    now = datetime.now(timezone.utc)
+    if at is None or at.tzinfo is None or (now - at).total_seconds() > INTENT_TTL_SECONDS \
+            or (at - now).total_seconds() > 5:
+        raise RecordRefused(409, "SIGNATURE_INTENT_EXPIRED", "Prepare the event again: the prepared time is "
+                                                             "missing, in the future or older than 15 minutes.")
+    if last_at is not None and at < last_at:
+        raise RecordRefused(409, "SIGNATURE_STALE", "The record changed after this event was prepared: "
+                                                    "prepare it again and sign the new hash.")
+    return at
+
+
+def signature_view(e: dict) -> dict:
+    """What a readout says about an event's signature."""
+    if e.get("event_type") not in SIGNABLE:
+        return {}
+    signed = (e.get("signature_scheme") or "none") != "none"
+    return {"signed_by_party": signed, "signature_scheme": e.get("signature_scheme") or "none",
+            "signer_key_ref": e.get("signer_key_ref"), "signature": e.get("signature"),
+            "signature_label": SIGNED_LABEL if signed else UNSIGNED_LABEL}
+
+
 def _row(conn, sql: str, params: Iterable = ()) -> Optional[dict]:
     r = conn.execute(sql, tuple(params)).fetchone()
     return dict(r) if r else None
@@ -265,21 +386,45 @@ def append_event(conn, contract_id: str, event_type: str, actor: str, company_id
         pid = pseudo_id(c["contract_ref"])
         if pid:
             conn.execute("UPDATE tb_contract SET pseudo_id = ? WHERE id = ? AND pseudo_id IS NULL", (pid, contract_id))
-    last = _row(conn, "SELECT seq, event_hash FROM tb_contract_event WHERE contract_id = ? ORDER BY seq DESC LIMIT 1",
-                (contract_id,))
+    last = _row(conn, "SELECT seq, event_hash, at FROM tb_contract_event WHERE contract_id = ? "
+                      "ORDER BY seq DESC LIMIT 1", (contract_id,))
     seq = (last["seq"] + 1) if last else 1
     prev = last["event_hash"] if last else None
     version = _row(conn, "SELECT version FROM tb_contract_version WHERE id = ?", (version_id,)) if version_id else None
     sub = _row(conn, "SELECT seq FROM tb_sub_leg WHERE id = ?", (sub_leg_id,)) if sub_leg_id else None
     at = datetime.now(timezone.utc)
-    digest = event_hash(contract_ref=c["contract_ref"], seq=seq, event_type=event_type,
-                        version=version["version"] if version else None, sub_leg=sub["seq"] if sub else None,
-                        terms_hash=terms_hash, actor=actor, company=company_id, note=note, at=at, prev=prev)
+
+    def _digest(when):
+        return event_hash(contract_ref=c["contract_ref"], seq=seq, event_type=event_type,
+                          version=version["version"] if version else None, sub_leg=sub["seq"] if sub else None,
+                          terms_hash=terms_hash, actor=actor, company=company_id, note=note, at=when, prev=prev)
+
+    signature, scheme, key_ref = None, "none", None
+    act = _PARTY_ACT.get()
+    if act is not None and not act["used"] and event_type in SIGNABLE and company_id == act["company"]:
+        act["used"] = True                                    # this event IS the party's act
+        if act["prepare"]:
+            d = _digest(at)
+            raise SigningIntent({"event_hash": d, "at": _iso(at), "seq": seq, "prev_hash": prev,
+                                 "event_type": event_type, "contract_id": str(contract_id),
+                                 "message": sign_message(d).decode("utf-8"), "scheme": "ed25519",
+                                 "expires_in_seconds": INTENT_TTL_SECONDS})
+        sig = act["signature"]
+        if sig:
+            last_at = last["at"] if last else None
+            at = _prepared_at(sig.get("at"), last_at)
+            _verify_party_signature(conn, sig, company_id, _digest(at))
+            signature, scheme, key_ref = sig["signature"], sig["scheme"], sig["signer_key_ref"]
+        elif _require_signature():
+            raise RecordRefused(428, "PARTY_SIGNATURE_REQUIRED",
+                                "This platform requires the party's own signature on a confirmation or dispute: "
+                                "prepare the event, sign its hash with your company's key, and send it again.")
+    digest = _digest(at)
     conn.execute("INSERT INTO tb_contract_event (contract_id, seq, event_type, version_id, sub_leg_id, terms_hash, "
-                 "actor, company_id, note, at, prev_hash, event_hash, hash_scheme) "
-                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 "actor, company_id, note, at, prev_hash, event_hash, hash_scheme, signature, signature_scheme, "
+                 "signer_key_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                  (contract_id, seq, event_type, version_id, sub_leg_id, terms_hash, actor, company_id, note, at,
-                  prev, digest, SCHEME))
+                  prev, digest, SCHEME, signature, scheme, key_ref))
     # The genesis event is the contract's identity for life (065's token_ref; fixed by trigger).
     conn.execute("UPDATE tb_contract SET token_ref = ? WHERE id = ? AND token_ref IS NULL", (digest, contract_id))
     return {"seq": seq, "event_hash": digest}

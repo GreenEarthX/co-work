@@ -884,6 +884,7 @@ def events(contract_id: str, conn=None) -> list[dict]:
             r["terms_sha256"] = r["terms_hash"] if r["hash_scheme"] == "078" else r["legacy_terms_sha256"]
             r["terms_json"] = r["card_projection"] if r["event_type"] == "VERSION" else None
             r["at"] = str(r["at"])
+            r.update(record.signature_view(r))       # Phase 5: signed by the party, or confirmed in GEX
         return rows
     return _run(go, conn)
 
