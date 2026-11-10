@@ -127,9 +127,7 @@ def wired(_seeded, monkeypatch):
     _owner_sql(_seeded,
                "DELETE FROM tb_contract_event WHERE contract_id IN (SELECT id FROM tb_contract WHERE project_id = %s)",
                "DELETE FROM tb_contract_version WHERE contract_id IN (SELECT id FROM tb_contract WHERE project_id = %s)",
-               "DELETE FROM tb_contract WHERE project_id = %s",
-               "DELETE FROM commitment_terms WHERE project_id = %s",
-               "DELETE FROM commitment_terms_events WHERE project_id = %s")
+               "DELETE FROM tb_contract WHERE project_id = %s")
     # The routes' own authorisation (_owner_gate) is what these tests exercise; the
     # tenant context is the operator's, as for the expiry sweep.
     token = set_current_company("PLATFORM_ADMIN")

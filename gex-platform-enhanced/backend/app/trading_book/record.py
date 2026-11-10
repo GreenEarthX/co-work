@@ -119,12 +119,16 @@ def write_terms(conn, terms: TermsIn, owner_company_id: str, *, profile: Optiona
                   profile, json.dumps(terms.card_projection, sort_keys=True, default=str)
                   if terms.card_projection is not None else None))
     ranks = {s.seq: s.rank for s in terms.sub_legs}
+    cards = {s.seq: s for s in terms.sub_legs if s.card_projection is not None}
     subs: dict[int, dict] = {}
     for n in terms.sub_leg_numbers():
         sid = str(uuid.uuid4())
         legs = [leg for leg in terms.legs if leg.sub_leg == n]
-        conn.execute("INSERT INTO tb_sub_leg (id, terms_id, seq, buyer_id, rank, sub_leg_hash) VALUES (?, ?, ?, ?, ?, ?)",
-                     (sid, terms_id, n, _buyer_of(legs), ranks.get(n), h["sub_legs"][n]))
+        card = cards.get(n)
+        conn.execute("INSERT INTO tb_sub_leg (id, terms_id, seq, buyer_id, rank, sub_leg_hash, card_projection) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     (sid, terms_id, n, card.buyer if card else _buyer_of(legs), ranks.get(n), h["sub_legs"][n],
+                      json.dumps(card.card_projection, sort_keys=True, default=str) if card else None))
         subs[n] = {"id": sid, "hash": h["sub_legs"][n]}
     flow_ids: dict[str, str] = {}
     sources: list[tuple[str, str]] = []
@@ -192,7 +196,11 @@ def load_terms(conn, terms_id: str) -> TermsIn:
                   "payer": str(l["payer_id"]) if l["payer_id"] else None,
                   "receiver": str(l["receiver_id"]) if l["receiver_id"] else None,
                   "flows": [flow(f) for f in flows if f["leg_seq"] == l["seq"]]} for l in legs],
-        "sub_legs": [{"seq": s["seq"], "rank": s["rank"]} for s in subs.values() if s["rank"] is not None],
+        "sub_legs": [{"seq": s["seq"], "rank": s["rank"],
+                      **({"buyer": str(s["buyer_id"]) if s["buyer_id"] else None,
+                          "card_projection": s["card_projection"]}
+                         if s.get("card_projection") is not None else {})}
+                     for s in subs.values() if s["rank"] is not None or s.get("card_projection") is not None],
         "clauses": [{"seq": c["seq"], "clause_type": c["clause_type"], "sub_leg": c["sub_leg"],
                      "attrs": c["attrs"] or {}} for c in clauses(conn, terms_id)],
     }

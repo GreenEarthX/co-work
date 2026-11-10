@@ -3167,6 +3167,93 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       database, and 036 pointed at the live models.
     - **Parity:** the engine answer and the contract-token readout are identical for all 16
       projects before (this morning) and after M6; the fixture's `--verify` matches Appendix B.
+59. **10 Nov 2026 — One contract record, Phase 3 step 4: the offtake frame, adverse facts as
+    events, the cards as a view, novation.** Backups before each migration
+    (`gex_platform_2026-11-10_1000`, `_1030`). Head **093**; both round-tripped on dev (schema
+    identical after each downgrade).
+    - **The offtake frame (Q2, Q3; 092).** With several buyers the offtake card holds the shared
+      terms at its top and one entry per buyer in `buyers` (`core/commitment_terms.py`: company
+      required, no duplicate, no shared field in a buyer, no buyer field at the top; the buyer
+      must be a project party and not the owner). The record writes one `card` sub-leg per buyer:
+      `tb_sub_leg.card_projection` (092) and its buyer, inside the sub-leg hash. Hashes of every
+      existing kind of terms are unchanged (the two keys are hashed only when present).
+      - **Per-buyer confirmation:** `POST /contract-tokens/{p}/offtake/buyers/{company}/confirm`
+        (`sub_leg_hash`) and `/dispute`; the contract-level confirm and counterparty routes refuse
+        a frame (`FRAME_CONFIRMS_PER_BUYER`, `FRAME_HAS_BUYERS`). A buyer's confirmation verifies
+        `binding_offtake_contract_executed` (Q7.4).
+      - **The engine reads one offtake card** built from `v_engine_offtake_buyers` (092) by JML's
+        conservative aggregate: volume summed over the confirmed buyers; tenor, take-or-pay and
+        commitment form the weakest buyer's; investment grade and credit support only if every
+        buyer has them. Only the changed buyer re-confirms; a shared change withdraws every
+        confirmation. `v_engine_contract_terms` no longer reads a sub-leg's CONFIRMED as the whole
+        contract's. Engine rules unchanged (its spec already says the volume is across buyers).
+      - **Applied by me, for JML to confirm:** a field the decision does not name (counterparty,
+        price mechanism, CPs satisfied, longstop, first delivery, LD cap) reaches the engine only
+        when every buyer confirmed the SAME value; the take-or-pay share only once the form is
+        settled; any field but the volume only when every buyer has confirmed its own. A buyer
+        investment-grade and another credit-supported reads as neither (the decision's literal
+        "every buyer has them").
+      - **Q5 on a frame:** a buyer's session reads the shared terms and its own sub-leg only
+        (092's `tb_sub_leg` read rule, `app_tb_card_sub_leg_readable`); the owner and non-buyer
+        project parties read all. The token readout and the card show another buyer only as its
+        hash and its share of the volume.
+    - **Adverse facts as events (Q10).** `ADVERSE_FACT_REPORTED` on the contract (EPC contractor
+      insolvent, support or PPA revoked, certification suspended) or on one buyer's sub-leg (new:
+      `BUYER_INSOLVENT`, which drops only that buyer from the aggregate). Reporting: the owner, the
+      contract's counterparty, a lender with project access (`COMMERCIAL_BANKER`, `DFI`,
+      `DFI_CONCESSIONAL`, `ECA`) or an appointed reviewer, with a document on file; a buyer only
+      about its own sub-leg; it applies at once. Clearing: `ADVERSE_FACT_CLEARED` naming the report,
+      with a document, by two companies other than the reporter's; the party a fact is about never
+      clears it; GEX neither reports nor clears. Routes `POST /contract-tokens/{p}/adverse-facts`
+      and `/adverse-facts/{hash}/clear`. A card that still says true keeps applying (joined, so
+      the move cannot weaken a fact already reported; none is on dev).
+    - **The cards are a view over the record (Q9; 093).** `contract_tokens.card_view` rebuilds each
+      card from its kinds' current versions (the frame's buyers from its sub-legs). A save writes
+      versions only, naming its card on each VERSION (`{"card", "save"}`), and an emptied contract
+      gets an empty version. `/bankability/terms` keeps its shapes; `/terms/events` is rebuilt
+      from the versions in 058's shape. The engine's input is read as the operator (the same
+      whoever asks); the card screen through the caller's RLS. **093** dropped `commitment_terms`
+      after checking the view equals it for every project (it did, for the fixture's 3 cards), and
+      `commitment_terms_events` because it was empty (a database with history keeps it, renamed
+      `…_retired`, read-only). Its downgrade rebuilds both with 058's grants and refills the cards
+      from the view. The fixture loaders write the record only (`scripts/_fixture_record.py`);
+      FortaVerde's never wrote its cards to the record before.
+    - **Novation (Q13).** `POST /contract-tokens/{p}/offtake/buyers/{outgoing}/novation`
+      (`incoming_company_id`, optional lenders' consent document) and
+      `/offtake/novations/{hash}/confirm`. The proposal is the proposer's confirmation; on the
+      third party's, in one transaction, the frame's next version names the incoming buyer on the
+      same terms and the incoming buyer's confirmation is recorded as its CONFIRMED: its volume
+      counts at once. Refused: GEX, the producer as incoming buyer, an incoming company that is
+      not a vetted project party, an existing buyer, a restricted pair, a disputed sub-leg, a
+      sub-leg that changed (the proposal then lapses and blocks nothing). No token (rule 3).
+    - **The revenue screen** (`/revenue`) read `/finance/contracts` from a SQLite demo table and
+      divided by an invented 50 MTPD (Phase 0 §7 finding 1). It now lists the record contracts the
+      caller's company sells (none for GEX staff, R0P), draws no capacity of its own, and forecasts
+      revenue only in the years each contract runs.
+    - **Screens:** the commitment-card editor's buyers panel; the contracts panel's per-buyer
+      confirm, dispute and hand-over, adverse facts with their clearing, pending novations.
+    - **Not done — for JML (Q6.4):** a market contract does not yet join its project's frame as a
+      buyer's sub-leg; it stays a `trade` contract that never reaches the engine (Phase 1's rule).
+      Two points need a decision first: an owner's card save rebuilds the frame from the card, so
+      a market buyer's sub-leg (with legs and flows) must be locked against it; and "an acceptance
+      that would exceed the frame's output is refused" needs a planned output in t/year, which
+      many projects do not record — refuse, or keep it a trade until one is recorded?
+    - **Tests:** new `test_offtake_frame_pg.py` (18), `test_adverse_facts_pg.py` (7),
+      `test_novation_pg.py` (4), `test_market_chain.py` +1 (revenue route);
+      `test_commitment_terms_pg.py` rewritten (the two retired tables stay retired; a stranger
+      reads no card through the view); frontend `ContractTokensPanel.test.tsx` (5),
+      `RevenueOfftakePage.test.tsx` (2). **Platform 1387 pass / 15 skip / 0 fail** (both
+      exported, run alone); **frontend 259 pass**, `tsc` clean. Negative verification, all caught:
+      12 frame breaks (a shared change not withdrawing, unconfirmed volume summed, strongest tenor,
+      investment grade from any buyer, take-or-pay before the form, a buyer confirming another's,
+      a sub-leg CONFIRMED read as the contract's, 085's sub-leg RLS, the readout and the card
+      naming another buyer, a repeated buyer in the record and in the card) and one on the screen;
+      15 more for Q10, Q9, Q13 and the revenue route; and 093 refusing a card the record lacks
+      (in a throwaway database).
+    - **Parity:** the engine answer and the token readout are identical for all 16 projects after
+      093; the parity script now compares held-back fields as sets (jsonb keeps no typed order)
+      and reads them on the engine's own path (frame buyers, open facts). The fixture's
+      `--verify` matches Appendix B.
 
 ---
 
@@ -3282,15 +3369,18 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
-**2026-11-10: One contract record — Phase 3 in progress** (§8 items 56–58; plan and decisions
-`docs/CONTRACT_RECORD_PHASE0.md`). M3–M6 are done: head **091**, the market on the order model,
-the cashflow engine on record flows, and the JTI model, `contracts` (063), the 078 tables and
-`offers`/`rfqs`/`matches` dropped. Platform 1361 pass / 15 skip / 0 fail; gate-engine parity
-identical for all 16 projects. Committed to `co-work` branch `contract-record-phase1`; not pushed.
-**Next, Phase 3 step 4:** the offtake frame (one sub-leg per buyer, per-buyer confirmation, the
-conservative aggregate — Q2), adverse facts as events (Q10), the cards as a view over the record
-(Q9), novation (Q13), a market contract joining its project's frame (Q6.4), and the screens.
-Then report to JML before Phase 4.
+**2026-11-10 (later): One contract record — Phase 3 done but for Q6.4; report to JML before
+Phase 4** (§8 items 56–59; plan and decisions `docs/CONTRACT_RECORD_PHASE0.md`). Head **093**.
+M3–M6 (the order model, record cashflows, the old stores dropped) and step 4 (the offtake frame
+with per-buyer confirmation and the conservative aggregate, adverse facts as events, the cards as
+a view over the record, novation, the revenue screen on the record) are built and verified.
+Platform 1387 pass / 15 skip / 0 fail, frontend 259. Gate-engine parity identical for all 16 projects. Committed to `co-work` branch
+`contract-record-phase1`; not pushed.
+**Waiting on JML:** Q6.4 (a market contract joining its project's frame: lock a market sub-leg
+against card saves? refuse, or keep it a trade, when no planned output is recorded?); the
+aggregate's treatment of the fields the decision does not name (§8 item 59); 064's linked-trade
+header row (§8 item 58). **Then Phase 4:** the ledger anchor (outbox, NullAnchor/HederaHcsAnchor,
+off by default).
 
 **2026-11-04:** nothing in flight. Done today (§8 items 53–55): the PF engine keeps nothing in
 SQLite (migration **082**, role `gex_engine`, fuels from the platform API; head 082, platform

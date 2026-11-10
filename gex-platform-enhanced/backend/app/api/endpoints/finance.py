@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import sqlite3
@@ -139,14 +139,14 @@ class GuaranteeResponse(BaseModel):
 class ContractResponse(BaseModel):
     id: str
     counterparty: str
-    molecule: str
-    volume_mtpd: float
-    price_eur_kg: float
-    pricingBasis: str
-    startDate: str
-    endDate: str
-    tenor_years: int
-    creditRating: str
+    molecule: Optional[str] = None
+    volume_mtpd: Optional[float] = None
+    price_eur_kg: Optional[float] = None
+    pricingBasis: str = ""
+    startDate: Optional[str] = None
+    endDate: Optional[str] = None
+    tenor_years: Optional[int] = None
+    creditRating: str = ""
     status: str
 
 class RiskResponse(BaseModel):
@@ -228,47 +228,39 @@ async def get_guarantees():
         print(f"Error fetching guarantees: {e}")
         return []
 
+# The record's trade states, as the revenue screen names them.
+_REVENUE_STATUS = {"confirmed": "active", "pending_confirmation": "negotiating", "terminated": "expired",
+                   "expired": "expired", "cancelled": "expired"}
+
+
 @router.get("/contracts", response_model=List[ContractResponse])
-async def get_contracts():
-    """Get all revenue contracts"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT contract_id_external, counterparty, molecule, 
-                   volume_mtpd, price_eur_kg, pricing_basis,
-                   start_date, end_date, tenor_years, credit_rating, status
-            FROM contracts
-            ORDER BY 
-                CASE status
-                    WHEN 'active' THEN 1
-                    WHEN 'negotiating' THEN 2
-                    WHEN 'expired' THEN 3
-                END,
-                volume_mtpd DESC
-        """)
-        
-        rows = cursor.fetchall()
-        conn.close()
-        
-        return [{
-            "id": row['contract_id_external'],
-            "counterparty": row['counterparty'],
-            "molecule": row['molecule'],
-            "volume_mtpd": row['volume_mtpd'],
-            "price_eur_kg": row['price_eur_kg'],
-            "pricingBasis": row['pricing_basis'] or '',
-            "startDate": row['start_date'],
-            "endDate": row['end_date'],
-            "tenor_years": row['tenor_years'],
-            "creditRating": row['credit_rating'] or '',
-            "status": row['status'],
-        } for row in rows]
-        
-    except Exception as e:
-        print(f"Error fetching contracts: {e}")
+async def get_contracts(request: Request):
+    """The caller's revenue contracts: the record contracts its company SELLS (Phase 3 of
+    "One contract record"). It read a SQLite demo table (`contracts`, other columns) and
+    answered [] on any error; Phase 0 §7 finding 1. A trade is its parties' only (Q5),
+    and GEX staff read no terms (R0P), so they get none. A record that cannot be read
+    is a 503, never an empty list."""
+    from app.core import market_engine as me
+    from app.core.request_tenant import payload_from_request
+
+    payload = payload_from_request(request) or {}
+    company = payload.get("company_id")
+    if not payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if payload.get("is_platform_admin") or not company:
         return []
+    try:
+        views = me.my_contracts(me.Party(user_id=payload["user_id"], company_id=company))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail={"code": "CONTRACT_RECORD_UNAVAILABLE",
+                                                     "message": f"The contract record could not be read: {exc}"})
+    return [{"id": v["id"], "counterparty": v["counterparty"] or "", "molecule": v["molecule"],
+             "volume_mtpd": v["volume_mtpd"], "price_eur_kg": v["price_eur_kg"],
+             "pricingBasis": v["pricing_basis"] or "", "startDate": v["start_date"], "endDate": v["end_date"],
+             "tenor_years": v["tenor_years"], "creditRating": v["credit_rating"] or "",
+             "status": _REVENUE_STATUS.get(v["status"] or "", v["status"] or "unknown")}
+            for v in views if v and v["seller_company_id"] == company]
+
 
 @router.get("/risks", response_model=List[RiskResponse])
 async def get_risks():

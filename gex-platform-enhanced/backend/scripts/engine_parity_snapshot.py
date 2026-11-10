@@ -42,7 +42,11 @@ def contract_terms(pid: str) -> dict:
     from app.core import contract_tokens as ct
 
     confirmed = ct.confirmed_terms(pid)
-    _, held = ct.engine_terms(_load_terms_raw(pid), confirmed)
+    # The engine's own path (frame buyers, Q2; open adverse facts, Q10). The held-back
+    # fields are a SET per kind: since the cards are read from the record (Q9, jsonb)
+    # their typed order is gone, so they are compared sorted.
+    _, held = ct.engine_terms(_load_terms_raw(pid), confirmed, ct.frame_confirmations(pid), ct.open_facts(pid))
+    held = {kind: sorted(fields) for kind, fields in held.items()}
     kinds = {}
     for kind in list(ct.COUNTERPARTY_KINDS) + list(ct.REVIEWER_KINDS):
         c = ct.contract(pid, kind, create=False)
@@ -96,6 +100,9 @@ def main() -> int:
     print(f"{len(result)} projects evaluated -> {args.out}")
     if args.compare:
         before = json.loads(Path(args.compare).read_text())
+        for snap in before.values():         # an earlier file kept the held-back fields in typed order
+            ct_ = snap.get("_contract_terms") or {}
+            ct_["held_back"] = {kind: sorted(fields) for kind, fields in (ct_.get("held_back") or {}).items()}
         diffs = [pid for pid in sorted(set(before) | set(result)) if before.get(pid) != result.get(pid)]
         if diffs:
             print("PARITY FAILED:", ", ".join(diffs))

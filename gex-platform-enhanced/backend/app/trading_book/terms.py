@@ -63,6 +63,11 @@ class ClauseIn(BaseModel):
 class SubLegIn(BaseModel):
     seq: int = Field(ge=1)
     rank: Optional[int] = None                      # tranching (Q2)
+    # A frame's buyer (Phase 3, Q2): a `card` sub-leg has no legs to name its buyer,
+    # so it names it here (a tb_counterparty id) and carries that buyer's own
+    # {card.field: value} projection (Q3). Both are hashed only when present.
+    buyer: Optional[str] = None
+    card_projection: Optional[dict[str, Any]] = None
 
 
 class LegIn(BaseModel):
@@ -90,4 +95,5 @@ class TermsIn(BaseModel):
     clauses: list[ClauseIn] = Field(default_factory=list)
 
     def sub_leg_numbers(self) -> list[int]:
-        return sorted({leg.sub_leg for leg in self.legs})
+        return sorted({leg.sub_leg for leg in self.legs}
+                      | {s.seq for s in self.sub_legs if s.card_projection is not None})

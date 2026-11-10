@@ -135,9 +135,13 @@ def shared_dict(terms: TermsIn) -> dict:
 
 
 def sub_leg_dict(terms: TermsIn, n: int) -> dict:
-    return {"seq": n, "rank": _rank(terms, n),
-            "legs": [_leg(l) for l in sorted(terms.legs, key=lambda l: l.seq) if l.sub_leg == n],
-            "clauses": _clauses(terms, n)}
+    out = {"seq": n, "rank": _rank(terms, n),
+           "legs": [_leg(l) for l in sorted(terms.legs, key=lambda l: l.seq) if l.sub_leg == n],
+           "clauses": _clauses(terms, n)}
+    card = next((s for s in terms.sub_legs if s.seq == n and s.card_projection is not None), None)
+    if card is not None:          # a frame buyer's card sub-leg (Phase 3): absent elsewhere, so no hash moves
+        out["buyer"], out["card_projection"] = card.buyer, card.card_projection
+    return out
 
 
 def _bytes(doc: dict) -> bytes:

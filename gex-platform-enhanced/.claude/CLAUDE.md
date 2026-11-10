@@ -185,6 +185,20 @@ share `gex_test_suite`).
   contracts the caller may not read (a `trade` is party-only, Q5).
 - On a database still holding `offers`/`rfqs`/`matches` rows, run
   `python -m app.trading_book.migrate.market_to_orders --execute` at 090, before 091.
+**2026-11-10 (later): head is 093 — Phase 3 step 4** (handoff §8 item 59).
+- **The offtake frame (092):** an offtake card with `buyers` is one record with a `card` sub-leg
+  per buyer; each buyer confirms its own (`/contract-tokens/{p}/offtake/buyers/{c}/confirm`). The
+  engine reads ONE offtake card from `v_engine_offtake_buyers` by JML's conservative aggregate
+  (`contract_tokens.frame_engine_card`). A buyer reads only its own sub-leg (092's RLS).
+- **Adverse facts are events (Q10):** reported with a document on file, applied at once, cleared
+  by two other companies; `BUYER_INSOLVENT` drops one buyer. A card that says true still applies.
+- **The cards ARE the record (Q9, 093):** `commitment_terms` is gone. Read cards with
+  `contract_tokens.card_view` / `card_terms`; a save writes versions only. Fixtures write cards
+  through `scripts/_fixture_record.py`. Never write a card anywhere else.
+- **Novation (Q13):** three confirmations (producer, outgoing, incoming) on the frame's chain.
+- `/finance/contracts` lists the record contracts the caller's company sells.
+- **Open for JML:** Q6.4 — a market contract does not yet join its project's frame.
+- Platform **1387 pass / 15 skip**, frontend **259**.
 **2026-11-05: a paused Docker Desktop used to hang the sweep and the suite** (port 55432 accepts, nothing answers). `app/core/config.py` defaults `PGCONNECT_TIMEOUT=10`; the sweep has a thread watchdog (exit 4). Check `docker info` first. Platform **1307 pass / 15 skip**, engine 275.
 **2026-11-03:** tenant `mohring_energie` created (`scripts/onboard_fortaverde_client.py`; users not yet registered, no telephone numbers). The Project Profile no longer invents verification: a recorded value is SUBMITTED, a missing one UNVERIFIED, nothing is CONFIRMED there and its click-to-confirm is gone. A missing CAPEX or coordinate is null end to end, not 0. A 401/403 readout now says "No access to this project's gates", not "Gate engine unavailable". **GEX staff read-only (JML, same day):** ABAC rule **R0P**, before R0, lets `is_platform_admin` READ `GATE_EVALUATION` and `EVIDENCE` on every project — nothing else: writes, verification, export, share, financial models, contracts, data rooms and activity still meet R0 (an admin with no project role is GUEST there). `tests/test_platform_read_only.py` (25), negative-verified three ways. Platform **1259 pass / 15 skip**, frontend 233.
 **2026-11-03 (later): GEX staff console** (`/gex-console`, CISO menu, service type PLATFORM only; JML). `routes_gex_console.py` (`/api/v1/gex-console`, domain `platform`) is GET-only and `is_platform_admin`-only: admins, companies (TEST flagged), staff rights (from R0P and `REVIEWER_GATES`), per-company onboarding steps read from the records (a registered account is matched by its `pending_…` id + company name). Its actions post to the existing `/api/v1/account/{id}/…` endpoints, which enforce separation of duties. A read failure answers 503, never zeros. **Temporary password (JML exception to the onboarding rule):** `onboard_fortaverde_client.py --register --temporary-password --execute` reads one at a getpass prompt and writes `account.temporary_password_set`; Still blocked on the two telephone numbers. Platform 1267 / 15 skip (`test_gex_console_pg.py` 8, negative-verified three ways), frontend 238.

@@ -12,12 +12,26 @@ import { Link2, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { getAuthHeader } from '@/lib/authToken'
 
 interface TokenEvent { seq: number; event_type: string; terms_sha256: string | null; actor: string; company_id: string | null; note: string | null; at: string }
+// The offtake frame (contract record Phase 3, Q2): one sub-leg per buyer, each confirmed by that buyer.
+interface FrameBuyer { company_id: string; sub_leg_hash: string; confirmed: boolean }
+interface Frame { version: number; shared_hash: string; buyers: FrameBuyer[] }
 interface Token {
-  kind: string; counterparty_company_id: string | null; confirmed_by: string
+  kind: string; counterparty_company_id: string | null; confirmed_by: string; frame?: Frame | null
   latest_version_sha256: string | null; confirmed: boolean; held_back_fields: string[]
   verifies_evidence: string[]; chain_intact: boolean; events: TokenEvent[]
 }
-interface Tokens { tokens: Token[]; possible_counterparties: string[]; you: { company_id: string | null; is_gex: boolean; is_owner_executive: boolean } }
+// Adverse facts are events on the contract (Q10): reported with a document, they apply at once;
+// two other companies clear one. A novation (Q13) hands a buyer's sub-leg over with three confirmations.
+interface Fact { kind: string; fact: string; subject_company_id: string | null; report_event_hash: string
+  reported_by: string; reporter_company_id: string; open: boolean; cleared_by: { company_id: string }[] }
+interface Novation { proposal_event_hash: string; outgoing_company_id: string; incoming_company_id: string
+  confirmed_by: string[]; awaiting: string[]; state: 'pending' | 'completed' | 'lapsed' }
+interface Tokens { tokens: Token[]; possible_counterparties: string[]; adverse_facts?: Fact[]; novations?: Novation[]
+  you: { company_id: string | null; is_gex: boolean; is_owner_executive: boolean } }
+const FACT_LABELS: Record<string, string> = {
+  COUNTERPARTY_INSOLVENT: 'EPC contractor insolvent', SUPPORT_OR_PPA_REVOKED: 'Support or PPA revoked',
+  CERTIFICATION_SUSPENDED: 'Certification suspended', BUYER_INSOLVENT: 'Buyer insolvent',
+}
 
 export function ContractTokensPanel({ projectId, onChanged }: { projectId: string; onChanged: () => void }) {
   const [data, setData] = useState<Tokens | null>(null)
@@ -68,25 +82,55 @@ export function ContractTokensPanel({ projectId, onChanged }: { projectId: strin
                   {open === t.kind ? 'hide' : 'history'}
                 </button>
               </div>
+              {t.frame && (
+                <div className="mt-1 space-y-1">
+                  {t.frame.buyers.map(b => (
+                    <div key={b.company_id} className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-gray-700">{b.company_id}</span>
+                      {b.confirmed
+                        ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">confirmed its sub-leg</span>
+                        : <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">awaiting its confirmation</span>}
+                      {b.company_id === data.you.company_id && !data.you.is_gex && !b.confirmed && (
+                        <button className="rounded bg-teal-700 px-2 py-0.5 text-[11px] font-semibold text-white"
+                          onClick={() => call('POST', `/offtake/buyers/${encodeURIComponent(b.company_id)}/confirm`, { sub_leg_hash: b.sub_leg_hash })}>
+                          Confirm my sub-leg
+                        </button>
+                      )}
+                      {b.company_id && (b.company_id === data.you.company_id || data.you.is_owner_executive) && !data.you.is_gex && (
+                        <button className="rounded border border-gray-300 px-2 py-0.5 text-[11px] text-gray-700"
+                          onClick={() => { const incoming = window.prompt('Hand this sub-leg over to which company (its id)?'); if (incoming) call('POST', `/offtake/buyers/${encodeURIComponent(b.company_id!)}/novation`, { incoming_company_id: incoming }) }}>
+                          Hand over…
+                        </button>
+                      )}
+                      {b.company_id === data.you.company_id && !data.you.is_gex && b.confirmed && (
+                        <button className="rounded border border-amber-400 px-2 py-0.5 text-[11px] text-amber-800"
+                          onClick={() => { const note = window.prompt('Why do you dispute your sub-leg?'); if (note) call('POST', `/offtake/buyers/${encodeURIComponent(b.company_id)}/dispute`, { note }) }}>
+                          Dispute
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               {t.held_back_fields.length > 0 && (
                 <div className="mt-1 text-xs text-amber-700">Held back from the engine until confirmed: {t.held_back_fields.join(', ')}</div>
               )}
               <div className="mt-1 flex flex-wrap gap-2">
-                {data.you.is_owner_executive && !(t.kind === 'technical' || t.kind === 'model') && (
+                {data.you.is_owner_executive && !t.frame && !(t.kind === 'technical' || t.kind === 'model') && (
                   <select className="rounded border px-1 py-0.5 text-xs" value={t.counterparty_company_id ?? ''}
                     onChange={e => e.target.value && call('PUT', `/${t.kind}/counterparty`, { company_id: e.target.value })}>
                     <option value="">Register counterparty…</option>
                     {data.possible_counterparties.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 )}
-                {(isCounterparty || t.kind === 'technical' || t.kind === 'model') && !data.you.is_gex && !t.confirmed
+                {!t.frame && (isCounterparty || t.kind === 'technical' || t.kind === 'model') && !data.you.is_gex && !t.confirmed
                   && (t.latest_version_sha256 || t.kind === 'licence') && (
                   <button className="rounded bg-teal-700 px-2 py-1 text-xs font-semibold text-white"
                     onClick={() => call('POST', `/${t.kind}/confirm`, { terms_sha256: t.latest_version_sha256 })}>
                     Confirm these terms
                   </button>
                 )}
-                {(isCounterparty || t.kind === 'technical' || t.kind === 'model') && !data.you.is_gex && t.confirmed && (
+                {!t.frame && (isCounterparty || t.kind === 'technical' || t.kind === 'model') && !data.you.is_gex && t.confirmed && (
                   <button className="rounded border border-amber-400 px-2 py-1 text-xs text-amber-800"
                     onClick={() => { const note = window.prompt('Why do you dispute these terms?'); if (note) call('POST', `/${t.kind}/dispute`, { note }) }}>
                     Dispute
@@ -106,6 +150,56 @@ export function ContractTokensPanel({ projectId, onChanged }: { projectId: strin
           )
         })}
       </div>
+      {!data.you.is_gex && <FactsAndNovations data={data} call={call} />}
+    </div>
+  )
+}
+
+function FactsAndNovations({ data, call }: { data: Tokens; call: (m: string, p: string, b: object) => void }) {
+  const facts = data.adverse_facts ?? []
+  const novations = (data.novations ?? []).filter(n => n.state === 'pending')
+  const report = () => {
+    const fact = window.prompt(`Which fact? ${Object.keys(FACT_LABELS).join(', ')}`)
+    if (!fact) return
+    const subject = fact === 'BUYER_INSOLVENT' ? window.prompt('Which buyer (company id)?') : null
+    const doc = window.prompt('The sha256 of the document on file that shows it')
+    if (doc) call('POST', '/adverse-facts', { fact, document_sha256: doc, subject_company_id: subject })
+  }
+  return (
+    <div className="border-t border-gray-100 px-5 py-3 text-sm">
+      <div className="flex items-center gap-2">
+        <span className="font-semibold">Adverse facts</span>
+        <span className="text-xs text-gray-500">apply at once when reported; two other companies clear one</span>
+        <button className="ml-auto rounded border border-red-300 px-2 py-0.5 text-xs text-red-700" onClick={report}>
+          Report a fact…
+        </button>
+      </div>
+      {facts.length === 0 && <p className="mt-1 text-xs text-gray-400">None reported.</p>}
+      {facts.map(f => (
+        <div key={f.report_event_hash} className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+          <span className={f.open ? 'font-semibold text-red-700' : 'text-gray-500 line-through'}>
+            {FACT_LABELS[f.fact] ?? f.fact}{f.subject_company_id ? ` (${f.subject_company_id})` : ''}
+          </span>
+          <span className="text-gray-500">reported by {f.reporter_company_id} · {f.cleared_by.length} of 2 clearing confirmations</span>
+          {f.open && f.reporter_company_id !== data.you.company_id && (
+            <button className="rounded border border-gray-300 px-2 py-0.5 text-[11px]"
+              onClick={() => { const doc = window.prompt('The sha256 of the document on file that clears it'); if (doc) call('POST', `/adverse-facts/${f.report_event_hash}/clear`, { document_sha256: doc }) }}>
+              Confirm clearing
+            </button>
+          )}
+        </div>
+      ))}
+      {novations.length > 0 && <div className="mt-3 font-semibold">Novations awaiting confirmation</div>}
+      {novations.map(n => (
+        <div key={n.proposal_event_hash} className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+          <span>{n.outgoing_company_id} → {n.incoming_company_id}</span>
+          <span className="text-gray-500">confirmed by {n.confirmed_by.join(', ')}; awaiting {n.awaiting.join(', ')}</span>
+          <button className="rounded bg-teal-700 px-2 py-0.5 text-[11px] font-semibold text-white"
+            onClick={() => call('POST', `/offtake/novations/${n.proposal_event_hash}/confirm`, {})}>
+            Confirm this novation
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

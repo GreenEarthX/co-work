@@ -736,9 +736,10 @@ def _load_terms(project_id: str) -> dict:
     on their contract token (app/core/contract_tokens.py, JML 2026-10-28). Held-
     back fields are absent, so the checks needing them read NOT_EVALUABLE and
     their gate UNRESOLVED. An unreadable token store fails closed: no terms."""
-    from app.core.contract_tokens import confirmed_terms, engine_terms
+    from app.core.contract_tokens import confirmed_terms, engine_terms, frame_confirmations, open_facts
     try:
-        used, _ = engine_terms(_load_terms_raw(project_id), confirmed_terms(project_id))
+        used, _ = engine_terms(_load_terms_raw(project_id), confirmed_terms(project_id),
+                               frame_confirmations(project_id), open_facts(project_id))
         return used
     except Exception as exc:  # noqa: BLE001
         logger.warning("contract tokens unreadable for %s (%s): no terms reach the engine", project_id, exc)
@@ -746,24 +747,16 @@ def _load_terms(project_id: str) -> dict:
 
 
 def _load_terms_raw(project_id: str) -> dict:
-    """The project's commitment cards as typed, {card_type: terms}. Tolerant: a
-    card that cannot be read is absent."""
+    """The project's commitment cards as typed, {card_type: terms}: since Phase 3 of
+    "One contract record" (Q9) a view over the record's latest versions
+    (core/contract_tokens.card_terms), read as the operator so the engine's input is
+    the same whoever asks. An unreadable record fails closed: no cards."""
+    from app.core.contract_tokens import card_terms
     try:
-        conn = _get_db()
-        _ensure_tables(conn)
-        rows = conn.execute(
-            "SELECT card_type, terms_json FROM commitment_terms WHERE project_id = ?", (project_id,)
-        ).fetchall()
-        conn.close()
-    except Exception:
+        return card_terms(project_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("commitment cards unreadable for %s (%s): none reach the engine", project_id, exc)
         return {}
-    out = {}
-    for r in rows:
-        try:
-            out[r["card_type"]] = json.loads(r["terms_json"] or "{}")
-        except (TypeError, ValueError):
-            continue
-    return out
 
 
 def _engine_context(project_id: str) -> dict:
@@ -1335,25 +1328,59 @@ async def get_commitment_terms(project_id: str = Query(...),
     those the write will accept."""
     from app.core.bankability_engine import COMMITMENT_CARD_FIELDS, TERMS_CARD_GATE
 
+    from app.core.contract_tokens import card_view
+
     actor = _require_actor(authorization)
     owner = _project_owner(project_id)
     can_edit = owner is not None and (bool(actor.get("is_platform_admin")) or actor.get("company_id") == owner)
+    # The cards are a view over the record (Q9), read on the caller's own tenant
+    # connection: RLS decides what it may see, as it did for commitment_terms.
     conn = _get_db()
-    _ensure_tables(conn)
-    rows = conn.execute(
-        "SELECT card_type, terms_json, updated_by, updated_at FROM commitment_terms WHERE project_id = ?",
-        (project_id,),
-    ).fetchall()
-    conn.close()
-    cards = {}
-    for r in rows:
-        try:
-            terms = json.loads(r["terms_json"] or "{}")
-        except (TypeError, ValueError):
-            terms = {}
-        cards[r["card_type"]] = {"terms": terms, "updated_by": r["updated_by"], "updated_at": r["updated_at"]}
+    try:
+        cards = card_view(project_id, conn=conn)
+    finally:
+        conn.close()
+    from app.core.commitment_terms import OFFTAKE_BUYER_FIELDS, OFFTAKE_SHARED_FIELDS
+    from app.core.project_registry import get_project_profile
+
+    profile = get_project_profile(project_id)
+    _hide_other_buyers(cards, actor.get("company_id"), owner)
+    possible = sorted(profile.stakeholder_company_ids - {profile.owner_company_id}) if profile else []
     return {"project_id": project_id, "cards": cards, "can_edit": can_edit,
-            "card_fields": COMMITMENT_CARD_FIELDS, "card_gates": TERMS_CARD_GATE}
+            "card_fields": COMMITMENT_CARD_FIELDS, "card_gates": TERMS_CARD_GATE,
+            "offtake_frame": {"shared_fields": list(OFFTAKE_SHARED_FIELDS), "buyer_fields": list(OFFTAKE_BUYER_FIELDS),
+                              "possible_buyers": possible}}
+
+
+def _hide_other_buyers(cards: dict, viewer: str | None, owner: str | None) -> None:
+    """Q5 on a frame: a buyer reads the shared terms and its own sub-leg; another
+    buyer's entry is replaced by its share of the volume, never its company or terms."""
+    buyers = ((cards.get("offtake") or {}).get("terms") or {}).get("buyers")
+    if not buyers or viewer == owner or viewer not in {b.get("company_id") for b in buyers}:
+        return
+    total = sum(b.get("contracted_tonnes_per_year") or 0 for b in buyers)
+    cards["offtake"]["terms"]["buyers"] = [
+        b if b.get("company_id") == viewer else
+        {"company_id": None, "hidden": True,
+         "volume_share": round((b.get("contracted_tonnes_per_year") or 0) / total, 4) if total else None}
+        for b in buyers]
+
+
+def _check_frame_buyers(project_id: str, buyers: list[dict]) -> None:
+    """A frame's buyer is a company party to the project (GEX grants access), never the owner."""
+    from app.core.commitment_terms import TermsValidationError
+    from app.core.project_registry import get_project_profile
+
+    profile = get_project_profile(project_id)
+    problems = []
+    for n, b in enumerate(buyers, start=1):
+        if profile is not None and b["company_id"] == profile.owner_company_id:
+            problems.append(f"buyers[{n}]: the owner cannot be its own buyer.")
+        elif profile is None or b["company_id"] not in profile.stakeholder_company_ids:
+            problems.append(f"buyers[{n}]: {b['company_id']} is not a company party to the project "
+                            "(GEX staff grant project access).")
+    if problems:
+        raise TermsValidationError(problems)
 
 
 @router.put("/terms")
@@ -1368,49 +1395,32 @@ async def put_commitment_terms(request: TermsWriteRequest,
     _owner_gate(actor, request.project_id)
     try:
         clean = validate_card(request.card_type, request.terms)
+        if clean.get("buyers"):
+            _check_frame_buyers(request.project_id, clean["buyers"])
     except TermsValidationError as exc:
         raise HTTPException(status_code=422, detail={
             "code": "TERMS_INVALID", "problems": exc.problems,
             "message": "The card was not saved: " + "; ".join(exc.problems)})
 
+    from app.core.contract_tokens import card_terms, record_versions
+
     who = actor.get("user_id") or actor.get("email") or "unknown"
     new_json = json.dumps(clean, sort_keys=True)
+    # The record IS the card store (Phase 3, Q9; commitment_terms retired by alembic
+    # 093): the save writes the changed contracts' versions and nothing else. The
+    # owner has been authorised above (_owner_gate); the record's rows are written as
+    # the operator, in ONE transaction: the card is saved whole or not at all, and
+    # until the counterparty (or appointed reviewer) confirms a version its changed
+    # fields do not reach the engine.
     conn = _get_db()
-    _ensure_tables(conn)
-    old = conn.execute(
-        "SELECT terms_json FROM commitment_terms WHERE project_id = ? AND card_type = ?",
-        (request.project_id, request.card_type),
-    ).fetchone()
-    old_json = old["terms_json"] if old else None
-    if old is None:
-        conn.execute(
-            "INSERT INTO commitment_terms (project_id, card_type, terms_json, updated_by, updated_at) "
-            "VALUES (?, ?, ?, ?, datetime('now'))",
-            (request.project_id, request.card_type, new_json, who))
-    elif old_json != new_json:
-        conn.execute(
-            "UPDATE commitment_terms SET terms_json = ?, updated_by = ?, updated_at = datetime('now') "
-            "WHERE project_id = ? AND card_type = ?",
-            (new_json, who, request.project_id, request.card_type))
+    conn.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
+    cards = card_terms(request.project_id, conn=conn)
+    old_json = json.dumps(cards.get(request.card_type) or {}, sort_keys=True)   # no card yet reads as empty
     if old_json != new_json:
-        conn.execute(
-            "INSERT INTO commitment_terms_events (project_id, card_type, old_json, new_json, actor, at) "
-            "VALUES (?, ?, ?, ?, ?, datetime('now'))",
-            (request.project_id, request.card_type, old_json, new_json, who))
-        # Every changed contract records a new VERSION in the contract record, IN THIS
-        # TRANSACTION (Phase 0 Q9): the card and its version are saved together or not at
-        # all. Until the counterparty (or appointed reviewer) confirms the version, the
-        # changed fields do not reach the engine. The owner has been authorised above
-        # (_owner_gate); the record's rows are written as the operator for the rest of
-        # this transaction only (versions and events are PLATFORM_ADMIN writes, 083/085).
-        from app.core.contract_tokens import record_versions
+        cards[request.card_type] = clean
         try:
-            cards = {r["card_type"]: (json.loads(r["terms_json"]) if isinstance(r["terms_json"], str)
-                                      else r["terms_json"]) for r in conn.execute(
-                "SELECT card_type, terms_json FROM commitment_terms WHERE project_id = ?",
-                (request.project_id,)).fetchall()}
-            conn.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
-            record_versions(request.project_id, cards, who, actor.get("company_id"), conn=conn)
+            record_versions(request.project_id, cards, who, actor.get("company_id"), conn=conn,
+                            card_type=request.card_type)
         except Exception as exc:  # noqa: BLE001 — nothing saved, and the caller is told
             conn.rollback()
             conn.close()
@@ -1438,17 +1448,17 @@ async def put_commitment_terms(request: TermsWriteRequest,
 @router.get("/terms/events")
 async def list_commitment_terms_events(project_id: str = Query(...),
                                        authorization: str | None = Header(default=None)):
-    """Append-only history of card changes."""
+    """History of card changes — rebuilt from the record's versions (Q9), in the shape
+    commitment_terms_events had, on the caller's tenant connection."""
+    from app.core.contract_tokens import card_history
+
     _require_actor(authorization)
     conn = _get_db()
-    _ensure_tables(conn)
-    rows = conn.execute(
-        "SELECT card_type, old_json, new_json, actor, at FROM commitment_terms_events "
-        "WHERE project_id = ? ORDER BY id DESC LIMIT 200",
-        (project_id,),
-    ).fetchall()
-    conn.close()
-    return {"project_id": project_id, "events": [dict(r) for r in rows]}
+    try:
+        events = card_history(project_id, conn=conn)[:200]
+    finally:
+        conn.close()
+    return {"project_id": project_id, "events": events}
 
 
 # ── Evidence documents — evidence without a document is a claim ─────────────

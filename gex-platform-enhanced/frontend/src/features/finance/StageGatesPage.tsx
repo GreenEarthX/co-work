@@ -171,6 +171,17 @@ interface TermsResponse {
   can_edit: boolean;
   card_fields: Record<CardType, Record<string, string>>;
   card_gates: Record<CardType, string>;
+  // The offtake frame (contract record Phase 3, Q2): with buyers, each buyer's terms sit in its
+  // own entry and are confirmed by that buyer; the shared terms stay at the top of the card.
+  offtake_frame?: { shared_fields: string[]; buyer_fields: string[]; possible_buyers: string[] };
+}
+
+interface BuyerForm {
+  company_id: string;
+  form: Record<string, string>;
+  // Another buyer, as a buyer sees it (Q5): only its share of the volume.
+  hidden?: boolean;
+  volume_share?: number | null;
 }
 
 type Maturity = "INTENT" | "INDICATIVE" | "AGREED" | "EXECUTED" | "EFFECTIVE";
@@ -2204,6 +2215,7 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
   const [data, setData] = useState<TermsResponse | null>(null);
   const [card, setCard] = useState<CardType>("offtake");
   const [form, setForm] = useState<Record<string, string>>({});
+  const [buyers, setBuyers] = useState<BuyerForm[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -2229,6 +2241,19 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
     const next: Record<string, string> = {};
     for (const [field, kind] of Object.entries(spec)) next[field] = toFormValue(kind, stored[field]);
     setForm(next);
+    const storedBuyers = card === "offtake" && Array.isArray(stored.buyers) ? (stored.buyers as Record<string, unknown>[]) : [];
+    setBuyers(
+      storedBuyers.map((b) => {
+        const f: Record<string, string> = {};
+        for (const [field, kind] of Object.entries(spec)) f[field] = toFormValue(kind, b[field]);
+        return {
+          company_id: String(b.company_id ?? ""),
+          form: f,
+          hidden: b.hidden === true,
+          volume_share: typeof b.volume_share === "number" ? b.volume_share : null,
+        };
+      }),
+    );
   }, [card, data]);
 
   if (loadError) {
@@ -2244,17 +2269,22 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
   const stored = data.cards[card];
   const editable = data.can_edit;
   const cards = Object.keys(data.card_fields) as CardType[];
+  const frame = card === "offtake" ? data.offtake_frame : undefined;
+  const isFrame = !!frame && buyers.length > 0;
+  const pick = (fields: string[]) =>
+    Object.fromEntries(Object.entries(spec).filter(([f]) => fields.includes(f))) as Record<string, string>;
+  // With buyers, the top of the card holds the shared terms only; each buyer holds its own.
+  const topSpec = isFrame ? pick(frame!.shared_fields) : spec;
+  const buyerSpec = frame ? pick(frame.buyer_fields) : {};
 
   const save = async () => {
     setBusy(true);
     setSaveError(null);
     setNotice(null);
     try {
-      const res = await bankabilityAPI.saveTerms({
-        project_id: projectId,
-        card_type: card,
-        terms: fromForm(spec, form),
-      });
+      const terms: Record<string, unknown> = fromForm(topSpec, form);
+      if (isFrame) terms.buyers = buyers.map((b) => ({ company_id: b.company_id, ...fromForm(buyerSpec, b.form) }));
+      const res = await bankabilityAPI.saveTerms({ project_id: projectId, card_type: card, terms });
       setData(await bankabilityAPI.getTerms(projectId));
       setNotice(res.changed ? "Saved — gates re-evaluated." : "No change.");
       if (res.changed) onSaved();
@@ -2299,7 +2329,7 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
         </div>
       )}
       <div className="grid grid-cols-1 gap-x-4 gap-y-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
-        {Object.entries(spec).map(([field, kind]) => (
+        {Object.entries(topSpec).map(([field, kind]) => (
           <label key={field} className="text-xs">
             <span className="mb-0.5 block font-medium text-slate-700">{fieldLabel(field)}</span>
             <TermsInput
@@ -2311,6 +2341,94 @@ function CommitmentTermsEditor({ projectId, onSaved }: { projectId: string; onSa
           </label>
         ))}
       </div>
+      {frame && (
+        <div className="border-t border-slate-100 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-semibold text-slate-700">Buyers</span>
+            <span className="text-[11px] text-slate-500">
+              {isFrame
+                ? "One sub-leg per buyer. Each buyer confirms its own; the gates count the confirmed buyers only."
+                : "One buyer: its terms are the fields above. Add buyers to split the offtake, one sub-leg each."}
+            </span>
+            {editable && (
+              <button
+                type="button"
+                disabled={busy}
+                className="ml-auto rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
+                onClick={() =>
+                  setBuyers((bs) => [
+                    ...bs,
+                    // The first buyer added starts from the fields above, which it now holds.
+                    {
+                      company_id: "",
+                      form:
+                        bs.length === 0
+                          ? Object.fromEntries(Object.keys(buyerSpec).map((f) => [f, form[f] ?? ""]))
+                          : {},
+                    },
+                  ])
+                }
+              >
+                Add buyer
+              </button>
+            )}
+          </div>
+          {buyers.map((b, i) =>
+            b.hidden ? (
+              <div key={i} className="mt-2 rounded border border-dashed border-slate-200 px-2 py-1 text-[11px] text-slate-500">
+                Another buyer
+                {b.volume_share != null && ` · ${Math.round(b.volume_share * 100)}% of the contracted volume`}
+              </div>
+            ) : (
+            <div key={i} className="mt-2 rounded border border-slate-200 p-2">
+              <div className="mb-1 flex items-center gap-2 text-xs">
+                <span className="font-medium text-slate-700">Buyer {i + 1}</span>
+                <select
+                  aria-label={`Buyer ${i + 1} company`}
+                  className="rounded border px-1 py-0.5 text-xs"
+                  value={b.company_id}
+                  disabled={!editable || busy}
+                  onChange={(e) =>
+                    setBuyers((bs) => bs.map((x, j) => (j === i ? { ...x, company_id: e.target.value } : x)))
+                  }
+                >
+                  <option value="">Company…</option>
+                  {frame.possible_buyers.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                {editable && (
+                  <button
+                    type="button"
+                    className="ml-auto text-[11px] text-slate-500 underline"
+                    onClick={() => setBuyers((bs) => bs.filter((_, j) => j !== i))}
+                  >
+                    remove
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(buyerSpec).map(([field, kind]) => (
+                  <label key={field} className="text-xs">
+                    <span className="mb-0.5 block font-medium text-slate-700">{fieldLabel(field)}</span>
+                    <TermsInput
+                      kind={kind}
+                      value={b.form[field] ?? ""}
+                      disabled={!editable || busy}
+                      onChange={(v) =>
+                        setBuyers((bs) => bs.map((x, j) => (j === i ? { ...x, form: { ...x.form, [field]: v } } : x)))
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+            ),
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-3 py-2">
         <span className="text-[11px] text-slate-500">
           Leave a field empty when the fact is unknown — empty is not zero. Saving replaces the whole{" "}

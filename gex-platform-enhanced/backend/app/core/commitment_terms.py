@@ -23,6 +23,16 @@ from app.core.bankability_engine import COMMITMENT_CARD_FIELDS, TERMS_CARD_GATE
 
 CARD_TYPES: list[str] = list(COMMITMENT_CARD_FIELDS)
 
+# The offtake frame (Phase 3 of "One contract record", Q2): with several buyers the
+# offtake card holds the SHARED terms at its top level and one entry per buyer in
+# `buyers`, each naming the buyer's company (a party to the project). The engine
+# never sees `buyers`: it reads one offtake card built from the CONFIRMED buyers
+# (core/contract_tokens.frame_engine_card), so its spec stays the engine's own.
+OFFTAKE_SHARED_FIELDS = ("product_spec_standard", "certification_scheme", "compliance_regime",
+                         "fm_definition_ref", "change_in_law_allocated", "planned_output_tonnes_per_year")
+OFFTAKE_BUYER_FIELDS = tuple(f for f in COMMITMENT_CARD_FIELDS["offtake"] if f not in OFFTAKE_SHARED_FIELDS)
+_MAX_BUYERS = 20
+
 # Fields that are shares, not amounts.
 _PERCENT_FIELDS = {"take_or_pay_pct", "expected_availability_pct"}
 _MAX_TEXT = 300
@@ -49,7 +59,14 @@ def validate_card(card_type: str, terms: Any) -> dict:
     spec = COMMITMENT_CARD_FIELDS[card_type]
     clean: dict[str, Any] = {}
     problems: list[str] = []
+    if card_type == "offtake" and terms.get("buyers") not in (None, []):
+        clean["buyers"] = _buyers(terms["buyers"], problems)
+        stray = sorted(f for f in terms if f in OFFTAKE_BUYER_FIELDS and terms[f] not in (None, "", []))
+        if stray:
+            problems.append("A frame keeps each buyer's terms in `buyers`; not at the top: " + ", ".join(stray) + ".")
     for field, value in terms.items():
+        if field == "buyers" and card_type == "offtake":
+            continue
         if field not in spec:
             problems.append(f"'{field}' is not a field of the {card_type} card.")
             continue
@@ -63,6 +80,40 @@ def validate_card(card_type: str, terms: Any) -> dict:
     if problems:
         raise TermsValidationError(problems)
     return clean
+
+
+def _buyers(value: Any, problems: list[str]) -> list[dict]:
+    """Each buyer of a frame: its company and its own offtake fields, validated as the card's."""
+    if not isinstance(value, list) or not all(isinstance(b, dict) for b in value):
+        problems.append("buyers: must be a list of buyers, each an object of field: value.")
+        return []
+    if len(value) > _MAX_BUYERS:
+        problems.append(f"buyers: more than {_MAX_BUYERS}.")
+    out, seen = [], set()
+    spec = COMMITMENT_CARD_FIELDS["offtake"]
+    for n, b in enumerate(value, start=1):
+        company = b.get("company_id")
+        if not isinstance(company, str) or not company.strip():
+            problems.append(f"buyers[{n}]: company_id is required (the buyer's company, a party to the project).")
+            continue
+        company = company.strip()
+        if company in seen:
+            problems.append(f"buyers[{n}]: {company} appears twice; a frame has one sub-leg per buyer.")
+        seen.add(company)
+        entry: dict[str, Any] = {"company_id": company}
+        for field, v in b.items():
+            if field == "company_id" or v is None or v == "" or v == []:
+                continue
+            if field not in OFFTAKE_BUYER_FIELDS:
+                problems.append(f"buyers[{n}]: '{field}' is not a buyer's field "
+                                f"({'shared terms sit at the top of the card' if field in spec else 'unknown'}).")
+                continue
+            try:
+                entry[field] = _coerce(field, spec[field], v)
+            except ValueError as exc:
+                problems.append(f"buyers[{n}].{field}: {exc}")
+        out.append(entry)
+    return out
 
 
 def _coerce(field: str, kind: str, value: Any) -> Any:

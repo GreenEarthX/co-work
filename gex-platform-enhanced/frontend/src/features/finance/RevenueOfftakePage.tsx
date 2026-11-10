@@ -1,4 +1,10 @@
 // Screen: Revenue & offtake screen (/revenue, /finance/revenue)
+/**
+ * The contracts your company SELLS, from the contract record (contract record Phase 3;
+ * GET /api/v1/finance/contracts). It used to read a SQLite demo table and divide by a
+ * capacity of 50 MTPD that came from nowhere: the plant's planned output and its
+ * coverage are the gate engine's (Gates & Evidence), not this screen's.
+ */
 import { useState, useEffect } from 'react'
 import { DollarSign, TrendingUp, Calendar, Users, AlertCircle, RefreshCw } from 'lucide-react'
 import { financeAPI } from '@/lib/api'
@@ -46,17 +52,26 @@ export function RevenueOfftakePage() {
       </div>
     )
   }
-  const totalCapacity = 50.0
-  const contractedVolume = contracts.filter(c => c.status === 'active').reduce((sum, c) => sum + c.volume_mtpd, 0)
-  const coveragePct = (contractedVolume / totalCapacity) * 100
-
-  const weightedAvgPrice = contracts
-    .filter(c => c.status === 'active')
-    .reduce((sum, c) => sum + (c.price_eur_kg * c.volume_mtpd), 0) / contractedVolume
-
-  const avgTenor = contracts
-    .filter(c => c.status === 'active')
-    .reduce((sum, c) => sum + c.tenor_years, 0) / contracts.filter(c => c.status === 'active').length
+  const active = contracts.filter(c => c.status === 'active')
+  const contractedVolume = active.reduce((sum, c) => sum + (c.volume_mtpd || 0), 0)
+  // The stack is drawn against what is on the record (confirmed + under confirmation), never an invented capacity.
+  const stackTotal = contracts.filter(c => c.status !== 'expired').reduce((sum, c) => sum + (c.volume_mtpd || 0), 0)
+  const priced = active.filter(c => c.price_eur_kg != null && c.volume_mtpd)
+  const pricedVolume = priced.reduce((sum, c) => sum + c.volume_mtpd, 0)
+  const weightedAvgPrice = pricedVolume ? priced.reduce((sum, c) => sum + c.price_eur_kg * c.volume_mtpd, 0) / pricedVolume : null
+  const tenors = active.filter(c => c.tenor_years != null)
+  const avgTenor = tenors.length ? tenors.reduce((sum, c) => sum + c.tenor_years, 0) / tenors.length : null
+  // Revenue per calendar year from each confirmed contract's own dates, volume and price (EUR million).
+  const startYears = active.filter(c => c.startDate).map(c => Number(c.startDate.slice(0, 4)))
+  const firstYear = startYears.length ? Math.min(...startYears) : null
+  const forecastYears = firstYear != null ? [0, 1, 2, 3, 4].map(i => firstYear + i) : []
+  const revenueIn = (year: number) => priced.reduce((sum, c) => {
+    if (!c.startDate || !c.endDate) return sum
+    const from = Math.max(Date.parse(c.startDate), Date.UTC(year, 0, 1))
+    const to = Math.min(Date.parse(c.endDate), Date.UTC(year, 11, 31))
+    const days = to >= from ? Math.round((to - from) / 86400000) + 1 : 0
+    return sum + c.volume_mtpd * days * c.price_eur_kg / 1000          // t/day × days × €/kg ÷ 1000 = €M
+  }, 0)
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -73,10 +88,10 @@ export function RevenueOfftakePage() {
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-2 mb-2">
             <DollarSign className="w-4 h-4 text-brand" />
-            <span className="text-xs font-bold text-gray-500 uppercase">Coverage</span>
+            <span className="text-xs font-bold text-gray-500 uppercase">Under contract</span>
           </div>
-          <div className="text-3xl font-black text-gray-900">{coveragePct.toFixed(0)}%</div>
-          <div className="text-xs text-gray-500 mt-1">{contractedVolume} / {totalCapacity} MTPD</div>
+          <div className="text-3xl font-black text-gray-900">{contractedVolume.toFixed(1)}</div>
+          <div className="text-xs text-gray-500 mt-1">MTPD confirmed · coverage of planned output: Gates &amp; Evidence</div>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -84,7 +99,7 @@ export function RevenueOfftakePage() {
             <TrendingUp className="w-4 h-4 text-green-600" />
             <span className="text-xs font-bold text-gray-500 uppercase">Avg Price</span>
           </div>
-          <div className="text-3xl font-black text-gray-900">€{weightedAvgPrice.toFixed(2)}</div>
+          <div className="text-3xl font-black text-gray-900">{weightedAvgPrice != null ? `€${weightedAvgPrice.toFixed(2)}` : '—'}</div>
           <div className="text-xs text-gray-500 mt-1">per kg (weighted)</div>
         </div>
 
@@ -93,7 +108,7 @@ export function RevenueOfftakePage() {
             <Calendar className="w-4 h-4 text-blue-600" />
             <span className="text-xs font-bold text-gray-500 uppercase">Avg Tenor</span>
           </div>
-          <div className="text-3xl font-black text-gray-900">{avgTenor.toFixed(1)}</div>
+          <div className="text-3xl font-black text-gray-900">{avgTenor != null ? avgTenor.toFixed(1) : '—'}</div>
           <div className="text-xs text-gray-500 mt-1">years</div>
         </div>
 
@@ -102,7 +117,7 @@ export function RevenueOfftakePage() {
             <Users className="w-4 h-4 text-purple-600" />
             <span className="text-xs font-bold text-gray-500 uppercase">Offtakers</span>
           </div>
-          <div className="text-3xl font-black text-gray-900">{contracts.filter(c => c.status === 'active').length}</div>
+          <div className="text-3xl font-black text-gray-900">{active.length}</div>
           <div className="text-xs text-gray-500 mt-1">active contracts</div>
         </div>
       </div>
@@ -112,8 +127,11 @@ export function RevenueOfftakePage() {
         <h2 className="text-lg font-bold text-gray-900 mb-4">Contract Stack</h2>
         
         <div className="space-y-3">
-          {contracts.filter(c => c.status === 'active').map((contract) => {
-            const widthPct = (contract.volume_mtpd / totalCapacity) * 100
+          {contracts.length === 0 && (
+            <p className="text-sm text-gray-500">No contract your company sells is on the record yet.</p>
+          )}
+          {active.map((contract) => {
+            const widthPct = stackTotal ? (contract.volume_mtpd / stackTotal) * 100 : 0
             
             return (
               <div key={contract.id} className="flex items-center gap-3">
@@ -131,7 +149,7 @@ export function RevenueOfftakePage() {
                   </div>
                 </div>
                 <div className="text-sm text-gray-600 w-32 text-right">
-                  {widthPct.toFixed(0)}% capacity
+                  {widthPct.toFixed(0)}% of the stack
                 </div>
               </div>
             )
@@ -139,7 +157,7 @@ export function RevenueOfftakePage() {
 
           {/* Negotiating */}
           {contracts.filter(c => c.status === 'negotiating').map((contract) => {
-            const widthPct = (contract.volume_mtpd / totalCapacity) * 100
+            const widthPct = stackTotal ? (contract.volume_mtpd / stackTotal) * 100 : 0
             
             return (
               <div key={contract.id} className="flex items-center gap-3">
@@ -157,33 +175,12 @@ export function RevenueOfftakePage() {
                   </div>
                 </div>
                 <div className="text-sm text-gray-600 w-32 text-right">
-                  {widthPct.toFixed(0)}% capacity
+                  {widthPct.toFixed(0)}% of the stack
                 </div>
               </div>
             )
           })}
 
-          {/* Uncontracted */}
-          {totalCapacity - contractedVolume > 0 && (
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <div 
-                  className="bg-gray-200 h-16 rounded-lg flex items-center px-4"
-                  style={{ width: `${((totalCapacity - contractedVolume) / totalCapacity) * 100}%`, minWidth: '150px' }}
-                >
-                  <div className="text-gray-700">
-                    <div className="font-bold">Uncontracted</div>
-                    <div className="text-xs">
-                      {(totalCapacity - contractedVolume).toFixed(1)} MTPD • Merchant exposure
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="text-sm text-gray-600 w-32 text-right">
-                {(((totalCapacity - contractedVolume) / totalCapacity) * 100).toFixed(0)}% capacity
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -223,8 +220,8 @@ export function RevenueOfftakePage() {
                   </td>
                   <td className="py-3 px-4 text-center">
                     <span className={`inline-block px-2 py-1 text-xs font-bold rounded ${
-                      contract.creditRating.startsWith('A') ? 'bg-green-100 text-green-700' :
-                      contract.creditRating.startsWith('BBB') ? 'bg-yellow-100 text-yellow-700' :
+                      (contract.creditRating || '').startsWith('A') ? 'bg-green-100 text-green-700' :
+                      (contract.creditRating || '').startsWith('BBB') ? 'bg-yellow-100 text-yellow-700' :
                       'bg-red-100 text-red-700'
                     }`}>
                       {contract.creditRating}
@@ -262,7 +259,7 @@ export function RevenueOfftakePage() {
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <span className="font-semibold text-gray-900">{contract.counterparty}</span>
-                      <span className="text-sm text-gray-500 ml-2">({contract.creditRating})</span>
+                      {contract.creditRating && <span className="text-sm text-gray-500 ml-2">({contract.creditRating})</span>}
                     </div>
                     <span className="text-sm font-bold text-gray-900">{concentrationPct.toFixed(1)}%</span>
                   </div>
@@ -281,7 +278,7 @@ export function RevenueOfftakePage() {
             })}
         </div>
 
-        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+        {active.length > 0 && <div className="mt-4 p-4 bg-blue-50 rounded-lg">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-blue-700 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-blue-900">
@@ -290,7 +287,7 @@ export function RevenueOfftakePage() {
               }% of contracted volume. Recommend diversifying to reduce single-counterparty exposure below 30%.
             </div>
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* Revenue Forecast */}
@@ -298,8 +295,9 @@ export function RevenueOfftakePage() {
         <h2 className="text-lg font-bold text-gray-900 mb-4">Annual Revenue Forecast</h2>
         
         <div className="grid grid-cols-5 gap-4">
-          {[2027, 2028, 2029, 2030, 2031].map((year) => {
-            const revenue = contractedVolume * 365 * weightedAvgPrice / 1000 // Convert to millions
+          {forecastYears.length === 0 && <p className="col-span-5 text-sm text-gray-500">No confirmed, priced contract yet.</p>}
+          {forecastYears.map((year) => {
+            const revenue = revenueIn(year)
             
             return (
               <div key={year} className="text-center">
@@ -313,8 +311,9 @@ export function RevenueOfftakePage() {
 
         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
           <div className="text-sm text-gray-700">
-            <span className="font-semibold">Assumptions:</span> Full capacity utilization, fixed pricing (no escalation), 
-            no additional contracts beyond current stack.
+            <span className="font-semibold">Basis:</span> the confirmed contracts' own delivery windows, daily
+            volumes and prices — no escalation, no further contracts. The cashflows engine prices index-linked
+            terms; this screen does not.
           </div>
         </div>
       </div>

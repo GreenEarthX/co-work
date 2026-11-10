@@ -80,6 +80,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+# Bind the PLATFORM's `app` before anything loads the knowledge record: its validator puts
+# gex_pf_engine/backend first on sys.path, after which `import app` meets the PF engine's
+# alias guard (the 2026-11-03 lesson). The card write (Q9) needs app.core.
+import app.core.contract_tokens  # noqa: E402,F401
 DEFAULT_KNOWLEDGE = HERE / "fortaverde_knowledge_v2.json"
 
 # Contact role -> auth_users.business_function. Unknown roles fall back to
@@ -229,8 +233,6 @@ def _deletes(k: Knowledge) -> list[tuple[str, str, str, tuple]]:
     """(table, count sql, delete sql, params) — every statement scoped to this fixture."""
     p, t, m = (k.project_id,), k.tenant_id, k.marker + "%"
     return [
-        ("commitment_terms", "SELECT count(*) FROM commitment_terms WHERE project_id = %s",
-         "DELETE FROM commitment_terms WHERE project_id = %s", p),
         ("project_access", "SELECT count(*) FROM project_access WHERE project_id = %s",
          "DELETE FROM project_access WHERE project_id = %s", p),
         ("project_context", "SELECT count(*) FROM project_context WHERE project_id = %s",
@@ -258,8 +260,11 @@ def _guard(cur, k: Knowledge) -> None:
 
 
 def remove(conn, k: Knowledge, execute: bool) -> None:
+    import _fixture_record
+
     cur = conn.cursor()
     _guard(cur, k)
+    _fixture_record.remove(cur, k.project_id, execute)       # its cards: the project's contract record (Q9)
     for table, count_sql, delete_sql, params in _deletes(k):
         cur.execute(count_sql, params)
         n = cur.fetchone()[0]
@@ -330,13 +335,12 @@ def load(conn, k: Knowledge, execute: bool) -> None:
               k.tenant_id, k.tenant_name, k.tenant_type, function, name,
               k.tenant_jurisdiction, now, note))
 
-    for card, terms in cards.items():
-        cur.execute("""
-            INSERT INTO commitment_terms (project_id, card_type, terms_json, updated_by, updated_at)
-            VALUES (%s,%s,%s,%s,%s)
-        """, (k.project_id, card, json.dumps(terms), k.marker, now))
-
     conn.commit()
+    if cards:
+        # The cards ARE the project's contract record (Q9, alembic 093), written through the
+        # card-save path. The platform's `app` was bound at import (see the top of this file).
+        import _fixture_record
+        _fixture_record.write_cards(k.project_id, cards, k.marker, k.tenant_id)
     print(f"  WROTE tenant, project, context, access, {len(users)} PENDING stand-in(s)"
           + (f", {len(cards)} card(s)." if cards else "."))
 

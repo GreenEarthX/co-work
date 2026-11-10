@@ -55,7 +55,6 @@ No other project is touched; every statement is scoped to PROJECT_ID.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -66,6 +65,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # first on sys.path, and an `import app` after that hits the engine's alias guard
 # (the 2026-11-03 lesson in .claude/CLAUDE.md).
 from app.core import contract_tokens as ct  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _fixture_record  # noqa: E402  (scripts/: the fixture's contract record, Q9)
 
 PROJECT_ID = "proj_TEST_gates_reference"
 PROJECT_NAME = "TEST — Gates Comprehension Reference (synthetic)"
@@ -173,55 +175,15 @@ DELETES = [
     ("bankability_evidence", "DELETE FROM bankability_evidence WHERE project_id = %s"),
     ("evidence_events", "DELETE FROM evidence_events WHERE project_id = %s"),
     ("bankability_snapshots", "DELETE FROM bankability_snapshots WHERE project_id = %s"),
-    ("commitment_terms", "DELETE FROM commitment_terms WHERE project_id = %s"),
     ("project_access", "DELETE FROM project_access WHERE project_id = %s"),
     ("project_context", "DELETE FROM project_context WHERE project_id = %s"),
     ("projects", "DELETE FROM projects WHERE project_id = %s"),
 ]
 
 
-# The project's contracts (alembic 078, folded into the contract record by 085). They
-# reference `projects`, so they go first; the record's rows are frozen and append-only
-# by trigger, so this TEST fixture's removal runs with triggers skipped for its own
-# transaction (gex_user; never anything but this project's rows).
-_RECORD = "SELECT id FROM tb_contract WHERE project_id = %s AND contract_type = 'terms'"
-_TERMS = f"SELECT terms_id FROM tb_contract_version WHERE contract_id IN ({_RECORD})"
-RECORD_DELETES = [
-    ("tb_contract_event", f"DELETE FROM tb_contract_event WHERE contract_id IN ({_RECORD})"),
-    ("tb_terms", f"DELETE FROM tb_terms WHERE id IN ({_TERMS})"),
-    ("tb_contract_version", f"DELETE FROM tb_contract_version WHERE contract_id IN ({_RECORD})"),
-    ("tb_contract", "DELETE FROM tb_contract WHERE project_id = %s AND contract_type = 'terms'"),
-]
-
-
-def _remove_contracts(cur, execute: bool) -> None:
-    # The 078 tables went in M6 (alembic 090); the record is the only contract store.
-    cur.execute("SELECT count(*) FROM tb_contract WHERE project_id = %s AND contract_type = 'terms'", (PROJECT_ID,))
-    record = cur.fetchone()[0]
-    if not record:
-        return
-    print(f"  {'delete' if execute else 'would delete'} {record} record contract(s)")
-    if not execute:
-        return
-    cur.execute("SET LOCAL session_replication_role = replica")
-    cur.execute(f"CREATE TEMP TABLE _fixture_terms ON COMMIT DROP AS {_TERMS}", (PROJECT_ID,))
-    for table, sql in RECORD_DELETES:
-        if table == "tb_terms":
-            for child in ("tb_flow WHERE leg_id IN (SELECT id FROM tb_leg WHERE terms_id IN "
-                          "(SELECT terms_id FROM _fixture_terms))",
-                          "tb_leg WHERE terms_id IN (SELECT terms_id FROM _fixture_terms)",
-                          "tb_clause WHERE terms_id IN (SELECT terms_id FROM _fixture_terms)",
-                          "tb_sub_leg WHERE terms_id IN (SELECT terms_id FROM _fixture_terms)"):
-                cur.execute(f"DELETE FROM {child}")
-            cur.execute("DELETE FROM tb_terms WHERE id IN (SELECT terms_id FROM _fixture_terms)")
-            continue
-        cur.execute(sql, (PROJECT_ID,))
-    cur.execute("SET LOCAL session_replication_role = origin")
-
-
 def remove(conn, execute: bool) -> None:
     cur = conn.cursor()
-    _remove_contracts(cur, execute)
+    _fixture_record.remove(cur, PROJECT_ID, execute)
     for table, sql in DELETES:
         cur.execute(f"SELECT count(*) FROM {table} WHERE project_id = %s", (PROJECT_ID,))
         n = cur.fetchone()[0]
@@ -276,18 +238,10 @@ def load(conn, execute: bool) -> None:
               "SYNTHETIC comprehension-test fixture — not a client submission. "
               "scripts/load_comprehension_test_project.py", maturity, now))
 
-    for card, terms in CARDS.items():
-        if not terms:
-            continue
-        cur.execute("""
-            INSERT INTO commitment_terms (project_id, card_type, terms_json, updated_by, updated_at)
-            VALUES (%s,%s,%s,%s,%s)
-        """, (PROJECT_ID, card, json.dumps(terms), MARKER, now))
-
     conn.commit()
-    # The cards' contract versions, through the same path a card save takes (contract
-    # tokens over the one contract record) — the loader used to leave them out.
-    kinds = ct.record_versions(PROJECT_ID, {k: v for k, v in CARDS.items() if v}, MARKER, OWNER_TENANT)
+    # The cards ARE the project's contract record (Q9, alembic 093): written card by
+    # card through the path a card save takes.
+    kinds = _fixture_record.write_cards(PROJECT_ID, CARDS, MARKER, OWNER_TENANT)
     print(f"  WROTE project, context, access, {len(rows)} evidence rows, "
           f"{sum(1 for v in CARDS.values() if v)} cards, contract versions for {', '.join(kinds)}.")
 

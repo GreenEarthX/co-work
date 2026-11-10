@@ -46,16 +46,25 @@ def _flows(terms: TermsIn):
             yield leg, flow
 
 
+def _is_projection(proj) -> bool:
+    return isinstance(proj, dict) and all(isinstance(k, str) and k.count(".") == 1 for k in proj)
+
+
 def validate_card(terms: TermsIn) -> list[str]:
     """`card` terms (alembic 085): a projection of commitment-card fields and no
-    legs (Phase 2). C01: a projection is present and every key is "card.field".
-    C02: no legs, flows or sub-legs yet — the frame comes in Phase 3."""
+    legs. C01: a projection is present and every key is "card.field". C02: no
+    legs or flows. C03 (a frame, Phase 3 Q2): every sub-leg names its buyer and
+    carries a projection of its own, and no buyer appears twice."""
     failed = []
-    proj = terms.card_projection
-    if not isinstance(proj, dict) or any(not isinstance(k, str) or k.count(".") != 1 for k in proj):
+    if not _is_projection(terms.card_projection):
         failed.append("C01")
-    if terms.legs or terms.sub_legs:
+    if terms.legs:
         failed.append("C02")
+    if terms.sub_legs:
+        buyers = [s.buyer for s in terms.sub_legs]
+        if (any(not b or not _is_projection(s.card_projection) for b, s in zip(buyers, terms.sub_legs))
+                or len(set(buyers)) != len(buyers)):
+            failed.append("C03")
     return failed
 
 

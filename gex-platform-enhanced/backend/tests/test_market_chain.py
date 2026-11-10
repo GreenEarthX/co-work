@@ -334,6 +334,21 @@ def test_9_contracts_are_shown_to_the_parties_only_and_never_deleted(legacy):
                               headers=_auth("u_gex"))) == "GEX_DOES_NOT_TRADE"
 
 
+def test_9b_the_revenue_screen_lists_what_the_company_sells_from_the_record(legacy):
+    """/api/v1/finance/contracts read a SQLite demo table (Phase 0 §7 finding 1): now the
+    record contracts the caller's company SELLS — the buyer's purchase is not its revenue,
+    a stranger and GEX staff (R0P: no terms) get none."""
+    from app.api.endpoints import finance
+
+    legacy.app.include_router(finance.router, prefix="/api/v1/finance")
+    cid = STATE["contract"]
+    rows = legacy.get("/api/v1/finance/contracts", headers=_auth("u_seller")).json()
+    assert [(r["id"], r["status"], r["molecule"]) for r in rows] == [(cid, "active", MOLECULE)]
+    assert rows[0]["volume_mtpd"] and rows[0]["price_eur_kg"] and rows[0]["startDate"]
+    for uid in ("u_buyer", "u_other", "u_gex"):
+        assert legacy.get("/api/v1/finance/contracts", headers=_auth(uid)).json() == [], uid
+
+
 def test_10_trader_rfqs_are_the_callers_own_and_the_body_names_no_buyer(legacy):
     r = legacy.post("/api/v1/trader/rfqs/", headers=_auth("u_other"), json={
         "molecule": MOLECULE, "volume_mtpd": 5, "delivery_start": "2027-01-01",
