@@ -202,6 +202,7 @@ share `gex_test_suite`).
   the card cannot change or drop it; its buyer confirms it with the four-eye TRADE_CONFIRM); an
   acceptance past the planned output is refused. Without one it stays a trade. Head **094**.
 - Platform **1394 pass / 15 skip**, frontend **260**.
+**2026-11-11: Docker Hub `gex-backend`/`gex-frontend` v1.10.0 (+latest), compose pinned** (handoff §10). In zsh write `"${r}:${t}"`: `$r:latest` is the `:l` modifier and pushed two PUBLIC stray repos (deleted). Prune the build cache after building: four images leave ~2.2 GB free on the VM disk.
 **2026-11-10 (latest): head is 096 — Phase 5: party signatures, recorded and verified, NOT required** (handoff §8 item 61).
 - A CONFIRMED/DISPUTED event MAY carry ed25519 over `"GEX-CONTRACT-EVENT-v1:" + event_hash`, beside
   the hash (hashes and anchors unchanged).

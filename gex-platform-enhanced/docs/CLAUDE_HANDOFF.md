@@ -3525,6 +3525,29 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
+**2026-11-11 (later): `gex-backend` and `gex-frontend` v1.10.0 on Docker Hub, compose pinned.**
+After JML's `docker login`: local `v1.9.0` digests matched the Hub before anything local was removed;
+backup `gex_platform_2026-11-11_1024` first; both built under a disk watchdog (lowest free 2.0 GB,
+build cache pruned after); backend smoke import 569 routes. `v1.10.0` and `latest` pushed, all four
+digest-verified (backend `a64f061eecf7`, frontend `9e1a7b782e8b`). Clean pull test by the safe sequence
+(no `-v`; postgres never touched; `up -d --no-deps`): backend as `gex_app` (no superuser/BYPASSRLS),
+head 096, 0 projects with no tenant, anchor backend `none`; through nginx :8080 the fuels route 200
+from postgres, `party-keys` 200 for an executive, staff console 403 for a client; PF engine 200,
+TEA `/healthz` 200. App containers stopped again afterwards. Disk with all four images: ~2.2 GB free.
+- **INCIDENT, closed the same day:** in zsh `jmlamay/$r:latest` reads `:l` as a modifier, so the first
+  `latest` push created two NEW, PUBLIC repos `jmlamay/gex-backendatest` / `gex-frontendatest`
+  (Hub showed 34 / 22 pulls). The backend one carried the backend code, `data/canvas_blobs` and
+  `scripts/fortaverde_knowledge_v2.json` with the two Möhring contacts' real names and business
+  e-mails (no `.env`, keys, salt, dumps, phone numbers or accounts file). JML deleted both; the Hub
+  answers 404. Copies pulled before deletion cannot be recalled. Always `${r}:${t}`.
+- **Open:** the docker sync (`sync-to-docker.sh`) copies the REAL `fortaverde_knowledge_v2.json` into
+  the (private) backend image; it should carry the same placeholders as git. Not changed yet.
+- **Found in the test, not new in this release:** (1) one of four uvicorn workers dies at startup —
+  `main.py` calls `development_packages.init_db()` at import and four workers race for the
+  container's SQLite file (`database is locked`); the backend runs on three. (2) A malformed
+  (non-uuid) record id answers 500, not 404, on `/trading-book/records/{id}` (since Phase 1) and
+  `/records/{id}/anchors`; a well-formed unknown id answers 404.
+
 **2026-11-11: pushed to GitHub, NOT to Docker Hub.** `co-work` `main` fast-forwarded to
 `contract-record-phase1` and pushed (`d495ed9..ae0f668`; both refs at `ae0f668` on GitHub by
 `git ls-remote`). Docker Hub: **no image built or pushed** — this Mac has no stored Docker Hub
