@@ -3525,6 +3525,19 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
+**2026-11-11: pushed to GitHub, NOT to Docker Hub.** `co-work` `main` fast-forwarded to
+`contract-record-phase1` and pushed (`d495ed9..ae0f668`; both refs at `ae0f668` on GitHub by
+`git ls-remote`). Docker Hub: **no image built or pushed** — this Mac has no stored Docker Hub
+login (`docker-credential-desktop` empty) and `jmlamay/gex-backend` is private, so neither the
+push nor a check of `v1.9.0` on the Hub is possible until JML runs `docker login`. Compose stays
+on `v1.9.0`. **The Docker VM disk is the constraint:** a backend build with only 1.9 GB free
+reached 566 MB free while unpacking and was stopped by a watchdog (PostgreSQL unharmed, head 096;
+backup `gex_platform_2026-11-11_0844` taken first). Before the next build: `docker login`, confirm
+`v1.9.0` is on the Hub, remove the local `jmlamay/gex-backend:v1.9.0` and the stopped
+`files-backend-1` (~0.9 GB), `docker builder prune -a -f` between builds, and watch
+`docker exec files-postgres-1 df -h /var/lib/postgresql/data`. Only backend and frontend change
+(v1.10.0); the PF and TEA engines have not changed since their images.
+
 **2026-11-10 (latest): One contract record — Phases 0–5 done** (§8 items 56–61). Head **096**.
 Phase 5: a confirmation or dispute may carry the party's own ed25519 signature over its event
 hash, prepared then signed, verified on write; keys proposed by an executive, activated by a
