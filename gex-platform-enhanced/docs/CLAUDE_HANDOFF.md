@@ -3389,10 +3389,16 @@ rebuilt from workflow journal `wf_21cc0cd0-1f5`.
       chain readout, which also checks the signature against the key (`signature_valid`, and
       the key's state) rather than trusting the column.
     - **Not in this phase:** no wallet integration, no eIDAS seal validation (the scheme column
-      is ready); no key-management screen yet (API only); novation confirmations are not
+      is ready); novation confirmations are not
       signable (they are NOVATION events, outside "CONFIRMED or DISPUTED").
+    - **Screen (11 Nov):** "Your company's signing keys" on `/account`
+      (`features/account/SigningKeysSection.tsx`): list, propose a public key, activate or reject
+      (the server enforces the second executive), revoke with a reason; it shows the server's
+      refusal and keeps what was typed. Seen in the running app (signed in as a demo executive:
+      the section loads, 200, "No key registered"); no key was written to dev.
     - **Tests:** `test_party_signatures_pg.py` (11, on `pg_store`); frontend
-      `ContractTokensPanel.test.tsx` +1. **Platform 1433 pass / 15 skip / 0 fail** (1422 + 11;
+      `ContractTokensPanel.test.tsx` +1, `SigningKeysSection.test.tsx` (2; two breaks caught: a
+      revocation without a reason, the proposal cleared on a refusal). **Platform 1433 pass / 15 skip / 0 fail** (1422 + 11;
       both exported, run alone), **frontend 264**, `tsc` clean. Negative verification, all caught:
       22 backend breaks (the signature not verified, no domain separation, a prepare that writes,
       a trade prepare that records the approval, a foreign key, a revoked key in the application
@@ -3525,7 +3531,7 @@ hash, prepared then signed, verified on write; keys proposed by an executive, ac
 second, revoked with a reason, all in the ledger; `REQUIRE_PARTY_SIGNATURE` false. Platform 1433
 pass / 15 skip / 0 fail, frontend 264; parity identical for all 16 projects. Committed to
 `co-work` branch `contract-record-phase1`; not pushed. **Open for JML:** derived and system
-events stay unsigned when signatures are required; no key screen yet; the Phase 4 items (testnet
+events stay unsigned when signatures are required; the Phase 4 items (testnet
 run, salt copy, worker columns).
 
 **2026-11-10 (earlier): One contract record — Phase 4 done (the ledger anchor, OFF); Phase 5 waits

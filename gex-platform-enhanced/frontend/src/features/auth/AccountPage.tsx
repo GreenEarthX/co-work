@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useUserRole, type UserRole } from '@/contexts/UserRoleContext'
 import { TelephoneSection } from '@/features/account/TelephoneSection'
+import { SigningKeysSection } from '@/features/account/SigningKeysSection'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -323,6 +324,7 @@ export function AccountPage() {
 
         {/* ── Telephone: the owner's to change (JML, 2026-11-03) ── */}
         <TelephoneSection />
+        <SigningKeysSection />
 
         {/* ── Account Details ──────────────────────────────────────── */}
         <SectionCard>
