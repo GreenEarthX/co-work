@@ -54,14 +54,19 @@ class Settings(BaseSettings):
     # Which store the auth slice reads/writes: "sqlite" | "postgres".
     # Declared here (not just os.getenv) so it can live in .env — Settings
     # forbids extra inputs, and pydantic does not export .env into os.environ.
-    AUTH_DB_BACKEND: str = "sqlite"
+    AUTH_DB_BACKEND: str = "postgres"
+    # PostgreSQL only at runtime (JML, 2026-11-11): every switch above defaults to
+    # postgres, and the backend refuses to start while any reads sqlite
+    # (db_backend.assert_postgres_runtime, called by main.py before any table is
+    # set up). Only the test suite sets this, for its SQLite-pinned isolated_store.
+    ALLOW_SQLITE_BACKEND: bool = False
     # Which store the evidence/bankability slice uses: "sqlite" | "postgres".
     # Separate from AUTH_DB_BACKEND so slices flip independently.
-    EVIDENCE_DB_BACKEND: str = "sqlite"
+    EVIDENCE_DB_BACKEND: str = "postgres"
     # Which store slice 5 (capital bridge + development packages) uses.
-    CAPITAL_DB_BACKEND: str = "sqlite"
+    CAPITAL_DB_BACKEND: str = "postgres"
     # Which store slice 6 (marketplace / trading tail) uses.
-    MARKET_DB_BACKEND: str = "sqlite"
+    MARKET_DB_BACKEND: str = "postgres"
     # Automated matching (GEX pairing third-party offers with RFQs). OFF: JML,
     # 2026-10-23, decision 2B on the trading-book spec — matching is bilateral (a
     # named company accepts a specific listing) until counsel confirms GEX would
@@ -100,13 +105,13 @@ class Settings(BaseSettings):
         return value
 
     # Which store slice 6b-1 (entitlements) uses.
-    ENTITLEMENT_DB_BACKEND: str = "sqlite"
+    ENTITLEMENT_DB_BACKEND: str = "postgres"
     # Which store slice 6b-2 (the platform event ledger) uses.
-    EVENTSTORE_DB_BACKEND: str = "sqlite"
+    EVENTSTORE_DB_BACKEND: str = "postgres"
     # Which store slice 6b-3 (fuel reference data) uses.
-    FUELREF_DB_BACKEND: str = "sqlite"
+    FUELREF_DB_BACKEND: str = "postgres"
     # Which store slice 6b-4 (governance / access control) uses.
-    GOVERNANCE_DB_BACKEND: str = "sqlite"
+    GOVERNANCE_DB_BACKEND: str = "postgres"
     # Which store the domain tail (migrations 043 + 044) uses: mass balance,
     # settlement, sovereign instruments, spend waves, drawdown schedules, DFI
     # criteria, additionality, adversarial reviews, the external corpus, the OT
@@ -119,7 +124,7 @@ class Settings(BaseSettings):
     # captured at import and consulted no switch at all — the 2026-09-22 cutover
     # copied their 30 tables into PostgreSQL while their writes kept going to
     # SQLite, which is a snapshot pretending to be a migration.
-    DOMAIN_DB_BACKEND: str = "sqlite"
+    DOMAIN_DB_BACKEND: str = "postgres"
     # Which store the OWNER-SCOPED personal work uses: canvas documents, a
     # user's plants, their equipment equations (migration 050).
     #
@@ -133,7 +138,7 @@ class Settings(BaseSettings):
     # staff cannot read another user's canvas through normal operation. Support,
     # deletion requests and offboarding go through `app/core/break_glass.py`,
     # which is per-user, reason-bearing and written to `admin_log`.
-    WORKSPACE_DB_BACKEND: str = "sqlite"
+    WORKSPACE_DB_BACKEND: str = "postgres"
     # Transitional SQLite store. THE ONLY database file in the system.
     # Doctrine: no hidden database, no relative path, no second database,
     # no module-owned path. Modules must use settings.SQLITE_DB_PATH — never

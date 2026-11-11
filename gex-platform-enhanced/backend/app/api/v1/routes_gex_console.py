@@ -28,10 +28,6 @@ router = APIRouter()
 
 PLATFORM_ADMIN = "PLATFORM_ADMIN"
 
-# A TEST fixture that a real client replaces once onboarded. Retiring it is the
-# last onboarding step (docs/FORTAVERDE_CLIENT_ONBOARDING.md §7).
-FIXTURE_REPLACED_BY = {"mohring_energie": "proj_TEST_fortaverde_pecem"}
-
 # What GEX staff may do on a client's project, and what they may not. The
 # readable set is the rule itself (abac R0P); the rest restates where the
 # server refuses, so the screen cannot promise more than the code allows.
@@ -156,8 +152,6 @@ def onboarding(company_id: str, request: Request) -> dict[str, Any]:
         "SELECT count(*) AS n, count(e.assignee_user_id) AS assigned FROM bankability_evidence e "
         "JOIN projects p ON p.project_id = e.project_id WHERE p.owner_tenant_id = :c "
         "AND e.status <> 'VERIFIED'", {"c": company_id})[0]
-    fixture = FIXTURE_REPLACED_BY.get(company_id)
-    fixture_present = bool(fixture and _rows("SELECT 1 FROM projects WHERE project_id = :p", {"p": fixture}))
 
     active = [u for u in users if u["account_state"] == "ACTIVE"]
     steps = [
@@ -196,10 +190,6 @@ def onboarding(company_id: str, request: Request) -> dict[str, Any]:
               else "waiting",
               f"{open_ev['assigned']} of {open_ev['n']} assigned" if open_ev["n"] else "No open requests yet"),
     ]
-    if fixture:
-        steps.append(_step("fixture", "TEST fixture retired", "GEX",
-                           "waiting" if fixture_present else "done",
-                           f"{fixture} is still loaded" if fixture_present else f"{fixture} removed"))
 
     return {
         "company_id": company_id, "company_name": name,
@@ -207,7 +197,6 @@ def onboarding(company_id: str, request: Request) -> dict[str, Any]:
                       "agreement_signed_at": _s(u["agreement_signed_at"]),
                       "activated_at": _s(u["activated_at"])} for u in users],
         "steps": steps,
-        "replaces_fixture": fixture,
     }
 
 

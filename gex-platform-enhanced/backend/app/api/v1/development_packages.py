@@ -477,6 +477,9 @@ def init_db():
       - Add FOREIGN KEY (debt_swap_id) REFERENCES sovereign_instruments(instrument_id)
       - Add row-level security policy for ABAC persona filtering
     """
+    from app.core.db_backend import capital_is_postgres
+    if capital_is_postgres():
+        return          # migration 035 owns the table there; no SQLite file is opened
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS development_packages (

@@ -8,8 +8,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-# 2. Internal application imports (always available)
-from app.api.v1 import capacity_sqlite as capacity
+# 2. PostgreSQL only (JML, 2026-11-11): refuse to start on SQLite BEFORE any module
+#    below sets up a table. Only the test suite may opt out (ALLOW_SQLITE_BACKEND).
+from app.core.db_backend import assert_postgres_runtime
+
+assert_postgres_runtime()
+
+# 3. Internal application imports (always available)
+from app.api.v1 import capacity_sqlite as capacity  # noqa: E402
 from app.api.v1 import audit
 # Canonical vocabulary (ADR 2026-07-29) — imported directly, not guarded:
 # if the semantic registry cannot load, the platform must not start with

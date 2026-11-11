@@ -15,7 +15,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, ShieldCheck, XCircle } from 'lucide-react'
 import { cisoCall } from '@/features/ciso/cisoApi'
 
-const DEFAULT_ONBOARDING = 'mohring_energie'
+// The onboarding panel opens on the first client company with an account still to be vetted,
+// else the first client company. No company is named in code.
+function firstToOnboard(companies: Company[]): string {
+  const clients = companies.filter(c => !c.is_test)
+  const waiting = clients.find(c => Object.entries(c.accounts ?? {}).some(([st, n]) => st !== 'ACTIVE' && n > 0))
+  return (waiting ?? clients[0])?.company_id ?? ''
+}
 
 interface Admin { user_id: string; email: string; user_name: string; account_state: string; activated_by: string | null; last_sign_in: string | null }
 interface Company { company_id: string; company_name: string; company_type: string; is_test: boolean; accounts: Record<string, number>; projects_owned: number; test_projects_owned: number }
@@ -205,7 +211,7 @@ export function LedgerAnchorPanel() {
 export function GexStaffConsolePage() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [queue, setQueue] = useState<Account[]>([])
-  const [companyId, setCompanyId] = useState(DEFAULT_ONBOARDING)
+  const [companyId, setCompanyId] = useState('')
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -216,6 +222,7 @@ export function GexStaffConsolePage() {
         cisoCall<{ applications: Account[] }>('/account/vetting-queue'),
       ])
       setSummary(s); setQueue(q.applications); setError(null)
+      setCompanyId(c => c || firstToOnboard(s.companies ?? []))
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }, [])
 

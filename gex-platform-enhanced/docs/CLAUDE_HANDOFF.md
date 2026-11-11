@@ -3525,6 +3525,34 @@ catches a stale staging copy.** Run `sync-to-docker.sh` immediately before `dock
 
 ## 10. Current task
 
+**2026-11-11 (latest): FortaVerde is a REAL client; PostgreSQL-only runtime** (JML's three decisions).
+- **Client, not fixture:** the TEST fixture is retired (backup `gex_platform_2026-11-11_1525` first):
+  `proj_TEST_fortaverde_pecem`, tenant `test_fortaverde`, the two stand-ins, the two named demo sign-ins
+  and the fixture's 077 premise row (the remover had missed `project_premise_change`; it raised a
+  foreign-key error and rolled back, then was fixed). `projects` 15, `auth_users` 23. The two real
+  registrations (PENDING) are untouched: GEX staff vet and activate them with `company_id =
+  mohring_energie` (onboarding doc §5–6), then the client creates its own project (§7). Deleted:
+  `load_fortaverde_test_project.py`, `create_fortaverde_demo_accounts.py` and its test, the login
+  page's FortaVerde group. The staff console no longer names a company in code: it opens on the first
+  client company with an account still to vet (negative-verified), and its fixture step is gone.
+- **Git (repository is PUBLIC):** `fortaverde_knowledge_v2.json` and `docs/FORTAVERDE_CLIENT_ONBOARDING.md`
+  are git-ignored and untracked in `co-work`, next to `fortaverde_client_accounts.json`; no placeholder
+  copies any more. They stay local and in the private backend image. Personal names removed from
+  `.claude/CLAUDE.md`. **Not done:** earlier commits still hold the placeholder copies and the two
+  contacts' names and roles; removing them means rewriting public history — a separate decision.
+- **PostgreSQL only at runtime:** all ten `*_DB_BACKEND` switches default to `postgres`; `main.py`
+  calls `db_backend.assert_postgres_runtime()` before any module sets up a table and refuses
+  (`POSTGRES_REQUIRED`) while a switch reads anything else. `ALLOW_SQLITE_BACKEND` (default false) is
+  set only by `tests/conftest.py`, for `isolated_store`. Measured on the dev settings, startup opened
+  SQLite in exactly two places — `development_packages.init_db` (the Docker worker crash) and
+  `adjacency.init_db`; both now return on PostgreSQL. `tests/test_postgres_runtime.py` (9), seven breaks
+  all caught. Remaining SQLite code (34 modules, `isolated_store` in 56 test files) is the next,
+  module-by-module step. **The Docker images do not have this yet** (they are `v1.10.0`).
+- Suites: platform **1438 pass / 15 skip / 0 fail** (+1 teardown error when PostgreSQL stopped
+  answering for >10 s near the end; that module and the expiry tests pass alone, 23/23); frontend
+  **265 pass** (three files timed out under the parallel backend run and pass alone).
+- **Next (JML):** integrate the Geomap database so prospective clients find their OSINT data in GEX.
+
 **2026-11-11 (later): `gex-backend` and `gex-frontend` v1.10.0 on Docker Hub, compose pinned.**
 After JML's `docker login`: local `v1.9.0` digests matched the Hub before anything local was removed;
 backup `gex_platform_2026-11-11_1024` first; both built under a disk watchdog (lowest free 2.0 GB,

@@ -44,3 +44,7 @@ gex-platform-enhanced/backend/data/package_docs/
 
 # Real client contact data (JML, 2026-11-04): kept out of git, local only
 gex-platform-enhanced/backend/scripts/fortaverde_client_accounts.json
+# FortaVerde is a real client (JML, 2026-11-11). This repository is PUBLIC: no client
+# record, contact or onboarding file is committed, not even as placeholders.
+gex-platform-enhanced/backend/scripts/fortaverde_knowledge_v2.json
+gex-platform-enhanced/docs/FORTAVERDE_CLIENT_ONBOARDING.md

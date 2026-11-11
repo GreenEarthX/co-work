@@ -21,10 +21,9 @@ interface DemoUser {
   token: string;
   title: string;       // job title for display
   group: DemoGroup;
-  ownPassword?: true;  // fill the address only: this account has its own password, not demo1234
 }
 
-type DemoGroup = 'Producers' | 'Offtakers' | 'Bankers' | 'Engineers' | 'Insurers' | 'FortaVerde';
+type DemoGroup = 'Producers' | 'Offtakers' | 'Bankers' | 'Engineers' | 'Insurers';
 
 const DEMO_USERS: Record<string, DemoUser> = {
   // ── PRODUCERS — HamburgOne.com ─────────────────────────────────────────────
@@ -234,37 +233,6 @@ const DEMO_USERS: Record<string, DemoUser> = {
       user_name: 'Phillipe Blanker',
     },
   },
-  // ── FORTAVERDE PECÉM (TEST) ────────────────────────────────────────────────
-  // Demo sign-ins under the names of FortaVerde's two contacts (JML, 2026-11-03),
-  // in the TEST fixture tenant, vetting bypassed. NOT the people's own accounts
-  // (tenant mohring_energie). Created by backend/scripts/create_fortaverde_demo_accounts.py,
-  // with a password of their own: the policy refuses demo1234.
-  'sascha.moehring@fortaverde.test': {
-    token: 'demo-token-sascha-moehring',
-    title: 'Managing Director and CTO · TEST FortaVerde',
-    group: 'FortaVerde',
-    ownPassword: true,
-    role: {
-      company_type: 'PRODUCER',
-      service_type: null,
-      business_function: 'EXECUTIVE',
-      company_name: 'TEST FortaVerde',
-      user_name: 'Sascha Möhring (demo)',
-    },
-  },
-  'jan.block@fortaverde.test': {
-    token: 'demo-token-jan-block',
-    title: 'CEO · TEST FortaVerde',
-    group: 'FortaVerde',
-    ownPassword: true,
-    role: {
-      company_type: 'PRODUCER',
-      service_type: null,
-      business_function: 'EXECUTIVE',
-      company_name: 'TEST FortaVerde',
-      user_name: 'Jan Block (demo)',
-    },
-  },
 };
 
 const DEMO_PASSWORD = 'demo1234';
@@ -276,7 +244,6 @@ const GROUP_META: Record<DemoGroup, { label: string }> = {
   Bankers: { label: 'Banks' },
   Engineers: { label: 'Engineering' },
   Insurers: { label: 'Insurance' },
-  FortaVerde: { label: 'FortaVerde Pecém (TEST) · own password' },
 };
 
 interface LoginResponse {
@@ -567,7 +534,7 @@ export function LoginPage() {
                         <button
                           key={emailAddr}
                           type="button"
-                          onClick={() => { setEmail(emailAddr); setPassword(user.ownPassword ? '' : DEMO_PASSWORD); }}
+                          onClick={() => { setEmail(emailAddr); setPassword(DEMO_PASSWORD); }}
                           className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left group transition-colors"
                           style={{ background: 'var(--surface)' }}
                         >

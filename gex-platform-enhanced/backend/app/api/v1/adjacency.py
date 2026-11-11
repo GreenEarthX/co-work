@@ -106,6 +106,9 @@ FALLBACK_COHORTS: dict[str, dict] = {
 # ═══════════════════════════════════════════════════════════════════════════
 
 def init_db():
+    from app.core.db_backend import domain_is_postgres
+    if domain_is_postgres():
+        return          # migration 044 owns adjacency_cache there; no SQLite file is opened
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS adjacency_cache (

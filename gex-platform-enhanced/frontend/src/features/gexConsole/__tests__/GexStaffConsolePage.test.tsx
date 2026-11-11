@@ -12,7 +12,7 @@ const ME = 'u_staff_me'
 const summary = {
   caller_user_id: ME,
   administrators: [{ user_id: ME, email: 'me@greenearthx.com', user_name: 'Me', account_state: 'ACTIVE', activated_by: 'MANUAL_ADMIN_GRANT', last_sign_in: null }],
-  companies: [{ company_id: 'mohring_energie', company_name: 'Möhring Energie', company_type: 'PRODUCER', is_test: false, accounts: {}, projects_owned: 0, test_projects_owned: 0 }],
+  companies: [{ company_id: 'client_co', company_name: 'Client Co', company_type: 'PRODUCER', is_test: false, accounts: {}, projects_owned: 0, test_projects_owned: 0 }],
   vetting_queue_count: 2,
   staff_rights: { readable_on_every_project: ['EVIDENCE', 'GATE_EVALUATION'], may: ['Read gates'], may_not: ['Verify evidence'], reviewer_gates: { CERTIFIER: ['G2', 'G11'] } },
 }
@@ -22,8 +22,8 @@ const queue = {
     { user_id: 'u_fresh', email: 'b@x.test', user_name: 'Fresh Applicant', company_name: 'X', account_state: 'PENDING', phone_verified_by: null, agreement_ref: null, telephone: '+49 160 0000000' },
   ],
 }
-const onboarding = { company_id: 'mohring_energie', company_name: 'Möhring Energie', accounts: [], steps: [
-  { key: 'tenant', label: 'Company registered', actor: 'GEX', status: 'done', detail: 'Möhring Energie (mohring_energie)' },
+const onboarding = { company_id: 'client_co', company_name: 'Client Co', accounts: [], steps: [
+  { key: 'tenant', label: 'Company registered', actor: 'GEX', status: 'done', detail: 'Client Co (client_co)' },
   { key: 'register', label: 'Accounts registered', actor: 'Client', status: 'waiting', detail: 'No account registered for this company yet' },
 ] }
 
@@ -32,7 +32,7 @@ function stub(overrides: Record<string, { status: number; body: unknown }> = {})
   const routes: Record<string, { status: number; body: unknown }> = {
     '/api/v1/gex-console/summary': { status: 200, body: summary },
     '/api/v1/account/vetting-queue': { status: 200, body: queue },
-    '/api/v1/gex-console/onboarding/mohring_energie': { status: 200, body: onboarding },
+    '/api/v1/gex-console/onboarding/client_co': { status: 200, body: onboarding },
     ...overrides,
   }
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

@@ -23,6 +23,11 @@ import sqlite3
 
 import pytest
 
+# The backend refuses to start on SQLite (db_backend.assert_postgres_runtime, JML
+# 2026-11-11). The suite is the one opt-out, for isolated_store's SQLite-pinned modules;
+# it must be set before anything instantiates `settings`.
+os.environ["ALLOW_SQLITE_BACKEND"] = "true"
+
 
 @pytest.fixture(scope="module")
 def isolated_store(tmp_path_factory):

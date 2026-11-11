@@ -62,17 +62,7 @@ describe('loginErrorText', () => {
   })
 })
 
-// The FortaVerde demo sign-ins have their own password (the policy refuses
-// demo1234), so "fill" puts in the address and leaves the password to be typed.
-describe('LoginPage FortaVerde demo sign-ins', () => {
-  it('fills the address only', () => {
-    const { container } = render(<MemoryRouter><LoginPage /></MemoryRouter>)
-    fireEvent.click(screen.getByText('Jan Block (demo)'))
-    expect(container.querySelector('input[type="email"]')).toHaveValue('jan.block@fortaverde.test')
-    expect(container.querySelector('input[placeholder="••••••••"]')).toHaveValue('')
-    expect(screen.getByText('FortaVerde Pecém (TEST) · own password')).toBeInTheDocument()
-  })
-
+describe('LoginPage demo sign-ins', () => {
   it('still fills demo1234 for the seeded demo accounts', () => {
     const { container } = render(<MemoryRouter><LoginPage /></MemoryRouter>)
     fireEvent.click(screen.getByText('Lisa Friedrich'))

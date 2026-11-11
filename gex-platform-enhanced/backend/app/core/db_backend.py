@@ -556,3 +556,20 @@ def auth_connection(sqlite_path: str | None = None):
     conn = sqlite3.connect(sqlite_path or settings.SQLITE_DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def assert_postgres_runtime() -> None:
+    """Refuse to run the backend on SQLite (JML, 2026-11-11: PostgreSQL only).
+
+    Every *_DB_BACKEND switch must read postgres. ALLOW_SQLITE_BACKEND exists for the
+    test suite's SQLite-pinned isolated_store only; nothing else sets it.
+    """
+    from app.core.config import settings
+
+    names = sorted(n for n in type(settings).model_fields if n.endswith("_DB_BACKEND"))
+    off = [n for n in names if (getattr(settings, n) or "").strip().lower() != "postgres"]
+    if off and not settings.ALLOW_SQLITE_BACKEND:
+        raise RuntimeError(
+            "POSTGRES_REQUIRED: the backend runs on PostgreSQL only; "
+            + ", ".join(f"{n}={getattr(settings, n)!r}" for n in off)
+            + ". Set them to postgres (no SQLite fallback exists at runtime).")
