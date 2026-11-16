@@ -45,7 +45,7 @@ class OfftakeValueResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class GreenmeshRollupResponse(BaseModel):
+class PortfolioRollupResponse(BaseModel):
     enabled: bool
 
     model_config = ConfigDict(extra="allow")

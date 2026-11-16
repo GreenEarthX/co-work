@@ -15,6 +15,7 @@ import {
   useProjectEconomics,
 } from '@/features/marketplace/MarketplacePage'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
+import { MARKET_DISCOVERY, marketDiscoveryPath, useCanOpen } from '@/lib/marketLinks'
 
 interface Props {
   molecule?: string
@@ -43,8 +44,9 @@ export function OfftakerSupplyTable({ molecule }: Props) {
     [filteredProjects, econ],
   )
 
-  const matchingQuery = new URLSearchParams({ mode: 'buy' })
-  if (filterProject !== 'all') matchingQuery.set('project', filterProject)
+  // Both buttons open the market's SUPPLY side (discovery review F17: they opened Your Matches),
+  // and only for a role that may open Market Discovery.
+  const canOpenMarket = useCanOpen(MARKET_DISCOVERY)
 
   return (
     <div className="max-w-[1440px] mx-auto space-y-4">
@@ -62,13 +64,13 @@ export function OfftakerSupplyTable({ molecule }: Props) {
             then issue RFQs into the GEX marketplace. */}
           </p>
         </div>
-        <button
-          onClick={() => navigate(`/matching?${matchingQuery.toString()}`)}
+        {canOpenMarket && <button
+          onClick={() => navigate(marketDiscoveryPath('supply', filterMol))}
           className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition-colors"
         >
           Scan Supplier Offers
           <ArrowRight className="w-4 h-4" />
-        </button>
+        </button>}
       </div>
 
       <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -111,12 +113,12 @@ export function OfftakerSupplyTable({ molecule }: Props) {
         <FeedstockPurchasesPanel
           feedstockSummaries={purchaseSummaries}
           emptyMessage="No feedstock purchases match the current filter"
-          renderProjectAction={summary => (
+          renderProjectAction={summary => canOpenMarket && (
             <button
-              onClick={() => navigate(`/matching?mode=buy&project=${summary.projectId}`)}
+              onClick={() => navigate(marketDiscoveryPath('supply', summary.molecule))}
               className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              Match Offers
+              Find supply
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           )}

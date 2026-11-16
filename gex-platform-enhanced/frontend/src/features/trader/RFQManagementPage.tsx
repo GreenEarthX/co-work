@@ -4,9 +4,11 @@
 // Market Discovery; the buyer's name is revealed to a seller only once matched.
 // Before 2026-10-23 this screen was unrouted and called the API without a
 // bearer token, so every request answered 401 (gap register G-04).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { Plus, CheckCircle, XCircle, Clock, FileText } from 'lucide-react';
-import { marketAPI, type Commodity, type MarketRFQ } from '@/api';
+import { marketAPI, type Commodity, type MarketRFQ, type RfqRequirements } from '@/api';
+import { useMarketPolicy } from '@/lib/marketPolicy';
+import { SupplyCandidates } from './SupplyCandidates';
 
 // What the buyer may do from each state; 'matched' is set by the market.
 const ACTIONS: Record<string, { to: string; label: string }[]> = {
@@ -22,7 +24,35 @@ const EMPTY_FORM = {
   delivery_end: '',
   location: '',
   buyer_contact: '',
+  // Product requirements (alembic 117), all optional; "required" ones decide eligibility.
+  max_ci: '',
+  regimes: '',
+  schemes: '',
+  min_evidence: '',
+  physical_form: '',
+  incoterms: '',
+  named_place: '',
+  delivery_country: '',
+  required: [] as string[],
 };
+
+const list = (v: string) => v.split(',').map((x) => x.trim()).filter(Boolean);
+
+/** The requirements object the server validates (backend core/requirements.py); empty fields are left out. */
+export function buildRequirements(f: typeof EMPTY_FORM): RfqRequirements {
+  const r: RfqRequirements = {};
+  if (f.max_ci) r.max_ci_gco2e_mj = parseFloat(f.max_ci);
+  if (list(f.regimes).length) r.regimes = list(f.regimes);
+  if (list(f.schemes).length) r.accepted_schemes = list(f.schemes);
+  if (f.min_evidence) r.min_evidence_state = f.min_evidence as RfqRequirements['min_evidence_state'];
+  if (f.physical_form) r.physical_form = f.physical_form;
+  if (list(f.incoterms).length) r.incoterms = list(f.incoterms).map((i) => i.toUpperCase());
+  if (f.named_place.trim()) r.named_place = f.named_place.trim();
+  if (f.delivery_country.trim()) r.delivery_country = f.delivery_country.trim().toUpperCase();
+  const mandatory = f.required.filter((k) => k in r);
+  if (mandatory.length) r.mandatory = mandatory;
+  return r;
+}
 
 function requirements(rfq: MarketRFQ): string[] {
   const raw = rfq.compliance_requirements as unknown;
@@ -34,12 +64,18 @@ function requirements(rfq: MarketRFQ): string[] {
 }
 
 const RFQManagementPage: React.FC = () => {
+  // D-B: Commercial raises RFQs (backend core/market_policy). Others see them, without the buttons.
+  const { can } = useMarketPolicy();
+  const [supplyFor, setSupplyFor] = useState<string | null>(null);
   const [rfqs, setRfqs] = useState<MarketRFQ[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [filter, setFilter] = useState<string>('all');
   const [formData, setFormData] = useState(EMPTY_FORM);
+  // One Idempotency-Key per filled-in form: a double click or a retry returns the first RFQ
+  // instead of creating a second (backend F12). A new key once the RFQ exists.
+  const idemKey = useRef(crypto.randomUUID());
   // Molecules come from tb_commodity in PostgreSQL; matching compares the code exactly.
   const [commodities, setCommodities] = useState<Commodity[]>([]);
   useEffect(() => {
@@ -72,7 +108,9 @@ const RFQManagementPage: React.FC = () => {
         location: formData.location || null,
         buyer_contact: formData.buyer_contact || null,
         status: publish ? 'open' : 'draft',
-      });
+        requirements: buildRequirements(formData),
+      }, idemKey.current);
+      idemKey.current = crypto.randomUUID();
       setShowCreateModal(false);
       setFormData(EMPTY_FORM);
       fetchRFQs();
@@ -126,13 +164,17 @@ const RFQManagementPage: React.FC = () => {
             a match needs both of you to accept.
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5" />
-          Create RFQ
-        </button>
+        {can('rfq.create') ? (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="w-5 h-5" />
+            Create RFQ
+          </button>
+        ) : (
+          <p className="max-w-xs text-right text-sm text-gray-500">RFQs are raised by Commercial in your company.</p>
+        )}
       </div>
 
       {error && (
@@ -174,9 +216,9 @@ const RFQManagementPage: React.FC = () => {
           <div className="p-8 text-center">
             <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-600">No RFQs found</p>
-            <button onClick={() => setShowCreateModal(true)} className="mt-4 text-blue-600 hover:text-blue-700 font-medium">
+            {can('rfq.create') && <button onClick={() => setShowCreateModal(true)} className="mt-4 text-blue-600 hover:text-blue-700 font-medium">
               Create your first RFQ
-            </button>
+            </button>}
           </div>
         ) : (
           <div className="divide-y">
@@ -219,7 +261,13 @@ const RFQManagementPage: React.FC = () => {
                     )}
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    {(ACTIONS[rfq.status] ?? []).map((a) => (
+                    {rfq.status === 'open' && (
+                      <button onClick={() => setSupplyFor(supplyFor === rfq.id ? null : rfq.id)}
+                              className="rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800">
+                        Find supply
+                      </button>
+                    )}
+                    {(can('rfq.change') ? (ACTIONS[rfq.status] ?? []) : []).map((a) => (
                       <button
                         key={a.to}
                         onClick={() => transition(rfq.id, a.to)}
@@ -230,6 +278,7 @@ const RFQManagementPage: React.FC = () => {
                     ))}
                   </div>
                 </div>
+                {supplyFor === rfq.id && <SupplyCandidates rfqId={rfq.id} onClose={() => setSupplyFor(null)} />}
               </div>
             ))}
           </div>
@@ -309,7 +358,7 @@ const RFQManagementPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label htmlFor="rfq-location" className="block text-sm font-medium text-gray-700 mb-1">Delivery location - Optional, shown only once matched</label>
+                <label htmlFor="rfq-location" className="block text-sm font-medium text-gray-700 mb-1">Delivery location - Optional, kept private (state a named place below to show one)</label>
                 <input
                   id="rfq-location"
                   type="text"
@@ -320,7 +369,7 @@ const RFQManagementPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="rfq-contact" className="block text-sm font-medium text-gray-700 mb-1">Contact - Optional, shown only once matched</label>
+                <label htmlFor="rfq-contact" className="block text-sm font-medium text-gray-700 mb-1">Contact - Optional, kept private until you choose to share it</label>
                 <input
                   id="rfq-contact"
                   type="email"
@@ -330,6 +379,59 @@ const RFQManagementPage: React.FC = () => {
                   placeholder="email@company.com"
                 />
               </div>
+              <fieldset className="space-y-3 rounded-lg border p-3">
+                <legend className="px-1 text-sm font-semibold text-gray-800">Product requirements (optional)</legend>
+                <p className="text-xs text-gray-500">Sellers see these with your RFQ. Tick "required" for a limit a listing must meet.</p>
+                {([
+                  ['rfq-max-ci', 'Max carbon intensity (gCO₂e/MJ)', 'max_ci', 'max_ci_gco2e_mj', 'number', 'e.g. 28.2'],
+                  ['rfq-regimes', 'Regimes (comma-separated)', 'regimes', 'regimes', 'text', 'e.g. RFNBO, RED III'],
+                  ['rfq-schemes', 'Accepted schemes (comma-separated)', 'schemes', 'accepted_schemes', 'text', 'e.g. ISCC EU, CertifHy'],
+                  ['rfq-incoterms', 'Incoterms (comma-separated)', 'incoterms', 'incoterms', 'text', 'e.g. FOB, CIF'],
+                  ['rfq-place', 'Named place', 'named_place', null, 'text', 'e.g. Rotterdam'],
+                  ['rfq-country', 'Delivery country (two letters)', 'delivery_country', 'delivery_country', 'text', 'e.g. NL'],
+                ] as const).map(([id, label, field, key, type, ph]) => (
+                  <div key={id} className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label htmlFor={id} className="block text-xs font-medium text-gray-700 mb-1">{label}</label>
+                      <input id={id} type={type} step="any" placeholder={ph} value={formData[field]}
+                             onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
+                             className="w-full px-3 py-1.5 border rounded-lg text-sm" />
+                    </div>
+                    {key && (
+                      <label className="flex items-center gap-1 pb-2 text-xs text-gray-600">
+                        <input type="checkbox" checked={formData.required.includes(key)}
+                               onChange={(e) => setFormData({ ...formData, required: e.target.checked
+                                 ? [...formData.required, key] : formData.required.filter((k) => k !== key) })} />
+                        required
+                      </label>
+                    )}
+                  </div>
+                ))}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label htmlFor="rfq-evidence" className="block text-xs font-medium text-gray-700 mb-1">Minimum evidence</label>
+                    <select id="rfq-evidence" value={formData.min_evidence}
+                            onChange={(e) => setFormData({ ...formData, min_evidence: e.target.value })}
+                            className="w-full px-2 py-1.5 border rounded-lg text-sm">
+                      <option value="">Any</option>
+                      <option value="submitted">Submitted or better</option>
+                      <option value="verified">Verified only</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="rfq-form" className="block text-xs font-medium text-gray-700 mb-1">Physical form</label>
+                    <select id="rfq-form" value={formData.physical_form}
+                            onChange={(e) => setFormData({ ...formData, physical_form: e.target.value })}
+                            className="w-full px-2 py-1.5 border rounded-lg text-sm">
+                      <option value="">Any</option>
+                      <option value="gas">Gas</option>
+                      <option value="compressed_gas">Compressed gas</option>
+                      <option value="liquid">Liquid</option>
+                      <option value="liquefied_gas">Liquefied gas</option>
+                    </select>
+                  </div>
+                </div>
+              </fieldset>
               <div className="flex gap-2 justify-end pt-4">
                 <button type="button" onClick={() => setShowCreateModal(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">
                   Cancel

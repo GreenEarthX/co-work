@@ -1,0 +1,271 @@
+{
+ "01a_capacity_create": {
+  "status": 201,
+  "body": {
+   "id": "31756f81-31a8-4bd7-8d5d-72a3d77045dd",
+   "project_id": "proj_TEST_probe_seller",
+   "project_name": "TEST probe plant",
+   "molecule": "e-Methanol",
+   "capacity_mtpd": 100.0,
+   "location": "TEST Hamburg",
+   "production_start": "2027-06-01",
+   "production_end": null,
+   "compliance_certifications": [
+    "RFNBO"
+   ],
+   "capex_eur": null,
+   "opex_eur_kg": null,
+   "created_at": "None",
+   "status": "draft",
+   "correlation_id": "CAP-31756F81"
+  }
+ },
+ "_cap": "31756f81-31a8-4bd7-8d5d-72a3d77045dd",
+ "01b_token_mint_self_declared_CONFIRMED": {
+  "status": 500,
+  "body": "Internal Server Error"
+ },
+ "01c_token_rows_after_mint_call": [
+  {
+   "id": "48f7088f-e420-4f24-b855-fa5775277877",
+   "verification_state": "CONFIRMED",
+   "lifecycle_state": "MINTED",
+   "tokenised_mtpd": 40.0
+  }
+ ],
+ "_tok": "48f7088f-e420-4f24-b855-fa5775277877",
+ "01d_listing_create_open": {
+  "status": 201,
+  "body": {
+   "id": "3a89723c-76af-4639-8501-66a7627790a8",
+   "token_id": "48f7088f-e420-4f24-b855-fa5775277877",
+   "molecule": "e-Methanol",
+   "volume_mtpd": 30.0,
+   "price_eur_kg": 1.1,
+   "delivery_start": "2028-01-01",
+   "delivery_end": "2028-12-31",
+   "location": "TEST Hamburg berth 7",
+   "status": "active",
+   "offer_type": "firm",
+   "country_of_origin": null,
+   "dfi_funded": null,
+   "sovereign_cert_scheme": null,
+   "esg_score": null,
+   "created_at": "2026-11-13T17:20:14.613847+00:00",
+   "correlation_id": "CAP-31756F81",
+   "delivery_type": "SPOT",
+   "delivery_basis": "FOB Hamburg",
+   "price_basis": "fixed",
+   "certification_pathway_required": null,
+   "min_order_kg": 500000.0,
+   "esg_tier": null,
+   "listing_state": "OPEN"
+  }
+ },
+ "_offer": "3a89723c-76af-4639-8501-66a7627790a8",
+ "02_buyer_listing_view": {
+  "status": 200,
+  "body": {
+   "offers": [
+    {
+     "id": "3a89723c-76af-4639-8501-66a7627790a8",
+     "molecule": "e-Methanol",
+     "volume_mtpd": 30.0,
+     "price_eur_kg": 1.1,
+     "delivery_start": "2028-01-01",
+     "delivery_end": "2028-12-31",
+     "delivery_type": "SPOT",
+     "delivery_basis": "FOB Hamburg",
+     "price_basis": "fixed",
+     "certification_pathway_required": null,
+     "min_order_kg": 500000.0,
+     "esg_tier": null,
+     "created_at": "2026-11-13T17:20:14.613847+00:00",
+     "carbon_intensity_gco2e_mj": 9.0,
+     "certification_pathway": "RFNBO",
+     "mine": false
+    }
+   ]
+  }
+ },
+ "02_listing_fields_seen_by_buyer": [
+  "carbon_intensity_gco2e_mj",
+  "certification_pathway",
+  "certification_pathway_required",
+  "created_at",
+  "delivery_basis",
+  "delivery_end",
+  "delivery_start",
+  "delivery_type",
+  "esg_tier",
+  "id",
+  "min_order_kg",
+  "mine",
+  "molecule",
+  "price_basis",
+  "price_eur_kg",
+  "volume_mtpd"
+ ],
+ "03a_producer_cfo_creates_rfq": {
+  "status": 201,
+  "body": {
+   "id": "479f31be-1b7a-4bc9-b55c-4f9631515207",
+   "buyer_company_id": "test_probe_seller",
+   "created_by": "p_s_cfo",
+   "molecule": "e-Methanol",
+   "volume_mtpd": 10.0,
+   "max_price_eur_kg": 1.3,
+   "delivery_start": "2028-01-01",
+   "delivery_end": "2028-12-31",
+   "location": "TEST Rotterdam",
+   "buyer_name": "TEST Probe Seller",
+   "buyer_contact": "buyer@test.invalid",
+   "compliance_requirements": [],
+   "status": "open",
+   "correlation_id": "RFQ-479f31be",
+   "created_at": "2026-11-13T17:20:15.195715+00:00",
+   "updated_at": "2026-11-13T17:20:15.195715+00:00"
+  }
+ },
+ "03b_producer_engineer_creates_rfq": {
+  "status": 201,
+  "body": {
+   "id": "97688b90-b286-4e15-8f34-6590f6c73980",
+   "buyer_company_id": "test_probe_seller",
+   "created_by": "p_s_eng",
+   "molecule": "e-Methanol",
+   "volume_mtpd": 10.0,
+   "max_price_eur_kg": 1.3,
+   "delivery_start": "2028-01-01",
+   "delivery_end": "2028-12-31",
+   "location": "TEST Rotterdam",
+   "buyer_name": "TEST Probe Seller",
+   "buyer_contact": "buyer@test.invalid",
+   "compliance_requirements": [],
+   "status": "open",
+   "correlation_id": "RFQ-97688b90",
+   "created_at": "2026-11-13T17:20:15.418706+00:00",
+   "updated_at": "2026-11-13T17:20:15.418706+00:00"
+  }
+ },
+ "03c_producer_cfo_reads_market": {
+  "status": 200,
+  "body": {
+   "rfqs": [
+    {
+     "id": "97688b90-b286-4e15-8f34-6590f6c73980",
+     "molecule": "e-Methanol",
+     "volume_mtpd": 10.0,
+     "max_price_eur_kg": 1.3,
+     "delivery_start": "2028-01-01",
+     "delivery_end": "2028-12-31",
+     "compliance_requirements": [],
+     "created_at": "2026-11-13T17:20:15.418706+00:00",
+     "mine": true
+    },
+    {
+     "id": "479f31be-1b7a-4bc9-b55c-4f9631515207",
+     "molecule": "e-Methanol",
+     "volume_mtpd": 10.0,
+     "max_price_eur_kg": 1.3,
+     "delivery_start": "2028-01-01",
+     "delivery_end": "2028-12-31",
+     "compliance_requirements": [],
+     "created_at": "2026-11-13T17:20:15.195715+00:00",
+     "mine": true
+    }
+   ]
+  }
+ },
+ "04_same_rfq_posted_twice": {
+  "statuses": [
+   201,
+   201
+  ],
+  "ids_distinct": true,
+  "buyer_open_rfqs_now": 2
+ },
+ "_rfq": "926e810f-bad0-4215-a3aa-6351f3632869",
+ "05a_post_enquiry": {
+  "status": 404,
+  "body": {
+   "detail": "Not Found"
+  }
+ },
+ "05b_propose_match_is_the_only_contact": {
+  "status": 201,
+  "body": {
+   "id": "e07bd70c-8bf7-43c3-9f04-633fca0d0e17",
+   "offer_id": "3a89723c-76af-4639-8501-66a7627790a8",
+   "rfq_id": "926e810f-bad0-4215-a3aa-6351f3632869",
+   "match_score": 100,
+   "volume_mtpd": 10.0,
+   "price_eur_kg": 1.1,
+   "status": "pending",
+   "created_at": "2026-11-13T17:20:16.368610+00:00",
+   "project_id": "proj_TEST_probe_seller",
+   "token_id": "48f7088f-e420-4f24-b855-fa5775277877",
+   "seller_company_id": "test_probe_seller",
+   "buyer_company_id": "test_probe_buyer",
+   "molecule": "e-Methanol",
+   "delivery_start": "2028-01-01",
+   "delivery_end": "2028-12-31",
+   "correlation_id": "CAP-31756F81",
+   "created_by": "p_b_com",
+   "seller_accepted_by": null,
+   "seller_accepted_at": null,
+   "buyer_accepted_by": "p_b_com",
+   "buyer_accepted_at": "2026-11-13T17:20:16.368610+00:00",
+   "delivery_terms": null,
+   "payment_terms": null,
+   "buyer_name": "TEST Probe Buyer",
+   "proposer_company_id": "test_probe_buyer"
+  }
+ },
+ "05c_seller_view_of_proposal_keys": [
+  "buyer_accepted_at",
+  "buyer_accepted_by",
+  "buyer_company_id",
+  "buyer_name",
+  "correlation_id",
+  "created_at",
+  "created_by",
+  "delivery_end",
+  "delivery_start",
+  "delivery_terms",
+  "id",
+  "match_score",
+  "molecule",
+  "offer_id",
+  "payment_terms",
+  "price_eur_kg",
+  "project_id",
+  "proposer_company_id",
+  "rfq_id",
+  "seller_accepted_at",
+  "seller_accepted_by",
+  "seller_company_id",
+  "seller_company_name",
+  "side",
+  "status",
+  "token_id",
+  "volume_mtpd"
+ ],
+ "05d_seller_sees_buyer_contact_or_location": false,
+ "06_mint_race": {
+  "capacity_mtpd": 100,
+  "before": 40.0,
+  "in_flight_mint": 40,
+  "api_mint": 40,
+  "api_status": 500,
+  "total_after": 120.0,
+  "over_capacity": true
+ },
+ "07_score_cert_and_ci_mismatch": 100,
+ "05e_buyer_mints_on_seller_capacity": {
+  "status": 400,
+  "body": {
+   "detail": "Cannot tokenise 1.0 MTPD. Available: -20.0 MTPD"
+  }
+ }
+}

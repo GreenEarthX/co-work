@@ -9,6 +9,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { MarketDiscoveryPage } from '../MarketDiscoveryPage'
 import RFQManagementPage from '../RFQManagementPage'
+import { resetMarketPolicy } from '@/lib/marketPolicy'
+
+const COMMERCIAL_ACTS = ['rfq.create', 'rfq.change', 'proposal.create', 'proposal.accept', 'proposal.decline']
 
 type Route = (url: string, init?: RequestInit) => unknown
 
@@ -17,14 +20,16 @@ function serve(route: Route) {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url, init })
     // Molecule lists come from tb_commodity via the API, never from a constant.
-    const body = url.endsWith('/market/commodities') ? { commodities: COMMODITIES } : route(url, init)
+    const body = url.endsWith('/market/commodities') ? { commodities: COMMODITIES }
+      : url.endsWith('/market/policy') ? { business_function: 'COMMERCIAL', allowed: COMMERCIAL_ACTS }   // D-B
+      : route(url, init)
     if (body instanceof Response) return body
     return new Response(JSON.stringify(body), { status: 200 })
   }))
   return calls
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); resetMarketPolicy() })
 
 const COMMODITIES = [
   { code: 'H2', name: 'Hydrogen', default_unit: 't', market_molecule: 'H2' },

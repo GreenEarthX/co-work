@@ -35,7 +35,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.core import market_engine as me
-from app.core.market_engine import Party, _refuse, _trader
+from app.core.market_engine import Party, _may, _refuse, _trader
 from app.trading_book import canonical, conventions as cv, record, validation
 from app.trading_book.record import RecordRefused
 from app.trading_book.terms import TermsIn
@@ -144,19 +144,46 @@ def _insert_order(conn, party: Party, terms: TermsIn, *, side: str, order_type: 
     return order_id
 
 
+def _token_for_order(conn, party: Party, token_id: str, terms: TermsIn, side: str, order_type: str,
+                     all_or_nothing: bool) -> dict:
+    """G-25 (JML P2, 13 Nov 2026): a SELL order may name ONE token of the seller's own project,
+    in its own molecule, still MINTED; the order is then firm and all-or-nothing (one token,
+    one contract). Opening reserves it, cancelling releases it, acceptance puts it on the
+    contract and matches it — the market listing's lifecycle (market_engine)."""
+    if side != "sell" or order_type != "firm" or not all_or_nothing:
+        _refuse(422, "TOKEN_ORDER_TERMS", "An order naming a token is a firm, all-or-nothing sell order.")
+    t = _row(conn, "SELECT t.id, t.molecule, t.lifecycle_state, c.project_id FROM tokens t "
+                   "JOIN capacities c ON c.id = t.capacity_id WHERE t.id = ?", (token_id,))
+    if t is None or not _row(conn, "SELECT app_company_owns_project(?, ?) AS ok", (t["project_id"], party.company_id))["ok"]:
+        _refuse(404, "TOKEN_NOT_FOUND", "No token of your own projects with that id.")
+    if _row(conn, "SELECT 1 AS x FROM tb_order WHERE token_id = ? AND listing_order_id IS NULL AND rfq_id IS NULL "
+                  "AND status IN ('draft', 'open', 'partially_filled', 'filled')", (token_id,)):
+        _refuse(409, "TOKEN_ALREADY_OFFERED", "A live order or listing already names this token.")
+    if (t["lifecycle_state"] or "MINTED") != "MINTED":
+        _refuse(409, "TOKEN_STATE", f"The token is {t['lifecycle_state']}; an order names a MINTED token.")
+    if record.commodity_for_molecule(conn, t["molecule"]) != terms.commodity:
+        _refuse(422, "TOKEN_COMMODITY", f"The token is {t['molecule']}; the terms trade {terms.commodity}.")
+    return t
+
+
 @_guard
 def create_order(party: Party, terms: TermsIn, *, side: str, order_type: str = "firm",
                  all_or_nothing: bool = False, min_fill_quantity: Optional[Decimal] = None,
-                 valid_until: datetime, visibility: str = "platform", invitees: list[str] = ()) -> dict:
+                 valid_until: datetime, visibility: str = "platform", invitees: list[str] = (),
+                 token_id: Optional[str] = None) -> dict:
     _trader(party)
+    _may(party, "order.create")
     conn = _conn()
     try:
         _validate(conn, terms, "order")
         if visibility == "invited" and not invitees:
             _refuse(422, "INVITEES_REQUIRED", "An invited order names who may accept it.")
+        if token_id:
+            _token_for_order(conn, party, token_id, terms, side, order_type, all_or_nothing)
         order_id = _insert_order(conn, party, terms, side=side, order_type=order_type,
                                  all_or_nothing=all_or_nothing, min_fill_quantity=min_fill_quantity,
                                  valid_until=valid_until, visibility=visibility, invitees=list(invitees))
+        conn.execute("UPDATE tb_order SET origin_book = 'order_book', token_id = ? WHERE id = ?", (token_id, order_id))
         conn.commit()
         return _order_view(conn, _row(conn, "SELECT * FROM tb_order WHERE id = ?", (order_id,)), party)
     finally:
@@ -174,6 +201,7 @@ def _own_order(conn, party: Party, order_id: str, lock: bool = False) -> dict:
 def open_order(party: Party, order_id: str) -> dict:
     """draft -> open: the terms freeze (spec §5) and the order can be accepted."""
     _trader(party)
+    _may(party, "order.change")
     conn = _conn()
     try:
         o = _own_order(conn, party, order_id, lock=True)
@@ -183,7 +211,10 @@ def open_order(party: Party, order_id: str) -> dict:
         record.freeze(conn, str(o["terms_id"]))
         conn.execute("UPDATE tb_order SET status = 'open', updated_at = now() WHERE id = ?", (order_id,))
         _event(conn, order_id, "draft", "open", party.user_id, "opened")
-        conn.commit()
+        trail = me._Trail(party)
+        if o["token_id"] and o["origin_book"] == "order_book":
+            me._move_token(conn, trail, o["token_id"], {"MINTED"}, "RESERVED", f"order-book order {order_id} opened")
+        me._commit(conn, trail)
         return _order_view(conn, _row(conn, "SELECT * FROM tb_order WHERE id = ?", (order_id,)), party)
     finally:
         conn.close()
@@ -192,6 +223,7 @@ def open_order(party: Party, order_id: str) -> dict:
 @_guard
 def cancel_order(party: Party, order_id: str) -> dict:
     _trader(party)
+    _may(party, "order.change")
     conn = _conn()
     try:
         o = _own_order(conn, party, order_id, lock=True)
@@ -199,7 +231,10 @@ def cancel_order(party: Party, order_id: str) -> dict:
             _refuse(409, "ORDER_STATE", f"A {o['status']} order cannot be cancelled.")
         conn.execute("UPDATE tb_order SET status = 'cancelled', updated_at = now() WHERE id = ?", (order_id,))
         _event(conn, order_id, o["status"], "cancelled", party.user_id, "cancelled by its owner")
-        conn.commit()
+        trail = me._Trail(party)
+        if o["token_id"] and o["origin_book"] == "order_book" and o["status"] == "open":
+            me._move_token(conn, trail, o["token_id"], {"RESERVED"}, "MINTED", f"order-book order {order_id} cancelled")
+        me._commit(conn, trail)
         return _order_view(conn, _row(conn, "SELECT * FROM tb_order WHERE id = ?", (order_id,)), party)
     finally:
         conn.close()
@@ -325,10 +360,22 @@ def _accept(conn, party: Party, order_id: str, quantity: Optional[Decimal], *, q
 @_guard
 def accept_order(party: Party, order_id: str, quantity: Optional[Decimal] = None) -> dict:
     _trader(party)
+    _may(party, "order.accept")
     conn = _conn()
     try:
-        result = _accept(conn, party, order_id, quantity)
-        conn.commit()
+        o = _row(conn, "SELECT token_id, origin_book FROM tb_order WHERE id = ?", (order_id,))
+        token = o["token_id"] if o and o["origin_book"] == "order_book" else None
+        if not token:
+            result = _accept(conn, party, order_id, quantity)
+            conn.commit()
+            return result
+        # G-25: the order's token goes on the contract and is matched, in the same transaction.
+        project = _row(conn, "SELECT c.project_id FROM tokens t JOIN capacities c ON c.id = t.capacity_id "
+                             "WHERE t.id = ?", (token,))["project_id"]
+        result = _accept(conn, party, order_id, quantity, project_id=project, token_ids=[token])
+        trail = me._Trail(party)
+        me._move_token(conn, trail, token, {"RESERVED"}, "MATCHED", f"order-book order {order_id} accepted")
+        me._commit(conn, trail)
         return result
     finally:
         conn.close()
@@ -340,6 +387,7 @@ def accept_order(party: Party, order_id: str, quantity: Optional[Decimal] = None
 def create_rfq(party: Party, terms: TermsIn, *, side: str, valid_until: datetime) -> dict:
     """Indicative terms, frozen when published."""
     _trader(party)
+    _may(party, "rfq.create")
     conn = _conn()
     try:
         _validate(conn, terms, "order")
@@ -367,6 +415,7 @@ def _rfq_view(conn, r: dict, party: Party) -> dict:
 @_guard
 def publish_rfq(party: Party, rfq_id: str) -> dict:
     _trader(party)
+    _may(party, "rfq.change")
     conn = _conn()
     try:
         r = _row(conn, "SELECT * FROM tb_rfq WHERE id = ? FOR UPDATE", (rfq_id,))
@@ -400,6 +449,7 @@ def list_rfqs(party: Party) -> list[dict]:
 def quote(party: Party, rfq_id: str, terms: TermsIn, *, valid_until: datetime) -> dict:
     """Q6: an invited firm quote. Creating it is the quoting party's acceptance."""
     _trader(party)
+    _may(party, "quote.create")
     conn = _conn()
     try:
         r = _row(conn, "SELECT * FROM tb_rfq WHERE id = ? FOR UPDATE", (rfq_id,))
@@ -425,6 +475,7 @@ def accept_quote(party: Party, rfq_id: str, order_id: str) -> dict:
     """The requester accepts one quote: fill + draft contract, the RFQ closes and
     its other quotes are cancelled — one transaction."""
     _trader(party)
+    _may(party, "quote.accept")
     conn = _conn()
     try:
         r = _row(conn, "SELECT * FROM tb_rfq WHERE id = ? FOR UPDATE", (rfq_id,))
@@ -504,6 +555,7 @@ def request_confirmation(party: Party, contract_id: str) -> dict:
     from app.core import wae
 
     _trader(party)
+    _may(party, "trade.confirm.request")
     conn = _conn()
     try:
         c, who = _contract_for(conn, party, contract_id)

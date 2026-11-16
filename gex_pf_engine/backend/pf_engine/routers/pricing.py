@@ -14,9 +14,9 @@ from pf_engine.pricing.gabillon.schemas import (
 )
 from pf_engine.pricing.gabillon.service import GabillonService
 from pf_engine.pricing.offtake.schemas import (
-    GreenmeshRollupResponse,
     OfftakeConfig,
     OfftakeValueResponse,
+    PortfolioRollupResponse,
     RollupRequest,
 )
 from pf_engine.pricing.offtake.service import OfftakeService
@@ -117,18 +117,24 @@ def value_offtake(payload: OfftakeConfig) -> dict[str, Any]:
 
 
 @router.post(
-    "/offtake/rollup",
-    response_model=GreenmeshRollupResponse,
-    summary="GreenMesh portfolio rollup of offtake contracts",
+    "/offtake/portfolio-rollup",
+    response_model=PortfolioRollupResponse,
+    summary="Portfolio rollup of offtake contracts",
 )
-def greenmesh_rollup(payload: RollupRequest) -> dict[str, Any]:
+@router.post(
+    "/offtake/rollup",
+    response_model=PortfolioRollupResponse,
+    summary="Deprecated alias of /pf/offtake/portfolio-rollup (kept for one release)",
+    deprecated=True,
+)
+def portfolio_rollup(payload: RollupRequest) -> dict[str, Any]:
     """
-    Aggregate multiple offtake contracts into a portfolio (GreenMesh) view:
+    Aggregate multiple offtake contracts into a portfolio view:
     template terms applied across `contracts`, valued on the same project
     curve, with portfolio-level totals. 409 if the curve is not calibrated.
     """
     try:
-        return offtake_service.greenmesh_rollup(
+        return offtake_service.portfolio_rollup(
             payload.template_config(),
             payload.contracts,
             payload.curve_config,

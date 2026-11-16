@@ -81,6 +81,10 @@ def _not_trade_confirm(action_type: Optional[str]) -> None:
         raise HTTPException(status_code=409, detail={
             "code": "TRADE_CONFIRM_ON_THE_CONTRACT",
             "message": "A contract is confirmed on the contract itself, not through the generic approvals."})
+    if (action_type or "").upper() == "DELIVERY_CONFIRM":     # Phase 2 Step 3: raised and decided on the delivery
+        raise HTTPException(status_code=409, detail={
+            "code": "DELIVERY_CONFIRM_ON_THE_DELIVERY",
+            "message": "A delivery confirmation is raised and decided on the delivery itself."})
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────

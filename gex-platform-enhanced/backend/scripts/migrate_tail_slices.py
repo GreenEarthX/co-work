@@ -54,7 +54,8 @@ SLICE_TABLES: dict[str, tuple[str, ...]] = {
     "corpus_status_transitions": ('transition_id',),
     "corpus_taxonomy_map": ('source', 'field', 'raw_label'),
     "corpus_versions": ('version_id',),
-    "deliveries": ('id',),
+    # "deliveries" is not copied since alembic 103 rebuilt it as the delivery record: its SQLite
+    # table never held a row, and its 044 columns no longer exist in PostgreSQL.
     "dfi_criteria": ('criterion_id',),
     "dfi_impact_kpis": ('kpi_id',),
     "drawdown_schedules": ('drawdown_id',),

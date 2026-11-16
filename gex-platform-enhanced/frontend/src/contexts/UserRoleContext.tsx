@@ -1,6 +1,7 @@
 // Screen: Global context (no screen)
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { AUTH_SESSION_KEY, SESSION_TIER_KEY, clearAuthSession } from '@/lib/authToken';
+import { resetMarketPolicy } from '@/lib/marketPolicy';
 
 export type CompanyType = 'PRODUCER' | 'OFFTAKER' | 'THIRD_PARTY';
 export type ServiceType = 'BANK' | 'INSURER' | 'CERTIFIER' | 'LOGISTICS' | 'ENGINEER' | 'EQUIPMENT' | 'LEGAL' | null;
@@ -136,6 +137,7 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
   };
 
   const login = (session: AuthSession, newRole: UserRole) => {
+    resetMarketPolicy();          // a new user: ask the server again what it may do
     setAuthSession(session);
     setSessionTier('authenticated');
     setRole(newRole);
@@ -156,6 +158,7 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    resetMarketPolicy();
     // Best-effort server-side refresh token revocation
     const savedSession = authSession;
     if (savedSession?.token) {

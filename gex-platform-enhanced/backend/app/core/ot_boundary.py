@@ -27,8 +27,8 @@ import logging
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import date, datetime, timezone
+from typing import Callable, Optional
 from app.core.config import settings
 from app.core.db_backend import domain_connection, domain_is_postgres
 
@@ -42,8 +42,9 @@ _DB_PATH = settings.SQLITE_DB_PATH
 # ═══════════════════════════════════════════════════════════════
 
 ALLOWED_DATA_TYPES = {
-    "PRODUCTION_VOLUME",       # m³/h H2, t/day NH3, etc.
-    "POWER_CONSUMPTION",       # MWh
+    "PRODUCTION_VOLUME",       # metered: quantity + unit (kg, t, kg/h, t/h, t/d) per interval
+    "POWER_CONSUMPTION",       # metered: quantity + unit (kWh, MWh, GWh, kW, MW) per interval
+    "PPA_GENERATION",          # metered (099): generation of one registered PPA, MWh per interval
     "ELECTROLYSER_EFFICIENCY", # kWh/kg H2
     "QUALITY_CERTIFICATE",     # purity, carbon intensity per kg
     "METERED_DELIVERY",        # GoO delivery confirmation
@@ -60,6 +61,111 @@ FORBIDDEN_COMMAND_TYPES = {
     "FIRMWARE_UPDATE",
     "PARAMETER_WRITE",
 }
+
+
+# ── Metered readings (migration 098, GreenMesh Phase 1 Step 3) ────────────────
+# A metered payload names its quantity, its unit and its interval explicitly:
+#   {"quantity": 12.5, "unit": "t", "interval_start": "2026-02-01T00:00:00+00:00",
+#    "interval_end": "2026-02-02T00:00:00+00:00", "molecule": "H2"}
+# It is stored normalised to kg (production) or MWh (power) for that interval. A rate
+# unit is multiplied by the interval's hours. A unit not listed here is REFUSED.
+# Volumes (G-22, Phase 2 Step 1): hydrogen in Nm3 or Nm3/h converts to kg with the APPROVED
+# reference row `h2_density_normal_0c_101325pa` in force on the interval's first day, and the
+# reading keeps that row's id. With no approved row the reading is refused — no density is
+# ever assumed. An actual m3 (or m3/h) is refused outright: it needs the gas's pressure and
+# temperature, which a reading does not carry. Other molecules have no density key.
+METERED_DATA_TYPES = {"PRODUCTION_VOLUME", "POWER_CONSUMPTION", "PPA_GENERATION"}
+_TOTAL_UNITS = {
+    "PRODUCTION_VOLUME": {"kg": 1.0, "t": 1000.0},
+    "POWER_CONSUMPTION": {"kWh": 0.001, "MWh": 1.0, "GWh": 1000.0},
+    "PPA_GENERATION": {"kWh": 0.001, "MWh": 1.0, "GWh": 1000.0},
+}
+_RATE_UNITS_PER_HOUR = {
+    "PRODUCTION_VOLUME": {"kg/h": 1.0, "t/h": 1000.0, "kg/d": 1.0 / 24, "t/d": 1000.0 / 24,
+                          "t/day": 1000.0 / 24},
+    "POWER_CONSUMPTION": {"kW": 0.001, "MW": 1.0},
+    "PPA_GENERATION": {"kW": 0.001, "MW": 1.0},
+}
+NORMALISED_UNIT = {"PRODUCTION_VOLUME": "kg", "POWER_CONSUMPTION": "MWh", "PPA_GENERATION": "MWh"}
+_NORMAL_VOLUME_UNITS = {"Nm3": None, "Nm3/h": 1.0}       # None: a total; 1.0: per hour
+H2_DENSITY_KEY = "h2_density_normal_0c_101325pa"
+
+
+def approved_h2_density(on: date) -> Optional[dict]:
+    """The APPROVED hydrogen density (kg per Nm3) in force on `on`, or None."""
+    from app.core import reference_registry as reg
+
+    if not reg.registry_available():
+        return None
+    conn = reg._connection()
+    try:
+        row = reg.resolve(conn, H2_DENSITY_KEY, "H2", "ANY", on.isoformat())
+    finally:
+        conn.close()
+    return {"kg_per_nm3": float(row["value_base"]), "ref_id": row["ref_id"]} if row else None
+
+
+class MeteredPayloadError(ValueError):
+    pass
+
+
+def _instant(value, field: str) -> datetime:
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError) as exc:
+        raise MeteredPayloadError(f"{field} must be an ISO-8601 date-time") from exc
+    if dt.tzinfo is None:
+        raise MeteredPayloadError(f"{field} must carry a UTC offset")
+    return dt
+
+
+def normalise_metered(data_type: str, payload: dict,
+                      density_on: Callable[[date], Optional[dict]] = approved_h2_density) -> dict:
+    """The normalised reading, or MeteredPayloadError saying what is missing or wrong."""
+    unit = payload.get("unit")
+    if not isinstance(unit, str) or not unit:
+        raise MeteredPayloadError(f"{data_type} needs an explicit unit")
+    qty = payload.get("quantity")
+    if isinstance(qty, bool) or not isinstance(qty, (int, float)) or qty < 0:
+        raise MeteredPayloadError("quantity must be a number, zero or more")
+    start = _instant(payload.get("interval_start"), "interval_start")
+    end = _instant(payload.get("interval_end"), "interval_end")
+    if end <= start:
+        raise MeteredPayloadError("interval_end must be after interval_start")
+    hours = (end - start).total_seconds() / 3600
+    conversion_ref_id = None
+    if data_type == "PRODUCTION_VOLUME" and unit in _NORMAL_VOLUME_UNITS:
+        if payload.get("molecule") != "H2":
+            raise MeteredPayloadError(f"a volume ({unit}) converts to kg only for hydrogen; report "
+                                      f"{payload.get('molecule')!r} in kg or t")
+        d = density_on(start.date())
+        if not d:
+            raise MeteredPayloadError(f"no APPROVED hydrogen density ({H2_DENSITY_KEY}) is in force on "
+                                      f"{start.date()}: {unit} cannot be converted (G-22)")
+        per_hour = _NORMAL_VOLUME_UNITS[unit]
+        q = float(qty) * (hours if per_hour else 1.0) * d["kg_per_nm3"]
+        conversion_ref_id = d["ref_id"]
+    elif data_type == "PRODUCTION_VOLUME" and unit in ("m3", "m3/h"):
+        raise MeteredPayloadError(f"an actual volume ({unit}) needs the gas's pressure and temperature; "
+                                  "report Nm3 (0 °C, 101.325 kPa), kg or t")
+    elif unit in _TOTAL_UNITS[data_type]:
+        q = float(qty) * _TOTAL_UNITS[data_type][unit]
+    elif unit in _RATE_UNITS_PER_HOUR[data_type]:
+        q = float(qty) * _RATE_UNITS_PER_HOUR[data_type][unit] * hours
+    else:
+        known = sorted(_TOTAL_UNITS[data_type]) + sorted(_RATE_UNITS_PER_HOUR[data_type])
+        raise MeteredPayloadError(f"unit {unit!r} is not accepted for {data_type}; use one of {known}")
+    molecule = payload.get("molecule")
+    if data_type == "PRODUCTION_VOLUME" and not (isinstance(molecule, str) and molecule):
+        raise MeteredPayloadError("PRODUCTION_VOLUME names its molecule")
+    ppa_ref = payload.get("ppa_ref")
+    if data_type == "PPA_GENERATION" and not (isinstance(ppa_ref, str) and ppa_ref):
+        raise MeteredPayloadError("PPA_GENERATION names its ppa_ref")
+    return {"molecule": molecule if data_type == "PRODUCTION_VOLUME" else None,
+            "ppa_ref": ppa_ref if data_type == "PPA_GENERATION" else None,
+            "interval_start": start, "interval_end": end,
+            "quantity_normalised": q, "normalised_unit": NORMALISED_UNIT[data_type],
+            "conversion_ref_id": conversion_ref_id}
 
 
 @dataclass
@@ -146,10 +252,12 @@ def validate_inbound(
     claimed_sha256: str,
     source_ip: Optional[str] = None,
     db_path: str = _DB_PATH,
+    project_id: Optional[str] = None,
 ) -> BoundaryValidation:
     """
     Validate an inbound OT data packet before accepting it.
-    Checks: registered gateway, data type allowlist, SHA-256 integrity.
+    Checks: registered gateway, the gateway's own project (when `project_id` is given),
+    data type allowlist, a metered payload's unit and interval, SHA-256 integrity.
     """
     # Reject any command attempts (should never come inbound, but defence-in-depth)
     if data_type in FORBIDDEN_COMMAND_TYPES:
@@ -176,6 +284,28 @@ def validate_inbound(
             sha256_match=False, schema_valid=False,
             reason=f"Gateway '{gateway_id}' not registered",
         )
+
+    if project_id is not None and gw.get("project_id") != project_id:
+        return BoundaryValidation(
+            valid=False, gateway_id=gateway_id, data_type=data_type,
+            sha256_match=False, schema_valid=False,
+            reason=f"Gateway '{gateway_id}' reports for another project than {project_id}",
+        )
+
+    if data_type in METERED_DATA_TYPES:
+        if not gw.get("facility_id"):
+            return BoundaryValidation(
+                valid=False, gateway_id=gateway_id, data_type=data_type,
+                sha256_match=False, schema_valid=False,
+                reason=f"Gateway '{gateway_id}' names no facility, so its meter readings cannot be placed",
+            )
+        try:
+            normalise_metered(data_type, payload)
+        except MeteredPayloadError as exc:
+            return BoundaryValidation(
+                valid=False, gateway_id=gateway_id, data_type=data_type,
+                sha256_match=False, schema_valid=False, reason=str(exc),
+            )
 
     if not gw.get("active"):
         return BoundaryValidation(
@@ -224,25 +354,61 @@ def store_plant_data(
     sha256_hash: str,
     db_path: str = _DB_PATH,
 ) -> str:
-    """Append plant data record. Returns record_id."""
+    """Append plant data record. Returns record_id.
+
+    Raises on failure. It used to log and return a record id anyway, so the ingest
+    route answered "accepted" for a reading that was never stored. A metered reading
+    (PRODUCTION_VOLUME, POWER_CONSUMPTION) is PostgreSQL only and stored normalised,
+    with its gateway's facility (migration 098).
+    """
     record_id = str(uuid.uuid4())
+    received_at = datetime.now(timezone.utc).isoformat()
+    metered = data_type in METERED_DATA_TYPES
+    if metered and not domain_is_postgres():
+        from app.core.db_backend import require_postgres
+
+        require_postgres(False, "Metered plant data", "DOMAIN_DB_BACKEND")
+    con = _conn(db_path)
     try:
-        con = _conn(db_path)
         cur = con.cursor()
         # received_at is set here, not by a column default: SQLite defaults it
         # with datetime('now') and PostgreSQL (044) has no default at all, so
         # leaving it out would silently store NULL on one store only.
-        cur.execute(
-            """INSERT INTO plant_data (id, project_id, gateway_id, data_type, payload_json, sha256_hash, received_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (record_id, project_id, gateway_id, data_type,
-             json.dumps(payload), sha256_hash,
-             datetime.now(timezone.utc).isoformat())
-        )
+        if metered:
+            n = normalise_metered(data_type, payload)
+            gw = cur.execute("SELECT facility_id FROM gateway_registry WHERE id = ?", (gateway_id,)).fetchone()
+            ppa_id = None
+            if n["ppa_ref"]:
+                ppa = cur.execute("SELECT ppa_id FROM coc_ppa WHERE project_id = ? AND ppa_ref = ?",
+                                  (project_id, n["ppa_ref"])).fetchone()
+                if not ppa:
+                    raise MeteredPayloadError(f"PPA {n['ppa_ref']!r} is not registered for project {project_id}")
+                ppa_id = ppa["ppa_id"]
+            cur.execute(
+                """INSERT INTO plant_data (id, project_id, gateway_id, data_type, payload_json, sha256_hash,
+                       received_at, facility_id, molecule, interval_start, interval_end,
+                       quantity_normalised, normalised_unit, ppa_id, conversion_ref_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (record_id, project_id, gateway_id, data_type, json.dumps(payload), sha256_hash,
+                 received_at, gw["facility_id"] if gw else None, n["molecule"], n["interval_start"],
+                 n["interval_end"], n["quantity_normalised"], n["normalised_unit"], ppa_id,
+                 n["conversion_ref_id"]))
+        else:
+            cur.execute(
+                """INSERT INTO plant_data (id, project_id, gateway_id, data_type, payload_json, sha256_hash, received_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (record_id, project_id, gateway_id, data_type,
+                 json.dumps(payload), sha256_hash, received_at)
+            )
         con.commit()
+    except Exception:
+        try:
+            con.rollback()
+        finally:
+            logger.error("OT store_plant_data failed for gateway %s (%s)", gateway_id, data_type)
+        raise
+    finally:
         con.close()
-    except Exception as exc:
-        logger.error("OT store_plant_data failed: %s", exc)
     return record_id
 
 
@@ -264,6 +430,9 @@ def get_plant_data(project_id: str, data_type: Optional[str] = None,
     for r in cur.fetchall():
         d = dict(r)
         d["payload_json"] = json.loads(d["payload_json"])
+        for k in ("interval_start", "interval_end"):
+            if hasattr(d.get(k), "isoformat"):
+                d[k] = d[k].isoformat()
         rows.append(d)
     con.close()
     return rows

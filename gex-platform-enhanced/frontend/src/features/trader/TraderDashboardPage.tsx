@@ -25,8 +25,11 @@ import { ProductionRoadmapGantt } from "@/components/gantt/ProductionRoadmapGant
 import { useSelectedProject } from "@/contexts/ProjectContext";
 import { useVisibleProjects } from "@/hooks/useVisibleProjects";
 import { AdversarialReviewEntryCard } from "@/components/AdversarialReviewEntryCard";
+import { useMarketPolicy } from '@/lib/marketPolicy';
 
 export function TraderDashboardPage() {
+  // D-B: Commercial accepts or declines; the CEO or the CFO approves a confirmation.
+  const { can } = useMarketPolicy();
   const navigate = useNavigate();
   const { selectedProjectId } = useSelectedProject();
   const { projects: visibleProjects } = useVisibleProjects();
@@ -288,14 +291,14 @@ export function TraderDashboardPage() {
                   <div className="flex shrink-0 gap-2">
                     {m.status === "pending" ? (
                       <>
-                        <button onClick={() => act(() => marketAPI.acceptMatch(m.id))}
+                        {can('proposal.accept') && <button onClick={() => act(() => marketAPI.acceptMatch(m.id))}
                                 className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">
                           Accept
-                        </button>
-                        <button onClick={() => act(() => marketAPI.declineMatch(m.id))}
+                        </button>}
+                        {can('proposal.decline') && <button onClick={() => act(() => marketAPI.declineMatch(m.id))}
                                 className="rounded-lg border px-3 py-1.5 text-xs font-semibold">
                           Decline
-                        </button>
+                        </button>}
                       </>
                     ) : (
                       <span role="alert" className="text-xs font-semibold text-red-700">
@@ -331,14 +334,14 @@ export function TraderDashboardPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <button onClick={() => act(() => marketAPI.requestConfirmation(c.id))}
+                    {can('trade.confirm.request') && <button onClick={() => act(() => marketAPI.requestConfirmation(c.id))}
                             className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">
                       Confirm for my company
-                    </button>
-                    <button onClick={() => act(() => approveColleague(c))}
+                    </button>}
+                    {can('trade.confirm.approve') && <button onClick={() => act(() => approveColleague(c))}
                             className="rounded-lg border px-3 py-1.5 text-xs font-semibold">
                       Approve colleague's confirmation
-                    </button>
+                    </button>}
                   </div>
                 </div>
               ))}

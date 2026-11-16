@@ -1,0 +1,19 @@
+{
+  "_source": "app/core/greenmesh_engine.py v5.1, class CertificationPremium, PREMIUMS_EUR_T — copied verbatim 2026-11-12 before the module was retired (G-12). The class docstring cites 'BNEF H2 Green Premium Survey 2024, ICIS GoO market data 2025' and says the values are ADDITIONAL to the base commodity price, in EUR per tonne. It does not say which figure came from which source, and neither publication has been checked.",
+  "_regions": "Not in the source. Set from the regime's jurisdiction: RFNBO, RED III and CertifHy are EU schemes, 45V is a US credit, CORSIA is international (ANY).",
+  "premiums_eur_t": [
+    {"molecule": "H2",         "regime": "RFNBO",    "value": 400},
+    {"molecule": "H2",         "regime": "RED_III",  "value": 250},
+    {"molecule": "H2",         "regime": "45V",      "value": 300, "source_comment": "via PTC, effective premium"},
+    {"molecule": "H2",         "regime": "CertifHy", "value": 100},
+    {"molecule": "NH3",        "regime": "RFNBO",    "value": 120},
+    {"molecule": "NH3",        "regime": "RED_III",  "value": 80},
+    {"molecule": "SAF",        "regime": "RFNBO",    "value": 350},
+    {"molecule": "SAF",        "regime": "RED_III",  "value": 280},
+    {"molecule": "SAF",        "regime": "CORSIA",   "value": 150},
+    {"molecule": "E_METHANOL", "regime": "RFNBO",    "value": 200},
+    {"molecule": "E_METHANOL", "regime": "RED_III",  "value": 150},
+    {"molecule": "E_NG",       "regime": "RFNBO",    "value": 90},
+    {"molecule": "E_NG",       "regime": "RED_III",  "value": 60}
+  ]
+}

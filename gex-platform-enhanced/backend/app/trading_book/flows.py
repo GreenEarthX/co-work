@@ -105,10 +105,21 @@ def contract_lines(conn, contract_id: str, *, as_party: Optional[str] = None,
                     conn, "SELECT observation_date, value FROM tb_index_history WHERE index_definition_id = ?",
                     (f.index,))]
     delivered: dict[str, Decimal] = {}
-    for r in record._rows(conn, "SELECT l.seq AS leg_seq, f.seq, d.volume_mt FROM tb_flow f JOIN tb_leg l ON "
-                                "l.id = f.leg_id JOIN deliveries d ON d.id = f.delivery_id WHERE l.terms_id = ?",
-                          (str(v["terms_id"]),)):
-        delivered[f"{r['leg_seq']}.{r['seq']}"] = Decimal(str(r["volume_mt"]))
+    # The delivery record (alembic 103): a delivery names the PHYSICAL flow it fulfils, and
+    # the buyer's received quantity is what a delivered-basis payment prices. Several
+    # deliveries of one flow add up; a REJECTED one counts for nothing. `volume_mt` is
+    # delivered_kg / 1000, so a flow in tonnes reads it as before; a flow in another unit
+    # than t or kg is not priced from deliveries (it stays projected).
+    for r in record._rows(conn, "SELECT l.seq AS leg_seq, f.seq, f.unit, sum(d.volume_mt) AS t, "
+                                "sum(d.delivered_kg) AS kg FROM tb_flow f JOIN tb_leg l ON l.id = f.leg_id "
+                                "JOIN deliveries d ON d.flow_id = f.id WHERE l.terms_id = ? "
+                                "AND d.delivered_kg IS NOT NULL AND d.status <> 'REJECTED' "
+                                "GROUP BY l.seq, f.seq, f.unit", (str(v["terms_id"]),)):
+        unit = (r["unit"] or "").strip().lower()
+        if unit in ("t", "mt", "tonne", "tonnes"):
+            delivered[f"{r['leg_seq']}.{r['seq']}"] = Decimal(str(r["t"]))
+        elif unit == "kg":
+            delivered[f"{r['leg_seq']}.{r['seq']}"] = Decimal(str(r["kg"]))
     settled = [r["settlement_date"] for r in record._rows(
         conn, "SELECT settlement_date FROM settlement_events WHERE contract_id = ? AND settlement_status = 'CONFIRMED'",
         (contract_id,)) if r["settlement_date"]]

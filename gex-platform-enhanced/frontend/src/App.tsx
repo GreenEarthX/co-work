@@ -64,6 +64,8 @@ import { InsuranceSchedule } from '@/features/finance/InsuranceSchedule'
 import { TraderDashboardPage } from '@/features/trader/TraderDashboardPage'
 import { MarketDiscoveryPage } from '@/features/trader/MarketDiscoveryPage'
 import RFQManagementPage from '@/features/trader/RFQManagementPage'
+import ListingWizard from '@/features/listings/ListingWizard'
+import DealsPage from '@/features/deals/DealsPage'
 import { CounterpartiesPage } from '@/features/trader/CounterpartiesPage'
 import { GanttVisibilityConfig } from '@/features/ciso/GanttVisibilityConfig'
 import { ScreenAccessPage } from '@/features/ciso/ScreenAccessPage'
@@ -191,6 +193,9 @@ function App() {
               <Route path="trader-dashboard" element={<TraderDashboardPage />} />
               <Route path="market-discovery" element={<MarketDiscoveryPage />} />
               <Route path="rfqs" element={<RFQManagementPage />} />
+              <Route path="listings/new" element={<ListingWizard />} />
+              <Route path="deals" element={<DealsPage />} />
+              <Route path="deals/:id" element={<DealsPage />} />
               <Route path="counterparties" element={<CounterpartiesPage />} />
 
               <Route path="producer-bankability" element={<ProducerBankabilityView />} />

@@ -95,7 +95,7 @@ function-scoped subset. CISO Admin is a separate password-gated surface.
 | **Legal** `TP(LEGAL)` | 15 | contracts, regulatory registry, data room |
 | **Certifier** `TP(CERTIFIER)` | 14 | cert readiness, verification, data room |
 | **Engineer** `TP(ENGINEER)` | 14 | cost basis, plant telemetry, construction progress |
-| **Logistics** `TP(LOGISTICS)` | 12 | GreenMesh/capacity + shared read-only screens |
+| **Logistics** `TP(LOGISTICS)` | 12 | Capacity & Logistics (`/capacity`) + shared read-only screens |
 | **CISO / Admin** | 12 | separate surface (security, residency, gateways, pricing admin) |
 
 **Duplicate-route-per-role check:** ✅ PASS — no role sees the same route under
@@ -104,7 +104,7 @@ exactly one label across all main tabs.
 
 **Persona-minimum guarantee:** ✅ PASS — `audit-menu.mjs` encodes each role's
 *signature tasks* (e.g. Engineer ⇒ Cost Basis + Construction Progress + Plant
-Telemetry; Logistics ⇒ GreenMesh; Certifier ⇒ Cert Readiness + Verification).
+Telemetry; Logistics ⇒ Capacity & Logistics; Certifier ⇒ Cert Readiness + Verification).
 The audit **exits non-zero** if any future `visible_to` change strips one — so
 "a user always has its role-specific tasks" is a CI-enforceable invariant, not a
 promise. (Verified: simulated removal of Engineer→Cost Basis fails the check and
@@ -146,7 +146,7 @@ Per merged route — survivor visibility and whether the breadth is intentional:
 | `/finance-plant-builder` (Cost Basis) | PROD(FIN/EXEC/ENG), TP(BANK/ENGINEER/EQUIPMENT) | none — exact union | ✅ engineers & equipment vendors build the CAPEX basis |
 | `/plant-data` (Plant Telemetry) | PROD(OPS/ENG), TP(ENGINEER) | none | ✅ |
 | `/producer-bankability` (Construction Progress) | PROD(ENG/OPS), TP(ENGINEER) | none | ✅ |
-| `/capacity` (GreenMesh) | PROD(COM/OPS), OFT(OPS), TP(LOGISTICS) | none — exact union | ✅ offtaker-ops sees shipping capacity |
+| `/capacity` (Capacity & Logistics) | PROD(COM/OPS), OFT(OPS), TP(LOGISTICS) | none — exact union | ✅ offtaker-ops sees shipping capacity |
 | `/cert-readiness` (Certification Readiness) | PROD(LEGAL/ENG), TP(CERTIFIER), OFT(LEGAL/COM) | none — exact union | ✅ |
 | `/finance-timeline` (Project Timeline) | ALL | none — screen was already ALL via "Project Timeline" | ⚠ see risk R1 |
 | `/bankability-scores` (State & Blockers) | ALL | none — both entries ALL | ✅ |
@@ -244,7 +244,7 @@ flowchart TD
   COM --> D9["Contracts → /contracts"]:::ok
   COM --> D10["Term Sheet Tracker → /term-sheet"]:::ok
   COM --> D11["Delivery & Settlement → /settlement"]:::ok
-  COM --> D12["GreenMesh (Capacity & Logistics) → /capacity"]:::ok
+  COM --> D12["Capacity & Logistics → /capacity"]:::ok
   COM -.->|Optional (post-v1)| GP0[[Deal capture / blotter — ABSENT]]:::gap
   COM -.->|Not intended — integrate external CTRM| GP1[[Position book / net exposure — ABSENT]]:::gap
   COM -.->|Not intended — integrate external CTRM| GP2[[Mark-to-market / P&L — ABSENT]]:::gap

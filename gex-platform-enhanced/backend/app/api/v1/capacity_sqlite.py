@@ -61,6 +61,11 @@ class CapacityResponse(BaseModel):
 
 @router.post("/", response_model=CapacityResponse, status_code=201)
 async def create_capacity(capacity: CapacityCreate, request: Request):
+    from app.core import idempotency
+    return idempotency.run(request, capacity, lambda: _create_capacity(capacity, request), status_code=201)
+
+
+def _create_capacity(capacity: CapacityCreate, request: Request):
     """Declare a production capacity of one of the caller's own projects.
 
     alembic 084 (Phase 0 §5): the capacity names its project. Before, the id was
@@ -68,6 +73,8 @@ async def create_capacity(capacity: CapacityCreate, request: Request):
     producer's insert and the market refused every producer offer. The actor is
     the token's user — it used to be a query parameter defaulting to "system".
     """
+    from app.core import market_policy   # D-B: who may act (core/market_policy)
+    market_policy.require_payload(getattr(request.state, "user_payload", None) or {}, "capacity.create")
     from app.core.project_registry import get_project_profile
 
     payload = getattr(request.state, "user_payload", None) or {}
@@ -131,34 +138,29 @@ async def create_capacity(capacity: CapacityCreate, request: Request):
 
 
 @router.get("/", response_model=dict)
-async def list_capacities(molecule: Optional[str] = None):
-    """
-    List all capacities with optional filtering
-    """
+async def list_capacities(molecule: Optional[str] = None, project_id: Optional[str] = None):
+    """The capacities the caller may read (RLS), optionally of one molecule or one project.
+
+    `project_id` (Phase 1, the listing wizard) lets a seller resume from its project's own
+    capacities instead of declaring a second one."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+        where, params = [], []
         if molecule:
-            cursor.execute("""
-                SELECT * FROM capacities 
-                WHERE molecule = ?
-                ORDER BY created_at DESC
-            """, (molecule,))
-        else:
-            cursor.execute("""
-                SELECT * FROM capacities 
-                ORDER BY created_at DESC
-            """)
-        
+            where.append("molecule = ?"); params.append(molecule)
+        if project_id:
+            where.append("project_id = ?"); params.append(project_id)
+        cursor.execute("SELECT * FROM capacities" + (" WHERE " + " AND ".join(where) if where else "")
+                       + " ORDER BY created_at DESC", tuple(params))
         rows = cursor.fetchall()
         conn.close()
-        
         capacities = []
         for row in rows:
             compliance = json.loads(row['compliance_certifications']) if row['compliance_certifications'] else None
             capacities.append({
                 "id": row['id'],
+                "project_id": row['project_id'],
                 "project_name": row['project_name'],
                 "molecule": row['molecule'],
                 "capacity_mtpd": row['capacity_mtpd'],
@@ -169,10 +171,9 @@ async def list_capacities(molecule: Optional[str] = None):
                 "capex_eur": row['capex_eur'],
                 "opex_eur_kg": row['opex_eur_kg'],
                 "created_at": row['created_at'],
+                "status": row['status'] or "draft",
             })
-        
         return {"capacities": capacities}
-        
     except Exception as e:
         print(f"Error listing capacities: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list capacities: {str(e)}")

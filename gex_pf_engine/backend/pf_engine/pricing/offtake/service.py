@@ -15,11 +15,11 @@ class OfftakeService:
         curve = self.curves.cached_engine(config["project_id"], curve_config)
         return OfftakeEngine(config, curve).value_contract()
 
-    def greenmesh_rollup(
+    def portfolio_rollup(
         self,
         template_config: dict[str, Any],
         contracts: list[dict[str, Any]],
         curve_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         curve = self.curves.cached_engine(template_config["project_id"], curve_config)
-        return OfftakeEngine(template_config, curve).greenmesh_rollup(contracts)
+        return OfftakeEngine(template_config, curve).portfolio_rollup(contracts)

@@ -38,6 +38,9 @@ UNIT_FAMILIES: dict[str, tuple[str, ...]] = {
     # A relative standard deviation is a ratio of a quantity to itself, so it carries no
     # unit. Deliberately NOT FRACTION_OF_TOTAL: these are not a share of any total.
     "DIMENSIONLESS":     ("-",),
+    # A gas density is only meaningful at stated reference conditions; the KEY names them
+    # (the frontend family requires temperature and pressure as context).
+    "DENSITY_MASS":      ("kg/m3",),
 }
 
 # Families whose values are money: a row in one must carry currency + price date.
@@ -60,6 +63,11 @@ class ParameterDef(NamedTuple):
 
 
 PARAMETERS: dict[str, ParameterDef] = {
+    # G-22 (GreenMesh Phase 2, Step 1): converts a hydrogen meter's Nm3 to kg. Only at these
+    # conditions — an ISO 13443 "standard" m3 (15 °C) or an actual m3 is a different quantity.
+    "h2_density_normal_0c_101325pa": ParameterDef(
+        "DENSITY_MASS", "Mass density of hydrogen gas at DIN 1343 normal conditions "
+        "(0 °C, 101.325 kPa); converts a meter's Nm3 of hydrogen to kg"),
     "electrolyser_installed_capex": ParameterDef(
         "COST_PER_POWER", "Installed electrolyser system capex per kW of electrical input"),
     "electrolyser_system_sec": ParameterDef(
@@ -120,6 +128,26 @@ PARAMETERS: dict[str, ParameterDef] = {
     "tea_mc_max_rel_std": ParameterDef(
         "DIMENSIONLESS", "Largest relative standard deviation a caller may request "
         "before the Monte Carlo run is refused"),
+    # Certification premium per regime, per tonne of product, ADDITIONAL to the base
+    # commodity price; the pathway is the molecule. One key per regime because a row has
+    # no regime dimension. Ported 2026-11-12 from a retired engine's table (G-12; provenance in
+    # scripts/data/certification_premiums_20261112.json). INDICATIVE: rows come from scripts/load_certification_premiums_20261112.py
+    # as `proposed`, so none is in force until someone confirms its source and approves it.
+    "certification_premium_rfnbo": ParameterDef(
+        "COST_PER_MASS", "INDICATIVE certification premium for RFNBO-compliant product "
+        "over the uncertified base price"),
+    "certification_premium_red_iii": ParameterDef(
+        "COST_PER_MASS", "INDICATIVE certification premium for RED III-compliant product "
+        "over the uncertified base price"),
+    "certification_premium_45v": ParameterDef(
+        "COST_PER_MASS", "INDICATIVE effective premium from the US 45V credit, per tonne "
+        "of product. Not the credit itself: that is subsidy_45v_max"),
+    "certification_premium_certifhy": ParameterDef(
+        "COST_PER_MASS", "INDICATIVE certification premium for CertifHy-certified product "
+        "over the uncertified base price"),
+    "certification_premium_corsia": ParameterDef(
+        "COST_PER_MASS", "INDICATIVE certification premium for CORSIA-eligible fuel "
+        "over the uncertified base price"),
 }
 
 

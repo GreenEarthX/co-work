@@ -161,7 +161,7 @@ def build_offtaker_flow(project_id: str, project_data: dict) -> ActorFlow:
         FlowStep(
             number=2,
             title="Aggregate Qualified Supply",
-            description="Pool producer offers into a contractable supply stack using GreenMesh / FlowFusion logic.",
+            description="Pool producer offers into a contractable supply stack.",
             page="/marketplace",
             status=StepStatus.IN_PROGRESS if requirement_set else StepStatus.NOT_STARTED,
             status_detail=(

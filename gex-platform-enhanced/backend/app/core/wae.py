@@ -218,9 +218,27 @@ APPROVAL_POLICIES.append({
     "escalation_role": "CEO",
 })
 
+# DELIVERY_CONFIRM (GreenMesh Phase 2 Step 3, sub-step 3): a party's agreement to an
+# inspector or confirmation of a waiver on a delivery takes the SAME four eyes as
+# TRADE_CONFIRM — a second ACTIVE person of the party's own company, one of the two an
+# executive, never GEX (core/delivery_inspection.py raises it on the delivery).
+DELIVERY_CONFIRM = "DELIVERY_CONFIRM"
+FOUR_EYES_PARTY = (TRADE_CONFIRM, DELIVERY_CONFIRM)
+APPROVAL_POLICIES.append({
+    "id": "pol-delivery-confirm",
+    "action_type": DELIVERY_CONFIRM,
+    "threshold_currency": None,
+    "threshold_volume": None,
+    "required_roles": ["EXECUTIVE"],
+    "min_approvers": 1,
+    "escalation_timeout_hours": 48,
+    "escalation_role": "CEO",
+})
+
 # Action types that ALWAYS require approval (regardless of threshold)
 ALWAYS_REQUIRES_APPROVAL = {
     TRADE_CONFIRM,
+    DELIVERY_CONFIRM,
     "PPA_EXECUTION",
     "FINANCING_DRAWDOWN",
     "CERTIFICATE_APPLICATION",
@@ -407,8 +425,8 @@ def evaluate_authorization(
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(hours=timeout_h)).isoformat()
 
-    if action_type == TRADE_CONFIRM and not (payload or {}).get("party_company_id"):
-        raise ValueError("A TRADE_CONFIRM request names the confirming party (raise it on the contract).")
+    if action_type in FOUR_EYES_PARTY and not (payload or {}).get("party_company_id"):
+        raise ValueError(f"A {action_type} request names the confirming party (raise it on its record).")
     if not project_id and action_type != TRADE_CONFIRM:
         # A request with no project is visible to nobody but GEX under RLS. A
         # TRADE_CONFIRM may have none (a trade not tied to a project): it is read
@@ -486,7 +504,7 @@ def record_decision(
     if cur.fetchone():
         con.close()
         return {"error": "You have already decided this request.", "code": "ALREADY_DECIDED"}
-    if req["action_type"] == TRADE_CONFIRM:
+    if req["action_type"] in FOUR_EYES_PARTY:
         refusal = _trade_confirm_refusal(req, approver_user_id)
         if refusal:
             con.close()
@@ -559,6 +577,13 @@ def _trade_confirm_refusal(req, approver_user_id: str) -> Optional[dict]:
     if not party or approver.get("company_id") != party:
         return {"error": "Only the confirming party's own company completes its confirmation.",
                 "code": "OTHER_COMPANY"}
+    if req["action_type"] == TRADE_CONFIRM:
+        # D-B (JML 2026-11-14, core/market_policy): Commercial raises it, the CEO or the CFO approves.
+        from app.core import market_policy
+        if not market_policy.allows(approver.get("business_function"), "trade.confirm.approve"):
+            return {"error": f"A trade confirmation is approved by {market_policy.who('trade.confirm.approve')}.",
+                    "code": "APPROVER_ROLE"}
+        return None
     if "EXECUTIVE" not in {approver.get("business_function"), (initiator or {}).get("business_function")}:
         return {"error": "One of the two people confirming a contract must be an executive.",
                 "code": "EXECUTIVE_REQUIRED"}

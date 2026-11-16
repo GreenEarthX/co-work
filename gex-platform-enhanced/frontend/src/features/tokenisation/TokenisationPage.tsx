@@ -152,10 +152,10 @@ export function TokenisationPage() {
           <Coins className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-500 mb-4">No capacities available. Create a capacity first!</p>
           <button
-            onClick={() => window.location.href = '/capacity'}
+            onClick={() => window.location.href = '/listings/new'}
             className="px-6 py-3 bg-brand text-white rounded-lg hover:bg-brand-dark font-semibold"
           >
-            Create Capacity
+            List supply
           </button>
         </div>
       )}

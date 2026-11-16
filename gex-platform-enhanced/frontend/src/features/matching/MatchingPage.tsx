@@ -6,12 +6,13 @@
 // companies on credit, logistics, certificates, carbon and tenor; matches carry
 // none of those, so the comparison uses only what a match records.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Target } from 'lucide-react';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Legend, Tooltip,
 } from 'recharts';
 import { marketAPI, type MarketMatch } from '@/api';
+import { useMarketPolicy } from '@/lib/marketPolicy';
 
 const RADAR_COLORS = ['#0ea5a0', '#f59e0b', '#6366f1', '#10b981', '#f43f5e'];
 type Side = 'buyer' | 'seller';
@@ -40,8 +41,12 @@ function radarData(selected: MarketMatch[], side: Side) {
 }
 
 export function MatchingPage() {
+  // D-B: Commercial accepts or declines; the CEO or the CFO approves a confirmation.
+  const { can } = useMarketPolicy();
   const navigate = useNavigate();
-  const [side, setSide] = useState<Side>('buyer');
+  // ?mode=sell opens the selling side (it used to open on Buying whatever the link said).
+  const [params] = useSearchParams();
+  const [side, setSide] = useState<Side>(params.get('mode') === 'sell' ? 'seller' : 'buyer');
   const [molecule, setMolecule] = useState('');
   const [matches, setMatches] = useState<MarketMatch[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -134,10 +139,10 @@ export function MatchingPage() {
                   <div className="flex shrink-0 gap-2">
                     {m.status === 'pending' && !myAcceptance(m) && (
                       <>
-                        <button onClick={() => act(() => marketAPI.acceptMatch(m.id))}
-                                className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">Accept</button>
-                        <button onClick={() => act(() => marketAPI.declineMatch(m.id))}
-                                className="rounded-lg border px-3 py-1.5 text-xs font-semibold">Decline</button>
+                        {can('proposal.accept') && <button onClick={() => act(() => marketAPI.acceptMatch(m.id))}
+                                className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-bold text-white">Accept</button>}
+                        {can('proposal.decline') && <button onClick={() => act(() => marketAPI.declineMatch(m.id))}
+                                className="rounded-lg border px-3 py-1.5 text-xs font-semibold">Decline</button>}
                       </>
                     )}
                     {m.status === 'pending' && myAcceptance(m) && (

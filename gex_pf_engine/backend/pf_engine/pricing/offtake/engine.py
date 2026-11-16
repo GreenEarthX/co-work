@@ -13,7 +13,7 @@ exactly as scoped:
                             a take-or-pay global constraint; valued by Least-Squares Monte
                             Carlo (Longstaff-Schwartz with a cumulative-volume grid).
 
-Then a GreenMesh rollup aggregates contract value (+ a merchant tail) into plant value.
+Then a portfolio rollup aggregates contract value (+ a merchant tail) into plant value.
 
 Consumes module 1 (gabillon_engine) for measure-consistent Q-paths and forwards. Carries
 the same provenance discipline: assumed quantities are declared, never concealed.
@@ -58,7 +58,9 @@ class OfftakeEngine:
         self.idx = Indexation(**{k: config["indexation"][k] for k in ("base", "spread", "beta")})
         self.collar = config.get("collar", {})
         self.vol = config["volume"]
-        self.gm = config.get("greenmesh_rollup", {})
+        # "greenmesh_rollup" is the deprecated name of this block (renamed 2026-11-12,
+        # platform gap G-12), still accepted for one release; "portfolio_rollup" wins.
+        self.rollup = config.get("portfolio_rollup") or config.get("greenmesh_rollup", {})
         self.n_paths = int(config["simulation"]["n_paths"])
         self.seed = int(config["simulation"]["seed"])
 
@@ -219,17 +221,17 @@ class OfftakeEngine:
             "provenance": self._provenance(),
         }
 
-    # ---- GreenMesh rollup: contracts -> plant/enterprise value ----------- #
-    def greenmesh_rollup(self, contracts: Optional[list[dict]] = None) -> dict:
-        if not self.gm.get("enabled"):
+    # ---- portfolio rollup: contracts -> plant/enterprise value ----------- #
+    def portfolio_rollup(self, contracts: Optional[list[dict]] = None) -> dict:
+        if not self.rollup.get("enabled"):
             return {"enabled": False}
         if contracts is None:
             contracts = [self.value_contract()]
         contracted = sum(c["total_value"] for c in contracts)
 
-        cap = float(self.gm["plant_capacity_per_year"])
-        margin = float(self.gm["merchant_margin"])
-        H = int(self.gm["merchant_horizon_years"])
+        cap = float(self.rollup["plant_capacity_per_year"])
+        margin = float(self.rollup["merchant_margin"])
+        H = int(self.rollup["merchant_horizon_years"])
         merch_tenors = np.arange(1, H + 1, dtype=float)
         F = gabillon_forward(self.curve.market.spot, self.curve.market.long_term,
                              merch_tenors, self.curve.params)

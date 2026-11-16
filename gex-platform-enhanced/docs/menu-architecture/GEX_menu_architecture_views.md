@@ -25,7 +25,7 @@ All menu paths are registered in `App.tsx`.
 | `/plant-data` | Projects:Plant Telemetry<br>Operations:Plant Telemetry |
 | `/producer-bankability` | Projects:Production Roadmap<br>Operations:Construction Progress |
 | `/reports` | Projects:Evidence Upload<br>Compliance:Decision Twin (RFNBO/RED III)<br>Compliance:Audit Trail<br>Compliance:Environmental &amp; ESG<br>Operations:Performance Matrix |
-| `/capacity` | Commercial:GreenMesh<br>Operations:Logistics &amp; Shipping |
+| `/capacity` | Commercial:Capacity &amp; Logistics<br>Operations:Logistics &amp; Shipping |
 | `/cert-readiness` | Compliance:Certification Readiness<br>Compliance:Certification Distance |
 | `/finance-timeline` | Operations:Project Timeline<br>Operations:Milestones &amp; Drawdown |
 
@@ -58,7 +58,7 @@ All menu paths are registered in `App.tsx`.
 | NEGOTIATION | Contracts | `/contracts` | PRODUCER / COMMERCIAL; PRODUCER / FINANCE_TREASURY; OFFTAKER; THIRD_PARTY / BANK; THIRD_PARTY / LEGAL |  |  | registered |
 | NEGOTIATION | Term Sheet Tracker | `/term-sheet` | PRODUCER / FINANCE_TREASURY; PRODUCER / COMMERCIAL; OFFTAKER / EXECUTIVE; OFFTAKER / FINANCE_TREASURY; THIRD_PARTY / BANK; THIRD_PARTY / LEGAL | G4 |  | registered |
 | MARKET DATA | Counterparties | `/settlement` | PRODUCER / COMMERCIAL; OFFTAKER / COMMERCIAL |  |  | registered |
-| MARKET DATA | GreenMesh | `/capacity` | PRODUCER / COMMERCIAL; PRODUCER / OPERATIONS; THIRD_PARTY / LOGISTICS |  |  | registered |
+| MARKET DATA | Capacity & Logistics | `/capacity` | PRODUCER / COMMERCIAL; PRODUCER / OPERATIONS; THIRD_PARTY / LOGISTICS |  |  | registered |
 
 ### Finance
 
@@ -268,7 +268,7 @@ All menu paths are registered in `App.tsx`.
 - NEGOTIATION / Contracts -> `/contracts`
 - NEGOTIATION / Term Sheet Tracker -> `/term-sheet` [gate G4]
 - MARKET DATA / Counterparties -> `/settlement`
-- MARKET DATA / GreenMesh -> `/capacity`
+- MARKET DATA / Capacity & Logistics -> `/capacity`
 
 **Finance**
 
@@ -595,7 +595,7 @@ All menu paths are registered in `App.tsx`.
 
 **Commercial**
 
-- MARKET DATA / GreenMesh -> `/capacity`
+- MARKET DATA / Capacity & Logistics -> `/capacity`
 
 **Finance**
 

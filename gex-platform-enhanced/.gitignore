@@ -1,0 +1,46 @@
+# Local repository for the master copy (GreenMesh Phase 1, 2026-11-12).
+# Never push: secrets and client data live in this tree. Rules adapted from co-work's.
+
+# Interpreters and dependencies
+venv/
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Secrets — never committed
+.env
+.env.*
+!.env.example
+**/.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Databases, dumps, run logs (WAL sidecars included)
+*.db
+*.db-wal
+*.db-shm
+*.db.*
+*.sqlite
+*.dump
+*.migrated-*
+**/db_backups/
+
+# User content, never source (customers' plant designs and evidence documents)
+backend/data/canvas_blobs/
+backend/data/package_docs/
+
+# Real client data (JML, 2026-11-04 and 2026-11-11)
+backend/scripts/fortaverde_client_accounts.json
+backend/scripts/fortaverde_knowledge_v2.json
+docs/FORTAVERDE_CLIENT_ONBOARDING.md
+
+# Build output and local tooling
+**/frontend/dist/
+.vexp/
+.backups/
+.backups-*
+.DS_Store
+~$*
+.idea/

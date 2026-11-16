@@ -62,7 +62,7 @@ _TAG_META = [
         "Project-scoped curve service under `/pf/*`: calibrates a Gabillon curve "
         "against project fundamentals (LCOF anchor) with per-project audit memory, "
         "generates Q pricing curves and P forecast cones, values offtake contracts, "
-        "and rolls up GreenMesh portfolios. Use this when pricing a specific deal; "
+        "and rolls up offtake portfolios. Use this when pricing a specific deal; "
         "use Market Curves when quoting the molecule reference market.",
     },
     {

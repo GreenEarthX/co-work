@@ -262,6 +262,9 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
       { id: 'rfqs', path: '/rfqs', label: 'RFQs', section: 'NEGOTIATION',
         visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
+      // R9 (D-D): non-binding enquiries, sent and received; contact only by consent.
+      { id: 'deals', path: '/deals', label: 'Deals', section: 'NEGOTIATION',
+        visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
       { id: 'counterparty-register', path: '/counterparties', label: 'Counterparties', section: 'NEGOTIATION',
         visible_to: [PROD('COMMERCIAL'), PROD('FINANCE_TREASURY'), OFT('COMMERCIAL'), OFT('FINANCE_TREASURY')] },
       { id: 'matching-engine', path: '/matching', label: 'Your Matches', section: 'NEGOTIATION',
@@ -279,10 +282,10 @@ export const MENU_TABS: MenuTab[] = [
       // is tracked as a CTRM gap by audit-menu.mjs, not faked with a door.
       { id: 'delivery-settlement', path: '/settlement', label: 'Delivery & Settlement', section: 'MARKET DATA',
         visible_to: [PROD('COMMERCIAL'), OFT('COMMERCIAL')] },
-      // GreenMesh is the canonical home for /capacity (commercial aggregation /
-      // netting). Logistics & Shipping (Operations) was the duplicate door —
-      // its roles (TP LOGISTICS, OFT/PROD OPERATIONS) are unioned in here.
-      { id: 'greenmesh-netting', path: '/capacity', label: 'GreenMesh (Capacity & Logistics)', section: 'MARKET DATA',
+      // Capacity & Logistics is the canonical home for /capacity (published capacity
+      // and feedstock aggregation). Logistics & Shipping (Operations) was the duplicate
+      // door — its roles (TP LOGISTICS, OFT/PROD OPERATIONS) are unioned in here.
+      { id: 'capacity-logistics', path: '/capacity', label: 'Capacity & Logistics', section: 'MARKET DATA',
         visible_to: [PROD('COMMERCIAL'), PROD('OPERATIONS'), OFT('OPERATIONS'), TP('LOGISTICS')] },
     ],
   },
@@ -454,7 +457,7 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [PROD('OPERATIONS'), PROD('ENGINEERING'), TP('ENGINEER')] },
       { id: 'ot-gateways', path: '/ciso-gateways', label: 'OT Gateway Status', section: 'PLANT',
         visible_to: [PROD('OPERATIONS')] },
-      // Logistics & Shipping → canonical home is Commercial (GreenMesh).
+      // Logistics & Shipping → canonical home is Commercial (Capacity & Logistics).
       // Performance Matrix → folded into the Reports & Evidence hub.
     ],
   },

@@ -9,7 +9,7 @@ Determines certification eligibility with:
 - Multiple certification schemes (RED III, 45V, RFNBO, CORSIA)
 """
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 import json
 
@@ -255,6 +255,22 @@ class CertificationKnowledgeBase:
 # DECISION TWIN ENGINE
 # ============================================================================
 
+
+def _temporal_rule_on(on: date) -> tuple:
+    """(granularity, rule_id) in force on `on`, from rfnbo_rule; (None, None) if unreadable.
+    An unreadable rule fails the declared temporal check rather than passing it."""
+    try:
+        from app.core.db_backend import domain_connection
+        from app.core.rfnbo_correlation import granularity_on
+
+        conn = domain_connection()
+        try:
+            return granularity_on(conn, on)
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return None, None
+
 class DecisionTwin:
     """
     Main Decision Twin engine
@@ -273,9 +289,17 @@ class DecisionTwin:
         renewable_electricity_pct: float,
         temporal_matching: str = "monthly",
         geographical_correlation: bool = True,
-        additional_data: Dict = None
+        additional_data: Dict = None,
+        as_of: Optional[date] = None,
     ) -> Dict:
-        """Evaluate RED III eligibility"""
+        """Evaluate RED III eligibility.
+
+        `temporal_matching` and `geographical_correlation` are the CALLER'S DECLARATION, and
+        the result says so (`basis: DECLARED`). The computed checks, from meters and PPAs, are
+        `GET /api/v1/chain-of-custody/periods/{id}/rfnbo-correlation` (basis COMPUTED).
+        Whether "monthly" is acceptable depends on the date (`as_of`, default today), read
+        from the versioned rule table `rfnbo_rule` (migration 099).
+        """
         rules = self.kb.get_red_iii_rules()
         
         result = {
@@ -287,9 +311,10 @@ class DecisionTwin:
             "failures": [],
             "warnings": [],
             "recommendations": [],
-            "subsidy_value": None
+            "subsidy_value": None,
+            "basis": "DECLARED",
         }
-        
+
         # Check 1: GHG Intensity — RED III screens GHG intensity in gCO2e/MJ against
         # the single transport-fuel comparator E_F(comp)=94 gCO2e/MJ (molecule-
         # independent). The wizard captures intensity per-kg of fuel, so convert it
@@ -366,7 +391,8 @@ class DecisionTwin:
             "check": "Geographical Correlation",
             "required": "Same bidding zone",
             "actual": "Same zone" if geographical_correlation else "Different",
-            "passed": geographical_correlation
+            "passed": geographical_correlation,
+            "basis": "DECLARED",
         }
         result["checks"].append(geo_check)
         
@@ -389,12 +415,21 @@ class DecisionTwin:
         # Delegated Regulation (EU) 2023/1184 Art. 6: monthly correlation is
         # acceptable until 31 Dec 2029, hourly from 1 Jan 2030. Annual is not
         # acceptable at any point.
-        acceptable_now = ("hourly", "monthly")
+        on = as_of or date.today()
+        granularity, rule_id = _temporal_rule_on(on)
+        if granularity is None:
+            acceptable_now: tuple = ()
+            required = f"no temporal rule in force on {on} (rule table unreadable or empty)"
+        else:
+            acceptable_now = ("hourly", "monthly") if granularity == "MONTHLY" else ("hourly",)
+            required = f"{granularity.lower()} or finer on {on} (rule {rule_id})"
         temporal_check = {
             "check": "Temporal Matching",
-            "required": "Monthly until 2029, hourly from 2030",
+            "required": required,
             "actual": temporal_matching,
             "passed": temporal_matching in acceptable_now,
+            "basis": "DECLARED",
+            "rule_id": rule_id,
         }
         result["checks"].append(temporal_check)
 
@@ -402,8 +437,8 @@ class DecisionTwin:
             result["status"] = EligibilityStatus.INELIGIBLE.value
             result["failures"].append({
                 "check": "Temporal Matching",
-                "reason": f"'{temporal_matching}' correlation does not satisfy "
-                          f"Art. 6 — annual matching is not acceptable",
+                "reason": f"'{temporal_matching}' correlation does not satisfy the temporal rule "
+                          f"in force on {on}: {required}",
                 "severity": "critical",
                 "gap": "Contract power on at least monthly correlation now, and "
                        "hourly before 1 Jan 2030",

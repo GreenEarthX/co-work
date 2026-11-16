@@ -1,6 +1,6 @@
 // Screen: Capacity screen (/capacity)
 /**
- * GreenMesh — Capacity Publishing & Feedstock Aggregation
+ * Capacity & Logistics — Capacity Publishing & Feedstock Aggregation
  *
  * Two clear purposes:
  *
@@ -8,7 +8,7 @@
  *    visible to third-party offtakers. This screen shows confirmation of
  *    what has been published, its status, and where it is displayed.
  *
- * 2. REQUEST UPSTREAM FEEDSTOCK — The client seeks feedstock via GreenMesh
+ * 2. REQUEST UPSTREAM FEEDSTOCK — The client seeks feedstock through
  *    aggregation. The screen shows the aggregation principle: multiple
  *    small suppliers pooled into a single bankable supply line.
  *
@@ -117,7 +117,7 @@ export function CapacityPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-black text-gray-900">GreenMesh</h1>
+          <h1 className="text-2xl font-black text-gray-900">Capacity &amp; Logistics</h1>
           <p className="text-sm text-gray-500 mt-1">
             Publish downstream capacity for offtakers & aggregate upstream feedstock
           </p>
@@ -170,7 +170,7 @@ export function CapacityPage() {
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-gray-900">Your Published Capacity — visible on GreenMesh marketplace</h2>
+              <h2 className="text-sm font-bold text-gray-900">Your Published Capacity — visible on the marketplace</h2>
               <span className="text-xs text-gray-400">{published.length} project{published.length !== 1 ? 's' : ''}</span>
             </div>
             <div className="overflow-x-auto">
@@ -197,7 +197,7 @@ export function CapacityPage() {
                             View Matches
                           </button>
                         ) : (
-                          <button onClick={() => navigate('/marketplace')}
+                          <button onClick={() => navigate(`/listings/new?project=${encodeURIComponent(c.projectId)}`)}
                             className="text-xs font-semibold bg-gray-900 text-white hover:bg-gray-800 px-3 py-1.5 rounded-md transition-colors">
                             List on Market
                           </button>
@@ -230,11 +230,11 @@ export function CapacityPage() {
                 <Layers className="w-5 h-5 text-teal-600" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-gray-900">How GreenMesh Aggregation Works</h3>
+                <h3 className="text-sm font-bold text-gray-900">How Feedstock Aggregation Works</h3>
                 <p className="text-xs text-gray-500 mt-1 leading-relaxed max-w-2xl">
-                  Instead of negotiating individual feedstock contracts with each supplier, GreenMesh pools
-                  multiple small-volume suppliers into a single bankable supply line. This reduces procurement
-                  cost (typically 5–15%), improves supply security through diversification, and creates a
+                  Instead of negotiating individual feedstock contracts with each supplier, aggregation pools
+                  multiple small-volume suppliers into a single bankable supply line. It aims to lower
+                  procurement cost, improves supply security through diversification, and creates a
                   single contract counterparty for your finance team.
                 </p>
               </div>

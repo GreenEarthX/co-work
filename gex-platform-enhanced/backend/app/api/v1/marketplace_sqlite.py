@@ -100,6 +100,11 @@ class OfferCreate(BaseModel):
     min_order_kg: Optional[float] = None
     esg_tier: Optional[str] = None
     listing_state: Optional[str] = "DRAFT"
+    # D-C (Phase 1): the typed delivery basis an anonymous buyer sees, and the offer's validity.
+    incoterm: Optional[str] = None
+    named_place: Optional[str] = None
+    shipment_point: Optional[str] = None
+    valid_until: Optional[str] = None
 
 class OfferResponse(BaseModel):
     id: str
@@ -126,6 +131,10 @@ class OfferResponse(BaseModel):
     min_order_kg: Optional[float] = None
     esg_tier: Optional[str] = None
     listing_state: Optional[str] = "DRAFT"
+    incoterm: Optional[str] = None
+    named_place: Optional[str] = None
+    shipment_point: Optional[str] = None
+    valid_until: Optional[str] = None
 
 
 class ListingTransition(BaseModel):
@@ -152,6 +161,11 @@ def _market_call(fn, *args, **kwargs):
 
 @router.post("/offers", response_model=OfferResponse, status_code=201)
 async def create_offer(offer: OfferCreate, request: Request):
+    from app.core import idempotency
+    return idempotency.run(request, offer, lambda: _create_offer(offer, request), status_code=201)
+
+
+def _create_offer(offer: OfferCreate, request: Request):
     """
     Create marketplace offer from token
     EVENT-DRIVEN: Inherits correlation_id from token for chain of custody
@@ -192,7 +206,9 @@ async def create_offer(offer: OfferCreate, request: Request):
                             price_basis=offer.price_basis,
                             certification_pathway_required=offer.certification_pathway_required,
                             min_order_kg=offer.min_order_kg, esg_tier=offer.esg_tier,
-                            open_now=(offer.listing_state or "DRAFT").upper() == "OPEN")
+                            open_now=(offer.listing_state or "DRAFT").upper() == "OPEN",
+                            incoterm=offer.incoterm, named_place=offer.named_place,
+                            shipment_point=offer.shipment_point, valid_until=offer.valid_until)
     except HTTPException:
         raise
     except Exception as e:

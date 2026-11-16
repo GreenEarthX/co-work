@@ -147,6 +147,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     # marketplace
     "/api/v1/marketplace": "marketplace",
     "/api/v1/market": "marketplace",       # the market engine (core/market_engine.py)
+    "/api/v1/products": "marketplace",     # product records behind a token (core/product_record.py)
     "/api/v1/matching": "marketplace",
     "/api/v1/demand": "marketplace",
     "/api/v1/contracts": "marketplace",
@@ -154,6 +155,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     # sustainability
     "/api/v1/carbon-attribution": "sustainability",
     "/api/v1/chain-of-custody": "sustainability",   # was /mass-balance
+    "/api/v1/evidence-pack": "sustainability",      # GreenMesh Phase 1 Step 5
     "/api/v1/additionality": "sustainability",
     "/api/v1/lineage": "sustainability",
     "/api/v1/fuels": "sustainability",

@@ -74,6 +74,9 @@ class TokenLifecycleState(str, Enum):
     VOIDED    — issued in error, NEVER valid. Available only before delivery
                 (pre-SETTLED). Once a molecule has settled, the delivery is a
                 fact and the remedy is ANNULLED, not VOIDED.
+    SPLIT     — divided at a partial title transfer (GreenMesh Phase 2 Step 3, alembic 109):
+                its claim now lives, exactly apportioned, in its two children
+                (parent_token_id). Terminal and NOT claimable; frozen by trigger.
     """
     MINTED = "MINTED"
     RESERVED = "RESERVED"
@@ -82,6 +85,7 @@ class TokenLifecycleState(str, Enum):
     RETIRED = "RETIRED"
     ANNULLED = "ANNULLED"
     VOIDED = "VOIDED"
+    SPLIT = "SPLIT"
 
 
 class TokenVerificationState(str, Enum):
@@ -108,6 +112,7 @@ CLAIMABLE_STATES: frozenset[TokenLifecycleState] = frozenset({
 TERMINAL_STATES: frozenset[TokenLifecycleState] = frozenset({
     TokenLifecycleState.ANNULLED,
     TokenLifecycleState.VOIDED,
+    TokenLifecycleState.SPLIT,
 })
 
 # Valid lifecycle state transitions.
@@ -123,6 +128,7 @@ TOKEN_TRANSITIONS: dict[TokenLifecycleState, list[TokenLifecycleState]] = {
     TokenLifecycleState.RETIRED:  [TokenLifecycleState.ANNULLED],
     TokenLifecycleState.ANNULLED: [],
     TokenLifecycleState.VOIDED:   [],
+    TokenLifecycleState.SPLIT:    [],     # reached only by a title split (core/delivery_title.py), never by transition
 }
 
 # ── Authority for the two claim-touching operations ─────────────────────────
@@ -206,7 +212,15 @@ class TokenCreate(BaseModel):
     certification_pathway: Optional[str] = None
     carbon_intensity_gco2e_mj: Optional[float] = None
     mass_balance_lot_id: Optional[str] = None
-    verification_state: Optional[str] = "UNVERIFIED"
+    # Product identity, declared at mint (alembic 116). Quality, carbon-intensity basis and
+    # certificates are recorded afterwards through /api/v1/products.
+    production_pathway: Optional[str] = None
+    physical_form: Optional[str] = None            # gas | compressed_gas | liquid | liquefied_gas
+    specification_standard: Optional[str] = None
+    # Accepted only so that a caller sending a trusted state is REFUSED (422), not silently
+    # ignored. A new token is always UNVERIFIED: verification is a named third party's act,
+    # never the minter's (discovery review F06, 2026-11-13). Server-side in create_token.
+    verification_state: Optional[str] = None
 
 class TokenResponse(BaseModel):
     id: str
@@ -341,6 +355,11 @@ def _guard_annulment(transition: "TokenTransition", payload: dict,
 
 @router.post("/", response_model=TokenResponse, status_code=201)
 async def create_token(token: TokenCreate, request: Request):
+    from app.core import idempotency
+    return idempotency.run(request, token, lambda: _create_token(token, request), status_code=201)
+
+
+def _create_token(token: TokenCreate, request: Request):
     """
     Tokenise capacity - convert production capacity into tradeable tokens
     EVENT-DRIVEN: Inherits correlation_id from capacity for chain of custody
@@ -349,38 +368,59 @@ async def create_token(token: TokenCreate, request: Request):
     for the same reason retirement is — an anonymous origin breaks the chain
     the retirement guards protect.
     """
+    from app.core import market_policy   # D-B: who may act (core/market_policy)
+    market_policy.require_payload(getattr(request.state, "user_payload", None) or {}, "token.mint")
+    if token.verification_state not in (None, TokenVerificationState.UNVERIFIED.value):
+        raise HTTPException(status_code=422, detail={
+            "code": "VERIFICATION_NOT_DECLARABLE",
+            "message": "A new token is always UNVERIFIED. Verification is recorded by an appointed reviewer, "
+                       "not declared by the company minting the token."})
+    if token.physical_form not in (None, "gas", "compressed_gas", "liquid", "liquefied_gas"):
+        raise HTTPException(status_code=422, detail={"code": "PHYSICAL_FORM",
+                                                     "message": "Physical form is gas, compressed_gas, liquid or liquefied_gas."})
+    if token.tokenised_mtpd is None or token.tokenised_mtpd <= 0:
+        raise HTTPException(status_code=422, detail={"code": "TOKEN_RATE", "message": "Tokenised MTPD must be positive."})
+    window = _window(token.delivery_start, token.delivery_end)
+    conn = None
     try:
         user_id, _ = _actor_identity(request)
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Verify capacity exists and get correlation_id
         cursor.execute("SELECT *, correlation_id FROM capacities WHERE id = ?", (token.capacity_id,))
         capacity = cursor.fetchone()
-        
+
         if not capacity:
-            conn.close()
             raise HTTPException(status_code=404, detail="Capacity not found")
-        
+
+        # Lock the capacity row for the rest of this transaction, so two mints on one capacity
+        # are checked one after the other (discovery review F10: read-then-insert without a
+        # lock minted 120 MTPD on a 100 MTPD capacity). FOR UPDATE also applies the UPDATE
+        # policy (owner or GEX): a company that can merely SEE the capacity gets no row.
+        cursor.execute("SELECT id FROM capacities WHERE id = ? FOR UPDATE", (token.capacity_id,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=403, detail={
+                "code": "NOT_YOUR_CAPACITY",
+                "message": "Only the company that owns this capacity's project can tokenise it."})
+
         # INHERIT correlation_id from capacity (CHAIN OF CUSTODY!)
         correlation_id = capacity['correlation_id'] if 'correlation_id' in capacity.keys() else f"CAP-{token.capacity_id[:8]}"
-        
-        # Check if tokenising too much
-        cursor.execute("""
-            SELECT COALESCE(SUM(tokenised_mtpd), 0) as total_tokenised 
-            FROM tokens 
-            WHERE capacity_id = ?
-        """, (token.capacity_id,))
-        result = cursor.fetchone()
-        total_tokenised = result['total_tokenised']
-        
-        if total_tokenised + token.tokenised_mtpd > capacity['capacity_mtpd']:
-            conn.close()
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Cannot tokenise {token.tokenised_mtpd} MTPD. Available: {capacity['capacity_mtpd'] - total_tokenised} MTPD"
-            )
-        
+
+        # The rate already committed on any day of the new window (F11: the old check summed
+        # every token's rate whatever its dates). SPLIT parents are excluded — their rate lives
+        # in their children (delivery_title scales them exactly) — and VOIDED tokens never existed.
+        cursor.execute("SELECT tokenised_mtpd, delivery_start, delivery_end FROM tokens WHERE capacity_id = ? "
+                       "AND lifecycle_state NOT IN ('SPLIT', 'VOIDED')", (token.capacity_id,))
+        peak = _peak_rate(cursor.fetchall(), window)
+        free = float(capacity['capacity_mtpd'] or 0) - peak
+        if token.tokenised_mtpd > free + 1e-9:
+            raise HTTPException(status_code=409, detail={
+                "code": "CAPACITY_EXCEEDED",
+                "message": f"Cannot tokenise {token.tokenised_mtpd} MTPD from {window[0]} to {window[1]}: "
+                           f"{max(free, 0):g} MTPD of {capacity['capacity_mtpd']:g} is free on every day of that window.",
+                "free_mtpd": max(free, 0)})
+
         # Generate UUID
         token_id = str(uuid.uuid4())
         
@@ -392,7 +432,6 @@ async def create_token(token: TokenCreate, request: Request):
         if token.sovereign_provenance:
             sovereign_json = json.dumps(token.sovereign_provenance.model_dump(exclude_none=True))
 
-        # 1. EMIT EVENT (with inherited correlation_id)
         event_data = {
             "capacity_id": token.capacity_id,
             "tokenised_mtpd": token.tokenised_mtpd,
@@ -404,15 +443,6 @@ async def create_token(token: TokenCreate, request: Request):
         if token.sovereign_provenance:
             event_data["sovereign_provenance"] = token.sovereign_provenance.model_dump(exclude_none=True)
 
-        append_event(
-            event_type="token.minted",
-            aggregate_type="token",
-            aggregate_id=token_id,
-            data=event_data,
-            user_id=user_id,
-            correlation_id=correlation_id  # INHERITED - creates chain!
-        )
-        
         # Derive molecule from capacity if not provided
         token_molecule = token.molecule or (capacity['molecule'] if 'molecule' in capacity.keys() else None)
 
@@ -430,8 +460,9 @@ async def create_token(token: TokenCreate, request: Request):
                 compliance_certifications, correlation_id, sovereign_provenance,
                 molecule, energy_mj, production_window_start, production_window_end,
                 certification_pathway, carbon_intensity_gco2e_mj, mass_balance_lot_id,
-                lifecycle_state, provenance_hash, verification_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                lifecycle_state, provenance_hash, verification_state, created_at,
+                production_pathway, physical_form, specification_standard
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             token_id,
             token.capacity_id,
@@ -450,15 +481,28 @@ async def create_token(token: TokenCreate, request: Request):
             token.mass_balance_lot_id,
             TokenLifecycleState.MINTED.value,
             provenance_hash,
-            token.verification_state or TokenVerificationState.UNVERIFIED.value,
+            TokenVerificationState.UNVERIFIED.value,      # never the caller's (F06)
+            datetime.now(timezone.utc).isoformat(),       # the response model requires it (F09)
+            token.production_pathway, token.physical_form, token.specification_standard,
         ))
+        # Run 115's capacity guard now rather than at commit, so a refusal comes before the event.
+        cursor.execute("SET CONSTRAINTS tokens_capacity_guard IMMEDIATE")
 
+        # The event only once the row is in, and the row only commits once the event is written:
+        # a refused mint used to leave a "token.minted" event for a token that never existed.
+        append_event(
+            event_type="token.minted",
+            aggregate_type="token",
+            aggregate_id=token_id,
+            data=event_data,
+            user_id=user_id,
+            correlation_id=correlation_id  # INHERITED - creates chain!
+        )
         conn.commit()
 
         # Get created token
         cursor.execute("SELECT * FROM tokens WHERE id = ?", (token_id,))
         row = cursor.fetchone()
-        conn.close()
 
         if not row:
             raise HTTPException(status_code=500, detail="Failed to retrieve created token")
@@ -496,55 +540,97 @@ async def create_token(token: TokenCreate, request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        if "CAPACITY_EXCEEDED" in str(e):      # 115's commit-time guard: another writer got there first
+            raise HTTPException(status_code=409, detail={
+                "code": "CAPACITY_EXCEEDED",
+                "message": "Another token on this capacity was committed first; there is not enough "
+                           "capacity left for this one in that delivery window."})
         print(f"Error creating token: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create token: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create token.")   # no database text to the caller
+    finally:
+        if conn is not None:
+            try:
+                conn.rollback()        # no-op after commit; releases the capacity lock on every refusal
+            except Exception:
+                pass
+            conn.close()
+
+
+def _window(start: str, end: str) -> tuple[str, str]:
+    """The token's delivery window as ISO dates, or 422."""
+    from datetime import date
+    try:
+        a, b = date.fromisoformat(str(start)[:10]), date.fromisoformat(str(end)[:10])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail={"code": "DELIVERY_WINDOW",
+                                                     "message": "Delivery start and end must be dates (YYYY-MM-DD)."})
+    if b < a:
+        raise HTTPException(status_code=422, detail={"code": "DELIVERY_WINDOW",
+                                                     "message": "The delivery window ends before it starts."})
+    return a.isoformat(), b.isoformat()
+
+
+def _peak_rate(rows, window: tuple[str, str]) -> float:
+    """The highest total rate (MTPD) committed on any single day of `window` by `rows`
+    (tokenised_mtpd, delivery_start, delivery_end). The total only rises where a token
+    starts, so it suffices to evaluate the window's first day and each start inside it.
+    A row whose dates cannot be read counts across the whole window (refuse, never guess)."""
+    from datetime import date
+    w0, w1 = date.fromisoformat(window[0]), date.fromisoformat(window[1])
+    spans = []
+    for r in rows:
+        rate = float(r["tokenised_mtpd"] or 0)
+        try:
+            a, b = date.fromisoformat(str(r["delivery_start"])[:10]), date.fromisoformat(str(r["delivery_end"])[:10])
+        except (TypeError, ValueError):
+            a, b = w0, w1
+        if a <= w1 and b >= w0:
+            spans.append((max(a, w0), min(b, w1), rate))
+    points = {w0} | {a for a, _, _ in spans}
+    return max((sum(rate for a, b, rate in spans if a <= d <= b) for d in points), default=0.0)
 
 
 @router.get("/", response_model=dict)
-async def list_tokens(capacity_id: Optional[str] = None):
-    """
-    List all tokens with optional filtering by capacity
-    """
+async def list_tokens(capacity_id: Optional[str] = None, project_id: Optional[str] = None):
+    """The tokens the caller may read (RLS), optionally of one capacity or one project.
+
+    Each row states its `lifecycle_state` and product identity, so the listing wizard offers
+    only a MINTED token to list (a SPLIT parent or a reserved piece is not available)."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+        where, params = [], []
         if capacity_id:
-            cursor.execute("""
-                SELECT t.*, c.project_name, c.molecule 
-                FROM tokens t
-                JOIN capacities c ON t.capacity_id = c.id
-                WHERE t.capacity_id = ?
-                ORDER BY t.created_at DESC
-            """, (capacity_id,))
-        else:
-            cursor.execute("""
-                SELECT t.*, c.project_name, c.molecule 
-                FROM tokens t
-                JOIN capacities c ON t.capacity_id = c.id
-                ORDER BY t.created_at DESC
-            """)
-        
+            where.append("t.capacity_id = ?"); params.append(capacity_id)
+        if project_id:
+            where.append("c.project_id = ?"); params.append(project_id)
+        cursor.execute("SELECT t.*, c.project_name, c.project_id, c.molecule AS capacity_molecule "
+                       "FROM tokens t JOIN capacities c ON t.capacity_id = c.id"
+                       + (" WHERE " + " AND ".join(where) if where else "")
+                       + " ORDER BY t.created_at DESC", tuple(params))
         rows = cursor.fetchall()
         conn.close()
-        
         tokens = []
         for row in rows:
             compliance = json.loads(row['compliance_certifications']) if row['compliance_certifications'] else None
             tokens.append({
                 "id": row['id'],
                 "capacity_id": row['capacity_id'],
+                "project_id": row['project_id'],
                 "project_name": row['project_name'],
-                "molecule": row['molecule'],
+                "molecule": row['capacity_molecule'],
                 "tokenised_mtpd": row['tokenised_mtpd'],
                 "delivery_start": row['delivery_start'],
                 "delivery_end": row['delivery_end'],
                 "compliance_certifications": compliance,
+                "lifecycle_state": row['lifecycle_state'] or "MINTED",
+                "verification_state": row['verification_state'],
+                "production_pathway": row['production_pathway'],
+                "physical_form": row['physical_form'],
+                "specification_standard": row['specification_standard'],
                 "created_at": row['created_at'],
             })
-        
         return {"tokens": tokens}
-        
     except Exception as e:
         print(f"Error listing tokens: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list tokens: {str(e)}")

@@ -462,6 +462,11 @@ function RelatedPartyFlag({ isRelated }: { isRelated: boolean }) {
 // ── Project Economics card — flat Bloomberg-density layout ──────────────────
 // Revenue (offtake) + Variable costs (inputs) → Margin. All flat, no toggles.
 
+// A project's input costs and sales records are its owner's alone (alembic 112): a
+// company with project access but no ownership receives none, so "nothing here" can
+// mean either. Never show it as a zero cost.
+const NO_INPUTS_SHOWN = 'No production inputs recorded for this project, or they belong to the project owner and are not shared with your company.'
+
 function ProjectEconomicsCard({
   project,
   summary,
@@ -598,6 +603,10 @@ function ProjectEconomicsCard({
         <div className="w-[8%] text-center">Capital</div>
       </div>
 
+      {allLines.length === 0 && (
+        <div className="px-5 py-2 pl-7 text-xs text-gray-400 border-t border-gray-50">{NO_INPUTS_SHOWN}</div>
+      )}
+
       {allLines.map((line, i) => {
         const enrich = getEnrichment(line.feedstock, econ)
         const contractStatus: ContractStatus = line.status === 'contracted' ? 'CONTRACTED' : line.status === 'spot' ? 'SPOT' : 'PLANNED'
@@ -686,8 +695,13 @@ export function ProductionInputsPanel({
             <span className="text-sm font-semibold text-gray-900">{summary.project}</span>
             <span className="text-xs font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">{summary.molecule}</span>
             <span className="text-xs text-gray-500">{summary.location}</span>
-            <span className="ml-auto text-xs font-mono text-gray-500">Eff. cost: {summary.totalEffectiveCostPerMt.toLocaleString()} EUR/MT</span>
+            <span className="ml-auto text-xs font-mono text-gray-500">
+              Eff. cost: {summary.lines.length > 0 ? `${summary.totalEffectiveCostPerMt.toLocaleString()} EUR/MT` : '—'}
+            </span>
           </div>
+          {summary.lines.length === 0 && (
+            <p className="text-xs text-gray-400">{NO_INPUTS_SHOWN}</p>
+          )}
           {summary.lines.map((line, i) => (
             <div key={i} className="flex items-center gap-3 text-xs py-0.5">
               <span className="text-gray-900 w-40">{line.feedstock}</span>

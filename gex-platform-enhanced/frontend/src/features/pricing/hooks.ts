@@ -41,9 +41,9 @@ export function useOfftakeValue() {
   });
 }
 
-export function useGreenmeshRollup() {
+export function usePortfolioRollup() {
   return useMutation({
     mutationKey: ["pricing", "offtake", "rollup"],
-    mutationFn: (payload: PricingPayload) => pricingAPI.greenmeshRollup(payload),
+    mutationFn: (payload: PricingPayload) => pricingAPI.portfolioRollup(payload),
   });
 }

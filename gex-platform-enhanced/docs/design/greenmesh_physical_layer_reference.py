@@ -1,3 +1,17 @@
+# ════════════════════════════════════════════════════════════════════════════
+# DESIGN REFERENCE — NOT WIRED. Nothing imports this file and nothing runs it.
+#
+# Was backend/app/core/greenmesh_bankable.py, imported by nothing. Moved here on
+# 2026-11-12 (GreenMesh Phase 1, Step 1, gap G-12, JML decision) as the design
+# source for Phase 2: quality verification before title transfer, take-or-pay,
+# availability guarantee, penalties. It keeps its logic as written; none of it has
+# been reviewed, and its figures are not reference data.
+#
+# It is NOT Matrix/Synapse messaging — that is app/services/matrix_service.py. Some
+# documents said otherwise (G-13). Phase 2 builds delivery and title transfer on the
+# market engine (core/market_engine.py) and the chain-of-custody ledger
+# (api/v1/mass_balance.py); it does not revive this module as a separate engine.
+# ════════════════════════════════════════════════════════════════════════════
 """
 GreenMesh Integration Layer
 Physical supply chain connection for bankable project finance

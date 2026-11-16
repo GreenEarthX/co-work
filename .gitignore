@@ -48,3 +48,6 @@ gex-platform-enhanced/backend/scripts/fortaverde_client_accounts.json
 # record, contact or onboarding file is committed, not even as placeholders.
 gex-platform-enhanced/backend/scripts/fortaverde_knowledge_v2.json
 gex-platform-enhanced/docs/FORTAVERDE_CLIENT_ONBOARDING.md
+# Operational artifacts: lock files and migrated SQLite files kept for reference only
+gex-platform-enhanced/.claude/scheduled_tasks.lock
+gex_pf_engine/backend/*.migrated-*

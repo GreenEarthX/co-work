@@ -128,13 +128,6 @@ except ImportError:
     HAS_CONTRACTS = False
     print("⚠️  contracts_sqlite not found - skipping")
 
-try:
-    from app.api.v1 import greenmesh
-    HAS_GREENMESH = True
-except ImportError:
-    HAS_GREENMESH = False
-    print("⚠️  greenmesh not found - skipping")
-
 # ── R0/R1/R6/R10: Architectural Reform v6.0 routes ────────────────────────────
 try:
     from app.api.v1.routes_verification import router as verification_router
@@ -543,6 +536,7 @@ from app.api.v1.mass_balance import (  # noqa: E402
 )
 chain_of_custody_init_db()
 HAS_CHAIN_OF_CUSTODY = True
+from app.api.v1.routes_evidence_pack import router as evidence_pack_router  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -803,6 +797,8 @@ app.include_router(reviewer_appointments_router, prefix="/api/v1/projects", tags
 # The market chain — every cross-company step of a trade (gap register P0, 2026-10-23)
 from app.api.v1.routes_market import router as market_router
 app.include_router(market_router, prefix="/api/v1/market", tags=["Market"])
+from app.api.v1.routes_products import router as products_router  # Phase 1 (116): product records
+app.include_router(products_router, prefix="/api/v1/products", tags=["Products"])
 
 # The order book on the one contract model — orders, RFQs, quotes, contract records (Phase 1, 2026-11-06)
 from app.api.v1.routes_order_book import router as order_book_router
@@ -944,6 +940,7 @@ if HAS_CHAIN_OF_CUSTODY:
     # "Chain of Custody", not "Mass Balance Ledger" — this allocates certified
     # volume, it does not balance a plant. See the module docstring.
     app.include_router(chain_of_custody_router, tags=["Chain of Custody"])
+    app.include_router(evidence_pack_router)
 
 # ── Settlement + Carbon Attribution + Sovereign Instruments (B4) ──
 if HAS_SETTLEMENTS:

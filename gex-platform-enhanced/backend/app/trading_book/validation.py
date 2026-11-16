@@ -6,7 +6,8 @@ Since 083 terms have one or more sub-legs (one per buyer). V01, V02, V07 and V08
 apply to EACH sub-leg — "exactly two legs" became "exactly two legs per
 sub-leg" (Phase 0 Q1) — so a bilateral trade, one sub-leg, is checked exactly as
 before. V14 is the structure: leg seqs unique across the terms, clause types
-known, every clause and rank naming a sub-leg that exists.
+known, every clause and rank naming a sub-leg that exists. V15 (Phase 2 Step 3):
+typed delivery, title and payment clauses are valid and one per scope.
 
 validate() returns the list of failed rule codes (empty = valid); the API answers
 422 with that list. Pure: the caller supplies what lives in the database (the
@@ -172,6 +173,19 @@ def validate(terms: TermsIn, kind: Kind, ctx: Context | None = None) -> list[str
             fail("V14")
     if any(s.seq not in sub_legs for s in terms.sub_legs) or len({s.seq for s in terms.sub_legs}) != len(terms.sub_legs):
         fail("V14")
+    # V15 typed clauses (Phase 2 Step 3, B1): a delivery clause's Incoterm and place, a title
+    # clause's trigger, a payment clause's trigger and quantity basis are valid when present,
+    # and a scope carries at most one of each (trading_book/clauses.py). Free text is untouched.
+    from app.trading_book import clauses
+
+    if not clauses.v15(terms.clauses):
+        fail("V15")
+    # V16 the quality specification sheet (D2; Phase 2 Step 3): typed parameters with a unit
+    # and decimal limits, when present (trading_book/quality.py). Free keys are untouched.
+    from app.trading_book import quality
+
+    if quality.sheet_errors(terms.quality_spec):
+        fail("V16")
     return failed
 
 

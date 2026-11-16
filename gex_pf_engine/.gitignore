@@ -1,0 +1,33 @@
+# Local repository for the master copy (GreenMesh Phase 1, 2026-11-12).
+# Never push: secrets live in this tree. Rules adapted from co-work's.
+
+# Interpreters and dependencies (micro_service is the engine's virtualenv)
+micro_service/
+venv/
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Secrets — GEX_ENGINE_DATABASE_URL etc.
+.env
+.env.*
+!.env.example
+**/.claude/settings.local.json
+
+# Databases and the retired SQLite run log
+*.db
+*.db-wal
+*.db-shm
+*.db.*
+*.sqlite
+*.migrated-*
+
+.DS_Store
+~$*
+
+# Rename/backup artefacts
+.backups/
+.backups-*

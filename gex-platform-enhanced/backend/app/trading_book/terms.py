@@ -50,7 +50,8 @@ class FlowIn(BaseModel):
 
 # Mirrors alembic 083's CHECK (tests/test_contract_record.py keeps them equal).
 CLAUSE_TYPES = ("delivery", "payment", "parties", "commitment", "conditions_precedent", "damages",
-                "force_majeure", "change_in_law", "credit", "performance", "price", "declaration")
+                "force_majeure", "change_in_law", "credit", "performance", "price", "declaration",
+                "title")        # "title": GreenMesh Phase 2 Step 3 (B1); its typed fields: trading_book/clauses.py
 
 
 class ClauseIn(BaseModel):

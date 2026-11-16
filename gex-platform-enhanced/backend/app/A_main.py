@@ -98,13 +98,6 @@ except ImportError:
     print("⚠️  contracts_sqlite not found - skipping")
 
 try:
-    from app.api.v1 import greenmesh
-    HAS_GREENMESH = True
-except ImportError:
-    HAS_GREENMESH = False
-    print("⚠️  greenmesh not found - skipping")
-
-try:
     from app.api.v1 import routes_bankability_proxy
     HAS_BANKABILITY_PROXY = True
 except ImportError:

@@ -11,13 +11,15 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
 
   const response = await fetch(url, {
+    ...options,
+    // After `...options`: a caller's own headers (e.g. Idempotency-Key) are added to the
+    // auth and content-type headers, never replace them.
     headers: {
       // A FormData body sets its own multipart boundary; forcing JSON breaks it.
       ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...authHeader(),
-      ...options.headers,
+      ...(options.headers as Record<string, string> | undefined),
     },
-    ...options,
   });
 
   if (!response.ok) {
@@ -152,12 +154,17 @@ export const packagesAPI = {
 // Capacities API — prefix: /api/v1/capacities
 // ═══════════════════════════════════════════════════════════════
 export const capacitiesAPI = {
-  create: (data: any) =>
+  // An idempotency key (one per form) makes a repeated submit replay, never create twice.
+  create: (data: any, idempotencyKey?: string) =>
     fetchAPI("/capacities/", {
       method: "POST",
       body: JSON.stringify(data),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
-  list: () => fetchAPI("/capacities/"),
+  list: (params?: { molecule?: string; project_id?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return fetchAPI(`/capacities/${query ? `?${query}` : ""}`);
+  },
   get: (id: string) => fetchAPI(`/capacities/${id}`),
   delete: (id: string) => fetchAPI(`/capacities/${id}`, { method: "DELETE" }),
 };
@@ -166,12 +173,14 @@ export const capacitiesAPI = {
 // Offers API — prefix: /api/v1/marketplace
 // ═══════════════════════════════════════════════════════════════
 export const offersAPI = {
-  create: (data: any) =>
+  // An idempotency key (one per form) makes a repeated submit replay, never create twice.
+  create: (data: any, idempotencyKey?: string) =>
     fetchAPI("/marketplace/offers", {
       method: "POST",
       body: JSON.stringify(data),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
-  list: (params?: { molecule?: string; status?: string }) => {
+  list: (params?: { molecule?: string; status?: string; listing_state?: string }) => {
     const query = new URLSearchParams(params as any).toString();
     return fetchAPI(`/marketplace/offers${query ? `?${query}` : ""}`);
   },
@@ -264,6 +273,67 @@ export interface OfferListing {
   created_at: string;
   mine: boolean;
   project_id?: string; // present only on the caller's own listings
+  // D-C (Phase 1): what an anonymous member may see. Never the company, site or contact.
+  offer_type?: "firm" | "indicative" | null;
+  valid_until?: string | null;
+  incoterm?: string | null;
+  named_place?: string | null;
+  shipment_point?: string | null;
+  production_country?: string | null;
+  seller_role?: string | null;
+  seller_vetting?: "vetted" | "not_yet_vetted" | null;
+  product?: ListingProduct;
+}
+
+/** The product behind a listing, with the evidence status of each claim (backend product_record.listing_summary). */
+export interface ListingProduct {
+  production_pathway?: string | null;
+  physical_form?: string | null;
+  specification_standard?: string | null;
+  carbon_intensity?: { value_gco2e_mj: number; method?: string; system_boundary?: string; basis: string } | null;
+  quality?: { parameter: string; value: number; unit: string; basis: string }[];
+  certificates?: { kind: string; scheme: string; body: string; scope: string; covers: string; status: string }[];
+}
+
+/** A non-binding enquiry (backend core/enquiry.py, alembic 119). */
+export interface Enquiry {
+  id: string; role: "sent" | "received";
+  status: "open" | "contact_shared" | "declined" | "withdrawn" | "closed";
+  subject: { kind: "listing" | "rfq"; id: string; molecule: string; volume_mtpd: number; price_eur_kg?: number;
+             max_price_eur_kg?: number; delivery_start: string; delivery_end: string; [k: string]: unknown };
+  subject_state: string;
+  counterparty: { role: string | null; vetting: string | null;
+                  identity?: { company_name: string | null; person: { name: string; email: string } | null;
+                               details?: Record<string, string | null> } };
+  about_rfq_id: string | null; assessment_id: string | null; created_at: string; decided_at: string | null;
+  can: { reply: boolean; share_contact: boolean; decline: boolean; withdraw: boolean };
+  messages?: { side: "you" | "them"; body: string; evidence_request: string | null; at: string }[];
+}
+
+/** One requirement's outcome for one listing (backend core/compatibility.py). */
+export interface Outcome {
+  requirement: string; label: string; outcome: "compatible" | "incompatible" | "needs_evidence";
+  reason: string; mandatory: boolean;
+}
+export interface Assessment {
+  status: "compatible" | "incompatible" | "needs_evidence"; eligible: boolean;
+  counts: Record<"compatible" | "incompatible" | "needs_evidence", number>; outcomes: Outcome[];
+}
+export interface Candidate { listing: OfferListing; assessment: Assessment }
+
+/** A buyer's requirements on an RFQ (backend core/requirements.py, alembic 117). */
+export interface RfqRequirements {
+  max_ci_gco2e_mj?: number;
+  ci_min_basis?: "estimate" | "calculated" | "measured";
+  regimes?: string[];
+  accepted_schemes?: string[];
+  min_evidence_state?: "submitted" | "verified";
+  physical_form?: string;
+  quality_limits?: Record<string, { min?: number; max?: number }>;
+  incoterms?: string[];
+  named_place?: string;
+  delivery_country?: string;
+  mandatory?: string[];
 }
 
 export interface RFQListing {
@@ -276,6 +346,10 @@ export interface RFQListing {
   compliance_requirements?: string | null;
   created_at: string;
   mine: boolean;
+  requirements?: RfqRequirements;
+  valid_until?: string | null;
+  buyer_role?: string | null;
+  buyer_vetting?: "vetted" | "not_yet_vetted" | null;
 }
 
 export interface MarketRFQ extends RFQListing {
@@ -423,10 +497,32 @@ export interface ProjectEconomics {
   input_classification: Record<string, InputClassRecord>;
 }
 
+// Product records (Phase 1, alembic 116): quality, carbon intensity with its basis, and
+// certificates, as the seller declares them. Nothing here can mark a claim verified: only an
+// appointed independent reviewer decides a certificate (D-F).
+export const productsAPI = {
+  parameters: (): Promise<{ parameters: { parameter: string; unit: string; label: string }[] }> =>
+    fetchAPI("/products/parameters"),
+  addQuality: (tokenId: string, data: { parameter: string; value: number; basis: string }) =>
+    fetchAPI(`/products/tokens/${tokenId}/quality`, { method: "POST", body: JSON.stringify(data) }),
+  addCarbonIntensity: (tokenId: string, data: { value_gco2e_mj: number; method: string; system_boundary: string;
+                                                calculation_date: string; basis: string }) =>
+    fetchAPI(`/products/tokens/${tokenId}/carbon-intensity`, { method: "POST", body: JSON.stringify(data) }),
+  submitCertificate: (data: { project_id: string; kind: string; scheme: string; body: string; reference: string;
+                              scope: string; valid_from: string; valid_until?: string;
+                              covers?: { token_id: string }[] }) =>
+    fetchAPI("/products/certificates", { method: "POST", body: JSON.stringify(data) }),
+  // What an anonymous member will see of this token's product once listed (owner only).
+  listingPreview: (tokenId: string): Promise<{ token_id: string; product: ListingProduct }> =>
+    fetchAPI(`/products/tokens/${tokenId}/listing-preview`),
+};
+
 export const marketAPI = {
   projectEconomics: (): Promise<ProjectEconomics> => fetchAPI("/market/project-economics"),
   // tb_commodity (PostgreSQL) — the only source of molecule lists on screen.
   commodities: (): Promise<{ commodities: Commodity[] }> => fetchAPI("/market/commodities"),
+  // D-B: what the signed-in user may do in the market (backend core/market_policy).
+  policy: (): Promise<{ business_function: string | null; allowed: string[] }> => fetchAPI("/market/policy"),
   offerListings: (molecule?: string): Promise<{ offers: OfferListing[] }> =>
     fetchAPI(`/market/listings/offers${q({ molecule })}`),
   rfqListings: (molecule?: string): Promise<{ rfqs: RFQListing[] }> =>
@@ -441,9 +537,29 @@ export const marketAPI = {
     buyer_contact?: string | null;
     compliance_requirements?: string[] | null;
     status?: "draft" | "open";
-  }): Promise<MarketRFQ> =>
-    fetchAPI("/market/rfqs", { method: "POST", body: JSON.stringify(data) }),
+    requirements?: RfqRequirements;
+    valid_until?: string | null;
+  }, idempotencyKey?: string): Promise<MarketRFQ> =>
+    // One key per filled-in form: a double click or a retry returns the first RFQ (backend F12).
+    fetchAPI("/market/rfqs", { method: "POST", body: JSON.stringify(data),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }),
   myRFQs: (): Promise<{ rfqs: MarketRFQ[] }> => fetchAPI("/market/rfqs/mine"),
+  // R9 (D-D): a non-binding enquiry about one listing or one RFQ. Identities are released only
+  // when the receiving party shares contact.
+  sendEnquiry: (data: { listing_id?: string; rfq_id?: string; about_rfq_id?: string; body: string;
+                        evidence_request?: string }, idempotencyKey?: string): Promise<Enquiry> =>
+    fetchAPI("/market/enquiries", { method: "POST", body: JSON.stringify(data),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }),
+  myEnquiries: (): Promise<{ enquiries: Enquiry[] }> => fetchAPI("/market/enquiries/mine"),
+  enquiry: (id: string): Promise<Enquiry> => fetchAPI(`/market/enquiries/${id}`),
+  replyEnquiry: (id: string, body: string, evidence_request?: string): Promise<Enquiry> =>
+    fetchAPI(`/market/enquiries/${id}/messages`, { method: "POST", body: JSON.stringify({ body, evidence_request }) }),
+  decideEnquiry: (id: string, decision: "share-contact" | "decline" | "withdraw"): Promise<Enquiry> =>
+    fetchAPI(`/market/enquiries/${id}/${decision}`, { method: "POST" }),
+  // R7: open listings assessed against the caller's own RFQ, eligibility first (core/compatibility).
+  // offerIds (at most four) for Compare.
+  rfqCompatibility: (rfqId: string, offerIds?: string[]): Promise<{ candidates: Candidate[] }> =>
+    fetchAPI(`/market/rfqs/${rfqId}/compatibility${offerIds?.length ? `?offer_ids=${offerIds.join(",")}` : ""}`),
   setRFQStatus: (id: string, status: string): Promise<MarketRFQ> =>
     fetchAPI(`/market/rfqs/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
   openOffer: (id: string) => fetchAPI(`/market/offers/${id}/open`, { method: "POST" }),
@@ -498,12 +614,14 @@ export const tradingBookAPI = {
 // Tokens API — prefix: /api/v1/tokens
 // ═══════════════════════════════════════════════════════════════
 export const tokensAPI = {
-  create: (data: any) =>
+  // An idempotency key (one per form) makes a repeated submit replay, never create twice.
+  create: (data: any, idempotencyKey?: string) =>
     fetchAPI("/tokens/", {
       method: "POST",
       body: JSON.stringify(data),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
-  list: (params?: { capacity_id?: string }) => {
+  list: (params?: { capacity_id?: string; project_id?: string }) => {
     const query = new URLSearchParams(params as any).toString();
     return fetchAPI(`/tokens/${query ? `?${query}` : ""}`);
   },
@@ -912,8 +1030,8 @@ export const pricingAPI = {
       body: JSON.stringify(params),
     }),
 
-  greenmeshRollup: (params: Record<string, any>) =>
-    fetchAPI("/pricing/offtake/rollup", {
+  portfolioRollup: (params: Record<string, any>) =>
+    fetchAPI("/pricing/offtake/portfolio-rollup", {
       method: "POST",
       body: JSON.stringify(params),
     }),

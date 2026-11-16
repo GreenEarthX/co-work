@@ -97,11 +97,25 @@ class Settings(BaseSettings):
     # valid and read "confirmed in GEX, not signed by the party".
     REQUIRE_PARTY_SIGNATURE: bool = False
 
+    # GreenMesh Phase 2 Step 6 (D6, export only): registry and scheme connectors build a file
+    # for the party or its certifier to submit, and send nothing. "none" is the only value;
+    # a live backend needs a written mandate, credentials in .env and a test registry first,
+    # and production is never a configuration value.
+    REGISTRY_CONNECTOR_BACKEND: str = "none"
+    REGISTRY_EXPORT_DIR: str = "data/registry_exports"
+
     @field_validator("LEDGER_ANCHOR_BACKEND", mode="after")
     @classmethod
     def _anchor_backend(cls, value: str) -> str:
         if value not in ("none", "hedera_testnet"):
             raise ValueError(f"LEDGER_ANCHOR_BACKEND must be none or hedera_testnet, not {value!r}")
+        return value
+
+    @field_validator("REGISTRY_CONNECTOR_BACKEND", mode="after")
+    @classmethod
+    def _registry_backend(cls, value: str) -> str:
+        if value != "none":
+            raise ValueError(f"REGISTRY_CONNECTOR_BACKEND must be none (export only, D6), not {value!r}")
         return value
 
     # Which store slice 6b-1 (entitlements) uses.

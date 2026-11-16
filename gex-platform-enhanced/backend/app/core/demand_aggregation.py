@@ -193,7 +193,7 @@ class DemandAggregationService:
                 blended_tenor=round(sum(s.min_tenor_years for s in non_firm) / len(non_firm), 1),
                 anchor=anchor.buyer_name,
                 rationale=(
-                    f"Pool {len(non_firm)} buyers ({combined_vol:,}t/yr) via GreenMesh aggregation. "
+                    f"Pool {len(non_firm)} buyers ({combined_vol:,}t/yr) into one aggregated offtake. "
                     f"Anchor: {anchor.buyer_name} ({anchor.credit_rating}). "
                     f"Combined with firm offtake: {combined_pct:.0%} coverage."
                 ),

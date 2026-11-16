@@ -202,8 +202,10 @@ async def offtake_value(body: dict):
     return await _call_pf("/offtake/value", json_data=body)
 
 
-@router.post("/offtake/rollup")
-@router.post("/pf/offtake/rollup")
-async def greenmesh_rollup(body: dict):
-    """Proxy GreenMesh rollup to PF engine."""
-    return await _call_pf("/offtake/rollup", json_data=body)
+@router.post("/offtake/portfolio-rollup")
+@router.post("/pf/offtake/portfolio-rollup")
+@router.post("/offtake/rollup", deprecated=True)       # old name, kept for one release
+@router.post("/pf/offtake/rollup", deprecated=True)
+async def portfolio_rollup(body: dict):
+    """Proxy the offtake portfolio rollup to the PF engine."""
+    return await _call_pf("/offtake/portfolio-rollup", json_data=body)

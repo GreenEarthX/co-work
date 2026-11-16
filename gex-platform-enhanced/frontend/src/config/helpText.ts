@@ -173,13 +173,13 @@ export const HELP = {
 
   // ── GreenMesh ──
   CERTIFICATION_PREMIUM:
-    "Revenue uplift from certification, per molecule, per regime. E.g., RFNBO H₂: +€400/t, SAF RFNBO: +€350/t. This is earned revenue from compliance effort, not subsidy.",
+    "Revenue uplift from certification, per molecule, per regime. Indicative only: the reference registry holds proposed figures (e.g. RFNBO H₂ +€400/t) that no one has yet confirmed against a source. This is earned revenue from compliance effort, not subsidy.",
   GOO_VALUE:
     "Guarantee of Origin value = certification premium × volume. A separate revenue stream from the physical commodity, tradeable independently.",
   MASS_BALANCE:
     "Chain-of-custody tracking: verifies the green attribute follows the physical molecule from production through logistics to delivery. Required for GoO validity.",
   NETTING_EFFICIENCY:
-    "FlowFusion™ result: (gross bilateral flows − net multilateral flows) ÷ gross flows. Higher = fewer physical transfers needed.",
+    "Planned (Phase 3), not built: multilateral netting would report (gross bilateral flows − net multilateral flows) ÷ gross flows. Higher = fewer physical transfers needed.",
 
   // ── Gabillon / Pricing ──
   SPOT_PRICE:

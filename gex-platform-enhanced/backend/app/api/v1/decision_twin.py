@@ -2,6 +2,7 @@
 Decision Twin API - Expose certification evaluation endpoints
 This is the PUBLIC API for the Decision Twin
 """
+from datetime import date
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, List, Optional
@@ -23,6 +24,7 @@ class REDIII_EvaluationRequest(BaseModel):
     temporal_matching: Optional[str] = "monthly"
     geographical_correlation: Optional[bool] = True
     project_id: Optional[str] = None
+    as_of: Optional[str] = None   # the date the temporal rule is read for; default today
 
 
 class V45_EvaluationRequest(BaseModel):
@@ -121,7 +123,8 @@ async def evaluate_red_iii(request: REDIII_EvaluationRequest):
             ghg_intensity=request.ghg_intensity,
             renewable_electricity_pct=request.renewable_electricity_pct,
             temporal_matching=request.temporal_matching,
-            geographical_correlation=request.geographical_correlation
+            geographical_correlation=request.geographical_correlation,
+            as_of=date.fromisoformat(request.as_of) if request.as_of else None,
         )
         
         return {

@@ -361,17 +361,20 @@ def _iso(at) -> str:
 
 def event_hash(*, contract_ref: str, seq: int, event_type: str, version: Optional[int], sub_leg: Optional[int],
                terms_hash: Optional[str], actor: str, company: Optional[str], note: Optional[str], at,
-               prev: Optional[str]) -> str:
+               prev: Optional[str], delivery: Optional[str] = None) -> str:
     body = {"schema": 2, "contract_ref": contract_ref, "seq": seq, "event_type": event_type, "version": version,
             "sub_leg": sub_leg, "terms_hash": terms_hash, "actor": actor, "company": company, "note": note,
             "at": _iso(at), "prev": prev}
+    if delivery is not None:            # alembic 103: only when set, so earlier hashes are unchanged
+        body["delivery"] = delivery
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def append_event(conn, contract_id: str, event_type: str, actor: str, company_id: Optional[str], *,
                  version_id: Optional[str] = None, sub_leg_id: Optional[str] = None,
-                 terms_hash: Optional[str] = None, note: Optional[str] = None) -> dict:
+                 terms_hash: Optional[str] = None, note: Optional[str] = None,
+                 delivery_id: Optional[str] = None) -> dict:
     """Append one event, chained to the previous one. The contract row is locked
     first, so two writers can never take the same seq (078's race)."""
     c = _row(conn, "SELECT contract_ref, pseudo_id FROM tb_contract WHERE id = ? FOR UPDATE", (contract_id,))
@@ -397,7 +400,8 @@ def append_event(conn, contract_id: str, event_type: str, actor: str, company_id
     def _digest(when):
         return event_hash(contract_ref=c["contract_ref"], seq=seq, event_type=event_type,
                           version=version["version"] if version else None, sub_leg=sub["seq"] if sub else None,
-                          terms_hash=terms_hash, actor=actor, company=company_id, note=note, at=when, prev=prev)
+                          terms_hash=terms_hash, actor=actor, company=company_id, note=note, at=when, prev=prev,
+                          delivery=delivery_id)
 
     signature, scheme, key_ref = None, "none", None
     act = _PARTY_ACT.get()
@@ -422,9 +426,9 @@ def append_event(conn, contract_id: str, event_type: str, actor: str, company_id
     digest = _digest(at)
     conn.execute("INSERT INTO tb_contract_event (contract_id, seq, event_type, version_id, sub_leg_id, terms_hash, "
                  "actor, company_id, note, at, prev_hash, event_hash, hash_scheme, signature, signature_scheme, "
-                 "signer_key_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 "signer_key_ref, delivery_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                  (contract_id, seq, event_type, version_id, sub_leg_id, terms_hash, actor, company_id, note, at,
-                  prev, digest, SCHEME, signature, scheme, key_ref))
+                  prev, digest, SCHEME, signature, scheme, key_ref, delivery_id))
     # The genesis event is the contract's identity for life (065's token_ref; fixed by trigger).
     conn.execute("UPDATE tb_contract SET token_ref = ? WHERE id = ? AND token_ref IS NULL", (digest, contract_id))
     return {"seq": seq, "event_hash": digest}
@@ -460,7 +464,8 @@ def chain_intact_events(contract_ref: str, evs: list[dict]) -> bool:
         elif e["hash_scheme"] == SCHEME:
             digest = event_hash(contract_ref=contract_ref, seq=e["seq"], event_type=e["event_type"],
                                 version=e["version"], sub_leg=e["sub_leg_seq"], terms_hash=e["terms_hash"],
-                                actor=e["actor"], company=e["company_id"], note=e["note"], at=e["at"], prev=prev)
+                                actor=e["actor"], company=e["company_id"], note=e["note"], at=e["at"], prev=prev,
+                                delivery=e.get("delivery_id"))
         else:
             return False
         if digest != e["event_hash"]:

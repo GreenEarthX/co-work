@@ -18,8 +18,9 @@ import { useNavigate } from 'react-router-dom'
 import { type CustomerProject } from '@/data/customerProjects'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { useProjectDataset, UnverifiedBadge } from './useProjectDataset'
+import { MARKET_DISCOVERY, marketDiscoveryPath, useCanOpen } from '@/lib/marketLinks'
 
-function ProjectBuyers({ project }: { project: CustomerProject }) {
+function ProjectBuyers({ project, canOpenMarket }: { project: CustomerProject; canOpenMarket: boolean }) {
   const navigate = useNavigate()
   const ds = useProjectDataset<string[]>('demand_buyers', project.id)
   const g4 = project.bankability?.gates?.find(g => g.id === 'G4_OFFTAKE_BANKABLE')
@@ -57,11 +58,12 @@ function ProjectBuyers({ project }: { project: CustomerProject }) {
           </div>
         ) : (
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-400">No buyer is recorded for this project.</p>
-            <button onClick={() => navigate(`/matching?mode=sell&project=${project.id}`)}
+            {/* 113: the list is the owner's and its mandated lender's — absent can also mean not shared. */}
+            <p className="text-sm text-gray-400">No buyer is recorded for this project, or the list is not shared with your company.</p>
+            {canOpenMarket && <button onClick={() => navigate(marketDiscoveryPath('demand', project.molecule))}
               className="text-xs font-semibold bg-gray-900 text-white hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors">
               Scan Buyer RFQs <ArrowRight className="w-3 h-3 inline ml-1" />
-            </button>
+            </button>}
           </div>
         )}
       </div>
@@ -75,6 +77,9 @@ export function DemandPipeline() {
   const [filterMol, setFilterMol] = useState('all')
   const molecules = [...new Set(visibleProjects.map(p => p.molecule))]
   const shown = visibleProjects.filter(p => filterMol === 'all' || p.molecule === filterMol)
+  // Both buttons open the market's DEMAND side (discovery review F17: they opened Your Matches),
+  // and only for a role that may open Market Discovery (a bank or a producer CFO may not).
+  const canOpenMarket = useCanOpen(MARKET_DISCOVERY)
 
   return (
     <div className="max-w-[1440px] mx-auto space-y-6">
@@ -86,12 +91,12 @@ export function DemandPipeline() {
             Volumes, prices and coverage come from offers and contracts.
           </p>
         </div>
-        <button
-          onClick={() => navigate('/matching?mode=sell')}
+        {canOpenMarket && <button
+          onClick={() => navigate(marketDiscoveryPath('demand', filterMol))}
           className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors"
         >
           Review Market Bids <ArrowRight className="w-4 h-4" />
-        </button>
+        </button>}
       </div>
 
       <div className="flex items-center gap-3">
@@ -105,7 +110,7 @@ export function DemandPipeline() {
 
       <div className="space-y-4">
         {shown.length === 0 && <p className="text-sm text-gray-400">No visible projects.</p>}
-        {shown.map(p => <ProjectBuyers key={p.id} project={p} />)}
+        {shown.map(p => <ProjectBuyers key={p.id} project={p} canOpenMarket={canOpenMarket} />)}
       </div>
     </div>
   )

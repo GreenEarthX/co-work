@@ -202,6 +202,23 @@ share `gex_test_suite`).
   the card cannot change or drop it; its buyer confirms it with the four-eye TRADE_CONFIRM); an
   acceptance past the planned output is refused. Without one it stays a trade. Head **094**.
 - Platform **1394 pass / 15 skip**, frontend **260**.
+**2026-11-13: head is 112 — a project's sales and input records are its OWNER's** (handoff §8 item 79).
+`project_sales_detail` / `project_input_line` read = `PLATFORM_ADMIN OR app_company_owns_project`. Before,
+any company with project access (a prospective buyer) read the producer's supplier prices, break-even and
+other buyers' deals. Project access is not ownership: use `app_company_owns_project` for anything commercial.
+**Head is 113 (same day):** a `project_dataset` row of kind `demand_buyers` (the project's buyer names) is read
+by GEX, the owner, or a company with `project_access.access_role = 'MANDATED_LENDER'`
+(`app_company_is_mandated_lender`, SECURITY DEFINER). Every other kind keeps 069's rule. Widen the list
+only on JML's word, by adding an access_role, never by falling back to "may see the project".
+Still on the "may see the project" rule: the other `project_dataset` kinds (`deal_inputs` holds DSCR and
+offtake % and is not routed), `project_profile`, `project_risk_flag`, `tb_asset`.
+**2026-11-14: head is 115 — the capacity rule is the database's.** Deferred constraint trigger `tokens_capacity_guard`: at commit, locks the capacity and refuses any day whose live tokens exceed `capacity_mtpd`, whoever writes them. A fixture that seeds tokens must size its capacity for them. The mint route runs the constraint early so a refusal comes before its event.
+**2026-11-13 (latest): head is 114 — discovery Phase 0: honest mints, exact market quantities, idempotent creates** (handoff §8 item 81; backup `gex_platform_2026-11-13_2321.dump`; round-tripped).
+- **Mint** (`POST /api/v1/tokens/`): a declared `verification_state` other than UNVERIFIED is 422; the capacity row is locked (`FOR UPDATE`, which also makes a non-owner 403); capacity is the peak rate on any day of the window (SPLIT parents and VOIDED excluded); the event is written after the row, before commit.
+- **Carving** (`core/token_partition.carve`): a listing reserves exactly its rate and window, an acceptance contracts exactly min(listing, RFQ) over the overlap; remainders go back to MINTED. Recorded in `token_split` (reason `market_listing` / `market_acceptance`, `order_id`, piece). `token_split_consistent` now also refuses a market split whose pieces don't sum to the parent's tonnes. Never move a whole token for a partial quantity again.
+- **Custody kg of a carved token is `app_token_kg`** (the split's kg), never "allocations made to this token": the draw guard and `delivery_record` use it, and the closed-period check goes through `delivery_title.root_of`. The evidence pack walks splits to the allocated token (pack version **3**).
+- **Idempotency** (`core/idempotency.run`, table `idempotency_record`, RLS per company): capacity, mint, listing, listing open, RFQ, proposal, acceptance, settlement. Same key + same request replays (`Idempotent-Replayed: true`); same key + other request 422; refusal releases the key. The RFQ form sends one key per form.
+- `frontend/src/api.ts` `fetchAPI` now spreads `options` BEFORE the merged headers (a caller's `headers` used to replace auth and JSON headers).
 **2026-11-11: Docker Hub `gex-backend`/`gex-frontend` v1.10.0 (+latest), compose pinned** (handoff §10). In zsh write `"${r}:${t}"`: `$r:latest` is the `:l` modifier and pushed two PUBLIC stray repos (deleted). Prune the build cache after building: four images leave ~2.2 GB free on the VM disk.
 **2026-11-10 (latest): head is 096 — Phase 5: party signatures, recorded and verified, NOT required** (handoff §8 item 61).
 - A CONFIRMED/DISPUTED event MAY carry ed25519 over `"GEX-CONTRACT-EVENT-v1:" + event_hash`, beside
@@ -801,6 +818,30 @@ PostgreSQL-only divergence — see the comprehension fixture below.
 (`test_reference_registry_pg.py`, `test_reference_catalog.py`, `test_reference_routes.py`,
 two guardrails in `test_fuel_reference_slice.py`). The same 18 skips, read with `-rs`.
 
+**2026-11-16 (requirements pins): 1782 pass, 15 skip, 0 fail**, both exported, run alone (= the 1797 collected; same 15 skips). `requirements.txt` pins now match `backend/venv` (pydantic 2.5.3 → 2.12.5 and 14 others; `cryptography==46.0.6` pinned, as newer releases have no Intel-macOS wheel and need Rust). A clean Python 3.14 `pip install --dry-run` resolves with no source build EXCEPT `matrix-nio[e2e]` → `python-olm`, which needs `brew install libolm cmake` (imported by nothing; unchanged).
+
+**2026-11-16 (connector acceptance cases, mapping v0.3): `test_connector_fixtures.py` now 73 (+31 for 15 acceptance cases, +4 for the cross-company disclosure rule, §5.11; ten more breaks caught).** Earlier the same day: **+38 `test_connector_fixtures.py`** — offline, no database, synthetic (`tests/fixtures/connectors/`, mapping v0.2 §7). Run alone: 38 pass, 0 skip; negative-verified six ways. **Full suite NOT re-run**: 1797 tests collect. The UDB XSD check needs `lxml`, declared in `requirements.txt` the same day (`lxml==6.1.1`, JML); without it the check FAILS, it does not skip. Docker images rebuilt after this carry it (check free VM disk first).
+
+**2026-11-12 (GreenMesh Step 5): 1520 pass, 15 skip, 0 fail** at head 099 = 1513 + 7
+(`test_evidence_pack_pg.py`), same 15 skips.
+
+**2026-11-12 (GreenMesh Step 4): 1513 pass, 15 skip, 0 fail** at head **099** = 1501 + 12
+(`test_rfnbo_correlation_pg.py`), same 15 skips.
+
+**2026-11-12 (GreenMesh Step 3): 1501 pass, 15 skip, 0 fail** at head **098** = 1477 + 24
+(`test_metered_reconciliation_pg.py`), same 15 skips.
+
+**2026-11-12 (GreenMesh Step 2): 1477 pass, 15 skip, 0 fail** at head **097** = 1446 + 30
+(`test_custody_periods_pg.py`) + 1 (the physics guard now parametrized over two modules), same 15
+skips. No frontend or engine change.
+
+**2026-11-12 (GreenMesh Step 1): 1446 pass, 15 skip, 0 fail** at head 096 = 1438 + 8
+(`test_greenmesh_retired.py`), same 15 skips. Engine 278 (275 + 3). Frontend 265, unchanged.
+
+**2026-11-12 (GreenMesh Phase 1 baseline): 1438 pass, 15 skip, 0 fail** at head 096, both
+exported, run alone. +5 against the 11-10 record of 1433, from a session not recorded here.
+Skips listed under GreenMesh Step 0.
+
 **2026-10-25 (part 3): 1115 pass, 18 skip, 0 fail** at head 071; frontend 227/227. +8
 `test_governance_identity_pg.py`, +5 `test_frontend_datasets_pg.py`.
 
@@ -978,6 +1019,490 @@ payloads with no `company_id`, and `viewer_from_request` returns
 
 Function over design. Concise and direct. Incremental changes over monolith
 patterns.
+
+---
+
+## GreenMesh Phase 1 — "Fix the evidence base first" (brief from Claude.ai, 2026-11-12)
+
+Source of this brief: `../docs/product/GreenMesh_Description_and_Vision.md` (draft for
+decision), sections *What the GEX code already covers*, *Weaknesses* and *Way forward*.
+Everything below was read from the tree on 2026-11-12; if the code disagrees, the code wins
+— fix this section.
+
+**JML decision on G-12 (2026-11-12):** GreenMesh is KEPT as one thing only — the
+physical-delivery and clearing extension of the market engine (`core/market_engine.py`) and
+the chain-of-custody ledger (`api/v1/mass_balance.py`). The separate engine is retired; its
+useful logic is ported. Netting (FlowFusion™) is Phase 3 and is NOT built now.
+
+**Gate that closes Phase 1:** one synthetic RFNBO trade runs end to end on PostgreSQL and
+produces an evidence pack in which every compliance item is VERIFIED from data, not DECLARED.
+
+### Step 0 — before any change
+
+1. **There is no git repository** (checked 2026-11-12 at `files/` and
+   `files/gex-platform-enhanced/`). `git init` both trees in use, commit the baseline, work on
+   a branch `greenmesh-phase1`. Until then: back up every file you touch to
+   `../_claude_backups/2026-11-12_greenmesh_phase1/` (existing convention).
+2. Export `DATABASE_URL` and `ALEMBIC_DATABASE_URL` (see *Database* and *Tests* above), run
+   the full suite, record pass/skip/fail and migration head (096 expected) here. Re-run at the
+   end of every step; a skip is not a pass (`-rs`).
+3. No deletions without JML. Retired files go to `../_claude_backups/.../_to_delete/` and are
+   listed in the step report.
+
+**Step 0 done 2026-11-12.** `files/` itself is not a repository (its `.git/` holds only vexp
+hooks) and was not initialised: it holds `.env`, dumps and client documents. Initialised
+instead: `gex-platform-enhanced/` (baseline `64b5171`, 1056 files) and `../gex_pf_engine/`
+(baseline `9355b04`, 61 files), both on branch `greenmesh-phase1`, **no remote, never push**.
+Each has a `.gitignore` adapted from co-work's (secrets, databases, dumps, client files, venvs,
+`frontend/dist`). co-work, the public repository, is not the reference for this work. If it is
+synced again, the rsync must add `--exclude='.git'` (`sync-to-docker.sh` already has it).
+Baseline, both URLs exported, run alone: **head 096**, 151 tables, 144 FORCED; platform
+**1438 pass / 15 skip / 0 fail** (245 s). The 15 skips read with `-rs`: 7
+`test_auth_store_isolation.py` (auth has no SQLite path on postgres), 7
+`test_plant_builder_energy.py` (catalogue electrolysers state no SEC), 1
+`test_evidence_history_pg.py` (archive empty). Frontend and PF engine suites not run.
+
+### Step 1 — one name, one meaning (G-12, G-13)
+
+- `api/v1/greenmesh.py`: imported in `main.py` (`HAS_GREENMESH`) but never mounted; every
+  handler is a TODO stub. Do NOT mount it. Remove the import; move the file to `_to_delete`.
+- `core/greenmesh_engine.py` (v5.1, called by nothing): port `CertificationPremium` into the
+  reference catalogue with its sources labelled (BNEF 2024, ICIS 2025 per the docstring) and
+  marked as indicative; drop the rest (mass balance and GoO retirement duplicate live code;
+  netting is Phase 3).
+- `core/greenmesh_bankable.py`: keep as the design source for Phase 2 (quality verification
+  before title transfer, take-or-pay, availability guarantee, penalties). Move it to
+  `docs/design/greenmesh_physical_layer_reference.py` with a header saying it is not wired.
+- Frontend: menu label `'GreenMesh (Capacity & Logistics)'` → `'Capacity & Logistics'`
+  (`frontend/src/config/menuArchitecture.ts`, id `greenmesh-netting` → `capacity-logistics`,
+  check every reference and frontend test). `CapacityPage.tsx`: heading "GreenMesh" →
+  "Capacity & Logistics"; the "How GreenMesh Aggregation Works" box claims procurement savings
+  of "typically 5–15%" with no source — remove the figure. `helpText.ts` `// ── GreenMesh ──`
+  keys stay (they describe GoO value, mass balance, netting) but the netting entry must say
+  "planned (Phase 3)".
+- PF engine (`../gex_pf_engine`, sibling repo): the "GreenMesh rollup" is a portfolio rollup
+  of offtake contracts. Rename to `portfolio_rollup`; keep the old route as a deprecated alias
+  for one release; update `frontend/src/api.ts` `greenmeshRollup` and
+  `features/pricing/hooks.ts` `useGreenmeshRollup`.
+- Documents (G-13): `../docs/product/Vademecum_v4.4.md` lines 337, 353, 368, 420, 451 (API is
+  not "✅ Built"; `greenmesh_bankable.py` is not Matrix/Synapse — that is
+  `services/matrix_service.py`); `GEX_Platform_Technical_Reference_v3.md` (both copies) lines
+  37, 96 and the `core/greenmesh_bankable.py` section; `docs/menu-architecture-map.md` and
+  `docs/menu-architecture/GEX_menu_architecture_views.md` labels. Update gap register G-12/G-13
+  status.
+- **Acceptance:** `grep -rni greenmesh backend/app frontend/src` returns only the Phase 2
+  placeholder text and helpText; suite counts unchanged apart from the tests you add or
+  intentionally retire (list them).
+
+**Step 1 done 2026-11-12** (handoff §8 item 62). Acceptance grep: only the two
+`// ── GreenMesh ──` helpText headers (frontend and the stray copy in `backend/app/config/`).
+- Retired to `../_claude_backups/2026-11-12_greenmesh_phase1/_to_delete/`: `api/v1/greenmesh.py`,
+  `core/greenmesh_engine.py`, `frontend/.../producer/ProductionDashboard.tsx` (imported by
+  nothing; its only data were the never-mounted `/api/v1/greenmesh/*` routes) and the PF
+  engine's empty `pf_engine/core/greenmesh.py`. Import blocks removed from `main.py` and `A_main.py`.
+- Premiums: 5 catalog keys `certification_premium_{rfnbo,red_iii,45v,certifhy,corsia}`
+  (COST_PER_MASS, "INDICATIVE"); 13 rows `proposed` by `CERT_PREMIUM_PORT_20261112`, source
+  class `gex_assumption`, none in force. **After an Alembic rebuild run
+  `scripts/load_certification_premiums_20261112.py --execute`** (a dump restore carries them;
+  backup `gex_platform_2026-11-12_1003.dump` taken before the write). The 45V row's €300/t is a
+  tenth of `subsidy_45v_max` (USD 3.28/kg): its note says so; check before approving.
+- PF engine: `portfolio_rollup`, `POST /pf/offtake/portfolio-rollup`; `/pf/offtake/rollup` and the
+  `greenmesh_rollup` config key are deprecated aliases for one release (the new key wins).
+  Platform proxy: `/pricing/offtake/portfolio-rollup` (old paths deprecated); frontend
+  `pricingAPI.portfolioRollup`, `usePortfolioRollup` (no caller).
+- Also outside the brief's list: `demand_aggregation.py` and `task_router.py` no longer say
+  "via GreenMesh" / "GreenMesh / FlowFusion logic"; helpText's certification premium says
+  indicative.
+- Tests: +8 platform (`test_greenmesh_retired.py`), +3 engine (`test_offtake.py`); four breaks
+  caught (a greenmesh import, a key not INDICATIVE, the alias not deprecated, the old key
+  ignored). None retired. Platform **1446 / 15 skip / 0 fail**, engine **278**, frontend
+  **265** (= its baseline, measured on this Mac), `tsc` and the three build audits clean.
+
+### Step 2 — chain of custody to RED III grade (`api/v1/mass_balance.py`, migration 097)
+
+The module's own docstring lists the gaps. Close them, PostgreSQL only, RLS like the rest:
+
+- **Accounting periods.** `coc_period` per facility: start, end, status OPEN/CLOSED. Inputs and
+  withdrawals belong to a period. Closing produces a period statement: opening + inputs ×
+  conversion − withdrawals = closing. Closed periods are immutable (trigger, like
+  `tb_contract`). Negative balance at any point is refused by default; scheme-specific rules
+  (period length, carry-forward) are parameters to confirm with the certifier — do not invent
+  values.
+- **Input consignments.** `coc_input`: period, input type (electricity MWh, CO₂, N₂, water),
+  quantity, unit, characteristics, evidence reference (PPA id, GO id, supplier PoS id).
+- **Conversion factors.** Per facility, pathway and molecule, versioned with `valid_from`
+  (e.g. kWh per kg H₂, kg H₂ per kg NH₃). A lot whose output exceeds inputs × factor beyond a
+  tolerance parameter is flagged, not silently accepted.
+- **Characteristics.** Replace the single `carbon_intensity_gco2e_mj` with a validated
+  characteristics object (GHG intensity, pathway, scheme, certificate id, country of origin,
+  production window, RFNBO flag, additionality basis). Keep the old column readable.
+- **No duplicate lifecycle.** Link lot allocations to tokens; claim/retirement stays in
+  `tokens_sqlite.py` (MINTED → RETIRED).
+- Extend the hash chain to inputs and period close.
+- **Tests (pg_store):** withdrawal beyond period balance refused; period statement arithmetic;
+  closed period immutable; conversion mismatch flagged; invalid characteristics refused;
+  existing `test_chain_of_custody.py` still green.
+
+**Step 2 done 2026-11-12 — head 097** (handoff §8 item 63; backup `gex_platform_2026-11-12_1036.dump`
+taken first; round-tripped 097 → 096 → 097). **155** tables, **148** FORCED.
+- Tables: `coc_scheme_rule` (EMPTY by design — the certifier's values), `coc_period`, `coc_input`
+  (hash-chained per period by `seq` from the period's `open_hash`), `coc_conversion_factor`
+  (declared input per kg output, versioned by `valid_from`); lots + `period_id`, `facility_id`,
+  `characteristics`, `conversion_check`, `conversion_detail`; allocations + `period_id`.
+- Logic in `app/core/custody_ledger.py`; routes under `/api/v1/chain-of-custody/periods`,
+  `/conversion-factors`, `/scheme-rules`. Credit = min over required input types of CERTIFIED
+  inputs / factor in force on the input's day; the conversion check uses ALL inputs. No rule →
+  no carry-forward, no negative balance, length unchecked, said in the statement. A period never
+  closes in deficit.
+- Triggers: a CLOSED period never changes, no period is deleted, periods of one key never overlap;
+  inputs, factors and allocations are append-only (UPDATE/DELETE/TRUNCATE revoked from `gex_app`,
+  asserted); a period lot's declaration is fixed and nothing touches it once its period closes.
+- **Behaviour changes:** allocations were PLATFORM_ADMIN-only (043: no `project_id`), so no producer
+  could ever allocate; now owner/GEX write and project access reads, through the lot. An
+  allocation needs a real token of the lot's project, not RETIRED/ANNULLED/VOIDED, not backed by
+  another lot, and links it (`tokens.mass_balance_lot_id`). Lots without a period still work
+  (`custody_grade: NO_PERIOD`); the 72 pre-existing lots keep `period_id` NULL.
+- **Tests changed on purpose:** `test_chain_of_custody` no longer forbids the word
+  `conversion_factor` (declared ratios are required now; the process terms stay forbidden, and the
+  guard now covers `custody_ledger.py` too). `test_tail_slices` tampered with allocations as
+  `gex_app` and, once refused, LEFT 3 ROWS IN THE DEV DATABASE (removed the same minute as the
+  superuser); for append-only ledgers it now proves the runtime is refused, tampers and cleans up
+  as the superuser. It still writes the dev database for the other six ledgers (pre-existing).
+- New: `test_custody_periods_pg.py` (30, `pg_store`). Five breaks caught (balance guard, conversion
+  flag, unknown characteristics keys, chain ignoring content, the closed-period trigger).
+- Open, in the gap register: G-19 (72 `created_by='test'` lots on `proj_etf_pecos1`), G-20 (actors
+  from the request body), G-21 (lots writable by project-access holders).
+
+### Step 3 — reconcile lots against metered output
+
+- Source: `plant_data` via `core/ot_boundary.py` (`PRODUCTION_VOLUME`, `POWER_CONSUMPTION`).
+  Units are free text today ("m³/h H2, t/day NH3"). Require an explicit unit on ingest,
+  normalise to kg and MWh per interval, refuse unknown units.
+- On lot creation and period close, compare declared volume with metered production for the
+  same facility and window → `RECONCILED`, `VARIANCE` (tolerance = parameter, value to agree
+  with certifier or independent engineer) or `UNVERIFIED` when no meter data exists. Never
+  pass silently. Expose the status on the lot response.
+- **Tests:** each of the three outcomes; unit refusal.
+
+**Step 3 done 2026-11-12 — head 098** (handoff §8 item 64; backup `gex_platform_2026-11-12_1057.dump`
+first; round-tripped 098 → 097 → 098). **156** tables, **149** FORCED.
+- Ingest: PRODUCTION_VOLUME and POWER_CONSUMPTION need `quantity`, `unit`, `interval_start`,
+  `interval_end` (with a UTC offset) and, for production, `molecule`; stored normalised to kg or
+  MWh for the interval (rates x hours). Units: kg, t, kg/h, t/h, kg/d, t/d | kWh, MWh, GWh, kW, MW.
+  **A volume (m3, Nm3, m3/h) is refused**: no density has been agreed (gap G-22).
+- A gateway now has a `facility_id`; a reading's project must be its gateway's (validated, and by
+  trigger for every data type — before 098 the body's `project_id` was trusted), a metered reading
+  takes its gateway's facility, and one gateway's readings of one type and molecule never overlap.
+  `plant_data` is append-only for `gex_app`. `store_plant_data` RAISES on failure (it used to log
+  and answer "accepted"); the route maps that to 409 / 403 / 503.
+- `app/core/meter_reconciliation.py`: RECONCILED / VARIANCE / UNVERIFIED with a reason. Windows are
+  whole UTC days; only meter intervals wholly inside count (straddling ones reported, never
+  prorated); coverage below 100% is UNVERIFIED; lots with the same window are added, a partly
+  overlapping window is UNVERIFIED. Tolerance from `coc_meter_tolerance` (EMPTY: no row = ZERO).
+- Lots: `meter_check`/`meter_detail` (at creation, fixed with the declaration) and
+  `meter_reconciliation` (live, on every read). Period statement: `meter_reconciliation` for
+  production and electricity (declared ELECTRICITY inputs vs POWER_CONSUMPTION).
+- Tests: `test_metered_reconciliation_pg.py` (24, `pg_store`); four breaks caught (coverage, tolerance,
+  unknown units, the overlap trigger). `ot_boundary` had no test at all before.
+
+### Step 4 — compute correlation, do not accept flags
+
+- `core/decision_twin.py` `evaluate_red_iii(...)` takes `temporal_matching: str` and
+  `geographical_correlation: bool` from the caller. Keep that path only as `DECLARED`.
+  Add a computed path:
+  - **Temporal:** match electrolyser consumption against contracted renewable generation per
+    interval (monthly or hourly). Generation data is not in `ALLOWED_DATA_TYPES` — add
+    `PPA_GENERATION` (MWh per interval, PPA id, generator bidding zone, commissioning date), or
+    define a provider interface (hourly-matching services exist; adapter later).
+  - **Geographic:** compare electrolyser and generator bidding-zone codes.
+  - **Additionality:** from PPA metadata and commissioning dates.
+- **Defect to fix:** the temporal check accepts `monthly` with no date limit. Under DA
+  2023/1184 Art. 6 as written, monthly is acceptable until 31 Dec 2029 and hourly from
+  1 Jan 2030. The DA is under targeted review (autumn 2026), so put the rule in a versioned
+  rule table with `valid_from`/`valid_to`, not in code.
+- **Tests:** computed pass/fail for monthly and hourly; date-dependent rule; declared input is
+  labelled DECLARED in the result.
+
+**Step 4 done 2026-11-12 — head 099** (handoff §8 item 65; backup `gex_platform_2026-11-12_1111.dump`
+first; round-tripped 099 → 098 → 099). **159** tables, **152** FORCED.
+- `rfnbo_rule` (versioned, append-only, read by all, GEX writes), seeded AS WRITTEN in 2023/1184 by
+  `MIGRATION_099`: temporal MONTHLY to 2029-12-31, HOURLY from 2030-01-01 (Art. 6); additionality
+  36 months (Art. 5) and the transition (electrolyser before 2028-01-01, exempt to 2037-12-31,
+  Art. 11); geographic = same bidding zone (Art. 7, alternatives NOT evaluated). Every row's note:
+  confirm with counsel or the certifier — the DA is under review. **Change the rules by adding
+  rows, never in code.**
+- `coc_facility_profile` (bidding zone, electrolyser commissioning), `coc_ppa` (generator, zone,
+  commissioning, evidence), and the metered type `PPA_GENERATION` (MWh, `ppa_ref` resolved to a
+  registered PPA of the facility; trigger checks it).
+- `app/core/rfnbo_correlation.py`, `GET .../periods/{id}/rfnbo-correlation`: temporal (UTC month or
+  hour buckets by the rule on the reading's day; straddling readings UNVERIFIED, never prorated),
+  geographic (other-zone PPAs reported, not counted), additionality per PPA; overall PASS / FAIL /
+  UNVERIFIED, `basis: COMPUTED`, with `rules_used`. The period statement records it.
+- `decision_twin.evaluate_red_iii` keeps the caller's flags as `basis: DECLARED`; "monthly" now
+  depends on `as_of` (default today) through the rule table, and an unreadable rule FAILS the
+  declared check instead of passing it. The API takes `as_of`.
+- Tests: `test_rfnbo_correlation_pg.py` (12); two breaks caught (shortfall ignored, other zones
+  counted). Hydrogen supplied as an input (H2 in coc_input) has no correlation check yet.
+
+### Step 5 — lender evidence pack per contract
+
+- `GET /api/v1/evidence-pack/contract/{contract_id}` assembling: contract record and ledger
+  anchor hashes (`core/ledger_anchor.py`); token lineage; lots, allocations and period
+  statement; meter reconciliation status; RED III results with the rule-table version used;
+  settlement events (`api/v1/settlement_events.py`); `evidence_ledger` entries.
+- JSON first, with a SHA-256 manifest. Every item is labelled `VERIFIED`, `DECLARED` or
+  `MISSING`. A declared value is never shown as verified.
+- **Gate test (end to end, pg_store):** synthetic RFNBO project → metered production → lot →
+  token → contract → settlement → evidence pack with zero `DECLARED`/`MISSING` items in the
+  compliance section.
+
+**Step 5 done 2026-11-12 — head stays 099, no migration** (handoff §8 item 66).
+- `GET /api/v1/evidence-pack/contract/{id}` (`app/core/evidence_pack.py`, `routes_evidence_pack.py`,
+  domain `sustainability`). Sections: contract (record, recomputed event chain, anchor receipts),
+  tokens (lineage through `tokens.mass_balance_lot_id` and the recomputed allocation chain), custody,
+  **compliance** (per period: custody_period, conversion, metered_production, metered_electricity,
+  temporal_correlation, geographic_correlation, additionality — read from the CLOSED, re-verified
+  statement), declared_characteristics, settlement, evidence_ledger; SHA-256 per section and
+  `pack_sha256` (generated_at excluded, so the same records give the same manifest).
+- Each item: label VERIFIED | DECLARED | MISSING (provenance) and result PASS | FAIL. An open period
+  makes every compliance item DECLARED. Lot characteristics (GHG intensity, certificate, RFNBO flag)
+  are DECLARED and OUTSIDE compliance: Phase 1 verifies no LCA or certificate. Anchor receipts are
+  DECLARED (re-check with `scripts/verify_anchor.py`). A non-party gets 404 (tb_contract RLS).
+- **The gate** (`test_evidence_pack_pg.py::test_the_phase_1_gate…`): custody, meters, PPAs and
+  correlation through the real routes → 7 compliance items VERIFIED and PASS, none DECLARED or
+  MISSING. **Gate closed 2026-11-12 (later):** the contract and settlement now come from the
+  REAL market flow (listing → RFQ → proposal → both accept → four-eye confirmations →
+  `POST /market/settlements` → payee confirms), on the token allocated from the custody lot. Still
+  synthetic: the other six pack tests keep a directly inserted contract row (they probe the pack).
+  The settlement section stays DECLARED, as before.
+- Tests: 7; two breaks caught (characteristics shown VERIFIED, an open period treated as final).
+
+**2026-11-12 (Phase 1 gate, market leg): 1520 pass, 15 skip, 0 fail** at head 099; the gate test was rewritten, no test added.
+
+**2026-11-14 (Phase 1 closed): check 10 passes** — `test_discovery_journey_pg.py` runs publish → search → compare → enquiry → consent → proposal through the real routes (handoff §8 item 89). Platform **1744 pass / 15 skip / 0 fail** (1743 + 1; a first run lost PostgreSQL on :55432 mid-way, 130 skips, and was rerun), frontend **298**. Open: D-A, D-G, D-H, region, F20.
+
+**2026-11-14 (Phase 1 step 6): head 119 — the non-binding enquiry (D-D)** (handoff §8 item 88). `core/enquiry.py`: one listing or RFQ; badges and "you/them" only until the RECEIVER shares contact, which releases both identities to both and is `enquiry.contact_shared` in the ledger; decline releases nothing. `market_enquiry_message` is append-only. Screens: Market Discovery "Ask (non-binding)", `/deals`. Platform **1743 pass / 15 skip / 0 fail** (1729 + 14), frontend **298**.
+
+**2026-11-14 (Phase 1 step 5): head 118 — compatibility, eligibility before price** (handoff §8 item 87). `core/compatibility.py` alone decides Compatible / Incompatible / Needs evidence per requirement, on the ANONYMOUS listing (`market_engine._public_listing`); one mandatory Incompatible excludes at any price; no claim is Needs evidence, never Incompatible. A seller's proposal against a mandatory requirement is 409 `REQUIREMENT_NOT_MET`; the buyer may waive its own. `compatibility_assessment` (118) is append-only for every role and stored with each proposal. `GET /market/rfqs/{id}/compatibility` (owner only; Compare ≤ 4). Platform **1728 pass / 15 skip / 1 fail** (the 1 = `test_change_password` losing its connection through the :55432 forwarder mid-run; no PostgreSQL restart in its log; the file passes alone 9/9; 1712 + 17 = 1729 closes), frontend **293**.
+
+**2026-11-14 (Phase 1 step 4): the listing wizard `/listings/new?project=`** (handoff §8 item 86; no migration). Project → capacity → token (+ evidence) → terms → anonymous preview → draft or publish; resumes from saved drafts. Every create sends an `Idempotency-Key`. "List on Market" and "List supply" lead here. Platform **1712 pass / 15 skip / 0 fail** (1710 + 2), frontend **289**.
+
+**2026-11-14 (Phase 1 step 3): head 117 — D-C listings and RFQ requirements** (handoff §8 item 85). What an anonymous member sees is `OFFER_LISTING_FIELDS` / `RFQ_LISTING_FIELDS` plus `product_record.listing_summary` — add to those allowlists deliberately, never a raw row. RFQ requirements are validated only in `core/requirements.py`. Platform **1710 pass / 15 skip / 0 fail** (1699 + 11), frontend 282.
+
+**2026-11-14 (Phase 1 step 2): head 116 — product records** (`core/product_record.py`, `/api/v1/products`, handoff §8 item 84). A certificate is verified ONLY by an appointed CERTIFIER/INDEPENDENT_ENGINEER of an independent company (D-F); expiry is derived from `valid_until`, never stored; scope says whether it covers the organisation, the site or this quantity. Platform **1699 pass / 15 skip / 0 fail** (1689 + 10).
+
+**2026-11-14 (Phase 1 step 1, D-B role policy): 1689 pass, 15 skip, 0 fail** at head 115 = 1675 + 14 (`test_market_policy_pg.py`); frontend **278**. **Who may act in the market is `core/market_policy.py` and nowhere else:** Commercial acts, the CEO or CFO approves TRADE_CONFIRM, Operations may declare capacity. Test parties need a `business_function`; a fixture's acting account is COMMERCIAL and its approver EXECUTIVE. Screens read `GET /market/policy` via `useMarketPolicy`.
+
+**2026-11-14 (buttons retargeted, F17): frontend 275** (+6 `MarketLinks.test.tsx`); backend unchanged. Links into the market go through `lib/marketLinks.ts` (`marketDiscoveryPath`, `useCanOpen`): never hand-write `/matching` as a discovery target.
+
+**2026-11-14 (capacity guard, 115): 1675 pass, 15 skip, 0 fail** at head **115** = 1673 + 2 (`test_token_mint_pg.py`); frontend 269. Same 15 skips.
+
+**2026-11-13 (discovery Phase 0, 114): 1673 pass, 15 skip, 0 fail** at head **114** = 1654 + 8 (`test_token_mint_pg.py`) + 10 (`test_market_split_and_idempotency_pg.py`) + 1 (carved delivery); frontend **269** (+2 `RfqIdempotencyKey.test.ts`). Same 15 skips.
+
+**2026-11-13 (buyer list, 113): 1654 pass, 15 skip, 0 fail** at head **113** = 1648 + 6 (`test_demand_buyers_access_pg.py`); frontend **267**. Same 15 skips.
+
+**2026-11-13 (stakeholder economics leak, 112): 1648 pass, 15 skip, 0 fail** at head **112** = 1646 + 2 (`test_marketplace_records_pg.py`); frontend **267** = 265 + 2 (`WithheldEconomics.test.tsx`). Same 15 skips.
+
+**2026-11-13 (Phase 2 Step 6): 1646 pass, 15 skip, 0 fail** at head **111** = 1640 + 6 (`test_registry_connectors_pg.py`). Same 15 skips.
+
+**2026-11-13 (Phase 2 Step 5): 1640 pass, 15 skip, 0 fail** at head **110** = 1635 + 5 (`test_evidence_pack_delivery_pg.py`). Same 15 skips.
+
+**2026-11-13 (Phase 2 Step 4): 1635 pass, 15 skip, 0 fail** at head **110** = 1622 + 13 (`test_take_or_pay_pg.py`). Same 15 skips.
+
+**2026-11-13 (G-23 upstream proof): 1622 pass, 15 skip, 0 fail** at head **110** = 1616 + 6 (`test_upstream_proof_pg.py`). Same 15 skips.
+
+**2026-11-13 (Phase 2 Step 3, sub-step 5): 1616 pass, 15 skip, 0 fail** at head **109** = 1604 + 12 (`test_delivery_title_pg.py`); frontend 265, engine 278. Same 15 skips. Step 3 stopped before SETTLED.
+
+**2026-11-13 (Phase 2 Step 3, sub-steps 3–4): 1604 pass, 15 skip, 0 fail** at head **108** = 1581 + 17 (sub-step 3, head 107: `test_quality_sheet.py` 9, `test_delivery_inspection_pg.py` 8) + 6 (`test_delivery_dispute_pg.py`). Same 15 skips.
+
+**2026-11-13 (Phase 2 Step 3, sub-step 2): 1581 pass, 15 skip, 0 fail** at head **106** = 1573 (G-25, head 105: 1568 + 5 `test_order_book_token_pg.py`) + 8 (`test_delivery_risk_pg.py`). Same 15 skips.
+
+**2026-11-12 (Phase 2 Step 3, sub-step 1): 1568 pass, 15 skip, 0 fail** at head **104** = 1552 + 16 (`test_contract_clauses.py` 13, `test_contract_clauses_pg.py` 3); frontend 265, engine 278. Same 15 skips.
+
+**2026-11-12 (Phase 2 Step 2): 1552 pass, 15 skip, 0 fail** at head **103** = 1543 + 12 (`test_delivery_record_pg.py`) − 3 (delivery cases retired from `test_custody_write_policies_pg.py`); frontend 265, engine 278. Same 15 skips.
+
+**2026-11-12 (Phase 2 Step 1): 1543 pass, 15 skip, 0 fail** at head **102** = 1520 + 23; frontend 265, engine 278. Same 15 skips.
+
+### Out of scope for Phase 1
+
+Deliveries, routes and title transfer (Phase 2, gap G-08); UDB and scheme-registry
+connectors (Phase 2); netting (Phase 3).
+
+### Reporting
+
+After each step: append a dated line under *Tests* with the measured counts and head, update
+`docs/CLAUDE_HANDOFF.md`, and update the gap register (G-12, G-13 and any new gap). State
+what is verified and what is declared; do not overclaim.
+
+---
+
+## GreenMesh Phase 2 — brief, D0–D8 decided, Step 1 done (2026-11-12)
+
+The brief is in `docs/GREENMESH_PHASE2_BRIEF.md`. It covers deliveries and title transfer after
+quality verification (G-08), take-or-pay shortfall (part of G-11), registry and scheme
+connectors, and an ammonia corridor pilot. Steps 1 and 2 are built (heads 100–103); nothing after them.
+
+- **Reference:** v2 of `../docs/product/GreenMesh_Description_and_Vision.md` (12 Nov 2026) is the
+  reference description. It is the master; the Word file is generated from it. Nothing is built from
+  it directly.
+- **Economics:** its economics section (netback to IRR) is SCENARIO only until JML answers decisions
+  E1–E9. Build no economics code. **Re-confirmed by JML on 2026-11-13** after reading the FlowFusion
+  integration plan (`Downloads/FlowFusion_Integration_and_Value_Plan_2026-11-13.md`) and the
+  standalone solver `GreenMesh_Fixed_Code_v0_2` (networkx min-cost flow; not in either venv; not run
+  here). Both are design input only. The plan's Increment A ("build decision support now") does not
+  apply. Its permissioned upstream proof is the candidate fix for G-23, which is platform work, not
+  economics.
+- **E1, E2 and E5 decided (JML, 13 Nov; `docs/GREENMESH_ECONOMICS_DECISIONS_E1_E9.md`):**
+  - E1, the baseline: the best confirmed offer; before FID, a labelled forecast.
+  - E2, the objective: producer netback, no-worse-off with zero tolerance.
+  - E5, where it lives: the PF engine via a new authorised snapshot endpoint; IRR built in the engine;
+    networkx now, HiGHS later.
+
+- **E3, E4, E6, E7, E8 and E9 decided too (JML, 13 Nov), all as recommended.** E8 is kept as written:
+  economics code starts only after the certifier pre-assessment of a Phase 1 pack, which has NOT
+  happened.
+
+  **The rule still holds until then.** The decisions are in
+  `docs/GREENMESH_ECONOMICS_DECISIONS_E1_E9.md`. The first increment is the read-only, SCENARIO-labelled
+  PF-engine module. Level 2 (swaps) waits for the certifier's answer to E9.
+- **Step 3:** Phase 2 Step 3 follows the brief's "Step 3 — amendment (12 Nov 2026)", not the original
+  Step 3 text (`docs/GREENMESH_PHASE2_STEP3_PROMPT.md`).
+
+**JML decided D1–D8 on 2026-11-12:**
+- **D1:** an independent inspector (SGS or similar), appointed by either party and agreed by both.
+  GEX does not appoint it.
+- **D2:** the quality spec sheet comes from confirmed terms only.
+- **D3:** off-spec cargo passes title only with a waiver both parties confirm, shown as DECLARED
+  and FAIL.
+- **D4:** an Incoterm and a named place on the contract.
+- **D5:** CertifHy or ISCC first, the UDB last, the interface open to further actors.
+- **D6:** export only.
+- **D7:** an ammonia corridor into North-West Europe, FortaVerde with the client's consent.
+- **D8:** the density is an approved reference row; G-19's lots are archived, then deleted after a
+  backup.
+
+**D0 (JML, later the same day): start Step 1 now.**
+
+**Step 1 done 2026-11-12, head 102** (handoff §8 item 68; branch `greenmesh-phase2`).
+- G-19: the test lots were archived and deleted.
+- G-20: custody actors come from the token.
+- 100: lots and deliveries take owner/GEX writes only (G-21).
+- 101: `coc_input.source_lot_id` carries the upstream hydrogen's correlation (`upstream_hydrogen`).
+- 102: hydrogen Nm³ converts only with an APPROVED density.
+**After an Alembic rebuild run `scripts/propose_h2_density_20261112.py --execute`.** The density
+row is PROPOSED (0.08988 kg/m³, not checked): approve it only after confirming it against NIST and
+the meters' reference conditions. New gap G-23: cross-company hydrogen lots.
+
+**Step 2 done 2026-11-12, head 103 — the delivery record** (handoff §8 item 69; backup
+`gex_platform_2026-11-12_1914.dump`).
+- Each state change is a contract event `DELIVERY_<state>`. The event carries `delivery_id`, which is
+  in the hash only when set.
+- **No second history:** `deliveries` holds the current state, which a trigger checks at COMMIT
+  against the latest event.
+- **Who acts:** the seller schedules and dispatches, the buyer receives, either party inspects or
+  disputes.
+- **Not built:** ACCEPTED, REJECTED, TITLE_TRANSFERRED and SETTLED are refused by trigger until
+  Step 3.
+- **Limits:**
+  - draws ≤ the tokens' custody allocation;
+  - nothing dated inside a CLOSED custody period;
+  - the Incoterm and place are read from the confirmed terms only (market trades carry none: G-24).
+- **Writes** go through the operator connection after `core/delivery_record.py` authorises the
+  party. Routes are under `/api/v1/trading-book/records/{id}/deliveries` and `/deliveries/{id}`.
+- `flows.py` prices a delivered-basis payment from the buyer's receipt.
+- **Tests:** a test reading `os.environ["DATABASE_URL"]` under `pg_store` hits the DEV database:
+  `pg_store` patches `settings`, not the environment. Use the fixture's URL.
+
+**Step 3, sub-step 1 done 2026-11-12, head 104 — typed clauses** (handoff §8 item 70).
+- **Three records, three clauses** (`trading_book/clauses.py`):
+  - risk: a typed `delivery` clause (incoterm, named_place, shipment_point);
+  - title: a `title` clause (104 admits the type; there is no default);
+  - payment: a typed `payment` clause (trigger, quantity_basis).
+- **V15** refuses an invalid typed clause or two of a kind in one scope. Free text is never typed.
+- **The Incoterm governs risk only (R1):** a delivery reports risk, title and payment bases separately.
+- **Waiting on JML:** whether "no payment clause, no figure" applies to market trades, which can't
+  carry one (P1).
+
+**G-25 closed 2026-11-13, head 105:** an order-book sell order names one own MINTED token (firm,
+all-or-nothing). `tb_order.origin_book` keeps it out of market listings.
+
+**Step 3, sub-step 2 done 2026-11-13, head 106 — risk** (handoff §8 item 71).
+- `DELIVERY_FACT_RISK_PASSED` is derived (actor `system:incoterm`, no company) and written with the
+  act that passes risk:
+  - EXW and F/C terms: at dispatch;
+  - DAP and DDP: on arrival;
+  - DPU: on the buyer's unloading record.
+- A C term needs its `shipment_point`, and no Incoterm means no risk.
+- Facts (`DELIVERY_FACT_*`) never move the state.
+- `delivery_document`: documents on file by GEX-computed sha256, append-only.
+
+**Step 3, sub-step 3 done 2026-11-13, head 107 — quality before title** (handoff §8 item 72).
+- Spec sheet: `quality_spec.parameters`, checked by V16.
+- Inspector: proposed by one party and agreed by the other with four eyes (WAE `DELIVERY_CONFIRM`,
+  TRADE_CONFIRM's rules). Never seller, buyer, GEX or an inactive company.
+- Certificate: the agreed inspector's; PASS gives a derived ACCEPTED (VERIFIED).
+- FAIL: a waiver both parties confirm (DECLARED / FAIL), or the buyer's REJECTED, which releases
+  the draws.
+- TITLE_TRANSFERRED and SETTLED are still refused.
+
+**Step 3, sub-step 4 done 2026-11-13, head 108 — the DISPUTED exit** (handoff §8 item 73).
+- A resolution is proposed by one party and confirmed by the other with four eyes; the state then
+  moves derived. GEX arbitrates nothing.
+- R4: ACCEPTED only with the agreed inspector's certificate; with none, only REJECTED.
+
+**Step 3, sub-step 5 done 2026-11-13, head 109 — title and the token split. Stopped before SETTLED.**
+(handoff §8 item 74)
+- `deliveries.title_passes` holds the title clause. The holder moves at the later of ACCEPTED and the
+  clause's trigger (T1). ON_PAYMENT_IN_FULL and a missing clause are refused (G-27).
+- Partial title: the part goes SPLIT and gets two children, which sum exactly (`token_split`,
+  `app_token_kg`). The buyer's part becomes SETTLED.
+- SPLIT tokens are frozen; the holder changes only on the operator connection.
+- R2: market settlement leaves delivery contracts' tokens alone.
+
+**G-23 closed 2026-11-13, head 110 — the upstream proof** (handoff §8 item 75).
+- An H2 input may name `source_token_id`, a SETTLED hydrogen token its company holds.
+- `core/upstream_proof.py` carries the upstream period's re-verified RFNBO result through, on the
+  operator connection after a holder check. It is one more PLATFORM_ADMIN call site, alongside
+  `market_engine` and the delivery modules that use its operator connection.
+- A cited token can no longer be RETIRED.
+
+**Phase 2 Step 4 done 2026-11-13 (no migration) — take-or-pay shortfall + G11 evidence** (handoff §8 item 76).
+- The shortfall is read from the TRADE's typed `commitment` clause and its physical flows (not the frame
+  cards: their sub-legs carry no deliveries). JML confirmed this on 2026-11-13.
+- Deliveries count in the year of the flow they fulfil. An amount only with a stated price; waivers
+  count DECLARED.
+- No availability or penalty: no such terms exist.
+- G11: the seller files the acceptance record as evidence. GEX verifies nothing.
+
+**Phase 2 Step 5 done 2026-11-13 (no migration; pack version 2) — deliveries in the evidence pack**
+(handoff §8 item 77).
+- Per delivery: quality (VERIFIED only with the agreed inspector's certificate; a waiver is DECLARED /
+  FAIL), title (VERIFIED from the chain), route and Incoterm (DECLARED).
+- The pack's tokens also come from delivery draws.
+- `compliance_complete` needs every delivery VERIFIED and PASS.
+- Settlements are not linked to deliveries yet; the pack says so.
+
+**Phase 2 Step 6, head 111 — EXPORT FOUNDATION COMPLETE; external adapters and inbound verification
+OUTSTANDING** (corrected 15 Nov; handoff §8 items 78 and 90; `docs/GREENMESH_CONNECTORS_RESEARCH.md`).
+- **Built:**
+  - one connector interface;
+  - `gex_export_v1` (GEX's internal format, not a registry's; VERIFIED items only);
+  - seller-only export behind the VERIFIED gate;
+  - the append-only `registry_outbox`; `REGISTRY_CONNECTOR_BACKEND` = `none` only.
+- **The 13 Nov research overstated what is unpublished.** Public: the AIB XSDs (v80, SD03 9.1), the
+  UDB Exchange Model, and the G-REX API manual. Review them before designing an adapter; it needs no
+  partner account.
+- **Inbound** is three tasks: extraction, matching, authoritative confirmation.
+- **D5 must name the scheme:** CertifHy NGC is book-and-claim disclosure, not RFNBO compliance.
+
+---
+
+**2026-11-15 (JML): GreenMesh is an OPTION, fuel-neutral, its parameters role-owned** (`docs/GREENMESH_OPTIN_FUEL_NEUTRAL_PLAN.md` v0.2, §6; nothing built yet).
+- **Opt-in per project**, proposed by Operations/Commercial and confirmed by an executive (four eyes). Never needed by any trade, listing, settlement or gate. A module the project has not chosen drops out of the evidence pack; it is not shown as MISSING.
+- **Fuel-neutral:** `fuel_catalog` is the one fuel master (`tb_commodity` references it). No fuel name goes in code. Any catalogue fuel may be an upstream intermediate. Bio pathways are in scope; the RFNBO checks answer `NOT_APPLICABLE` where they don't apply.
+- **Roles (§3C):** live in `core/market_policy.py`. A value with no confirmer is DECLARED. A meter tolerance stays zero until a certifier or independent engineer confirms it.
+- **Screens:** a GreenMesh section of Capacity & Logistics.
+- **Order:** opt-in, roles, fuel-neutral, screens, then the evidence allocation ledger. FlowFusion inherits all of this.
 
 ---
 

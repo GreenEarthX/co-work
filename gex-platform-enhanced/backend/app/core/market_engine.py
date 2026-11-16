@@ -70,6 +70,7 @@ class Party:
     company_id: Optional[str]
     company_name: Optional[str] = None
     is_admin: bool = False
+    business_function: Optional[str] = None      # from the signed token; D-B (core/market_policy)
 
     @classmethod
     def from_payload(cls, payload: dict) -> "Party":
@@ -78,7 +79,8 @@ class Party:
             raise MarketRefused(401, "AUTHENTICATION_REQUIRED", "Sign in to use the market.")
         return cls(user_id=str(uid), company_id=payload.get("company_id"),
                    company_name=payload.get("company_name"),
-                   is_admin=bool(payload.get("is_platform_admin")))
+                   is_admin=bool(payload.get("is_platform_admin")),
+                   business_function=payload.get("business_function"))
 
 
 @dataclass
@@ -103,6 +105,16 @@ def _trader(party: Party) -> None:
                 "request, accept, contract or settle.")
     if not party.company_id:
         _refuse(403, "NO_COMPANY", "Your account belongs to no company, so it cannot trade.")
+
+
+def _may(party: Party, action: str) -> None:
+    """D-B (core/market_policy): only the functions the table names may do `action`.
+    Called after _trader, so GEX and company-less accounts keep their own refusals."""
+    from app.core import market_policy
+
+    r = market_policy.refusal(party.business_function, action)
+    if r:
+        _refuse(*r)
 
 
 # ── storage ─────────────────────────────────────────────────────────────────
@@ -212,9 +224,15 @@ def _move_token(conn, trail: _Trail, token_id: str, expected: set[str], target: 
 
 OFFER_LISTING_FIELDS = ("id", "molecule", "volume_mtpd", "price_eur_kg", "delivery_start",
                         "delivery_end", "delivery_type", "delivery_basis", "price_basis",
-                        "certification_pathway_required", "min_order_kg", "esg_tier", "created_at")
+                        "certification_pathway_required", "min_order_kg", "esg_tier", "created_at",
+                        # D-C (JML 2026-11-14): origin by country, the named place and Incoterm, the
+                        # member's role and vetting badge, firm or indicative, validity, and the product
+                        # with the evidence status of each claim. Never the company, site or contact.
+                        "offer_type", "valid_until", "incoterm", "named_place", "shipment_point",
+                        "production_country", "seller_role", "seller_vetting", "product")
 RFQ_LISTING_FIELDS = ("id", "molecule", "volume_mtpd", "max_price_eur_kg", "delivery_start",
-                      "delivery_end", "compliance_requirements", "created_at")
+                      "delivery_end", "compliance_requirements", "created_at",
+                      "requirements", "valid_until", "buyer_role", "buyer_vetting")
 # Never in a listing: company, project, capacity, token, location, names, contacts.
 
 
@@ -416,6 +434,18 @@ def _terms_summary(conn, terms_id: str) -> dict:
             "quality": terms.quality_spec, "attrs": attrs}
 
 
+def _badges(conn, company_id: Optional[str]) -> dict:
+    """The role and vetting badge an anonymous listing shows (D-C). Vetted means at least one ACTIVE
+    account of the company passed vetting (telephone and signed agreement on record): accounts
+    grandfathered before vetting existed do not count."""
+    if not company_id:
+        return {"role": None, "vetting": None}
+    t = _row(conn, "SELECT company_type FROM tenants WHERE company_id = ?", (company_id,))
+    v = _row(conn, "SELECT 1 AS x FROM auth_users WHERE company_id = ? AND account_state = 'ACTIVE' "
+                   "AND phone_verified_at IS NOT NULL AND agreement_signed_at IS NOT NULL LIMIT 1", (company_id,))
+    return {"role": (t or {}).get("company_type"), "vetting": "vetted" if v else "not_yet_vetted"}
+
+
 def _company_of(conn, cp) -> Optional[str]:
     r = _row(conn, "SELECT company_id FROM tb_counterparty WHERE id = ?", (str(cp),)) if cp else None
     return r["company_id"] if r else None
@@ -459,7 +489,9 @@ def _listing(conn, o: dict) -> dict:
             "token_state": (tok or {}).get("lifecycle_state"), "token_correlation_id": (tok or {}).get("correlation_id"),
             "carbon_intensity_gco2e_mj": (tok or {}).get("carbon_intensity_gco2e_mj"),
             "certification_pathway": (tok or {}).get("certification_pathway"),
-            "seller_company_id": _company_of(conn, o["owner_id"])}
+            "seller_company_id": _company_of(conn, o["owner_id"]),
+            "valid_until": _iso(o.get("valid_until")),
+            "incoterm": a.get("incoterm"), "named_place": a.get("named_place"), "shipment_point": a.get("shipment_point")}
 
 
 def _listing_by_id(conn, offer_id: str, lock: bool = False) -> dict:
@@ -488,13 +520,30 @@ def _rfq(conn, r: dict) -> dict:
             "buyer_contact": r.get("buyer_contact"),
             "compliance_requirements": r.get("compliance_requirements") or [],
             "status": RFQ_STATE.get(r["status"], r["status"]), "correlation_id": r.get("correlation_id"),
-            "created_at": _iso(r["created_at"]), "updated_at": _iso(r["updated_at"])}
+            "created_at": _iso(r["created_at"]), "updated_at": _iso(r["updated_at"]),
+            "requirements": r.get("requirements") or {}, "valid_until": _iso(r.get("valid_until"))}
 
 
 def _rfq_by_id(conn, rfq_id: str, lock: bool = False) -> Optional[dict]:
     if not _is_uuid(rfq_id):
         return None
     return _row(conn, "SELECT * FROM tb_rfq WHERE id = ?" + (" FOR UPDATE" if lock else ""), (rfq_id,))
+
+
+def _carve(conn, trail: _Trail, token_id: str, rate, start, end, *, reason: str, order_id: str,
+           holder_company_id: str, project_id: Optional[str]) -> str:
+    """The token holding exactly this piece (core/token_partition, alembic 114), or a refusal."""
+    from app.core.token_partition import CarveRefused, carve
+
+    try:
+        kept = carve(conn, token_id, rate, start, end, reason=reason, order_id=order_id,
+                     holder_company_id=holder_company_id, trail=None)
+    except CarveRefused as exc:
+        _refuse(exc.status, exc.code, exc.message)
+    if kept != token_id:
+        trail.add("token.split", "token", token_id, {"reason": reason, "order_id": str(order_id), "kept": kept},
+                  None, project_id)
+    return kept
 
 
 def _order_event(conn, order_id: str, from_status: Optional[str], to_status: str, actor: str, reason: str) -> None:
@@ -509,7 +558,8 @@ def create_listing(party: Party, token: dict, *, volume_mtpd: float, price_eur_k
                    delivery_type: Optional[str] = None, delivery_basis: Optional[str] = None,
                    price_basis: Optional[str] = None, certification_pathway_required: Optional[str] = None,
                    min_order_kg: Optional[float] = None, esg_tier: Optional[str] = None,
-                   open_now: bool = False) -> dict:
+                   open_now: bool = False, incoterm: Optional[str] = None, named_place: Optional[str] = None,
+                   shipment_point: Optional[str] = None, valid_until: Optional[str] = None) -> dict:
     """A draft listing (a firm SELL order) of the caller's own token. The caller has
     already been checked as the token's project owner (marketplace route)."""
     from decimal import Decimal
@@ -517,8 +567,19 @@ def create_listing(party: Party, token: dict, *, volume_mtpd: float, price_eur_k
     from app.trading_book import record
 
     _trader(party)
+    _may(party, "listing.create")
     if volume_mtpd <= 0 or price_eur_kg <= 0:
         _refuse(422, "LISTING_TERMS", "Volume and price must be positive.")
+    if valid_until and (_day(valid_until) > _day(delivery_end) or _day(valid_until) < _day(_now())):
+        _refuse(422, "LISTING_VALIDITY", "The listing is valid from now until at most the end of its delivery window.")
+    if token.get("tokenised_mtpd") is not None and volume_mtpd > float(token["tokenised_mtpd"]) + 1e-9:
+        _refuse(422, "LISTING_OVER_TOKEN", f"The listing offers {volume_mtpd} MTPD; the token holds "
+                                           f"{token['tokenised_mtpd']} MTPD.")
+    if token.get("delivery_start") and token.get("delivery_end") and (
+            _day(delivery_start) < _day(token["delivery_start"]) or _day(delivery_end) > _day(token["delivery_end"])):
+        _refuse(422, "LISTING_OUTSIDE_TOKEN", f"The listing runs {delivery_start} to {delivery_end}; the token "
+                                              f"covers {str(token['delivery_start'])[:10]} to "
+                                              f"{str(token['delivery_end'])[:10]}.")
     conn, trail = _conn(), _Trail(party)
     try:
         quality = {k: v for k, v in (("certification_pathway", token.get("certification_pathway")),
@@ -527,9 +588,13 @@ def create_listing(party: Party, token: dict, *, volume_mtpd: float, price_eur_k
                                      ("esg_tier", esg_tier)) if v is not None}
         quality = {k: (v if isinstance(v, (list, str)) else str(v)) for k, v in quality.items()}
         clauses = []
-        if delivery_type or delivery_basis:
-            clauses.append({"clause_type": "delivery", "attrs": {k: v for k, v in (
-                ("delivery_type", delivery_type), ("delivery_basis", delivery_basis)) if v}})
+        # One delivery clause: free text (delivery_type, delivery_basis) and, when given, the TYPED
+        # Incoterm and named place (trading_book/clauses, V15) that carry into the contract (G-24).
+        delivery = {k: v for k, v in (("delivery_type", delivery_type), ("delivery_basis", delivery_basis),
+                                      ("incoterm", incoterm), ("named_place", named_place),
+                                      ("shipment_point", shipment_point)) if v}
+        if delivery:
+            clauses.append({"clause_type": "delivery", "attrs": delivery})
         if price_basis:
             clauses.append({"clause_type": "price", "attrs": {"price_basis": price_basis}})
         terms = market_terms(conn, molecule=token["molecule"], volume_mtpd=volume_mtpd, price_eur_kg=price_eur_kg,
@@ -547,7 +612,7 @@ def create_listing(party: Party, token: dict, *, volume_mtpd: float, price_eur_k
                      (order_id, record.counterparty_for(conn, party.company_id), w["terms_id"],
                       "firm" if offer_type != "indicative" else "indicative",
                       Decimal(str(min_order_kg)) / 1000 if min_order_kg else None,
-                      _day(delivery_end).isoformat() + "T23:59:59+00:00", token["id"], token.get("correlation_id"),
+                      _day(valid_until or delivery_end).isoformat() + "T23:59:59+00:00", token["id"], token.get("correlation_id"),
                       location, party.user_id))
         _order_event(conn, order_id, None, "draft", party.user_id, "listing created")
         trail.add("offer.created", "offer", order_id, {"token_id": token["id"], "volume_mtpd": volume_mtpd},
@@ -575,7 +640,8 @@ def my_listings(party: Party) -> list[dict]:
         cp = _row(conn, "SELECT id FROM tb_counterparty WHERE company_id = ?", (party.company_id,))
         if cp is None and not party.is_admin:
             return []
-        sql = "SELECT * FROM tb_order WHERE listing_order_id IS NULL AND rfq_id IS NULL AND token_id IS NOT NULL"
+        sql = ("SELECT * FROM tb_order WHERE listing_order_id IS NULL AND rfq_id IS NULL AND token_id IS NOT NULL "
+               "AND origin_book IS NULL")            # 105: an order-book token order is not a listing
         params: list = []
         if not party.is_admin:
             sql += " AND owner_id = ?"
@@ -590,14 +656,12 @@ def offer_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
     try:
         out = []
         for o in _rows(conn, "SELECT * FROM tb_order WHERE listing_order_id IS NULL AND rfq_id IS NULL "
-                             "AND token_id IS NOT NULL AND status = 'open' AND visibility = 'platform' "
+                             "AND token_id IS NOT NULL AND origin_book IS NULL AND status = 'open' AND visibility = 'platform' "
                              "ORDER BY created_at DESC"):
             r = _listing(conn, o)
             if molecule and r["molecule"] != molecule:
                 continue
-            item = {k: r.get(k) for k in OFFER_LISTING_FIELDS}
-            item["carbon_intensity_gco2e_mj"] = r["carbon_intensity_gco2e_mj"]
-            item["certification_pathway"] = r["certification_pathway"]
+            item = _public_listing(conn, r)
             item["mine"] = bool(party.company_id) and r["seller_company_id"] == party.company_id
             if item["mine"]:
                 item["project_id"] = r["capacity_project_id"]      # the seller's own; never anyone else's
@@ -607,11 +671,72 @@ def offer_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
         conn.close()
 
 
+def _public_listing(conn, r: dict) -> dict:
+    """A listing as ANY member sees it (D-C): the allowlist, the origin country, the badge and the
+    product's evidence summary. What compatibility reads, so an assessment never uses more."""
+    from app.core.product_record import listing_summary
+
+    item = {k: r.get(k) for k in OFFER_LISTING_FIELDS}
+    item["carbon_intensity_gco2e_mj"] = r["carbon_intensity_gco2e_mj"]
+    item["certification_pathway"] = r["certification_pathway"]
+    proj = _row(conn, "SELECT country FROM projects WHERE project_id = ?", (r["capacity_project_id"],)) \
+        if r["capacity_project_id"] else None
+    badges = _badges(conn, r["seller_company_id"])
+    item.update({"production_country": (proj or {}).get("country"), "seller_role": badges["role"],
+                 "seller_vetting": badges["vetting"], "product": listing_summary(conn, r["token_id"])})
+    return item
+
+
+def _store_assessment(conn, party: Party, rfq: dict, listing: dict, assessment: dict, *, purpose: str,
+                      proposal_order_id: Optional[str] = None) -> str:
+    """Store the assessment a company acted on, with everything it used (alembic 118). Never updated."""
+    row = _row(conn, "INSERT INTO compatibility_assessment (rfq_id, listing_order_id, proposal_order_id, purpose, "
+                     "requirements, requirements_sha256, listing, outcomes, status, company_id, actor_id) "
+                     "VALUES (?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?, ?, ?) RETURNING id",
+               (rfq["id"], listing["id"], proposal_order_id, purpose, json.dumps(rfq.get("requirements") or {}),
+                assessment["requirements_sha256"], json.dumps(listing, default=str),
+                json.dumps(assessment["outcomes"]), assessment["status"], party.company_id, party.user_id))
+    return str(row["id"])
+
+
+def rfq_compatibility(party: Party, rfq_id: str, offer_ids: Optional[list[str]] = None) -> dict:
+    """Every open listing of the RFQ's molecule (or the ones named, for Compare) assessed against
+    the caller's own RFQ: eligibility first, then ranking among the eligible (core/compatibility).
+    Computed on view, stored only when the company acts on it (create_match)."""
+    from app.core import compatibility as cx
+
+    conn = _conn()
+    try:
+        r = _rfq_by_id(conn, rfq_id)
+        rfq = _rfq(conn, r) if r else None
+        if rfq is None or (not party.is_admin and rfq["buyer_company_id"] != party.company_id):
+            _refuse(404, "RFQ_NOT_FOUND", "No RFQ of yours with that id.")
+        rows = []
+        for o in _rows(conn, "SELECT * FROM tb_order WHERE listing_order_id IS NULL AND rfq_id IS NULL "
+                             "AND token_id IS NOT NULL AND origin_book IS NULL AND status = 'open' "
+                             "AND visibility = 'platform' ORDER BY created_at DESC"):
+            if offer_ids is not None and str(o["id"]) not in offer_ids:
+                continue
+            full = _listing(conn, o)
+            if full["seller_company_id"] == rfq["buyer_company_id"]:
+                continue                                   # one's own listing is no candidate
+            if offer_ids is None and full["molecule"] != rfq["molecule"]:
+                continue
+            item = _public_listing(conn, full)
+            rows.append({"listing": item, "assessment": cx.assess(rfq, item)})
+        rows.sort(key=lambda x: cx.rank_key(x["assessment"], x["listing"]))
+        public_rfq = {k: rfq.get(k) for k in RFQ_LISTING_FIELDS}
+        return {"rfq": public_rfq, "candidates": rows}
+    finally:
+        conn.close()
+
+
 def open_offer(party: Party, offer_id: str) -> dict:
     """draft -> open: the listing goes live, its terms freeze, its token is reserved (MINTED -> RESERVED)."""
     from app.trading_book import record
 
     _trader(party)
+    _may(party, "listing.open")
     conn, trail = _conn(), _Trail(party)
     try:
         o = _listing_by_id(conn, offer_id, lock=True)
@@ -625,10 +750,15 @@ def open_offer(party: Party, offer_id: str) -> dict:
             _refuse(409, "TOKEN_ALREADY_LISTED", "This token already backs a live listing. One token is one "
                                                  "tradeable lot: mint another token to list more volume.")
         record.freeze(conn, str(o["terms_id"]))
-        conn.execute("UPDATE tb_order SET status = 'open', valid_from = now(), updated_at = now() WHERE id = ?", (offer_id,))
+        # Reserve exactly what is listed (F13): the rest of the token stays available.
+        kept = _carve(conn, trail, o["token_id"], lv["volume_mtpd"], lv["delivery_start"], lv["delivery_end"],
+                      reason="market_listing", order_id=offer_id, holder_company_id=party.company_id,
+                      project_id=lv["capacity_project_id"])
+        conn.execute("UPDATE tb_order SET status = 'open', token_id = ?, valid_from = now(), updated_at = now() "
+                     "WHERE id = ?", (kept, offer_id))
         _order_event(conn, offer_id, "draft", "open", party.user_id, "listed")
-        _move_token(conn, trail, o["token_id"], {"MINTED"}, "RESERVED", f"listed as offer {offer_id}")
-        trail.add("offer.opened", "offer", offer_id, {"token_id": o["token_id"]}, lv["token_correlation_id"],
+        _move_token(conn, trail, kept, {"MINTED"}, "RESERVED", f"listed as offer {offer_id}")
+        trail.add("offer.opened", "offer", offer_id, {"token_id": kept}, lv["token_correlation_id"],
                   lv["capacity_project_id"])
         _commit(conn, trail)
         return _listing(conn, _listing_by_id(conn, offer_id))
@@ -651,6 +781,7 @@ def _close_proposals(conn, trail: _Trail, party: Party, column: str, value: str,
 def withdraw_offer(party: Party, offer_id: str, expire: bool = False) -> dict:
     """Withdraw (or expire) a draft or open listing: its token is released and pending proposals close."""
     _trader(party)
+    _may(party, "listing.withdraw")
     conn, trail = _conn(), _Trail(party)
     try:
         o = _listing_by_id(conn, offer_id, lock=True)
@@ -685,16 +816,24 @@ RFQ_MOVE = {"open": "published", "cancelled": "withdrawn", "withdrawn": "withdra
 def create_rfq(party: Party, *, molecule: str, volume_mtpd: float, delivery_start: str,
                delivery_end: str, max_price_eur_kg: Optional[float] = None,
                location: Optional[str] = None, buyer_contact: Optional[str] = None,
-               compliance_requirements: Optional[list] = None, status: str = "open") -> dict:
+               compliance_requirements: Optional[list] = None, status: str = "open",
+               requirements: Optional[dict] = None, valid_until: Optional[str] = None) -> dict:
     from app.trading_book import record, validation
 
     _trader(party)
+    _may(party, "rfq.create")
     if status not in ("draft", "open"):
         _refuse(422, "RFQ_STATUS", "A new RFQ is either 'draft' or 'open'.")
     if volume_mtpd <= 0:
         _refuse(422, "RFQ_VOLUME", "Volume must be positive.")
     if delivery_end < delivery_start:
         _refuse(422, "RFQ_WINDOW", "The delivery window ends before it starts.")
+    from app.core import requirements as rq
+    bad = rq.errors(requirements or {})
+    if bad:
+        _refuse(422, "RFQ_REQUIREMENTS", "; ".join(bad) + ".")
+    if valid_until and (_day(valid_until) > _day(delivery_end) or _day(valid_until) < _day(_now())):
+        _refuse(422, "RFQ_VALIDITY", "The RFQ is valid from now until at most the end of its delivery window.")
     rfq_id = str(uuid.uuid4())
     correlation_id = f"RFQ-{rfq_id[:8]}"
     conn, trail = _conn(), _Trail(party)
@@ -706,12 +845,13 @@ def create_rfq(party: Party, *, molecule: str, volume_mtpd: float, delivery_star
             _refuse(422, "TERMS_INVALID", "The RFQ's terms break rules " + ", ".join(failed) + ".")
         w = record.write_terms(conn, terms, party.company_id, freeze=status == "open")
         conn.execute("INSERT INTO tb_rfq (id, requester_id, side, terms_id, valid_until, status, buyer_name, "
-                     "buyer_contact, location, compliance_requirements, correlation_id, created_by_user) "
-                     "VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     "buyer_contact, location, compliance_requirements, correlation_id, created_by_user, requirements) "
+                     "VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)",
                      (rfq_id, record.counterparty_for(conn, party.company_id), w["terms_id"],
-                      _day(delivery_end).isoformat() + "T23:59:59+00:00", "published" if status == "open" else "draft",
+                      _day(valid_until or delivery_end).isoformat() + "T23:59:59+00:00",
+                      "published" if status == "open" else "draft",
                       party.company_name, buyer_contact, location, json.dumps(compliance_requirements or []),
-                      correlation_id, party.user_id))
+                      correlation_id, party.user_id, json.dumps(requirements or {})))
         trail.add("rfq.created", "rfq", rfq_id, {"molecule": molecule, "volume_mtpd": volume_mtpd,
                                                  "status": status}, correlation_id)
         _commit(conn, trail)
@@ -724,6 +864,7 @@ def transition_rfq(party: Party, rfq_id: str, new_status: str) -> dict:
     from app.trading_book import record
 
     _trader(party)
+    _may(party, "rfq.change")
     conn, trail = _conn(), _Trail(party)
     try:
         r = _rfq_by_id(conn, rfq_id, lock=True)
@@ -766,6 +907,8 @@ def rfq_listings(party: Party, molecule: Optional[str] = None) -> list[dict]:
             if molecule and v["molecule"] != molecule:
                 continue
             item = {k: v.get(k) for k in RFQ_LISTING_FIELDS}
+            badges = _badges(conn, v["buyer_company_id"])
+            item.update({"buyer_role": badges["role"], "buyer_vetting": badges["vetting"]})
             item["mine"] = bool(party.company_id) and v["buyer_company_id"] == party.company_id
             out.append(item)
         return out
@@ -832,6 +975,10 @@ def _matchable(conn, o: dict, rfq: dict, minimum: int = MIN_MATCH_SCORE) -> Opti
     if _row(conn, "SELECT 1 AS x FROM tb_order WHERE listing_order_id = ? AND rfq_id = ? AND status IN "
                   "('open', 'filled')", (o["id"], rfq["id"])):
         return None
+    from app.core import compatibility as cx
+
+    if minimum and not cx.assess(rfq, _public_listing(conn, o))["eligible"]:
+        return None                                    # R7: a mandatory requirement fails; no price makes up for it
     score = _score(o, rfq)
     return score if score >= minimum else None
 
@@ -845,6 +992,7 @@ def create_match(party: Party, offer_id: str, rfq_id: str, *, delivery_terms: Op
     from app.trading_book import record, validation
 
     _trader(party)
+    _may(party, "proposal.create")
     conn, trail = _conn(), _Trail(party)
     try:
         o = _listing(conn, _listing_by_id(conn, offer_id))
@@ -861,8 +1009,27 @@ def create_match(party: Party, offer_id: str, rfq_id: str, *, delivery_terms: Op
         if score is None:
             _refuse(409, "NOT_MATCHABLE", "This pair cannot be matched: the listing or RFQ is not "
                                           "open, the molecules differ, or a match already exists.")
+        # R7: eligibility against the buyer's requirements, on the listing as any member sees it. A
+        # seller cannot propose against a requirement the buyer made mandatory; the buyer may waive
+        # its own, knowingly — either way the assessment is stored with the proposal (118).
+        from app.core import compatibility as cx
+
+        public = _public_listing(conn, o)
+        assessment = cx.assess(rfq, public)
+        if party.company_id == seller and not assessment["eligible"]:
+            _refuse(409, "REQUIREMENT_NOT_MET", "This listing fails a requirement the buyer made mandatory: "
+                                                + " ".join(cx.blocking(assessment)))
         clauses = [{"clause_type": k, "attrs": {"text": t.strip()}} for k, t in
                    (("delivery", delivery_terms), ("payment", payment_terms)) if t and t.strip()]
+        # The listing's typed Incoterm and named place become the contract's (G-24); the proposal's
+        # free-text delivery terms ride in the same clause.
+        typed = {k: o[k] for k in ("incoterm", "named_place", "shipment_point") if o.get(k)}
+        if typed:
+            free = next((c for c in clauses if c["clause_type"] == "delivery"), None)
+            if free:
+                free["attrs"].update(typed)
+            else:
+                clauses.insert(0, {"clause_type": "delivery", "attrs": typed})
         terms = market_terms(conn, molecule=o["molecule"], volume_mtpd=min(o["volume_mtpd"], rfq["volume_mtpd"]),
                              price_eur_kg=o["price_eur_kg"], delivery_start=max(o["delivery_start"], rfq["delivery_start"]),
                              delivery_end=min(o["delivery_end"], rfq["delivery_end"]),
@@ -884,14 +1051,18 @@ def create_match(party: Party, offer_id: str, rfq_id: str, *, delivery_terms: Op
         conn.execute("INSERT INTO tb_order_invitee (order_id, counterparty_id) VALUES (?, ?)",
                      (proposal_id, record.counterparty_for(conn, other)))
         _order_event(conn, proposal_id, None, "open", party.user_id, "proposal: the proposer's acceptance")
+        assessment_id = _store_assessment(conn, party, rfq, public, assessment, purpose="proposal",
+                                          proposal_order_id=proposal_id)
         trail.add("match.created", "match", proposal_id,
-                  {"offer_id": offer_id, "rfq_id": rfq_id, "score": score,
+                  {"offer_id": offer_id, "rfq_id": rfq_id, "score": score, "assessment_id": assessment_id,
+                   "compatibility": assessment["status"],
                    "rfq_correlation_id": rfq["correlation_id"]}, o["token_correlation_id"], o["capacity_project_id"])
         trail.add("match.accepted", "match", proposal_id,
                   {"side": "seller" if party.company_id == seller else "buyer"}, o["token_correlation_id"],
                   o["capacity_project_id"])
         _commit(conn, trail)
-        return _match(conn, _proposal(conn, proposal_id))
+        return {**_match(conn, _proposal(conn, proposal_id)), "assessment_id": assessment_id,
+                "compatibility": assessment["status"]}
     finally:
         conn.close()
 
@@ -946,6 +1117,7 @@ def accept_match(party: Party, match_id: str) -> dict:
     from app.trading_book.record import RecordRefused
 
     _trader(party)
+    _may(party, "proposal.accept")
     conn, trail = _conn(), _Trail(party)
     try:
         p = _proposal(conn, match_id, lock=True)
@@ -959,10 +1131,18 @@ def accept_match(party: Party, match_id: str) -> dict:
         r = _rfq_by_id(conn, m["rfq_id"], lock=True)
         if listing["status"] != "open" or r["status"] != "published":
             _refuse(409, "NO_LONGER_AVAILABLE", "The listing or the RFQ is no longer open.")
+        # The contract carries exactly the agreed quantity (F13): min(listing, RFQ) over the overlap.
+        # The unsold part of the reserved token returns to MINTED, available to list again.
+        token = m["token_id"]
+        if token:
+            token = _carve(conn, trail, token, m["volume_mtpd"], m["delivery_start"], m["delivery_end"],
+                           reason="market_acceptance", order_id=match_id,
+                           holder_company_id=m["seller_company_id"], project_id=m["project_id"])
+            conn.execute("UPDATE tb_order SET token_id = ? WHERE id IN (?, ?)", (token, m["offer_id"], match_id))
         try:
             made = order_book._accept(conn, party, match_id, None, origin_ref=f"match:{match_id}",
                                       project_id=m["project_id"], correlation_id=m["correlation_id"],
-                                      token_ids=[m["token_id"]] if m["token_id"] else (),
+                                      token_ids=[token] if token else (),
                                       note=f"match {match_id} accepted by both parties")
         except RecordRefused as exc:
             _refuse(exc.status, exc.code, exc.message)
@@ -972,12 +1152,12 @@ def accept_match(party: Party, match_id: str) -> dict:
         _close_proposals(conn, trail, party, "listing_order_id", m["offer_id"], f"superseded by {match_id}",
                          keep=match_id)
         _close_proposals(conn, trail, party, "rfq_id", m["rfq_id"], f"superseded by {match_id}", keep=match_id)
-        _move_token(conn, trail, m["token_id"], {"RESERVED"}, "MATCHED", f"match {match_id} agreed")
+        _move_token(conn, trail, token, {"RESERVED"}, "MATCHED", f"match {match_id} agreed")
         trail.add("match.accepted", "match", match_id, {"side": side}, m["correlation_id"], m["project_id"])
         trail.add("match.agreed", "match", match_id, {"offer_id": m["offer_id"], "rfq_id": m["rfq_id"]},
                   m["correlation_id"], m["project_id"])
         trail.add("contract.created", "contract", made["contract_id"],
-                  {"match_id": match_id, "token_id": m["token_id"], "contract_ref": made["contract_ref"],
+                  {"match_id": match_id, "token_id": token, "contract_ref": made["contract_ref"],
                    "terms_hash": made["terms_hash"]}, m["correlation_id"], m["project_id"])
         _commit(conn, trail)
         return _reveal(_match(conn, _proposal(conn, match_id)))
@@ -987,6 +1167,7 @@ def accept_match(party: Party, match_id: str) -> dict:
 
 def decline_match(party: Party, match_id: str) -> dict:
     _trader(party)
+    _may(party, "proposal.decline")
     conn, trail = _conn(), _Trail(party)
     try:
         p = _proposal(conn, match_id, lock=True)
@@ -1128,8 +1309,11 @@ def confirm_settlement(party: Party, settlement_id: str, *, payment_reference: s
                                                            "confirmed_at": now}), now, settlement_id))
         _log_event(conn, settlement_id, s["project_id"], "settlement.confirmed", party.user_id,
                    field="settlement_status", old_val="PENDING", new_val="CONFIRMED")
-        _move_token(conn, trail, s["token_id"], {"MATCHED"}, "SETTLED", f"settlement {settlement_id}",
-                    extra={"holder_company_id": s["counterparty_buyer_id"]})
+        # R2 (JML, 12 Nov 2026): once a contract has a delivery, its title moves only through the
+        # delivery record (core/delivery_title.py); the settlement moves neither token nor holder.
+        if not _row(conn, "SELECT 1 AS x FROM deliveries WHERE contract_id::text = ?", (str(s["contract_id"]),)):
+            _move_token(conn, trail, s["token_id"], {"MATCHED"}, "SETTLED", f"settlement {settlement_id}",
+                        extra={"holder_company_id": s["counterparty_buyer_id"]})
         trail.add("settlement.confirmed", "settlement", settlement_id,
                   {"payment_reference": payment_reference, "title_to": s["counterparty_buyer_id"]},
                   s["correlation_id"], s["project_id"])

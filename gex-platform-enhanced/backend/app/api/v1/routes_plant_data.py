@@ -65,6 +65,7 @@ async def ingest(
         payload=body.payload,
         claimed_sha256=body.sha256_hash,
         source_ip=source_ip,
+        project_id=body.project_id,
     )
 
     if not result.valid:
@@ -73,13 +74,30 @@ async def ingest(
             detail={"reason": result.reason, "gateway_id": body.gateway_id},
         )
 
-    record_id = store_plant_data(
-        gateway_id=body.gateway_id,
-        project_id=body.project_id,
-        data_type=body.data_type,
-        payload=body.payload,
-        sha256_hash=body.sha256_hash,
-    )
+    try:
+        record_id = store_plant_data(
+            gateway_id=body.gateway_id,
+            project_id=body.project_id,
+            data_type=body.data_type,
+            payload=body.payload,
+            sha256_hash=body.sha256_hash,
+        )
+    except Exception as exc:  # noqa: BLE001 — never answer "accepted" for an unstored reading
+        import psycopg2
+
+        from app.core.ot_boundary import MeteredPayloadError
+
+        if isinstance(exc, MeteredPayloadError):
+            raise HTTPException(status_code=422, detail={"reason": str(exc), "gateway_id": body.gateway_id}) from exc
+
+        if isinstance(exc, psycopg2.Error) and exc.pgcode == "23514":
+            msg = exc.diag.message_primary if exc.diag else str(exc)
+            raise HTTPException(status_code=409, detail={"reason": msg, "gateway_id": body.gateway_id}) from exc
+        if isinstance(exc, psycopg2.Error) and exc.pgcode == "42501":
+            raise HTTPException(status_code=403, detail={"reason": "Not permitted for this project",
+                                                         "gateway_id": body.gateway_id}) from exc
+        raise HTTPException(status_code=503, detail={"reason": f"Reading not stored ({type(exc).__name__})",
+                                                     "gateway_id": body.gateway_id}) from exc
 
     return {
         "status": "accepted",
