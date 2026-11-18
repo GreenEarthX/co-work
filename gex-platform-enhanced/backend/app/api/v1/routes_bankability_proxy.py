@@ -840,13 +840,16 @@ async def reevaluate(project_id: str, *, reason: str, actor: Optional[str] = Non
     Returns {"snapshot", "changes"}. The event goes to the ledger even when
     nothing changed, so every re-evaluation and its cause can be traced.
     """
+    from app.core.readiness import FINGERPRINT_KEY, inputs_fingerprint
+
     old, _ = stored_snapshot(project_id)
     evidence = _load_evidence(project_id) if evidence is None else evidence
+    context = _engine_context(project_id)
     try:
         snapshot = await _call_engine("/evaluate", method="POST", json_data={
             "project_id": project_id, "evidence": evidence,
             "previous_state": (old or {}).get("current_state"),
-            **_engine_context(project_id),
+            **context,
         })
     except HTTPException:
         # The inputs changed and cannot be judged now: the old state must not
@@ -855,6 +858,9 @@ async def reevaluate(project_id: str, *, reason: str, actor: Optional[str] = Non
         _drop_snapshot(project_id)
         logger.warning("re-evaluation of %s failed (%s); stored state withdrawn", project_id, reason)
         raise
+    # What this snapshot was computed from (task 1): a later reader compares it
+    # with the inputs then, and a result whose inputs moved is STALE.
+    snapshot[FINGERPRINT_KEY] = inputs_fingerprint(evidence, context)
     _store_snapshot(project_id, snapshot.get("current_state", "SPECULATIVE"), json.dumps(snapshot))
     changes = _changes(old, snapshot)
     try:
@@ -904,9 +910,20 @@ async def fresh_snapshot(project_id: str) -> tuple[Optional[dict], Optional[str]
             # nothing was written. next_expiry is the last day the item is still valid.
             await reevaluate(project_id, reason="evidence expired", actor="system:expiry")
             snap, at = stored_snapshot(project_id)
+        elif _inputs_moved(project_id, snap):
+            # Evidence, premise or contract terms changed without a re-evaluation
+            # (a script, a failed write path), or the snapshot predates fingerprints:
+            # the stored state no longer describes them (handoff v4 task 1).
+            await reevaluate(project_id, reason="inputs changed", actor="system:freshness")
+            snap, at = stored_snapshot(project_id)
     except HTTPException as exc:
         logger.warning("engine unavailable while refreshing %s: %s", project_id, exc.detail)
     return snap, at
+
+
+def _inputs_moved(project_id: str, snap: dict) -> bool:
+    from app.core.readiness import FINGERPRINT_KEY, current_fingerprint
+    return snap.get(FINGERPRINT_KEY) != current_fingerprint(project_id)
 
 
 def _persona_or_403(project_id: str, payload: dict, requested: Optional[str], persona_gates: dict) -> str:
@@ -930,23 +947,39 @@ async def evaluate_project(project_id: str = Query(...),
                            authorization: str | None = Header(default=None)):
     # project_id is required: its old default, "default", stored a snapshot for
     # a project that does not exist.
+    from app.core import readiness
+
     actor = _require_actor(authorization)
     evidence = _load_evidence(project_id)
     result = await reevaluate(project_id, reason="requested", actor=actor.get("user_id"), evidence=evidence)
-    return _attach_assignments(result["snapshot"], evidence, actor, project_id)
+    snapshot, evaluated_at = stored_snapshot(project_id)
+    view = _attach_assignments(dict(snapshot or result["snapshot"]), evidence, actor, project_id)
+    view["readiness"] = readiness.stamp(project_id, snapshot, evaluated_at,
+                                        current_fingerprint=readiness.current_fingerprint(project_id),
+                                        current_rules_version=(snapshot or {}).get("rules_version"))
+    return view
 
 
 async def _persona_view(project_id: str, requested: Optional[str], authorization: Optional[str]) -> dict:
     """Persona-scoped evaluation. The persona comes from the token (2026-10-28):
     it was a parameter, and ?persona=EXECUTIVE showed any caller all twelve gates."""
+    from app.core import readiness
+
     actor = _require_actor(authorization)
     rules = await engine_rules()
     persona = _persona_or_403(project_id, actor, requested, rules.get("persona_gates", {}))
     evidence = _load_evidence(project_id)
-    view = await _call_engine("/evaluate/persona", method="POST", json_data={
-        "project_id": project_id, "evidence": evidence, "persona": persona,
-        "previous_state": _get_project_state(project_id), **_engine_context(project_id),
-    })
+    # The SAME stored snapshot every readiness endpoint reads (task 1), scoped to
+    # the persona's gates. A separate live evaluation here used to give this view
+    # its own evaluated_at, and in principle its own state.
+    snapshot, evaluated_at, stamp = await readiness.current(project_id)
+    if snapshot is None:
+        raise HTTPException(status_code=409, detail={
+            "code": "NOT_EVALUATED", "message": stamp["message"], "readiness": stamp})
+    visible = set(rules.get("persona_gates", {}).get(persona, []))
+    view = {**snapshot, "persona": persona,
+            "gate_evaluations": [g for g in snapshot.get("gate_evaluations", []) if g["gate_id"] in visible]}
+    view["readiness"] = stamp
     total = len(rules.get("persona_gates", {}).get("EXECUTIVE", []))
     seen = len(view.get("gate_evaluations", []))
     view["scope"] = {"persona": persona, "visible_gates": seen, "total_gates": total,
@@ -983,17 +1016,14 @@ async def get_executive_portfolio():
     total_completion = 0.0
     projects_with_regressions = 0
 
+    from app.core import readiness
+
     for row in rows:
         project_id = row["project_id"]
-        evidence = _load_evidence(project_id)
-        try:
-            persona_view = await _call_engine("/evaluate/persona", method="POST", json_data={
-                "project_id": project_id, "evidence": evidence,
-                "persona": "EXECUTIVE", "previous_state": row["current_state"],
-                **_engine_context(project_id),
-            })
-        except Exception:
-            persona_view = json.loads(row["snapshot_json"]) if row["snapshot_json"] else {}
+        # One authority: the stored snapshot, refreshed if its inputs moved,
+        # stamped — never a second live evaluation with its own answer.
+        persona_view, _, stamp = await readiness.current(project_id)
+        persona_view = persona_view or {}
 
         completion = persona_view.get("overall_completion_pct", 0)
         total_completion += completion
@@ -1005,7 +1035,8 @@ async def get_executive_portfolio():
 
         projects.append({
             "project_id": project_id,
-            "current_state": row["current_state"],
+            "current_state": persona_view.get("current_state"),
+            "readiness": stamp,
             "overall_completion": round(completion, 1),
             "capital_unlocks": capital_unlocks,
             "unlocked_count": unlocked_count,

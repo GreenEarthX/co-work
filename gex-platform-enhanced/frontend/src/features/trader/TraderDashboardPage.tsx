@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ChangedSince } from "@/features/deals/ChangedSince";
 import {
   marketAPI,
   type MarketContract,
@@ -287,6 +288,7 @@ export function TraderDashboardPage() {
                       {(m.side === "seller" ? m.buyer_name : m.seller_company_name) ?? "—"} ·
                       score {Math.round(m.match_score)} · {m.delivery_start} → {m.delivery_end}
                     </div>
+                    {m.status === "pending" && <div className="mt-2"><ChangedSince change={m.changed_since_assessed} /></div>}
                   </div>
                   <div className="flex shrink-0 gap-2">
                     {m.status === "pending" ? (

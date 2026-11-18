@@ -29,10 +29,11 @@ from app.core.config import settings
 SELLER, BUYER, OTHER, BANNED = "test_ob_seller", "test_ob_buyer", "test_ob_bystander", "test_ob_banned"
 PID = "proj_TEST_order_book"
 USERS = {   # user -> (company, business function, platform admin)
-    "u_ob_s1": (SELLER, "EXECUTIVE", False), "u_ob_s2": (SELLER, "COMMERCIAL", False),
-    "u_ob_b1": (BUYER, "EXECUTIVE", False), "u_ob_b2": (BUYER, "COMMERCIAL", False),
-    "u_ob_b3": (BUYER, "COMMERCIAL", False), "u_ob_o1": (OTHER, "EXECUTIVE", False),
-    "u_ob_x1": (BANNED, "EXECUTIVE", False), "u_ob_gex": ("greenearthx", "EXECUTIVE", True),
+    # D-B (JML 2026-11-14): Commercial acts, the CEO approves the trade confirmation.
+    "u_ob_s1": (SELLER, "COMMERCIAL", False), "u_ob_s2": (SELLER, "EXECUTIVE", False),
+    "u_ob_b1": (BUYER, "COMMERCIAL", False), "u_ob_b2": (BUYER, "EXECUTIVE", False),
+    "u_ob_b3": (BUYER, "COMMERCIAL", False), "u_ob_o1": (OTHER, "COMMERCIAL", False),
+    "u_ob_x1": (BANNED, "COMMERCIAL", False), "u_ob_gex": ("greenearthx", "EXECUTIVE", True),
 }
 DSN: dict = {}
 STATE: dict = {}
@@ -167,7 +168,7 @@ def test_an_order_is_one_sided_and_gex_does_not_trade(client):
 
 def test_acceptance_makes_one_fill_and_one_draft_contract_with_parties_resolved(client):
     oid = STATE["open_order"]
-    assert _code(client.post(f"/api/v1/trading-book/orders/{oid}/accept", headers=_auth("u_ob_s2"))) == "SELF_TRADE"
+    assert _code(client.post(f"/api/v1/trading-book/orders/{oid}/accept", headers=_auth("u_ob_s1"))) == "SELF_TRADE"
     r = client.post(f"/api/v1/trading-book/orders/{oid}/accept", headers=_auth("u_ob_b1"), json={"quantity": "50"})
     assert r.status_code == 201, r.text
     cid = r.json()["contract_id"]
@@ -256,10 +257,11 @@ def test_four_eyes_inside_each_party(client):
     cid = STATE["contract"]
     base = f"/api/v1/trading-book/records/{cid}"
     assert client.get(base, headers=_auth("u_ob_o1")).status_code == 404
-    # Two non-executives of the buyer cannot confirm on their own.
-    req = client.post(f"{base}/confirm", headers=_auth("u_ob_b2")).json()["request_id"]
-    assert _code(client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_b3"))) == "EXECUTIVE_REQUIRED"
-    assert _code(client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_b2"))) == "SOD_SELF_APPROVAL"
+    # D-B (JML 2026-11-14): Commercial raises the confirmation; only the CEO or the CFO approves it.
+    assert _code(client.post(f"{base}/confirm", headers=_auth("u_ob_b2"))) == "ROLE_NOT_ALLOWED"     # the CEO raises nothing
+    req = client.post(f"{base}/confirm", headers=_auth("u_ob_b3")).json()["request_id"]
+    assert _code(client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_b1"))) == "APPROVER_ROLE"
+    assert _code(client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_b3"))) == "SOD_SELF_APPROVAL"
     assert client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_s2")).status_code == 404
     assert _code(client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_gex"))) == "GEX_DOES_NOT_TRADE"
     # The generic approvals route neither raises nor decides a contract confirmation. This
@@ -269,7 +271,7 @@ def test_four_eyes_inside_each_party(client):
                        json={"decision": "APPROVE"}).status_code in (404, 409)
     assert _code(client.post("/api/v1/approvals/evaluate", headers=_auth("u_ob_b1"),
                              json={"action_type": "TRADE_CONFIRM", "resource_id": cid})) == "TRADE_CONFIRM_ON_THE_CONTRACT"
-    done = client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_b1")).json()
+    done = client.post(f"{base}/confirm/{req}/approve", headers=_auth("u_ob_b2")).json()
     assert done["confirmed_by"] == [BUYER] and done["trade_status"] == "pending_confirmation"
     assert _code(client.post(f"{base}/confirm", headers=_auth("u_ob_b1"))) == "ALREADY_CONFIRMED"
     req = client.post(f"{base}/confirm", headers=_auth("u_ob_s1")).json()["request_id"]

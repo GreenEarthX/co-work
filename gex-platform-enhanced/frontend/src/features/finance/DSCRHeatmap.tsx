@@ -1,5 +1,5 @@
 // Screen: DSCR sensitivity heatmap screen (/dscr-sensitivity, /finance/dscr-sensitivity)
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, TrendingDown, Shield, Info, RefreshCw, Database, CalendarDays } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
@@ -8,6 +8,7 @@ import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import type { CustomerProject } from '@/data/customerProjects'
 import { financeModelAPI } from '@/lib/api'
+import { useDecisionTests, approvedThreshold, judge, policyLine } from '@/lib/decisionPolicy'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -76,7 +77,8 @@ interface SensitivityDataset {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function adaptApiResponse(data: any): SensitivityDataset {
-  const base: number = data.baseDSCR ?? 1.20
+  // No base DSCR from the server is NaN ("not computed"), never a typed 1.20.
+  const base: number = typeof data.baseDSCR === 'number' ? data.baseDSCR : NaN
 
   const sensitivityRows: SensitivityRow[] = (data.sensitivityRows ?? []).map(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,19 +124,21 @@ function adaptApiResponse(data: any): SensitivityDataset {
 // COLOR HELPERS
 // ═══════════════════════════════════════════════════════════════
 
-function dscrCellStyle(val: number): { bg: string; text: string } {
-  if (val >= 1.30) return { bg: 'bg-green-100', text: 'text-green-800' }
-  if (val >= 1.20) return { bg: 'bg-amber-100', text: 'text-amber-800' }
-  return { bg: 'bg-red-100', text: 'text-red-800' }
+// The floor is the APPROVED senior-lender base-case floor (decision test DSCR_P50,
+// reference data registry). No floor is typed here: with none approved, every cell
+// is neutral and nothing is marked as a breach — "no approved threshold — no pass/fail".
+const FloorContext = createContext<{ floor: number | null; line: string }>({ floor: null, line: '' })
+const useFloor = () => useContext(FloorContext)
+const fmtX = (v: number) => (Number.isFinite(v) ? `${v.toFixed(2)}x` : 'not computed')
+
+function dscrCellStyle(val: number, floor: number | null): { bg: string; text: string } {
+  if (floor == null) return { bg: 'bg-slate-50', text: 'text-slate-800' }
+  return val >= floor ? { bg: 'bg-green-100', text: 'text-green-800' } : { bg: 'bg-red-100', text: 'text-red-800' }
 }
 
-function dscrToFill(val: number): string {
-  if (val >= 1.40) return '#bbf7d0'
-  if (val >= 1.30) return '#86efac'
-  if (val >= 1.25) return '#fde68a'
-  if (val >= 1.20) return '#fcd34d'
-  if (val >= 1.10) return '#fca5a5'
-  return '#f87171'
+function dscrToFill(val: number, floor: number | null): string {
+  if (floor == null) return '#e2e8f0'
+  return val >= floor ? '#86efac' : '#fca5a5'
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -154,6 +158,7 @@ function BreachIcon() {
 }
 
 function SingleFactorTable({ rows }: { rows: SensitivityRow[] }) {
+  const { floor } = useFloor()
   if (!rows.length) return null
   const colLabels = rows[0].deltaLabels
 
@@ -178,11 +183,11 @@ function SingleFactorTable({ rows }: { rows: SensitivityRow[] }) {
                 <div className="text-gray-400 font-normal text-xs">{row.unit}</div>
               </td>
               {row.values.map((val, ci) => {
-                const style = dscrCellStyle(val)
+                const style = dscrCellStyle(val, floor)
                 return (
                   <td key={ci} className={`text-center px-2 py-2 font-bold tabular-nums ${style.bg} ${style.text} ${ci === 2 ? 'ring-2 ring-inset ring-blue-300' : ''}`}>
                     {val.toFixed(2)}x
-                    {val < 1.20 && <BreachIcon />}
+                    {floor != null && val < floor && <BreachIcon />}
                   </td>
                 )
               })}
@@ -195,6 +200,7 @@ function SingleFactorTable({ rows }: { rows: SensitivityRow[] }) {
 }
 
 function TwoFactorHeatmap({ cells, baseDSCR }: { cells: HeatmapCell[]; baseDSCR: number }) {
+  const { floor, line } = useFloor()
   const powerDeltas = [-20, -10, 0, 10, 20]
   const effDeltas   = [5, 2.5, 0, -2.5, -5]
   const cellW = 72, cellH = 40, labelW = 60, labelH = 28
@@ -205,7 +211,7 @@ function TwoFactorHeatmap({ cells, baseDSCR }: { cells: HeatmapCell[]; baseDSCR:
     <div className="overflow-x-auto">
       <div className="mb-2 text-xs text-gray-500 font-medium">
         <span className="font-black text-gray-700">DSCR P50 — Power Price × Efficiency Combined Shock</span>
-        <span className="ml-2 text-gray-400">Base DSCR: {baseDSCR.toFixed(2)}x</span>
+        <span className="ml-2 text-gray-400">Base DSCR: {fmtX(baseDSCR)}</span>
       </div>
       <svg width={svgW} height={svgH} className="font-mono">
         {powerDeltas.map((pd, xi) => (
@@ -229,15 +235,15 @@ function TwoFactorHeatmap({ cells, baseDSCR }: { cells: HeatmapCell[]; baseDSCR:
           const x = labelW + xi * cellW
           const y = labelH + yi * cellH
           const isBase = cell.powerDelta === 0 && cell.effDelta === 0
-          const isBreach = cell.dscr < 1.20
+          const isBreach = floor != null && cell.dscr < floor
           return (
             <g key={i}>
-              <rect x={x + 1} y={y + 1} width={cellW - 2} height={cellH - 2} fill={dscrToFill(cell.dscr)} rx={4}
+              <rect x={x + 1} y={y + 1} width={cellW - 2} height={cellH - 2} fill={dscrToFill(cell.dscr, floor)} rx={4}
                 stroke={isBase ? '#3b82f6' : isBreach ? '#ef4444' : 'transparent'}
                 strokeWidth={isBase ? 2 : isBreach ? 1.5 : 0}
               />
               <text x={x + cellW / 2} y={y + cellH / 2 + 4} textAnchor="middle" fontSize={10} fontWeight={700}
-                fill={cell.dscr >= 1.20 ? '#166534' : '#991b1b'}>
+                fill={floor == null ? '#334155' : cell.dscr >= floor ? '#166534' : '#991b1b'}>
                 {cell.dscr.toFixed(2)}
               </text>
               {isBreach && <text x={x + cellW - 10} y={y + 13} fontSize={9} fill="#dc2626">⚠</text>}
@@ -246,9 +252,7 @@ function TwoFactorHeatmap({ cells, baseDSCR }: { cells: HeatmapCell[]; baseDSCR:
         })}
       </svg>
       <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-        <div className="flex items-center gap-1.5"><div className="w-4 h-4 rounded bg-green-300 border border-green-400" /><span>≥ 1.30x — above target</span></div>
-        <div className="flex items-center gap-1.5"><div className="w-4 h-4 rounded bg-amber-300 border border-amber-400" /><span>1.20–1.30x — watch zone</span></div>
-        <div className="flex items-center gap-1.5"><div className="w-4 h-4 rounded bg-red-400 border border-red-500" /><span>&lt; 1.20x — covenant breach</span></div>
+        <div className="flex items-center gap-1.5"><span>Lender floor (DSCR P50): {line}</span></div>
         <div className="flex items-center gap-1.5"><div className="w-4 h-4 rounded bg-transparent border-2 border-blue-500" /><span>Base case</span></div>
       </div>
     </div>
@@ -273,6 +277,7 @@ function BreakevenCards({ metrics }: { metrics: BreakevenMetric[] }) {
 }
 
 function CovenantHeadroomChart({ series, baseDSCR: _baseDSCR }: { series: MonthlyDSCR[]; baseDSCR: number }) {
+  const { floor, line } = useFloor()
   const W = 580, H = 160
   const padL = 48, padR = 16, padT = 12, padB = 30
   const innerW = W - padL - padR
@@ -290,15 +295,15 @@ function CovenantHeadroomChart({ series, baseDSCR: _baseDSCR }: { series: Monthl
   const toY = (dscr: number) => padT + innerH - ((dscr - yMin) / yRange) * innerH
 
   const linePath = series.map((d, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(d.dscr).toFixed(1)}`).join(' ')
-  const floorY = toY(1.20)
-  const areaPath = [
+  const floorY = toY(floor ?? yMin)
+  const areaPath = floor == null ? '' : [
     ...series.map((d, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${Math.min(floorY, toY(d.dscr)).toFixed(1)}`),
     `L ${toX(count - 1).toFixed(1)} ${floorY.toFixed(1)}`,
     `L ${toX(0).toFixed(1)} ${floorY.toFixed(1)}`,
     'Z',
   ].join(' ')
 
-  const yTicks = [0.80, 1.00, 1.20, 1.30, 1.50, 1.80, 2.00]
+  const yTicks = [0.80, 1.00, 1.50, 2.00, ...(floor != null ? [floor] : [])]
   const xTickIndices = count <= 6
     ? series.map((_, i) => i)
     : [0, Math.floor(count / 5), Math.floor(2 * count / 5), Math.floor(3 * count / 5), Math.floor(4 * count / 5), count - 1]
@@ -315,11 +320,9 @@ function CovenantHeadroomChart({ series, baseDSCR: _baseDSCR }: { series: Monthl
         {yTicks.map(v => (
           <line key={v} x1={padL} y1={toY(v)} x2={W - padR} y2={toY(v)} stroke="#f3f4f6" strokeWidth={1} />
         ))}
-        <path d={areaPath} fill="url(#headroomGrad)" />
-        <line x1={padL} y1={toY(1.20)} x2={W - padR} y2={toY(1.20)} stroke="#ef4444" strokeWidth={1.5} strokeDasharray="6 3" />
-        <text x={W - padR + 2} y={toY(1.20) + 4} fontSize={8} fill="#ef4444" fontWeight={700}>1.20x</text>
-        <line x1={padL} y1={toY(1.30)} x2={W - padR} y2={toY(1.30)} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 3" />
-        <text x={W - padR + 2} y={toY(1.30) + 4} fontSize={8} fill="#f59e0b" fontWeight={700}>1.30x</text>
+        {floor != null && <path d={areaPath} fill="url(#headroomGrad)" />}
+        {floor != null && <line x1={padL} y1={toY(floor)} x2={W - padR} y2={toY(floor)} stroke="#ef4444" strokeWidth={1.5} strokeDasharray="6 3" />}
+        {floor != null && <text x={W - padR + 2} y={toY(floor) + 4} fontSize={8} fill="#ef4444" fontWeight={700}>{floor.toFixed(2)}x</text>}
         <path d={linePath} fill="none" stroke="#16a34a" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
         {yTicks.map(v => (
           <text key={v} x={padL - 6} y={toY(v) + 4} textAnchor="end" fontSize={9} fill="#9ca3af" fontWeight={600}>{v.toFixed(2)}</text>
@@ -332,9 +335,7 @@ function CovenantHeadroomChart({ series, baseDSCR: _baseDSCR }: { series: Monthl
       </svg>
       <div className="flex items-center gap-5 mt-2 text-xs text-gray-500">
         <div className="flex items-center gap-1.5"><div className="w-5 h-0.5 bg-green-600 rounded" /><span>DSCR P50</span></div>
-        <div className="flex items-center gap-1.5"><div className="w-5 h-0" style={{ borderBottom: '2px dashed #ef4444' }} /><span>Covenant floor 1.20x</span></div>
-        <div className="flex items-center gap-1.5"><div className="w-5 h-0" style={{ borderBottom: '2px dashed #f59e0b' }} /><span>Target floor 1.30x</span></div>
-        <div className="flex items-center gap-1.5"><div className="w-5 h-3 bg-green-200 rounded-sm opacity-70" /><span>Headroom</span></div>
+        <div className="flex items-center gap-1.5"><div className="w-5 h-0" style={{ borderBottom: '2px dashed #ef4444' }} /><span>Lender floor: {line}</span></div>
       </div>
     </div>
   )
@@ -450,6 +451,7 @@ function PreCodReadiness({ project }: { project: CustomerProject }) {
 
 export function DSCRHeatmap() {
   const { selectedProjectId } = useSelectedProject()
+  const decisionTests = useDecisionTests()
   const { projects } = useVisibleProjects()
   const project = projects.find(p => p.id === selectedProjectId) ?? null
   const isPreCod = project?.status === 'development' || project?.status === 'construction'
@@ -522,15 +524,19 @@ export function DSCRHeatmap() {
     )
   }
 
+  const floor = approvedThreshold(decisionTests.data?.tests.DSCR_P50)
+  const floorLine = policyLine(decisionTests.data?.tests.DSCR_P50)
+  const baseOutcome = judge(Number.isFinite(data.baseDSCR) ? data.baseDSCR : null, decisionTests.data?.tests.DSCR_P50)
   const baseDSCRStyle =
-    data.baseDSCR >= 1.30 ? 'text-green-700 bg-green-50 border-green-200' :
-    data.baseDSCR >= 1.20 ? 'text-amber-700 bg-amber-50 border-amber-200' :
-    'text-red-700 bg-red-50 border-red-200'
+    baseOutcome === 'PASS' ? 'text-green-700 bg-green-50 border-green-200' :
+    baseOutcome === 'FAIL' ? 'text-red-700 bg-red-50 border-red-200' :
+    'text-slate-700 bg-slate-50 border-slate-200'
 
-  const breachCount = data.sensitivityRows.reduce((acc, row) => acc + row.values.filter(v => v < 1.20).length, 0)
+  const breachCount = floor == null ? 0 : data.sensitivityRows.reduce((acc, row) => acc + row.values.filter(v => v < floor).length, 0)
   const totalCells = data.sensitivityRows.length * 5
 
   return (
+    <FloorContext.Provider value={{ floor, line: floorLine }}>
     <div className="space-y-6 max-w-7xl mx-auto pb-8">
 
       {/* ── Page header ────────────────────────────────────────────── */}
@@ -615,7 +621,7 @@ export function DSCRHeatmap() {
               {/* Post-COD: DSCR P50 card */}
               <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-black text-lg tabular-nums ${baseDSCRStyle}`}>
                 <span className="text-xs font-semibold opacity-70 flex items-center gap-1">Base DSCR P50 <InfoTooltip text={HELP.DSCR_P50} /></span>
-                {data.baseDSCR.toFixed(2)}x
+                {fmtX(data.baseDSCR)}
               </div>
               {breachCount > 0 ? (
                 <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-bold">
@@ -690,7 +696,7 @@ export function DSCRHeatmap() {
         <SingleFactorTable rows={data.sensitivityRows} />
         <div className="mt-3 flex items-start gap-2 bg-gray-50 rounded-lg p-3 text-xs text-gray-500">
           <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
-          Shocks applied individually, holding all other factors at base case. Covenant floor: 1.20x (red cells). Target DSCR: 1.30x. Base column highlighted in blue.
+          Shocks applied individually, holding all other factors at base case. Lender floor (DSCR P50): {floorLine}. Red cells only against an approved floor. Base column highlighted in blue.
         </div>
       </div>
 
@@ -709,10 +715,10 @@ export function DSCRHeatmap() {
             Break-Even Floors
           </SectionTitle>
           <BreakevenCards metrics={data.breakevenMetrics} />
-          <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
-            <div className="text-xs font-bold text-amber-800 mb-1">Covenant Floor</div>
-            <div className="text-2xl font-black text-amber-700 tabular-nums">1.20x</div>
-            <div className="text-xs text-amber-600 mt-1">Senior debt DSCR minimum — breach triggers cash lock-up and lender step-in rights</div>
+          <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="text-xs font-bold text-slate-800 mb-1">Lender floor (DSCR P50)</div>
+            <div className="text-sm font-bold text-slate-800">{floorLine}</div>
+            <div className="text-xs text-slate-600 mt-1">The senior lender's policy, from the reference data registry. GEX types no floor.</div>
           </div>
         </div>
       </div>
@@ -738,10 +744,12 @@ export function DSCRHeatmap() {
               const minMonth = data.monthlySeries.find(d => d.dscr === minVal)?.month ?? 0
               const maxMonth = data.monthlySeries.find(d => d.dscr === maxVal)?.month ?? 0
               const avgVal = vals.reduce((a, b) => a + b, 0) / vals.length
+              const tone = (v: number) => floor == null ? { color: 'text-slate-800', bg: 'bg-slate-50 border-slate-200' }
+                : v >= floor ? { color: 'text-green-700', bg: 'bg-green-50 border-green-200' } : { color: 'text-red-700', bg: 'bg-red-50 border-red-200' }
               return [
-                { label: `Minimum (M${minMonth})`, value: minVal.toFixed(2) + 'x', color: minVal >= 1.20 ? 'text-green-700' : 'text-red-700', bg: minVal >= 1.20 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200' },
-                { label: 'Average', value: avgVal.toFixed(2) + 'x', color: avgVal >= 1.30 ? 'text-green-700' : avgVal >= 1.20 ? 'text-amber-700' : 'text-red-700', bg: avgVal >= 1.30 ? 'bg-green-50 border-green-200' : avgVal >= 1.20 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200' },
-                { label: `Maximum (M${maxMonth})`, value: maxVal.toFixed(2) + 'x', color: 'text-green-700', bg: 'bg-green-50 border-green-200' },
+                { label: `Minimum (M${minMonth})`, value: minVal.toFixed(2) + 'x', ...tone(minVal) },
+                { label: 'Average', value: avgVal.toFixed(2) + 'x', ...tone(avgVal) },
+                { label: `Maximum (M${maxMonth})`, value: maxVal.toFixed(2) + 'x', ...tone(maxVal) },
               ].map(m => (
                 <div key={m.label} className={`rounded-xl border p-3 ${m.bg}`}>
                   <div className="text-xs text-gray-500 font-medium mb-1">{m.label}</div>
@@ -754,5 +762,6 @@ export function DSCRHeatmap() {
       </div>
 
     </div>
+    </FloorContext.Provider>
   )
 }

@@ -330,3 +330,11 @@ def test_payload_declares_its_interaction_and_method():
     assert payload["interaction"] == "multiplicative"
     assert "multiplicative" in payload["method"]
     assert payload["sensitivityRows"] and payload["heatmapCells"]
+
+
+def test_without_an_approved_floor_no_break_even_is_solved_and_nothing_is_breached():
+    """Rule (handoff v4 task 6): no floor is typed; with none approved, the break-evens say so."""
+    for m in break_even_metrics(PARAMS, None):
+        assert m["breached"] is False and m["description"] == "no approved threshold — no pass/fail"
+    payload = compute_sensitivity({})
+    assert payload["covenantFloor"] is None and payload["targetDSCR"] is None

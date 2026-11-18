@@ -256,7 +256,27 @@ def validate_proposal(p: dict) -> dict:
         "retrieved_at": _iso_date(p.get("retrieved_at"), "retrieved_at") or _today(),
         "valid_from": _iso_date(p.get("valid_from"), "valid_from") or _today(),
         "note": p.get("note"),
+        **_policy_fields(p),
     }
+
+
+def _policy_fields(p: dict) -> dict:
+    """Decision-test attribution (migration 121). Optional: ordinary reference
+    data carries none. An institution's policy may cite its establishing
+    reference; GEX's own values never do (JML approves them, nothing establishes them)."""
+    party = p.get("policy_party")
+    context = p.get("policy_context")
+    reference = p.get("policy_reference")
+    if party is None and context is None and reference is None:
+        return {}
+    if not party:
+        raise RegistryError("policy_party is required when a policy context or reference is given")
+    if reference and party == "GEX":
+        raise RegistryError("a GEX value has no establishing reference: JML approves GEX defaults")
+    if context is not None and not isinstance(context, dict):
+        raise RegistryError("policy_context must be an object (instrument, stage, scenario)")
+    return {"policy_party": party, "policy_context": json.dumps(context, sort_keys=True) if context else None,
+            "policy_reference": reference}
 
 
 def propose(conn, proposal: dict, actor: str) -> dict:
@@ -290,10 +310,12 @@ def approve(conn, ref_id: str, actor: str, reason: Optional[str] = None) -> dict
     if row["proposed_by"] == actor:
         raise RegistryError("the approver must not be the proposer", 403)
 
+    # One approved row per (key, pathway, region, policy party): approving EIB's
+    # hurdle must never supersede KfW's (migration 121's index).
     current = conn.execute(
         "SELECT * FROM reference_parameter WHERE parameter_key = ? AND pathway = ? "
-        "AND region = ? AND state = 'approved'",
-        (row["parameter_key"], row["pathway"], row["region"])).fetchone()
+        "AND region = ? AND COALESCE(policy_party, '') = ? AND state = 'approved'",
+        (row["parameter_key"], row["pathway"], row["region"], row.get("policy_party") or "")).fetchone()
     current = dict(current) if current else None
     if current and row["valid_from"] <= current["valid_from"]:
         raise RegistryError(

@@ -678,7 +678,9 @@ export function ProjectsPage() {
         {filtered.map((project) => {
           const readout = readoutById.get(project.id)!;
           const isOpen = expanded === project.id;
-          const tick = MOL_TICK[project.molecule] ?? project.molecule;
+          // A shared listing discloses no molecule (decision A): the listing hook's
+          // 'H2' fallback would state one the owner never shared. Show none.
+          const tick = project.disclosure ? "—" : (MOL_TICK[project.molecule] ?? project.molecule);
           const nextStep = engineNextStep(readout, stateLabel);
 
           return (
@@ -706,9 +708,16 @@ export function ProjectsPage() {
                   <span className="block truncate text-[13px] font-semibold text-[var(--text-primary)]">
                     {project.name}
                   </span>
-                  <span className="block truncate font-mono text-[10px] text-[var(--text-muted)]">
-                    {project.location}
-                  </span>
+                  {project.disclosure ? (
+                    <span className="block truncate text-[10px] text-[var(--text-muted)]"
+                      title={`Shared with you by ${project.owner_company || "the owner"}, read-only: ${project.disclosure.shared.join(", ")}`}>
+                      Shared with you, read-only: {project.disclosure.shared.join(" · ")}
+                    </span>
+                  ) : (
+                    <span className="block truncate font-mono text-[10px] text-[var(--text-muted)]">
+                      {project.location}
+                    </span>
+                  )}
                 </span>
                 {/* Molecule ticker */}
                 <span className="text-center font-mono text-[11px] font-bold text-[var(--text-primary)]">

@@ -257,14 +257,8 @@ export function PlantBuilder() {
 
   const removeItem = (id: string) => setConfigLines(prev => prev.filter(l => l.equipment_id !== id));
 
-  // ── Compute ───────────────────────────────────────────────
-  const compute = async () => {
-    if (configLines.length === 0) return;
-    setComputing(true);
-    setSaved(false);
-    setActionError(null);
-    try {
-      const body = {
+  // The configuration as the server takes it — the same body computes and saves.
+  const configBody = () => ({
         project_id: projectId,   // real project_id from context
         molecule,
         location_jurisdiction: jurisdiction,
@@ -282,7 +276,16 @@ export function PlantBuilder() {
         wacc_pct: wacc / 100,
         project_life_years: projectLife,
         capacity_factor: Number.isFinite(runTimePct) && runTimePct > 0 ? Math.min(runTimePct, 100) / 100 : undefined,
-      };
+      });
+
+  // ── Compute ───────────────────────────────────────────────
+  const compute = async () => {
+    if (configLines.length === 0) return;
+    setComputing(true);
+    setSaved(false);
+    setActionError(null);
+    try {
+      const body = configBody();
       const r = await fetch('/api/v1/plant-builder/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
@@ -309,43 +312,35 @@ export function PlantBuilder() {
     }
   };
 
-  // ── Save result to project (feeds Package Builder / Capital Stack) ────────
-  // The backend has no save route for a cost basis yet (POST /plant-builder/save
-  // returns 404), so the button stays disabled and says so instead of failing.
-  const SAVE_AVAILABLE = false;
+  // ── Save as a cost basis version (calculation chain, 18 Nov 2026) ────────
+  // The server recomputes the result from this configuration and stores both,
+  // hashed (POST /api/v1/cost-basis/{project}). The TEA, the financing case and a
+  // published returns version then cite that saved version, never this screen.
+  const SAVE_AVAILABLE = true;
+  const [savedVersion, setSavedVersion] = useState<number | null>(null);
   const saveResult = async () => {
     if (!result) return;
     setSaving(true);
+    setActionError(null);
     try {
-      const r = await fetch(`/api/v1/plant-builder/save`, {
+      const r = await fetch(`/api/v1/cost-basis/${encodeURIComponent(projectId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({
-          project_id: projectId,
-          lcof_eur_t: result.output.levelised_cost_eur_t,
-          total_capex_eur: result.capex.total_capex_eur,
-          total_annual_opex_eur: result.opex.total_annual_opex_eur,
-          capex_per_layer: result.capex.per_layer,
-          capex_by_category: result.capex.by_category,
-          competitive_gap_eur_t: result.output.competitive_gap_eur_t,
-          effective_price_with_certs: result.certification.effective_price_with_certs,
-          annual_output_tonnes: result.output.annual_output_tonnes,
-          wacc_pct: wacc / 100,
-          project_life_years: projectLife,
-          molecule,
-          jurisdiction,
-        }),
+        body: JSON.stringify(configBody()),
       });
+      const data = await r.json().catch(() => null);
       // Report "saved" only when the server confirms it — no optimistic success.
       if (!r.ok) {
+        const d = data?.detail;
         setActionError(r.status === 403
-          ? 'Your role is not permitted to save a cost basis to this project.'
-          : `The cost basis was not saved (HTTP ${r.status}).`);
+          ? 'Only the project owner\'s engineering, finance or executive function saves a cost basis.'
+          : `The cost basis was not saved: ${typeof d === 'string' ? d : d?.message ?? `HTTP ${r.status}`}.`);
       } else {
         setSaved(true);
+        setSavedVersion(data.version_number);
       }
     } catch (e) {
-      console.warn('Plant builder save failed:', e);
+      console.warn('Cost basis save failed:', e);
       setActionError('The cost basis was not saved: the server could not be reached.');
     } finally {
       setSaving(false);
@@ -450,15 +445,18 @@ export function PlantBuilder() {
               className="px-3 py-1.5 text-xs rounded border flex items-center gap-1.5 disabled:opacity-50"
               style={{ borderColor: saved ? 'var(--teal)' : 'var(--border)', color: saved ? '#0ea5a0' : 'var(--text-muted)' }}
               title={SAVE_AVAILABLE
-                ? `Save LCOF and CAPEX to ${projectName} — feeds Package Builder and Capital Stack`
+                ? `Save this configuration as a cost basis version of ${projectName} — the TEA is run from it on the Calculation Chain`
                 : 'Not available yet: this result is shown for review and is not stored on the project.'}
             >
               {saved
-                ? <><CheckCircle className="w-3.5 h-3.5" /> Saved to project</>
+                ? <><CheckCircle className="w-3.5 h-3.5" /> Saved as cost basis v{savedVersion}</>
                 : saving
                   ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving…</>
-                  : <><Save className="w-3.5 h-3.5" /> {SAVE_AVAILABLE ? 'Save to project' : 'Save to project (not yet available)'}</>}
+                  : <><Save className="w-3.5 h-3.5" /> {SAVE_AVAILABLE ? 'Save as cost basis version' : 'Save to project (not yet available)'}</>}
             </button>
+          )}
+          {result && saved && (
+            <a href="/finance/calculation-chain" className="text-xs underline" style={{ color: '#0ea5a0' }}>Open the calculation chain →</a>
           )}
           <button
             onClick={compute}

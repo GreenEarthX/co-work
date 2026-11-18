@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { marketAPI, type MarketMatch } from '@/api';
 import { useMarketPolicy } from '@/lib/marketPolicy';
+import { ChangedSince } from '@/features/deals/ChangedSince';
 
 const RADAR_COLORS = ['#0ea5a0', '#f59e0b', '#6366f1', '#10b981', '#f43f5e'];
 type Side = 'buyer' | 'seller';
@@ -134,6 +135,7 @@ export function MatchingPage() {
                         {side === 'buyer' ? 'From' : 'To'} {(side === 'buyer' ? m.seller_company_name : m.buyer_name) ?? '—'}
                         {' · '}{m.delivery_start} → {m.delivery_end} · score {Math.round(m.match_score)}
                       </span>
+                      {m.status === 'pending' && <span className="mt-2 block"><ChangedSince change={m.changed_since_assessed} /></span>}
                     </span>
                   </label>
                   <div className="flex shrink-0 gap-2">

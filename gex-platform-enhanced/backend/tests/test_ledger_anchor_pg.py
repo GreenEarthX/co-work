@@ -31,7 +31,7 @@ OWNER, A, B, X = "test_la_owner", "test_la_buyer_a", "test_la_buyer_b", "test_la
 PID = "proj_TEST_ledger_anchor"
 ASSET = "00000000-0000-4000-8000-0000000095a1"
 NAMES = {OWNER: "Test LA Owner GmbH", A: "Test LA Buyer A SA", B: "Test LA Buyer B AG", X: "Test LA Stranger Ltd"}
-USERS = {"u_la_exec": (OWNER, "EXECUTIVE"), "u_la_a1": (A, "EXECUTIVE"), "u_la_a2": (A, "COMMERCIAL"),
+USERS = {"u_la_exec": (OWNER, "EXECUTIVE"), "u_la_a1": (A, "COMMERCIAL"), "u_la_a2": (A, "EXECUTIVE"),  # D-B: a2 approves
          "u_la_b1": (B, "EXECUTIVE"), "u_la_x": (X, "EXECUTIVE")}
 SALT = "test-ledger-anchor-salt-not-a-secret"
 PRICE, VOLUME = "1.37", 7
@@ -80,7 +80,7 @@ def _worker(pg_store):
 def _party(uid):
     from app.core import market_engine as me
 
-    return me.Party(user_id=uid, company_id=USERS[uid][0], company_name=NAMES[USERS[uid][0]])
+    return me.Party(business_function="COMMERCIAL", user_id=uid, company_id=USERS[uid][0], company_name=NAMES[USERS[uid][0]])
 
 
 @pytest.fixture(scope="module")

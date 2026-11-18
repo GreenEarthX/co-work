@@ -63,11 +63,10 @@ class DFIInstitution(str, Enum):
 
 
 class AdditionalityStatus(str, Enum):
-    PASSED       = "PASSED"     # Project IRR without DFI < hurdle rate
-    FAILED       = "FAILED"     # Project bankable without DFI — not eligible
-    MARGINAL     = "MARGINAL"   # IRR gap <1pp — requires further justification
-    PENDING      = "PENDING"    # Insufficient data to compute
-    WAIVED       = "WAIVED"     # DFI applied policy waiver (rare, requires board approval)
+    # Handoff v4, task 6 (JML 2026-11-17): additionality is an ASSESSMENT of
+    # evidenced criteria. GEX states what is evidenced; the DFI decides.
+    NOT_ASSESSABLE = "NOT_ASSESSABLE"                    # a core criterion has no evidence
+    EVIDENCED = "EVIDENCED_FOR_DFI_DECISION"             # every core criterion is evidenced
 
 
 class ImpactStatus(str, Enum):
@@ -78,57 +77,58 @@ class ImpactStatus(str, Enum):
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
-# Per-DFI minimum additionality requirements (IRR hurdle rates for their mandates)
-DFI_HURDLE_RATES = {
-    DFIInstitution.EIB:       0.092,   # EIB: project IRR must be below 9.2% without EIB
-    DFIInstitution.KFW:       0.090,   # KfW: 9.0%
-    DFIInstitution.IFC:       0.085,   # IFC: 8.5% — emerging market adjustment
-    DFIInstitution.BPIFRANCE: 0.090,   # BpiFrance: 9.0%
-    DFIInstitution.DFC:       0.100,   # DFC: 10.0% — higher risk tolerance mandate
-    DFIInstitution.AFDB:      0.080,   # AfDB: 8.0% — regional development mandate
-    DFIInstitution.OTHER:     0.090,
-}
+# The per-DFI hurdle and catalytic tables that lived here (EIB 9.2 % …) were code
+# constants with no source. They are proposed values in the reference registry
+# now, attributed to each DFI as party (scripts/propose_decision_policies_20261117.py),
+# and read through app/core/decision_policy.py — "GEX proposed" until the DFI's
+# own reference establishes them.
 
-# Per-DFI minimum catalytic ratio requirements
-DFI_CATALYTIC_MINIMUMS = {
-    DFIInstitution.EIB:       2.5,
-    DFIInstitution.KFW:       2.0,
-    DFIInstitution.IFC:       3.0,
-    DFIInstitution.BPIFRANCE: 2.0,
-    DFIInstitution.DFC:       2.5,
-    DFIInstitution.AFDB:      2.0,
-    DFIInstitution.OTHER:     2.0,
-}
+CORE_CRITERIA = ("financing_unavailable", "risk_mitigation", "mobilisation")
+# Their labels are in the one vocabulary (app/core/vocabulary.py, additionality_criterion).
+from app.core.vocabulary import display_label  # noqa: E402
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# PYDANTIC MODELS
-# ═══════════════════════════════════════════════════════════════════════════
+class EvidenceRef(BaseModel):
+    reference: str = Field(..., min_length=1, description="Document, letter or term sheet")
+    document_sha256: Optional[str] = Field(None, description="sha256 of a document on file")
+    description: Optional[str] = None
+
+
+class Criterion(BaseModel):
+    statement: Optional[str] = None
+    evidence: list[EvidenceRef] = []
+
+
+class Mobilisation(Criterion):
+    commercial_eur: Optional[float] = Field(None, ge=0)
+    dfi_eur: Optional[float] = Field(None, gt=0)
+
+
+class DebtTerms(BaseModel):
+    debt_eur: float = Field(..., ge=0)
+    interest_rate: float = Field(..., ge=0)
+    debt_tenor_years: int = Field(..., ge=0)
+    grant_eur: float = Field(0.0, ge=0)
+
 
 class AdditionalityInput(BaseModel):
-    """
-    Inputs for additionality test.
-    In production, many of these come from the Excel model CONTROL sheet
-    via the routes_finance_model.py proxy to gex_pf_engine.
-    """
+    """An additionality assessment: evidenced criteria, and the engine-computed
+    IRR with and without the DFI's terms as ONE input. The caller types no IRR."""
     project_id:              str
     dfi_institution:         DFIInstitution
     tranche_amount_eur:      float = Field(..., gt=0, description="DFI tranche size in EUR")
     total_capex_eur:         float = Field(..., gt=0)
 
-    # IRR inputs — come from cfads.py when PF Engine integration is complete
-    project_irr_with_dfi:    float = Field(..., description="Project equity IRR with concessional tranche")
-    project_irr_without_dfi: float = Field(..., description="Project equity IRR at all-commercial rates")
-    commercial_hurdle_rate:  float = Field(0.12, description="Sponsor equity required return")
+    financing_unavailable:   Criterion = Criterion()
+    risk_mitigation:         Criterion = Criterion()
+    mobilisation:            Mobilisation = Mobilisation()
+    standards_contribution:  Criterion = Criterion()
 
-    # Capital stack context
-    commercial_debt_pct:     float = Field(..., description="% of CAPEX as commercial senior debt")
-    total_concessional_pct:  float = Field(..., description="% of CAPEX as all concessional tranches")
-    grant_pct:               float = Field(0.0,  description="% of CAPEX as grants")
-
-    # WACC context
-    blended_wacc:            float = Field(..., description="Blended WACC from cfads.py")
-    all_commercial_wacc:     float = Field(..., description="All-commercial WACC benchmark")
+    # The returns case the IRRs are computed on (the PF engine's ReturnsRequest,
+    # without financing), and the two financing structures compared.
+    returns_inputs:          Optional[dict] = None
+    terms_with_dfi:          Optional[DebtTerms] = None
+    terms_without_dfi:       Optional[DebtTerms] = None
 
     # Impact KPIs
     jobs_construction:       int   = Field(0, description="Construction-phase jobs created")
@@ -139,7 +139,6 @@ class AdditionalityInput(BaseModel):
     female_workforce_pct:    float = Field(0, description="Female workforce %")
     local_procurement_pct:   float = Field(0, description="Local procurement % of total project spend")
 
-    # Debt-for-nature link (if applicable)
     debt_swap_id:            Optional[str] = Field(None, description="Links to sovereign D4N instrument")
     sovereign_debt_retired_usd: float = Field(0, description="USD sovereign debt retired via D4N swap")
     carbon_attribution_pct:  float = Field(0, description="% of carbon credits attributed to host nation")
@@ -149,60 +148,33 @@ class AdditionalityInput(BaseModel):
 
 
 class AdditionalityResult(BaseModel):
-    """
-    Full additionality assessment result.
-    This is the document the DFI investment committee reviews.
-    """
+    """What the DFI's investment committee reviews: each criterion with its
+    evidence, the IRR input with its boundary, and the attributed decision tests."""
     assessment_id:           str
     project_id:              str
     dfi_institution:         str
     computed_at:             str
-
-    # Core additionality test
-    additionality_status:        AdditionalityStatus
-    irr_without_dfi:             float
-    irr_with_dfi:                float
-    dfi_hurdle_rate:             float
-    irr_gap:                     float    # hurdle - irr_without_dfi (positive = additional)
-    irr_improvement:             float    # irr_with_dfi - irr_without_dfi
-    passes_irr_test:             bool
-    irr_test_narrative:          str
-
-    # WACC impact
-    wacc_reduction_pp:           float    # percentage points
-    wacc_reduction_narrative:    str
-
-    # Catalytic ratio
-    catalytic_ratio:             float    # commercial EUR / concessional EUR
-    catalytic_minimum:           float    # DFI minimum requirement
-    passes_catalytic_test:       bool
-    catalytic_narrative:         str
-
-    # Development impact
-    impact_score:                float    # 0–100 composite
-    jobs_construction:           int
-    jobs_operational:            int
-    emissions_avoided_tco2e:     float
-    energy_access_mwh:           float
-    female_workforce_pct:        float
-    local_procurement_pct:       float
-    impact_status:               ImpactStatus
-    impact_narrative:            str
-
-    # Sovereign / D4N (if applicable)
-    is_sovereign_linked:         bool
-    sovereign_debt_retired_usd:  float
-    carbon_attribution_pct:      float
-    sovereign_narrative:         str
-
-    # Overall verdict
-    overall_verdict:             str   # ELIGIBLE | NOT_ELIGIBLE | CONDITIONAL
-    conditions:                  list[str]
-    recommended_actions:         list[str]
-
-    # G10 connection
-    g10_pre_condition_met:       bool
-    g10_note:                    str
+    additionality_status:    AdditionalityStatus
+    message:                 str
+    criteria:                list[dict]
+    irr_input:               dict
+    decision_tests:          list[dict]
+    impact_score:            float
+    impact_status:           ImpactStatus
+    impact_narrative:        str
+    jobs_construction:       int
+    jobs_operational:        int
+    emissions_avoided_tco2e: float
+    energy_access_mwh:       float
+    female_workforce_pct:    float
+    local_procurement_pct:   float
+    is_sovereign_linked:     bool
+    sovereign_debt_retired_usd: float
+    carbon_attribution_pct:  float
+    sovereign_narrative:     str
+    overall_verdict:         str
+    g10_pre_condition_met:   bool
+    g10_note:                str
 
 
 class ImpactKPIUpdate(BaseModel):
@@ -314,167 +286,87 @@ def init_db():
 # COMPUTATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _compute_additionality(inp: AdditionalityInput) -> AdditionalityResult:
-    """
-    Core additionality computation.
+def _criterion_view(name: str, crit: Criterion) -> dict:
+    evidenced = any(e.reference.strip() for e in crit.evidence)
+    view = {"criterion": name, "label": display_label("additionality_criterion", name), "core": name in CORE_CRITERIA,
+            "status": "EVIDENCED" if evidenced else "NOT_EVIDENCED",
+            "statement": crit.statement, "evidence": [e.model_dump() for e in crit.evidence]}
+    if isinstance(crit, Mobilisation):
+        ratio = (crit.commercial_eur / crit.dfi_eur
+                 if evidenced and crit.commercial_eur is not None and crit.dfi_eur else None)
+        view.update(commercial_eur=crit.commercial_eur, dfi_eur=crit.dfi_eur, catalytic_ratio=ratio)
+    return view
 
-    Three tests must pass for DFI eligibility:
-      1. IRR test:        project_irr_without_dfi < dfi_hurdle_rate
-      2. Catalytic test:  commercial_debt / concessional >= dfi_minimum_ratio
-      3. Impact:          at least minimum KPIs met
 
-    The WACC reduction quantifies the financial value the DFI delivers —
-    this is GEX's quantification of the Hidalgo entropy-reduction argument.
-    """
+def _compute_additionality(inp: AdditionalityInput, irr_input: dict) -> AdditionalityResult:
+    """Pure: the criteria, the IRR input (already engine-computed) and the tests."""
+    from app.core import decision_policy as dp
+
     institution = inp.dfi_institution
-    hurdle       = DFI_HURDLE_RATES.get(institution, 0.090)
-    cat_minimum  = DFI_CATALYTIC_MINIMUMS.get(institution, 2.0)
-
-    # ── IRR TEST ──────────────────────────────────────────────────────────
-    irr_gap         = hurdle - inp.project_irr_without_dfi
-    irr_improvement = inp.project_irr_with_dfi - inp.project_irr_without_dfi
-    passes_irr      = inp.project_irr_without_dfi < hurdle
-
-    if irr_gap > 0.03:
-        irr_status = AdditionalityStatus.PASSED
-        irr_narrative = (
-            f"Project IRR without {institution.value} ({inp.project_irr_without_dfi*100:.1f}%) "
-            f"is {irr_gap*100:.1f}pp below the {institution.value} hurdle rate "
-            f"({hurdle*100:.1f}%). Project clearly requires concessional support. "
-            f"DFI participation improves IRR to {inp.project_irr_with_dfi*100:.1f}% — "
-            f"a {irr_improvement*100:.1f}pp uplift enabling equity investment."
-        )
-    elif 0 < irr_gap <= 0.03:
-        irr_status = AdditionalityStatus.MARGINAL
-        irr_narrative = (
-            f"IRR gap of {irr_gap*100:.1f}pp is marginal. "
-            f"{institution.value} investment committee will require additional "
-            f"justification beyond the IRR test alone. Recommend supplementing "
-            f"with strong development impact evidence and sovereign context."
-        )
+    criteria = [_criterion_view(n, getattr(inp, n)) for n in
+                ("financing_unavailable", "risk_mitigation", "mobilisation", "standards_contribution")]
+    missing = [c["label"] for c in criteria if c["core"] and c["status"] != "EVIDENCED"]
+    ratio = next(c for c in criteria if c["criterion"] == "mobilisation").get("catalytic_ratio")
+    tests = [
+        dp.evaluate("DFI_IRR", irr_input.get("irr_without_dfi"), party=institution.value),
+        dp.evaluate("DFI_CATALYTIC", ratio, party=institution.value),
+    ]
+    if missing:
+        status = AdditionalityStatus.NOT_ASSESSABLE
+        message = ("not assessable — no evidence for: " + "; ".join(missing)
+                   + ". An IRR comparison alone does not establish additionality.")
     else:
-        irr_status = AdditionalityStatus.FAILED
-        irr_narrative = (
-            f"Project IRR without {institution.value} ({inp.project_irr_without_dfi*100:.1f}%) "
-            f"exceeds the hurdle rate ({hurdle*100:.1f}%). The project is commercially viable "
-            f"without concessional support. {institution.value} should not participate — "
-            f"their mandate requires additionality."
-        )
-    passes_irr = irr_gap > 0
+        status = AdditionalityStatus.EVIDENCED
+        message = (f"Every core criterion is evidenced. The decision is {institution.value}'s; "
+                   f"GEX states the evidence and the attributed tests, and decides nothing.")
 
-    # ── WACC REDUCTION ───────────────────────────────────────────────────
-    wacc_reduction = inp.all_commercial_wacc - inp.blended_wacc
-    wacc_narrative = (
-        f"DFI blending reduces project WACC from {inp.all_commercial_wacc*100:.2f}% "
-        f"(all-commercial) to {inp.blended_wacc*100:.2f}% (blended). "
-        f"That is a {wacc_reduction*100:.2f}pp reduction — "
-        f"directly lowering levelised cost and enabling commercial senior debt commitment."
-    )
-
-    # ── CATALYTIC RATIO ──────────────────────────────────────────────────
-    # Commercial capital mobilised per EUR of concessional
-    if inp.total_concessional_pct > 0:
-        cat_ratio = inp.commercial_debt_pct / inp.total_concessional_pct
-    else:
-        cat_ratio = 0.0
-    passes_cat = cat_ratio >= cat_minimum
-
-    cat_narrative = (
-        f"Catalytic ratio: {cat_ratio:.1f}x "
-        f"(€{cat_ratio:.1f} commercial per €1.00 concessional). "
-        f"{institution.value} minimum: {cat_minimum:.1f}x. "
-        + ("PASSES." if passes_cat else
-           f"FAILS — below {institution.value} minimum. Increase commercial debt "
-           f"percentage or reduce concessional tranche size.")
-    )
-
-    # ── DEVELOPMENT IMPACT ───────────────────────────────────────────────
     impact_score = _score_impact(inp)
     impact_status, impact_narrative = _impact_narrative(inp, institution)
-
-    # ── SOVEREIGN / D4N ──────────────────────────────────────────────────
     is_sovereign = bool(inp.debt_swap_id and inp.sovereign_debt_retired_usd > 0)
-    if is_sovereign:
-        sovereign_narrative = (
-            f"Project linked to Debt-for-Nature swap {inp.debt_swap_id}. "
-            f"USD {inp.sovereign_debt_retired_usd/1e6:.1f}M sovereign debt retired. "
-            f"{inp.carbon_attribution_pct*100:.0f}% of carbon credits attributed to host nation. "
-            f"This is a premium ESG asset — strengthens {institution.value} mandate alignment "
-            f"and enables sovereign ESG certification pathway in GEX."
-        )
-    else:
-        sovereign_narrative = "No debt-for-nature sovereign linkage for this assessment."
-
-    # ── OVERALL VERDICT ──────────────────────────────────────────────────
-    conditions   = []
-    actions      = []
-
-    if not passes_irr:
-        conditions.append(f"IRR additionality test failed — IRR without {institution.value} exceeds hurdle")
-        actions.append("Re-assess project structure or remove DFI tranche from capital stack")
-    if not passes_cat:
-        conditions.append(f"Catalytic ratio {cat_ratio:.1f}x below {institution.value} minimum {cat_minimum:.1f}x")
-        actions.append(f"Increase commercial senior debt % or reduce concessional % to achieve {cat_minimum:.1f}x ratio")
-    if impact_score < 50:
-        conditions.append("Development impact score below minimum threshold (50/100)")
-        actions.append("Document jobs, emissions avoided, and energy access figures with verified data")
-    if irr_status == AdditionalityStatus.MARGINAL:
-        conditions.append("IRR gap is marginal — supplementary justification required")
-        actions.append("Prepare supplementary additionality memo with market failure evidence")
-
-    if not conditions:
-        verdict = "ELIGIBLE"
-    elif all(c for c in [not passes_irr, not passes_cat]):
-        verdict = "NOT_ELIGIBLE"
-    else:
-        verdict = "CONDITIONAL"
-
-    # G10 pre-condition: additionality must be PASSED or MARGINAL (with conditions)
-    g10_met  = verdict in ("ELIGIBLE", "CONDITIONAL") and passes_irr
-    g10_note = (
-        f"G10 Financial Close: {institution.value} additionality is {verdict}. "
-        + ("DFI commitment can proceed to term sheet." if g10_met else
-           "Resolve conditions before DFI term sheet can be issued.")
-    )
-
+    sovereign_narrative = (
+        f"Linked to debt-for-nature swap {inp.debt_swap_id}; USD {inp.sovereign_debt_retired_usd/1e6:.1f}M "
+        f"sovereign debt retired (as stated)." if is_sovereign else
+        "No debt-for-nature sovereign linkage for this assessment.")
     return AdditionalityResult(
-        assessment_id=str(uuid.uuid4()),
-        project_id=inp.project_id,
-        dfi_institution=institution.value,
-        computed_at=datetime.now(timezone.utc).isoformat(),
-        additionality_status=irr_status,
-        irr_without_dfi=inp.project_irr_without_dfi,
-        irr_with_dfi=inp.project_irr_with_dfi,
-        dfi_hurdle_rate=hurdle,
-        irr_gap=round(irr_gap, 4),
-        irr_improvement=round(irr_improvement, 4),
-        passes_irr_test=passes_irr,
-        irr_test_narrative=irr_narrative,
-        wacc_reduction_pp=round(wacc_reduction, 4),
-        wacc_reduction_narrative=wacc_narrative,
-        catalytic_ratio=round(cat_ratio, 2),
-        catalytic_minimum=cat_minimum,
-        passes_catalytic_test=passes_cat,
-        catalytic_narrative=cat_narrative,
-        impact_score=impact_score,
-        jobs_construction=inp.jobs_construction,
-        jobs_operational=inp.jobs_operational,
-        emissions_avoided_tco2e=inp.emissions_avoided_tco2e,
-        energy_access_mwh=inp.energy_access_mwh,
-        female_workforce_pct=inp.female_workforce_pct,
-        local_procurement_pct=inp.local_procurement_pct,
-        impact_status=impact_status,
-        impact_narrative=impact_narrative,
-        is_sovereign_linked=is_sovereign,
-        sovereign_debt_retired_usd=inp.sovereign_debt_retired_usd,
-        carbon_attribution_pct=inp.carbon_attribution_pct,
-        sovereign_narrative=sovereign_narrative,
-        overall_verdict=verdict,
-        conditions=conditions,
-        recommended_actions=actions,
-        g10_pre_condition_met=g10_met,
-        g10_note=g10_note,
+        assessment_id=str(uuid.uuid4()), project_id=inp.project_id,
+        dfi_institution=institution.value, computed_at=datetime.now(timezone.utc).isoformat(),
+        additionality_status=status, message=message, criteria=criteria,
+        irr_input=irr_input, decision_tests=tests,
+        impact_score=impact_score, impact_status=impact_status, impact_narrative=impact_narrative,
+        jobs_construction=inp.jobs_construction, jobs_operational=inp.jobs_operational,
+        emissions_avoided_tco2e=inp.emissions_avoided_tco2e, energy_access_mwh=inp.energy_access_mwh,
+        female_workforce_pct=inp.female_workforce_pct, local_procurement_pct=inp.local_procurement_pct,
+        is_sovereign_linked=is_sovereign, sovereign_debt_retired_usd=inp.sovereign_debt_retired_usd,
+        carbon_attribution_pct=inp.carbon_attribution_pct, sovereign_narrative=sovereign_narrative,
+        overall_verdict=status.value,
+        # Clearing a DFI tranche for financial close is the DFI's own decision, recorded by it.
+        g10_pre_condition_met=False,
+        g10_note=f"G10: {institution.value}'s own additionality decision is required; this assessment "
+                 f"is evidence for it, not the decision.",
     )
+
+
+async def _engine_irrs(inp: AdditionalityInput, request=None) -> dict:
+    """The project IRR with and without the DFI's terms, both from the PF engine,
+    on the same returns case and boundary. None when the case is not supplied."""
+    if not (inp.returns_inputs and inp.terms_with_dfi and inp.terms_without_dfi):
+        return {"irr_with_dfi": None, "irr_without_dfi": None, "basis": "NOT_COMPUTED",
+                "note": "No returns case and terms were supplied, so the engine computed no IRR. "
+                        "IRRs are never typed."}
+    from app.api.v1.routes_finance_model import _call_model
+    out = {}
+    for label, terms in (("with_dfi", inp.terms_with_dfi), ("without_dfi", inp.terms_without_dfi)):
+        body = {**inp.returns_inputs, **terms.model_dump()}
+        r = (await _call_model("/returns/calculate", method="POST", json_data=body, request=request))["returns"]
+        out[f"irr_{label}"] = r["unlevered_irr"]
+        out[f"equity_irr_{label}"] = r["levered_irr"]
+        out["valuation_boundary"] = r.get("valuation_boundary")
+        out["scenario"] = r.get("scenario")
+        out["model_version"] = r.get("model_version")
+    out["basis"] = "ENGINE_COMPUTED"
+    out["note"] = ("Unlevered (project) IRR from the PF engine on the same case under each financing; "
+                   "ONE input to the assessment, shown with its boundary.")
+    return out
 
 
 def _score_impact(inp: AdditionalityInput) -> float:
@@ -550,28 +442,19 @@ def _impact_narrative(inp: AdditionalityInput, institution: DFIInstitution):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/assess", response_model=AdditionalityResult, status_code=201)
-def assess_additionality(
+async def assess_additionality(
     inp: AdditionalityInput,
     db: Any = Depends(get_db)
 ):
-    """
-    Run a full additionality assessment for a DFI tranche.
-
-    Produces the document the DFI investment committee reviews.
-    Persists the result and links it to G10 Financial Close conditions.
-
-    Called from:
-      - Finance workspace DFI sub-persona view (Vademecum task 2.8)
-      - DFI_CRITERIA sheet reconciliation
-      - G10 CP checklist validation (Vademecum task 2.10)
-
-    In production, project_irr_without_dfi and blended_wacc come from
-    the PF Engine via routes_finance_model.py proxy:
-      POST /api/v1/finance-model/metrics/calculate
-    """
-    result = _compute_additionality(inp)
+    """An additionality assessment for one DFI tranche: each criterion with its
+    evidence, the engine-computed IRR with and without the DFI's terms as one
+    input, and the DFI's attributed decision tests. Without evidence on the
+    availability of finance, risk mitigation and mobilisation the result is
+    NOT_ASSESSABLE, whatever the IRRs say."""
+    irr_input = await _engine_irrs(inp)
+    result = _compute_additionality(inp, irr_input)
     now = datetime.now(timezone.utc).isoformat()
-
+    mob = inp.mobilisation
     db.execute("""
         INSERT INTO additionality_assessments
         (assessment_id, project_id, dfi_institution, tranche_amount_eur,
@@ -588,9 +471,9 @@ def assess_additionality(
     """, (
         result.assessment_id, inp.project_id, inp.dfi_institution.value,
         inp.tranche_amount_eur, inp.total_capex_eur,
-        inp.project_irr_with_dfi, inp.project_irr_without_dfi,
-        inp.commercial_hurdle_rate, inp.blended_wacc, inp.all_commercial_wacc,
-        inp.commercial_debt_pct, inp.total_concessional_pct, inp.grant_pct,
+        irr_input.get("irr_with_dfi"), irr_input.get("irr_without_dfi"), None, None, None,
+        None if mob.commercial_eur is None else mob.commercial_eur / inp.total_capex_eur,
+        None if mob.dfi_eur is None else mob.dfi_eur / inp.total_capex_eur, None,
         inp.jobs_construction, inp.jobs_operational,
         inp.emissions_avoided_tco2e, inp.energy_access_mwh, inp.host_nation_gdp_eur,
         inp.female_workforce_pct, inp.local_procurement_pct,
@@ -625,13 +508,11 @@ def list_assessments(
 @router.get("/project/{project_id}/g10-status")
 def g10_additionality_status(project_id: str, db: Any = Depends(get_db)):
     """
-    G10 pre-condition check: are all committed DFI tranches additionality-cleared?
+    Which DFI tranches have an evidenced additionality assessment.
 
-    Called by bankability_engine.py when evaluating gate G10.
-    Returns a clear PASS / FAIL / INCOMPLETE per institution.
-
-    If any committed DFI tranche lacks a PASSED or CONDITIONAL assessment,
-    G10 Financial Close cannot be granted.
+    GEX decides no additionality (handoff v4, task 6): `g10_ready` is True only
+    when each DFI's OWN decision is recorded, which this module never records,
+    so it stays False. The assessments are evidence for the DFI's decision.
     """
     rows = db.execute("""
         SELECT dfi_institution, additionality_status, overall_verdict,
@@ -663,10 +544,10 @@ def g10_additionality_status(project_id: str, db: Any = Depends(get_db)):
         "project_id": project_id,
         "g10_ready": all_pass,
         "note": (
-            "All DFI tranches have passed additionality. G10 pre-condition met."
+            "Every DFI tranche's own additionality decision is recorded."
             if all_pass else
-            "One or more DFI tranches have not passed additionality. "
-            "G10 Financial Close is blocked until all conditions are resolved."
+            "Additionality is each DFI's decision; GEX holds the evidenced assessments, "
+            "not the decisions."
         ),
         "assessments": [
             {

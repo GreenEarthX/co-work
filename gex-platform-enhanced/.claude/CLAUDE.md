@@ -680,7 +680,19 @@ the step on a PLATFORM_ADMIN market connection. Base tables stay tenant-scoped; 
 anonymised by the engine. GEX itself trades nothing (`GEX_DOES_NOT_TRADE`).
 
 Each says why, and every use is logged by `_tenant_context`.
+
+**2026-11-17: pre-FID access adds one more — `api/v1/development_packages.py` `_package_ref`.** It reads
+only `project_id` and `phase_required` of one package to decide who may see it, the same bootstrap reason as
+entitlements. The rule itself is `core/pre_fid_access.py`: the owner (`projects.owner_tenant_id`) reads its
+pre-FID packages and spend wave; anyone else needs the owner's per-section share (`DEVEX_SHARE:<SECTION>` in
+`finance_entitlements`), and a shared read is made in the OWNER's tenant, not the caller's.
 If you need it in a test, use `as_platform_admin()` from `tests/pg_support.py`.
+
+**2026-11-17: structuring takes gate scores and state from the gate engine** (`core/structuring_context.py`),
+identity from `projects`, and only nine inputs from `project_dataset` `structuring_context`. Breizh SAF is a
+reference case only (`tests/fixtures/reference_cases/breizh_saf.json`); `tests/test_no_breizh_data_points.py`
+fails if application code carries any of its data points. Bremen's copy was quarantined and removed on 17 Nov
+(handoff §8 item 92): the load file no longer holds it or the derived fields, so no strip re-run is needed.
 
 Auth tables carry no RLS, so login works regardless of tenant context. Reference
 data (`fuel_catalog`, `approval_policies`, …) is deliberately readable by all —
@@ -817,6 +829,16 @@ PostgreSQL-only divergence — see the comprehension fixture below.
 **2026-10-19: 956 pass, 18 skip, 0 fail** at head 061, both exported. 899 + **57**
 (`test_reference_registry_pg.py`, `test_reference_catalog.py`, `test_reference_routes.py`,
 two guardrails in `test_fuel_reference_slice.py`). The same 18 skips, read with `-rs`.
+
+**2026-11-17 (later): head 123, rules 4.9.0 — handoff v4** (branch `readiness-returns-v4`, UNCOMMITTED; handoff §8 item 92). One readiness authority (`core/readiness.py`); policy values are registry rows, all **proposed** (`core/decision_policy.py`, `GET /api/v1/decision-tests`) — never type a floor in a screen; published returns cases (123, `/api/v1/returns-cases`); `no-store` on pre-FID and returns paths (`core/no_store.py`). **After an Alembic rebuild run `scripts/propose_decision_policies_20261117.py --execute`.** The PF engine has no `--reload`: after engine changes, `launchctl kickstart -k gui/$UID/com.gex.pf-engine`. Platform **1975 pass / 15 skip / 0 fail** (both exported, run alone), engine **376**, frontend **314**, `tsc` and both audits clean.
+
+**2026-11-18: findings A–D decided by JML (same branch, uncommitted; handoff §8 item 93).** Demo seeding is OFF unless `GEX_SEED_DEMO_USERS` is set, only CREATES missing accounts, and production refuses it (`config.py`). `/projects/visible` lists owner-shared projects (`disclosure`, nothing else) and sets `viewer_is_owner`; write controls render on it alone. One DEVEX Brief page (`/finance/devex-shared` redirects). Platform **1986 pass / 15 skip / 1 fail / 1 error**: the error is a :55432 timeout; the fail is `test_compose_runs_the_tree_that_tests_inspect`, tripped by ANOTHER session's sibling copy `files/gex-platform-enhanced-part-a/` (branch `greenmesh-part-a`, created 18 Nov 00:32) whose `docker-compose.yml` builds its own backend — not this branch's code. Frontend **318**.
+
+**2026-11-18 (later): head 124 — the calculation chain** (handoff §8 item 94; backup `gex_platform_2026-11-18_1234.dump`). Saved Cost Basis (`/api/v1/cost-basis`) -> TEA run FROM a saved version -> review by someone else (`/api/v1/tea-review`; INDEPENDENT or OWNER_INTERNAL, labelled) -> financing case -> returns published from the chain (`/api/v1/calculation-chain`); the version stores source versions, checks and remaining assumptions, and a bank with a RETURNS share sees them. Chain figures are never typed (`CHAIN_CONFLICT`). Rules: `core/calculation_chain.py`. **176** tables, **169** FORCED. Demonstrated on North Sea (rows permanent, share to ABN AMRO active). The legacy `/tea/base-case/{claim}/approve` still trusts `x-demo-user` (open, for JML). Full backend suite not re-run since; new tests 20 pass; frontend **321**.
+
+**2026-11-18 (latest): a THIRD test fixture — Foxwell Survey UK (test independent engineer, JML).** Tenant `foxwell_survey_uk` ("TEST — Foxwell Survey UK", THIRD_PARTY, GB) and account `ewan_stewart_foxwellsurvey_com` (ewan.stewart@foxwellsurvey.com, ENGINEER/ENGINEERING, demo seed password), ACTIVE with `activated_by = 'TEST_FIXTURE_FOXWELL'`: vetting BYPASSED, no telephone. `scripts/load_foxwell_test_reviewer.py [--remove] --execute`. NOT appointed on any project: appointment is GEX staff's act, and JML's chosen instructor (the owner HamburgOne) is refused by `OWNER_CANNOT_INSTRUCT` — open. Also mid-way (handoff item 94, uncommitted): migration **125** (`returns_case_withdrawal`, `model_base_case.tea_inputs`; 177 tables, 170 FORCED), TEA quote mode, the withdrawal route. v1's ABN AMRO share is NOT yet revoked. **Instructor decided (JML): ABN AMRO.** Test instruction letter `docs/test_fixtures/foxwell/GEX-TEST-IE-NSEM-001_instruction_Foxwell.pdf` (synthetic, marked TEST, reproducible by `make_instruction.py`), sha256 `d8a0347b88ddb50fc6e832018f79e5fcd34c2d912e0f41f5beba60f1c800f982`. Appointment to be made by GEX staff on "Who verifies" (not yet done). **Head 125; chain repaired (handoff item 95).** v1 withdrawn, ABN AMRO share revoked. `co2_feedstock_price` DE €208/t APPROVED by JML (**after an Alembic rebuild run `scripts/propose_co2_feedstock_price_20261118.py --approve --execute`**). v2 TEA `CLM-MBC-61f3a1083e` all checks PASS, awaiting Foxwell. Platform **2029 pass / 15 skip / 1 fail** (the part-a guardrail), measured before the CO₂ step. After it: the 90 chain/returns/TEA/catalogue tests pass; frontend **322**. Corrected-process document (Claude Docs): https://claude.ai/artifact/BTbRrvUvpLi33c4CBobJU5; screens `docs/screenshots/handoff_v4/chain_v2/` (`annotate_chain_v2.py`).
+
+**2026-11-17 (main made current development): 1896 pass, 15 skip, 0 fail** at head **120**, both exported, run alone (23 min). The first run of the day was 1892 / 15 / 3: one database timeout on :55432 (passes on re-run) and two `test_project_records.py` tests still expecting stored gate scores; updated to the 17 Nov structuring rule, +1 test. Same 15 skips (7 auth isolation, 7 plant builder, 1 evidence archive). Frontend **305**, `tsc` and the menu audit clean.
 
 **2026-11-16 (requirements pins): 1782 pass, 15 skip, 0 fail**, both exported, run alone (= the 1797 collected; same 15 skips). `requirements.txt` pins now match `backend/venv` (pydantic 2.5.3 → 2.12.5 and 14 others; `cryptography==46.0.6` pinned, as newer releases have no Intel-macOS wheel and need Rust). A clean Python 3.14 `pip install --dry-run` resolves with no source build EXCEPT `matrix-nio[e2e]` → `python-olm`, which needs `brew install libolm cmake` (imported by nothing; unchanged).
 
@@ -1062,6 +1084,11 @@ Baseline, both URLs exported, run alone: **head 096**, 151 tables, 144 FORCED; p
 `test_plant_builder_energy.py` (catalogue electrolysers state no SEC), 1
 `test_evidence_history_pg.py` (archive empty). Frontend and PF engine suites not run.
 
+**2026-11-17 (JML): main is current development.** Each new step or phase starts as a branch from
+main and goes back into main once its tests pass and JML approves. No remote, never push.
+`greenmesh-phase1` and `greenmesh-phase2` are kept as history; main was set to
+`greenmesh-phase2`'s tip (`6dc75e9`) the same day.
+
 ### Step 1 — one name, one meaning (G-12, G-13)
 
 - `api/v1/greenmesh.py`: imported in `main.py` (`HAS_GREENMESH`) but never mounted; every
@@ -1279,7 +1306,17 @@ first; round-tripped 099 → 098 → 099). **159** tables, **152** FORCED.
 
 **2026-11-12 (Phase 1 gate, market leg): 1520 pass, 15 skip, 0 fail** at head 099; the gate test was rewritten, no test added.
 
-**2026-11-14 (Phase 1 closed): check 10 passes** — `test_discovery_journey_pg.py` runs publish → search → compare → enquiry → consent → proposal through the real routes (handoff §8 item 89). Platform **1744 pass / 15 skip / 0 fail** (1743 + 1; a first run lost PostgreSQL on :55432 mid-way, 130 skips, and was rerun), frontend **298**. Open: D-A, D-G, D-H, region, F20.
+**2026-11-16: head 120 — D-A, certificate validity over delivery, check 9, F15** (handoff §8 item 91; backup `gex_platform_2026-11-16_1646.dump`).
+- A Marketplace record is CONFIRMED only with `evidence_sha256` and a confirmer other than its importer (trigger). The 51 unprovenanced confirmations are UNVERIFIED with `quarantine_reason`. `marketplace_record_history` keeps them; only the trigger writes it.
+- **After an Alembic rebuild:** `apply_marketplace_decisions_20261025.py` now quarantines and never confirms.
+- The 5 spot prices (F08) are untouched: JML's approval, and the registry has no withdrawal.
+- Certificates count only over the whole delivery window.
+- "Changed since you looked" is `market_engine._changed_since`. An acceptance stores its assessment.
+- Availability is `project_economics.token_windows` (owner/GEX only), never the stored percentages.
+- R12 and D-H: proposals in `docs/discovery/GEX_Discovery_Decisions_R12_DH_2026-11-16.md`, nothing built.
+- Platform **1828 pass / 15 skip / 0 fail** (1782 + 35 connector tests added later on 16 Nov + 11 here), frontend **305**.
+
+**2026-11-14 (Phase 1 closed): check 10 passes** — `test_discovery_journey_pg.py` runs publish → search → compare → enquiry → consent → proposal through the real routes (handoff §8 item 89). Platform **1744 pass / 15 skip / 0 fail** (1743 + 1; a first run lost PostgreSQL on :55432 mid-way, 130 skips, and was rerun), frontend **298**. Open (corrected 16 Nov; D-G and the Interest board are Phase 2): D-A, R12, check 9, certificate validity on delivery dates, F15, D-H; then the detail panel, labels, §5.4 errors; then navigation.
 
 **2026-11-14 (Phase 1 step 6): head 119 — the non-binding enquiry (D-D)** (handoff §8 item 88). `core/enquiry.py`: one listing or RFQ; badges and "you/them" only until the RECEIVER shares contact, which releases both identities to both and is `enquiry.contact_shared` in the ledger; decline releases nothing. `market_enquiry_message` is append-only. Screens: Market Discovery "Ask (non-binding)", `/deals`. Platform **1743 pass / 15 skip / 0 fail** (1729 + 14), frontend **298**.
 

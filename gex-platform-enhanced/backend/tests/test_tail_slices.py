@@ -37,6 +37,10 @@ CHAINED = [
     "spend_wave_events",
 ]
 
+# Append-only since 097 (2026-11-12): the runtime role holds no UPDATE or DELETE and a
+# trigger refuses both, so only a superuser can tamper — or clean up after this test.
+APPEND_ONLY = {"mass_balance_allocations"}
+
 # No reference anywhere in app/ — no DDL, no query. Excluded on purpose.
 DELIBERATELY_NOT_MIGRATED = [
     "covenant_compliance", "drawdown_tranches", "equity_contributions",
@@ -66,8 +70,14 @@ def test_each_chained_ledger_validates_and_detects_tampering(table):
     The property under test is the one `development_package_events` lacks: a
     stored row's digest must be reproducible from the stored values.
     """
+    from pg_support import pg_bypassrls_connect
+
+    su = pg_bypassrls_connect() if table in APPEND_ONLY else None
+    if table in APPEND_ONLY and su is None:
+        pytest.skip(f"{table} is append-only: tampering needs ALEMBIC_DATABASE_URL exported")
     conn, cur = _pg()
     prefix = f"gt_{table[:14]}"
+    pk = None
     try:
         cur.execute("""
             SELECT column_name, data_type, is_nullable
@@ -127,12 +137,32 @@ def test_each_chained_ledger_validates_and_detects_tampering(table):
             return True
 
         assert valid(), f"{table}: a freshly written chain does not validate"
-        cur.execute(f'UPDATE {table} SET prev_hash=%s WHERE "{pk}"=%s',
-                    ("tampered", f"{prefix}-1"))
+        if su is None:
+            cur.execute(f'UPDATE {table} SET prev_hash=%s WHERE "{pk}"=%s',
+                        ("tampered", f"{prefix}-1"))
+        else:
+            import psycopg2
+
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+                cur.execute(f'UPDATE {table} SET prev_hash=%s WHERE "{pk}"=%s',
+                            ("tampered", f"{prefix}-1"))
+            conn.rollback()
+            s_cur = su.cursor()
+            s_cur.execute("SET session_replication_role = replica")
+            s_cur.execute(f'UPDATE {table} SET prev_hash=%s WHERE "{pk}"=%s', ("tampered", f"{prefix}-1"))
+            su.commit()
         assert not valid(), f"{table}: tampering with prev_hash went undetected"
     finally:
-        cur.execute(f'DELETE FROM {table} WHERE "{pk}"::text LIKE %s', (f"{prefix}-%",))
-        conn.commit()
+        conn.rollback()
+        if pk is not None and su is not None:
+            s_cur = su.cursor()
+            s_cur.execute("SET session_replication_role = replica")
+            s_cur.execute(f'DELETE FROM {table} WHERE "{pk}"::text LIKE %s', (f"{prefix}-%",))
+            su.commit()
+            su.close()
+        elif pk is not None:
+            cur.execute(f'DELETE FROM {table} WHERE "{pk}"::text LIKE %s', (f"{prefix}-%",))
+            conn.commit()
         conn.close()
 
 

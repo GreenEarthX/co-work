@@ -44,12 +44,13 @@ from pathlib import Path
 from typing import Optional
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Depends, Query, File, Form, Header, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, Query, File, Form, Header, Request, UploadFile
 from pydantic import BaseModel, Field, field_validator
 
 # Unified DB — single store for projects, users, packages, capital bridge,
 # pre-COD metrics, and additionality. Every client's data lives in one place.
 from app.core.config import settings
+from app.core import pre_fid_access
 from app.core.abac import evaluate_four_eyes, Decision
 from app.core.entropy_doctrine import (
     validate_causal_adjacency,
@@ -433,6 +434,9 @@ class ProjectPackageSummary(BaseModel):
     fid_readiness_pct:      float # % of FID-critical packages at CLASS_3+
     opex_effect_total:      float # Total annual OPEX impact across all packages
     estimate_class_breakdown: dict
+    # True when the caller is not the owner and holds no PACKAGES share: every
+    # figure above then leaves the pre-FID packages (FEL 1, FEL 2, FEED) out.
+    pre_fid_withheld:       bool = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -664,7 +668,112 @@ def _row_to_response(row) -> dict:
 # ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
 
-@router.post("", response_model=PackageResponse, status_code=201)
+# Pre-FID access: one rule on every path (app/core/pre_fid_access.py).
+# A pre-FID package (FEL 1, FEL 2, FEED) is the owner's development spend. The
+# owner reads and changes it; anyone else reads it only while the owner's
+# PACKAGES share for that project is active, and never changes it.
+def _connection(tenant: Optional[str] = None):
+    """A package-store connection: as the caller (tenant None) or in a named tenant."""
+    from app.core.db_backend import capital_connection, capital_is_postgres
+
+    conn = capital_connection(company_id=tenant) if tenant else capital_connection()
+    if not capital_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def _package_ref(package_id: str) -> Optional[dict]:
+    """Project and phase of a package, to decide who may see it.
+
+    Read with the platform context because the decision cannot depend on the
+    caller's own visibility (the same reason entitlements are read that way).
+    Only these two fields are read, and they are not returned to the caller.
+    """
+    from app.core.db_backend import PLATFORM_ADMIN
+
+    conn = _connection(PLATFORM_ADMIN)
+    try:
+        row = conn.execute("SELECT project_id, phase_required FROM development_packages WHERE package_id=?",
+                           (package_id,)).fetchone()
+    finally:
+        conn.close()
+    return {"project_id": row["project_id"], "phase_required": row["phase_required"]} if row else None
+
+
+def _package_db(section: str, route: str):
+    """Connection for an item read. A pre-FID package needs `section` open to the
+    caller, and a shared read is made in the owner's tenant."""
+    def dependency(package_id: str, request: Request):
+        tenant = None
+        ref = _package_ref(package_id)
+        if ref and pre_fid_access.is_pre_fid(ref["phase_required"]):
+            access = pre_fid_access.require(pre_fid_access.resolve(request, ref["project_id"]), section, route=route)
+            tenant = pre_fid_access.read_tenant(access)
+        conn = _connection(tenant)
+        try:
+            yield conn
+        finally:
+            conn.close()
+    return dependency
+
+
+def _pre_fid_write(package_id: str, request: Request) -> None:
+    """Changing a pre-FID package needs the owner. A share never opens a write."""
+    ref = _package_ref(package_id)
+    if ref and pre_fid_access.is_pre_fid(ref["phase_required"]):
+        pre_fid_access.require(pre_fid_access.resolve(request, ref["project_id"]), "PACKAGES",
+                               write=True, route="packages.write")
+
+
+def _project_rows(project_id: str, db, request: Optional[Request], route: str,
+                  query: str = "SELECT * FROM development_packages WHERE project_id=?",
+                  params: Optional[list] = None, section: str = "PACKAGES") -> tuple[list, bool]:
+    """(rows, pre_fid_withheld) for a project-level read.
+
+    The owner and platform staff get the caller's own rows. Anyone else gets
+    the rows the caller can see without the pre-FID ones, plus — while the
+    owner's share of `section` (PACKAGES by default) is active — the pre-FID rows read in the owner's
+    tenant. A direct internal call (no request) reads as the bound caller.
+    """
+    params = params if params is not None else [project_id]
+    rows = db.execute(query, params).fetchall()
+    if request is None:
+        return rows, False
+    try:
+        access = pre_fid_access.resolve(request, project_id)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        return [r for r in rows if not pre_fid_access.is_pre_fid(r["phase_required"])], True
+    if access.full:
+        return rows, False
+    allowed = access.allows(section)
+    pre_fid_access._audit(allowed=allowed, user_id=access.user_id, project_id=access.project_id,
+                          basis=access.basis, route=route, reason=f"section={section}; project read")
+    kept = [r for r in rows if not pre_fid_access.is_pre_fid(r["phase_required"])]
+    if not allowed:
+        return kept, True
+    owner = _connection(access.owner_tenant)
+    try:
+        shared = [r for r in owner.execute(query, params).fetchall()
+                  if pre_fid_access.is_pre_fid(r["phase_required"])]
+    finally:
+        owner.close()
+    return kept + shared, False
+
+
+async def _pre_fid_create(request: Request) -> None:
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — not JSON; the route's own validation answers
+        return
+    if isinstance(body, dict) and body.get("project_id") and pre_fid_access.is_pre_fid(body.get("phase_required")):
+        pre_fid_access.require(pre_fid_access.resolve(request, body["project_id"]), "PACKAGES",
+                               write=True, route="packages.create")
+
+
+@router.post("", response_model=PackageResponse, status_code=201, dependencies=[Depends(_pre_fid_create)])
 def create_package(pkg: PackageCreate, db: sqlite3.Connection = Depends(get_db)):
     """
     Create a Development Package Object.
@@ -739,7 +848,7 @@ def create_package(pkg: PackageCreate, db: sqlite3.Connection = Depends(get_db))
 
 
 @router.get("/{package_id}", response_model=PackageResponse)
-def get_package(package_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_package(package_id: str, db: sqlite3.Connection = Depends(_package_db("PACKAGES", "packages.read"))):
     row = db.execute("SELECT * FROM development_packages WHERE package_id=?", (package_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"Package {package_id} not found")
@@ -753,10 +862,14 @@ def list_packages(
     state: Optional[WorkflowState] = Query(None),
     gate: Optional[str] = Query(None),
     capital_source: Optional[CapitalSource] = Query(None),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    request: Request = None,
 ):
     """
     List all packages for a project with optional filters.
+
+    Pre-FID packages are returned to the owner, and to anyone else only while
+    the owner's PACKAGES share for this project is active (pre_fid_access).
 
     ABAC alignment (abac.py):
       - PRODUCER sees all packages for own project
@@ -775,7 +888,7 @@ def list_packages(
     if gate:
         query += " AND gex_gate=?"; params.append(gate)
 
-    rows = db.execute(query, params).fetchall()
+    rows, _ = _project_rows(project_id, db, request, "packages.list", query, params)
 
     if capital_source:
         # Filter in Python — SQLite JSON doesn't support LIKE cleanly
@@ -784,7 +897,7 @@ def list_packages(
     return [_row_to_response(r) for r in rows]
 
 
-@router.patch("/{package_id}", response_model=PackageResponse)
+@router.patch("/{package_id}", response_model=PackageResponse, dependencies=[Depends(_pre_fid_write)])
 def update_package(
     package_id: str,
     update: PackageUpdate,
@@ -845,7 +958,7 @@ def update_package(
     return _row_to_response(row)
 
 
-@router.post("/{package_id}/transition", response_model=PackageResponse)
+@router.post("/{package_id}/transition", response_model=PackageResponse, dependencies=[Depends(_pre_fid_write)])
 def transition_state(
     package_id: str,
     transition: WorkflowTransition,
@@ -981,7 +1094,7 @@ def transition_state(
 
 
 @router.get("/project/{project_id}/summary", response_model=ProjectPackageSummary)
-def project_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def project_summary(project_id: str, db: sqlite3.Connection = Depends(get_db), request: Request = None):
     """
     Aggregate package view for:
       - Finance workspace → FinanceBankabilityView (pre-G10 capital eligibility)
@@ -992,11 +1105,11 @@ def project_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
     fid_readiness_pct: % of packages in FID/Construction phase
     that have reached CLASS_3 estimate maturity — lender requirement.
     """
-    rows = db.execute(
-        "SELECT * FROM development_packages WHERE project_id=?", (project_id,)
-    ).fetchall()
+    rows, pre_fid_withheld = _project_rows(project_id, db, request, "packages.summary")
 
     if not rows:
+        if pre_fid_withheld:   # packages exist but none is open to this caller: say so, never "none"
+            raise pre_fid_access.refusal("PACKAGES", False)
         raise HTTPException(404, f"No packages found for project {project_id}")
 
     total_capex = sum(r["cost_amount"] for r in rows)
@@ -1065,11 +1178,12 @@ def project_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
         fid_readiness_pct=round(fid_readiness_pct, 1),
         opex_effect_total=round(opex_total, 2),
         estimate_class_breakdown=class_breakdown,
+        pre_fid_withheld=pre_fid_withheld,
     )
 
 
 @router.get("/{package_id}/events")
-def get_package_events(package_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_package_events(package_id: str, db: sqlite3.Connection = Depends(_package_db("EVIDENCE", "packages.events"))):
     """Full immutable event history for a package — audit trail for lenders."""
     rows = db.execute(
         "SELECT * FROM development_package_events WHERE package_id=? ORDER BY created_at ASC",
@@ -1100,7 +1214,8 @@ def _actor_email(authorization: str | None) -> str:
     return "unknown"
 
 
-@router.post("/{package_id}/evidence", response_model=PackageResponse, status_code=201)
+@router.post("/{package_id}/evidence", response_model=PackageResponse, status_code=201,
+             dependencies=[Depends(_pre_fid_write)])
 async def upload_package_evidence(
     package_id: str,
     file: UploadFile = File(...),
@@ -1156,7 +1271,7 @@ async def upload_package_evidence(
 
 
 @router.get("/{package_id}/evidence")
-def list_package_evidence(package_id: str, db: sqlite3.Connection = Depends(get_db)):
+def list_package_evidence(package_id: str, db: sqlite3.Connection = Depends(_package_db("EVIDENCE", "packages.evidence"))):
     """Documents attached to a package (metadata + content hashes)."""
     rows = db.execute(
         "SELECT title, filename, sha256, size_bytes, uploaded_by, uploaded_at "
@@ -1166,7 +1281,7 @@ def list_package_evidence(package_id: str, db: sqlite3.Connection = Depends(get_
     return {"package_id": package_id, "documents": [dict(r) for r in rows]}
 
 
-@router.delete("/{package_id}")
+@router.delete("/{package_id}", dependencies=[Depends(_pre_fid_write)])
 def delete_package(package_id: str, deleted_by: str, db: sqlite3.Connection = Depends(get_db)):
     """
     Soft-delete: sets workflow_state to CLOSED and logs the event.
@@ -1208,7 +1323,8 @@ CAPITAL_FOUR_EYES: dict[str, dict] = {
 }
 
 
-@router.post("/{package_id}/capital-transition", response_model=PackageResponse)
+@router.post("/{package_id}/capital-transition", response_model=PackageResponse,
+             dependencies=[Depends(_pre_fid_write)])
 def transition_capital_status(
     package_id: str,
     transition: CapitalStatusTransition,
@@ -1313,7 +1429,7 @@ def transition_capital_status(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/{package_id}/entropy-score")
-def get_entropy_score(package_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_entropy_score(package_id: str, db: sqlite3.Connection = Depends(_package_db("PACKAGES", "packages.entropy"))):
     """
     Hidalgo entropy-reduction score for a single package.
     Sung causal-compression completeness check.
@@ -1350,7 +1466,7 @@ def get_entropy_score(package_id: str, db: sqlite3.Connection = Depends(get_db))
 
 
 @router.get("/project/{project_id}/entropy-summary")
-def project_entropy_summary(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def project_entropy_summary(project_id: str, db: sqlite3.Connection = Depends(get_db), request: Request = None):
     """
     Portfolio-level entropy reduction summary.
 
@@ -1358,11 +1474,11 @@ def project_entropy_summary(project_id: str, db: sqlite3.Connection = Depends(ge
     The aggregate score represents how much total uncertainty
     the project has reduced across all packages (Hidalgo §2.1).
     """
-    rows = db.execute(
-        "SELECT * FROM development_packages WHERE project_id=?", (project_id,)
-    ).fetchall()
+    rows, pre_fid_withheld = _project_rows(project_id, db, request, "packages.summary")
 
     if not rows:
+        if pre_fid_withheld:   # packages exist but none is open to this caller: say so, never "none"
+            raise pre_fid_access.refusal("PACKAGES", False)
         raise HTTPException(404, f"No packages found for project {project_id}")
 
     package_scores = []
@@ -1396,6 +1512,7 @@ def project_entropy_summary(project_id: str, db: sqlite3.Connection = Depends(ge
     n = len(rows)
     return {
         "project_id": project_id,
+        "pre_fid_withheld": pre_fid_withheld,
         "total_packages": n,
         "aggregate_entropy_score": round(total_score / n, 3) if n else 0.0,
         "aggregate_causal_completeness": round(total_causal / n, 3) if n else 0.0,

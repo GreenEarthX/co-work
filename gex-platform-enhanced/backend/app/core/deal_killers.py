@@ -29,6 +29,10 @@ class KillerStatus(str, Enum):
     ACTIVE   = "ACTIVE"    # outstanding — blocks progress
     RESOLVED = "RESOLVED"  # evidence submitted and confirmed
     WAIVED   = "WAIVED"    # formally waived with documented rationale
+    # Neither fired nor cleared (handoff v4, task 6): GEX may not claim the
+    # requirement passed, and it is not a confirmed breach either.
+    NOT_ASSESSABLE = "NOT_ASSESSABLE"            # a required input is missing
+    NO_APPROVED_THRESHOLD = "NO_APPROVED_THRESHOLD"  # no approved policy value
 
 
 class CommitteeReadiness(str, Enum):
@@ -49,6 +53,7 @@ class DealKiller:
     resolution_page:  str = ""          # frontend route to navigate to
     affects_states:   list[str] = field(default_factory=list)
     waiver_requires:  str = ""          # who/what is needed to waive
+    assessment:       Optional[dict] = None  # the decision test behind the status, when one applies
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -144,13 +149,13 @@ DEAL_KILLERS: list[DealKiller] = [
     DealKiller(
         id="DK_DSCR_BELOW_FLOOR",
         gate="G8",
-        condition="dscr_p90 < 1.10",
+        condition="dscr_p90 below the approved debt-service failure floor (decision test DSCR_DEFAULT)",
         plain_language=(
-            "The debt service coverage ratio at P90 stress falls below 1.10x — "
-            "this is below the minimum floor accepted by most project finance lenders."
+            "The downside (P90) debt service coverage ratio is below the approved debt-service "
+            "failure floor; the floor's value, party and source are shown with the test."
         ),
         severity=KillerSeverity.FATAL,
-        resolution_action="Restructure debt tenor, reduce gearing, increase equity contribution, or improve offtake price to restore DSCR P90 ≥ 1.25x.",
+        resolution_action="Restructure debt tenor, reduce gearing, increase equity contribution, or improve offtake price to restore downside DSCR above the lender's floor.",
         resolution_page="/finance/dscr-sensitivity",
         affects_states=["CREDIT_APPROVED", "FINANCEABLE"],
         waiver_requires="Lender credit committee approval with specific covenant override — requires additional security.",
@@ -265,21 +270,24 @@ class DealKillerEngine:
             ("DK_G8_NO_AUDIT_MODEL",           project_data.get("financial_model_status", "") != "AUDIT_GRADE"),
             ("DK_G7_NO_INSURANCE",             not project_data.get("insurance_fully_placed", False)),
             ("DK_G2_CERT_FAIL",                not project_data.get("rfnbo_pathway_viable", False)),
-            ("DK_DSCR_BELOW_FLOOR",            project_data.get("dscr_p90", 0) < 1.10),
+            ("DK_DSCR_BELOW_FLOOR",            _dscr_outcome(project_data)),
             ("DK_G1_NO_GRID",                  not project_data.get("grid_connection_firm", False)),
             ("DK_STATUS_PHASE_MISMATCH",       status_phase_mismatch),
             ("DK_G4_NO_THIRD_PARTY_OFFTAKE",   project_data.get("third_party_binding_offtake_pct", 0) < 30),
             ("DK_G8_CURVE_INPUTS_INCONSISTENT", curve_inputs_inconsistent),
         ]
 
-        for killer_id, is_active in checks:
+        import dataclasses
+        for killer_id, outcome in checks:
             dk = DEAL_KILLERS_BY_ID[killer_id]
-            import dataclasses
-            updated = dataclasses.replace(
-                dk,
-                current_status=KillerStatus.ACTIVE if is_active else KillerStatus.RESOLVED,
-            )
-            results.append(updated)
+            if isinstance(outcome, dict):        # a decision test (DSCR): three honest outcomes
+                status = {"FAIL": KillerStatus.ACTIVE, "PASS": KillerStatus.RESOLVED,
+                          "NOT_ASSESSABLE": KillerStatus.NOT_ASSESSABLE,
+                          "NO_APPROVED_THRESHOLD": KillerStatus.NO_APPROVED_THRESHOLD}[outcome["outcome"]]
+                results.append(dataclasses.replace(dk, current_status=status, assessment=outcome))
+                continue
+            results.append(dataclasses.replace(
+                dk, current_status=KillerStatus.ACTIVE if outcome else KillerStatus.RESOLVED))
 
         return results
 
@@ -317,14 +325,25 @@ class DealKillerEngine:
         CONDITIONAL  — only CRITICAL killers active (no FATAL)
         NOT_READY    — any FATAL killer active
         """
-        active = self.get_active_killers(project_data)
+        evaluated = self.evaluate(project_data)
+        active = [dk for dk in evaluated if dk.current_status == KillerStatus.ACTIVE]
         fatal_active   = [dk for dk in active if dk.severity == KillerSeverity.FATAL]
         critical_active = [dk for dk in active if dk.severity == KillerSeverity.CRITICAL]
+        # A killer that could not be judged is not cleared: no READY rests on it.
+        unjudged = [dk for dk in evaluated if dk.current_status in
+                    (KillerStatus.NOT_ASSESSABLE, KillerStatus.NO_APPROVED_THRESHOLD)]
 
-        if not active:
+        if not active and not unjudged:
             return {
                 "status": CommitteeReadiness.READY.value,
                 "conditions": [],
+                "blockers": [],
+            }
+        if not active:
+            return {
+                "status": CommitteeReadiness.CONDITIONAL.value,
+                "conditions": [f"{dk.id}: {(dk.assessment or {}).get('message', dk.current_status.value)}"
+                               for dk in unjudged],
                 "blockers": [],
             }
 
@@ -340,6 +359,15 @@ class DealKillerEngine:
             "conditions": [dk.plain_language for dk in critical_active],
             "blockers": [],
         }
+
+
+def _dscr_outcome(project_data: dict) -> dict:
+    """The DSCR killer is the decision test DSCR_DEFAULT (decision_policy):
+    missing DSCR -> NOT_ASSESSABLE; no approved floor -> NO_APPROVED_THRESHOLD;
+    fires (FAIL) only with a present DSCR below an applicable approved floor."""
+    from app.core.decision_policy import evaluate
+    value = project_data.get("dscr_p90")
+    return evaluate("DSCR_DEFAULT", float(value) if value is not None else None)
 
 
 # Module-level singleton

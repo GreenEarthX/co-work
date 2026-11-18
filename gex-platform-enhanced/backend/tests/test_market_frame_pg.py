@@ -24,7 +24,7 @@ from pg_support import connect_dsn
 OWNER, A, M, N = "test_mf_owner", "test_mf_buyer_a", "test_mf_market", "test_mf_market_n"
 PID, PID_PLAIN = "proj_TEST_market_frame", "proj_TEST_market_plain"
 NAMES = {OWNER: "Test MF Owner", A: "Test MF Buyer A", M: "Test MF Market", N: "Test MF Market N"}
-USERS = {"u_mf_exec": (OWNER, "EXECUTIVE"), "u_mf_m1": (M, "EXECUTIVE"), "u_mf_m2": (M, "COMMERCIAL"),
+USERS = {"u_mf_exec": (OWNER, "EXECUTIVE"), "u_mf_m1": (M, "COMMERCIAL"), "u_mf_m2": (M, "EXECUTIVE"),  # D-B: m2 approves
          "u_mf_n1": (N, "EXECUTIVE"), "u_mf_a": (A, "COMMERCIAL")}
 ASSET, ASSET_PLAIN = "00000000-0000-4000-8000-0000000094a1", "00000000-0000-4000-8000-0000000094a2"
 CARDS = {"offtake": {"certification_scheme": "RFNBO", "planned_output_tonnes_per_year": 10000,
@@ -35,7 +35,7 @@ STATE: dict = {}
 def _party(uid):
     from app.core import market_engine as me
 
-    return me.Party(user_id=uid, company_id=USERS[uid][0], company_name=NAMES[USERS[uid][0]])
+    return me.Party(business_function="COMMERCIAL", user_id=uid, company_id=USERS[uid][0], company_name=NAMES[USERS[uid][0]])
 
 
 @pytest.fixture(scope="module")

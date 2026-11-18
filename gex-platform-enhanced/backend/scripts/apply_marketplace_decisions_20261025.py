@@ -4,9 +4,10 @@ JML's decisions of 2026-10-25 on the Marketplace records (handoff §8 item 48).
   1. Approve the five proposed spot prices (market_spot_price, market_spot_price_energy).
      "They will have to be modified anyway in the future" — a later value is a new
      registry row superseding this one; the approved row stays readable with as_of.
-  2. Confirm every other Marketplace record moved on 2026-10-23 (sales details,
-     production input lines, input classification): verification_state CONFIRMED,
-     verified_by JML, verified_at now.
+  2. WITHDRAWN 2026-11-16 by D-A (migration 120). It used to set every other moved record
+     CONFIRMED with no document; a confirmation now needs recorded evidence and a confirmer
+     other than the importer (trigger). Step 2 now leaves them UNVERIFIED and marks them with
+     the same quarantine reason 120 gave the live rows, so a rebuilt database matches a restored one.
 
 Proposer (MARKETPLACE_MOVE_20261023) and approver (JML) differ, as the registry
 requires. Idempotent: an approved price or a confirmed record is skipped. Dry run
@@ -33,6 +34,9 @@ APPROVER = "jean-marie_greenearthx_com"
 PROPOSER = "MARKETPLACE_MOVE_20261023"
 DECIDED = "JML decision 2026-10-25: approve now; values will be revised later"
 TABLES = ("project_sales_detail", "project_input_line", "input_classification")
+# Must equal migration 120's REASON.
+QUARANTINE = ("Source not recorded: moved from a frontend constant and confirmed without evidence. "
+              "Confirmation withdrawn 2026-11-16 (decision D-A); it returns only against a recorded document.")
 
 
 def main(execute: bool) -> int:
@@ -49,9 +53,10 @@ def main(execute: bool) -> int:
             print("1. no proposed spot price left: skipped")
         for table in TABLES:
             cur = conn.execute(
-                f"UPDATE {table} SET verification_state = 'CONFIRMED', verified_by = ?, verified_at = now(), "
-                f"updated_at = now() WHERE verification_state = 'UNVERIFIED'", (APPROVER,))
-            print(f"2. {table}: {cur.rowcount} confirmed")
+                f"UPDATE {table} SET quarantine_reason = ?, updated_at = now() WHERE verification_state = 'UNVERIFIED' "
+                f"AND quarantine_reason IS NULL AND evidence_sha256 IS NULL AND source LIKE 'MarketplacePage.tsx constant%'",
+                (QUARANTINE,))
+            print(f"2. {table}: {cur.rowcount} marked quarantined (D-A), left UNVERIFIED")
         if execute:
             conn.commit()
             print("committed")

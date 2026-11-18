@@ -31,10 +31,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.db_backend import domain_connection, domain_is_postgres
+from app.core import pre_fid_access
 
 router = APIRouter(prefix="/api/v1/spend-wave", tags=["spend-wave"])
 
@@ -286,7 +287,47 @@ def _row_to_response(row) -> dict:
 # ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
 
-@router.post("", response_model=SpendWaveResponse, status_code=201)
+# Pre-FID access: one rule on every path (app/core/pre_fid_access.py).
+# The spend wave is pre-FID by definition. The owner reads and writes it; anyone
+# else reads it only while the owner's FUNDING share for that project is active.
+def _funding_db(project_id: str, request: Request):
+    """Connection for a project-level read of the spend wave: FUNDING must be
+    open to the caller, and a shared read is made in the owner's tenant."""
+    access = pre_fid_access.require(pre_fid_access.resolve(request, project_id), "FUNDING",
+                                    route="spend_wave.read")
+    tenant = pre_fid_access.read_tenant(access)
+    conn = domain_connection(company_id=tenant) if tenant else domain_connection()
+    if not domain_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _wave_guard(write: bool):
+    def dependency(spend_wave_id: str, request: Request) -> None:
+        from contextlib import contextmanager
+        with contextmanager(get_db)() as db:
+            row = db.execute("SELECT project_id FROM spend_waves WHERE spend_wave_id=?", (spend_wave_id,)).fetchone()
+        if row:      # no row: the caller cannot see it, and the route answers 404 itself
+            pre_fid_access.require(pre_fid_access.resolve(request, row["project_id"]), "FUNDING",
+                                   write=write, route="spend_wave.write" if write else "spend_wave.read")
+    return dependency
+
+
+async def _funding_create(request: Request) -> None:
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — not JSON; the route's own validation answers
+        return
+    if isinstance(body, dict) and body.get("project_id"):
+        pre_fid_access.require(pre_fid_access.resolve(request, body["project_id"]), "FUNDING",
+                               write=True, route="spend_wave.create")
+
+
+@router.post("", response_model=SpendWaveResponse, status_code=201, dependencies=[Depends(_funding_create)])
 def create_spend_wave(sw: SpendWaveCreate, db: Any = Depends(get_db)):
     """
     Create a spend wave record — pre-FID annual time-phased spend.
@@ -320,7 +361,7 @@ def create_spend_wave(sw: SpendWaveCreate, db: Any = Depends(get_db)):
     return _row_to_response(row)
 
 
-@router.get("/{spend_wave_id}", response_model=SpendWaveResponse)
+@router.get("/{spend_wave_id}", response_model=SpendWaveResponse, dependencies=[Depends(_wave_guard(False))])
 def get_spend_wave(spend_wave_id: str, db: Any = Depends(get_db)):
     row = db.execute("SELECT * FROM spend_waves WHERE spend_wave_id=?", (spend_wave_id,)).fetchone()
     if not row:
@@ -333,7 +374,7 @@ def list_spend_waves(
     project_id: str,
     year: Optional[int] = Query(None),
     capital_layer: Optional[CapitalLayer] = Query(None),
-    db: Any = Depends(get_db)
+    db: Any = Depends(_funding_db)
 ):
     """List all spend wave records for a project with optional year/capital_layer filters."""
     query = "SELECT * FROM spend_waves WHERE project_id=?"
@@ -352,7 +393,7 @@ def list_spend_waves(
 
 
 @router.get("/project/{project_id}/summary", response_model=SpendWaveSummary)
-def spend_wave_summary(project_id: str, db: Any = Depends(get_db)):
+def spend_wave_summary(project_id: str, db: Any = Depends(_funding_db)):
     """
     Aggregate spend wave view:
       - Total spend by year, by capital layer, and cross-tabulated
@@ -411,7 +452,7 @@ def spend_wave_summary(project_id: str, db: Any = Depends(get_db)):
     )
 
 
-@router.delete("/{spend_wave_id}")
+@router.delete("/{spend_wave_id}", dependencies=[Depends(_wave_guard(True))])
 def delete_spend_wave(spend_wave_id: str, deleted_by: str, db: Any = Depends(get_db)):
     """
     Soft delete via event log — marks the record as deleted in the audit trail.

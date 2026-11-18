@@ -14,7 +14,7 @@ which shows vertical provenance chains across BRIDGE → TOKEN → TRADE.
 Source queries (each falls back to sensible defaults when data is absent):
   1. Price feed → marketplace_sqlite offers table
   2. WACC breakdown → capital_bridge table (blended debt)
-  3. Project identity → projects / development_packages table
+  3. Project identity → projects table only (never a package name)
   4. Sovereign block → sovereign_instruments table
   5. Carbon intensity → decision_twin CI results / tokens table
   6. Attribution block → carbon_attribution_events table
@@ -211,20 +211,9 @@ def _fetch_identity(conn: sqlite3.Connection, project_id: str) -> ProjectIdentit
             capacity_mw=float(row["capacity_mw"]) if "capacity_mw" in keys and row["capacity_mw"] else 0.0,
             location=row["location"] if "location" in keys else (row["country"] if "country" in keys else "UNKNOWN"),
         )
-    pkg = _safe_query(
-        conn,
-        "SELECT * FROM development_packages WHERE project_id=? ORDER BY created_at DESC LIMIT 1",
-        (project_id,),
-    )
-    if pkg:
-        keys = pkg.keys()
-        return ProjectIdentity(
-            project_id=project_id,
-            project_name=pkg["package_name"] if "package_name" in keys else project_id,
-            molecule=pkg["molecule"] if "molecule" in keys else "UNKNOWN",
-            capacity_mw=float(pkg["capacity_mw"]) if "capacity_mw" in keys and pkg["capacity_mw"] else 0.0,
-            location=pkg["jurisdiction"] if "jurisdiction" in keys else "UNKNOWN",
-        )
+    # No fallback to a development package (handoff v4 task 9): a package name is not
+    # the project's name, and before FID it is the owner's development data, which a
+    # caller without the owner's share may not read. Identity comes from `projects` only.
     return ProjectIdentity(project_id=project_id, project_name=project_id, molecule="UNKNOWN", capacity_mw=0.0, location="UNKNOWN")
 
 

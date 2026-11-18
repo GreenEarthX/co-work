@@ -192,8 +192,15 @@ def surface(p: dict, power_deltas: Optional[list] = None,
     ]
 
 
-def break_even_metrics(p: dict, covenant_floor: float) -> list[dict]:
-    """Solved, not assumed. `None` means the floor is not reached in range."""
+def break_even_metrics(p: dict, covenant_floor: Optional[float]) -> list[dict]:
+    """Solved, not assumed. `None` means the floor is not reached in range.
+
+    With no floor (no approved policy value, handoff v4 task 6) there is nothing to
+    solve against: each metric says so, and nothing is marked breached."""
+    if covenant_floor is None:
+        return [{"label": label, "value": "—", "description": "no approved threshold — no pass/fail",
+                 "breached": False} for label in ("Max power price rise", "Max efficiency loss",
+                                                  "Max CapEx overrun", "Max rate rise")]
     base = base_dscr(p)
     at_floor = base <= covenant_floor
 
@@ -218,8 +225,8 @@ def break_even_metrics(p: dict, covenant_floor: float) -> list[dict]:
     return out
 
 
-def compute_sensitivity(body: Optional[dict] = None, covenant_floor: float = 1.20,
-                        target_dscr: float = 1.30) -> dict:
+def compute_sensitivity(body: Optional[dict] = None, covenant_floor: Optional[float] = None,
+                        target_dscr: Optional[float] = None) -> dict:
     """Full sensitivity payload — rows, surface and break-evens from one model."""
     p = normalise_params(body)
     pds = (body or {}).get("power_deltas") or DEFAULT_POWER_DELTAS

@@ -429,7 +429,7 @@ try {
     new URL('../../../gex_pf_engine/backend/app/', import.meta.url),
   ]
   for (const eb of bases) {
-    for (const rel of ['core/waterfall.py', 'core/cfads.py', 'core/debt/sculpting.py', 'core/debt/tranche.py', 'api/routes_model.py']) {
+    for (const rel of ['core/waterfall.py', 'core/cfads.py', 'core/debt/sculpting.py', 'core/debt/tranche.py', 'core/returns.py', 'api/routes_model.py']) {
       try { ENGINE += '\n' + readFileSync(new URL(rel, eb), 'utf8') } catch { /* file absent */ }
     }
   }
@@ -464,6 +464,10 @@ const PF = [
   ['Sources & Uses coverage (SUC ratio)',     /\bsuc\b|sources.{0,4}uses.{0,16}coverage/i, /def _compute_suc|class SUCInput|sources.{0,4}uses.{0,16}coverage/i, 'have'],
   ['Sources & Uses statement (itemized)',     /sources.{0,4}and.{0,4}uses.?statement|itemi[sz]ed.{0,10}sources/i, /total_uses|total_sources|sources_uses_line/i, 'build'],
   ['Covenant package',                        /covenant/i,                    /covenant/i,                                'have'],
+  // Investor returns (gex_pf_engine core/returns.py, surfaced on /finance/returns
+  // and the DEVEX brief). The probes name the computation, not a passing mention.
+  ['Returns (unlevered / levered IRR, NPV, ROI, ROE)', /unlevered irr|levered irr/i, /def compute_returns/, 'have'],
+  ['Hurdle rate (WACC + premium; cost of equity)', /hurdle/i,                 /def hurdle_rate/,                          'have'],
   ['Hedging (rate / FX / power)',             /hedg/i,                        /hedg/i,                                    'later'],
   ['Refinancing / mini-perm',                 /refinanc|mini.?perm/i,         /refinanc|mini.?perm/i,                     'later'],
 ]
@@ -474,7 +478,7 @@ const PF = [
 // lesson). Gated on engine-computation FIRST: a function the engine does NOT
 // compute is `absent` regardless of on-screen text, so an honest "LLCR — NOT
 // COMPUTED" gap card never falsely flips LLCR to ui-visible.
-const METRIC_SCREENS = /DSCRHeatmap|CovenantsPage|DebtCashflowWaterfall|FinanceBankabilityView/
+const METRIC_SCREENS = /DSCRHeatmap|CovenantsPage|DebtCashflowWaterfall|FinanceBankabilityView|ReturnsPage|DevexBrief/
 // A screen is GOVERNED if it carries an assumption/governance stamp (basis,
 // reliance, rules_version). A ui-visible metric on an ungoverned screen is a
 // naked forward number — WARN (not fail; flip to fail once the scaffold lands).
@@ -598,7 +602,31 @@ try {
   } else console.log('   ✅ docs §10 current.')
 } catch (e) { console.log('   ⚠ could not update docs §10:', e.message) }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// §11 · METRIC REGISTRY (handoff v4, task 6) — one JSON generated from the specs in
+// docs/metrics/. --check fails when the JSON is stale or a spec's computation is
+// not where it says.
+// ═══════════════════════════════════════════════════════════════════════════
+let registryStale = false
+{
+  const { buildRegistry, verifyComputedIn, REGISTRY_URL } = await import('./metric-registry.mjs')
+  console.log('\n§11 Metric registry (docs/metrics)')
+  try {
+    const reg = buildRegistry()
+    const next = JSON.stringify(reg, null, 2) + '\n'
+    let cur = ''
+    try { cur = readFileSync(REGISTRY_URL, 'utf8') } catch { /* absent */ }
+    if (cur !== next) {
+      if (CHECK) { registryStale = true; console.log('   ❌ docs/metrics/registry.json is STALE — run `npm run audit:menu`.') }
+      else { writeFileSync(REGISTRY_URL, next); console.log(`   📝 wrote docs/metrics/registry.json (${reg.metrics.length} metrics).`) }
+    } else console.log(`   ✅ registry current (${reg.metrics.length} metrics).`)
+    const problems = verifyComputedIn(reg)
+    if (problems.length) { registryStale = true; problems.forEach(p => console.log('   ❌ ' + p)) }
+    for (const m of reg.metrics) console.log(`   ${m.id.padEnd(14)} ${m.computed_in.split('/').pop().padEnd(24)} ${m.decision_test.slice(0, 70)}`)
+  } catch (e) { registryStale = true; console.log('   ❌ metric specs unreadable:', e.message) }
+}
+
 // Non-zero exit on any ACCESS failure (hard gate) OR a stale generated §9/§10
 // in --check mode (drift gate). Coherence/CTRM/PF findings stay advisory.
 const anyFail = totalDupes > 0 || globalDupes.length > 0 || leak > 0 || sigFail > 0
-process.exitCode = (anyFail || section9Stale || section10Stale) ? 1 : 0
+process.exitCode = (anyFail || section9Stale || section10Stale || registryStale) ? 1 : 0

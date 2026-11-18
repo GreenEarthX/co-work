@@ -83,10 +83,17 @@ export const TAB_DESCRIPTIONS = {
 export const HELP = {
   // ── Financial metrics ──
   DSCR_P50:
-    "Debt Service Coverage Ratio (P50 scenario) = Cash Flow Available for Debt Service ÷ annual debt service. Lenders require P50 ≥ 1.30x.",
+    "Debt Service Coverage Ratio (P50 scenario) = Cash Flow Available for Debt Service ÷ annual debt service. Judged only against the senior lender's approved floor (reference data registry); with none approved, no pass/fail.",
   DSCR_P90:
-    "DSCR under the P90 downside scenario. Must exceed 1.20x. If breached, the project fails the lender stress test.",
+    "DSCR under the P90 downside scenario, judged only against the lender's approved downside floor. With none approved, no pass/fail.",
   LLCR: "Loan Life Coverage Ratio = NPV of remaining CFADS ÷ outstanding debt balance. Must exceed 1.40x at all times.",
+  FCI: "Fixed Capital Investment — the CAPEX committed at FID. In the screening case it falls in full at year 0; with a construction schedule it falls by construction year. Pre-FID spend (DEVEX) is counted separately and sits before year 0.",
+  DEVEX: "Development expenditure — all pre-FID spend: development packages in phases FEL 1, FEL 2 and FEED. Paid by equity, grants or bridge; equity absorbs first loss.",
+  IRR_UNLEVERED: "Project IRR before financing: pre-FID spend and FCI out, then EBITDA less tax and maintenance capex. Tested against the project hurdle.",
+  IRR_LEVERED: "Equity IRR after debt service: pre-FID spend and the equity cheque at FID out, then cash to equity. Tested against the equity hurdle.",
+  HURDLE_RATE: "The minimum return a project must clear. Project hurdle = after-tax WACC + project premium. Equity hurdle = cost of equity (risk-free + beta × equity risk premium + country and technology premiums).",
+  ROI: "Return on investment — average annual net operating profit after tax ÷ total investment (FCI + DEVEX).",
+  ROE: "Return on equity — average annual net income after depreciation, interest and tax ÷ equity invested.",
   WACC: "Weighted Average Cost of Capital — blended cost of all capital tranches. Lower = cheaper financing = higher equity IRR.",
   WACC_SAVING:
     "Basis-point reduction in WACC from layer-optimised financing vs traditional flat-WACC approach.",
@@ -129,7 +136,7 @@ export const HELP = {
   INTEREST_RATE_SENSITIVITY:
     "Per Taghizadeh-Hesary (2022): at ≥60% debt ratio, ±75bps ≈ ±0.08 DSCR. Interest rate is the dominant sensitivity for H₂/SAF projects.",
   BREAKEVEN:
-    "Maximum adverse move in a single variable before DSCR hits the 1.20x covenant floor. Tighter margin = more fragile project.",
+    "Maximum adverse move in a single variable before DSCR hits the approved lender floor (none approved: not solved). Tighter margin = more fragile project.",
   REGULATORY_RISK_PREMIUM:
     "Basis-point spread added to cost of capital for jurisdictional political/regulatory risk. FR: +10bps (low), EG: +120bps (high).",
   RISK_PROBABILITY:
@@ -213,7 +220,7 @@ export const HELP = {
 
   // ── Covenants ──
   DSCR_COVENANT:
-    "Minimum DSCR the project must maintain. Typical: 1.20x–1.30x. Breach triggers cash sweep (excess cash repays debt) or distribution lock-up (no dividends to equity).",
+    "Minimum DSCR the project must maintain, set by the facility agreement. Breach triggers cash sweep (excess cash repays debt) or distribution lock-up (no dividends to equity).",
   DSRA_COVENANT:
     "DSRA must hold ≥6 months of forward debt service. Underfunding triggers a distribution lock-up until the reserve is replenished.",
 

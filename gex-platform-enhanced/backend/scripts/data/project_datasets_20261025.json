@@ -1,5 +1,5 @@
 {
- "_about": "Per-project datasets the backend held in code until 2026-10-25, extracted verbatim by importing the dictionaries (no value retyped). Defaults (DEFAULT_PROJECT_TRUTH, _DEFAULT_CTX, _DRAWDOWN_DEFAULT) were NOT moved; MOCK_PROJECTS' proj_demo_nh3 is not a project and was dropped. Load source only. Loaded by scripts/move_project_datasets_20261025.py.",
+ "_about": "Per-project datasets the backend held in code until 2026-10-25, extracted verbatim by importing the dictionaries (no value retyped). Defaults (DEFAULT_PROJECT_TRUTH, _DEFAULT_CTX, _DRAWDOWN_DEFAULT) were NOT moved; MOCK_PROJECTS' proj_demo_nh3 is not a project and was dropped. Load source only. Loaded by scripts/move_project_datasets_20261025.py. 2026-11-17 (handoff v4 task 7): proj_bremen_h2's structuring_context REMOVED — its inputs were the Breizh SAF reference case, not Bremen's (quarantined with its sha256 in scripts/data/quarantine/proj_bremen_h2_structuring_context_20261117.json). The other structuring records lost gate_scores, stage, jurisdiction, molecule and project_size_eur, which structuring takes from the gate engine and the project registry.",
  "datasets": [
   {
    "project_id": "proj_bremen_h2",
@@ -240,61 +240,9 @@
    "from": "core/project_truth.PROJECT_TRUTH"
   },
   {
-   "project_id": "proj_bremen_h2",
-   "kind": "structuring_context",
-   "payload": {
-    "jurisdiction": "DE",
-    "molecule": "H2",
-    "stage": "BUILDABLE",
-    "project_size_eur": 180000000,
-    "gate_scores": {
-     "G0": 95,
-     "G1": 88,
-     "G2": 72,
-     "G3": 90,
-     "G4": 78,
-     "G5": 45,
-     "G6": 0,
-     "G7": 55,
-     "G8": 68,
-     "G9": 92,
-     "G10": 0,
-     "G11": 0
-    },
-    "dscr_p50": 1.34,
-    "dscr_p90": 1.18,
-    "llcr": 1.41,
-    "wacc": 0.089,
-    "offtake_coverage_pct": 0.55,
-    "cert_readiness": 88,
-    "epc_status": "SHORTLISTING",
-    "insurance_status": "QUOTED",
-    "grid_status": "FIRM_OFFER"
-   },
-   "from": "api/v1/routes_structuring.DEMO_CONTEXTS"
-  },
-  {
    "project_id": "proj_lehavre_eng",
    "kind": "structuring_context",
    "payload": {
-    "jurisdiction": "FR",
-    "molecule": "E_NG",
-    "stage": "OPERATIONAL",
-    "project_size_eur": 320000000,
-    "gate_scores": {
-     "G0": 100,
-     "G1": 100,
-     "G2": 98,
-     "G3": 95,
-     "G4": 100,
-     "G5": 100,
-     "G6": 95,
-     "G7": 100,
-     "G8": 98,
-     "G9": 100,
-     "G10": 100,
-     "G11": 95
-    },
     "dscr_p50": 1.58,
     "dscr_p90": 1.42,
     "llcr": 1.65,
@@ -311,24 +259,6 @@
    "project_id": "proj_wales_saf",
    "kind": "structuring_context",
    "payload": {
-    "jurisdiction": "GB",
-    "molecule": "SAF",
-    "stage": "COMMERCIALLY_PLAUSIBLE",
-    "project_size_eur": 250000000,
-    "gate_scores": {
-     "G0": 60,
-     "G1": 40,
-     "G2": 30,
-     "G3": 50,
-     "G4": 20,
-     "G5": 10,
-     "G6": 0,
-     "G7": 15,
-     "G8": 25,
-     "G9": 45,
-     "G10": 0,
-     "G11": 0
-    },
     "dscr_p50": 0.98,
     "dscr_p90": 0.82,
     "llcr": 0.95,
@@ -485,5 +415,6 @@
    "alias": "proj_helios_emethanol",
    "project_id": "proj_sansebastian_emethanol"
   }
- ]
+ ],
+ "approved_by": "JML, 2026-10-25: move the code dictionaries to PostgreSQL as UNVERIFIED rows. This approves the load, not the values."
 }

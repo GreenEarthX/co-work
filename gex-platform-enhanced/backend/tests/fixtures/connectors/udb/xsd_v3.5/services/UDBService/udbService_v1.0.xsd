@@ -1,0 +1,1122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://udb.ener.ec.europa.eu/services/udbModelService/udbService/v1" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://udb.ener.ec.europa.eu/services/udbModelService/udbService/v1" xmlns:udbServiceV1="http://udb.ener.ec.europa.eu/services/udbModelService/udbService/v1" xmlns:udbmodelV1="http://udb.ener.ec.europa.eu/udbModel/v1" xmlns:baseV1="http://udb.ener.ec.europa.eu/commonTypes/baseTypes/v1">
+	<xs:import namespace="http://udb.ener.ec.europa.eu/commonTypes/baseTypes/v1" schemaLocation="../../commonTypes/BaseTypes_V1.0.0.xsd"/>
+	<xs:import namespace="http://udb.ener.ec.europa.eu/udbModel/v1" schemaLocation="../../udbModel/udbModel_v1.0.xsd"/>
+	<xs:element name="AddFPOMRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="FPOM_HEADER" type="udbmodelV1:EOFPOMHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddFPOMResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="ADD_FPOM_RESPONSE_HEADER" type="udbmodelV1:AddFPOMResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddGasInjectionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJECTION_HEADER" type="udbmodelV1:GasInjectionRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddGasInjectionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJECTION_RESP_HEADER" type="udbmodelV1:GasInjectionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddGasTransferRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_TRANSFER_HEADER" type="udbmodelV1:GasTransferHearder" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddGasTransferResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_TRANSFER_RESPONSE_HEADER" type="udbmodelV1:GasTransferResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddGasWithdrawalRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_WITHDRAW_REQUEST_HEADER" type="udbmodelV1:GasWithdrawalRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddGasWithdrawalResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_WITHDRAWAL_REQ_HEADER" type="udbmodelV1:GasWithdrawalResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddOrganisationRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_DETAIL_HEADER" type="udbmodelV1:EODetailHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddOrganisationResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_DETAIL_RESPONSE_HEADER" type="udbmodelV1:EODetailResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddSourcingContactRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SOURCING_CONTACT_HEADER" type="udbmodelV1:SourcingContactHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddSourcingContactResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SOURCING_CONTACT_RESP_HEADER" type="udbmodelV1:SourcingContactResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddUpdateCertificateRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_CERTIFICATE_HEADER" type="udbmodelV1:EOCertificateHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AddUpdateCertificateResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_CERTIFICATE_RESPONSE_HEADER" type="udbmodelV1:EOCetificateResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AuthorityAck">
+		<xs:annotation>
+			<xs:documentation>AuthorityAck</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+			<xs:attribute name="CREW_IDENTIFICATION_NUMBER" use="optional" type="xs:string"/>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ConfirmGasInjectionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJ_CONFIRM_REQ_HEADER" type="udbmodelV1:GasInjectionConfirmRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ConfirmGasInjectionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJ_CONFIRM_RESP_HEADER" type="udbmodelV1:GasInjectionConfirmResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ConfirmGasWithdrawalRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="WITHDRAW_CONFIRM_REQ_HEADER" type="udbmodelV1:GasWithdrawalConfirmationRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ConfirmGasWithdrawalResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="WITHDRAW_CONFIRM_RES_HEADER" type="udbmodelV1:GasWithdrawalConfirmationResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="DeLinkSourcingContactRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="DELINK_SC_REQUEST_HEADER" type="udbmodelV1:DeLinkSourcingContactRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="DeLinkSourcingContactResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="DELINK_SC_RESPONSE_HEADER" type="udbmodelV1:DeLinkSourcingContactResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddFGPTransactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_FGP_TRANS_HEADER" type="udbmodelV1:EOFGPTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddFGPTransactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_FGP_TRANS_RESP_HEADER" type="udbmodelV1:EOFGPTransactionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddInitialStockRegnRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="INITIAL_STOCK_REG_HEADER" type="udbmodelV1:EOInitialStockRegHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddInitialStockRegnResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="INITIAL_STOCK_REGN_RESP_HEADER" type="udbmodelV1:EOInitialStockRegnResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddLiquefactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_LIQUEFACTION_HEADER" type="udbmodelV1:EOLiquefactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddLiquefactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_ADD_LIQUEFACTION_RESPONSE_HEADER" type="udbmodelV1:EOAddLiquefactionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddMaterialProcessingRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="MATERIAL_PROCESS_HEADER" type="udbmodelV1:EOMaterialProcessingHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddMaterialProcessingResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="MATERIAL_PROCESS_RESP_HEADER" type="udbmodelV1:EOAddMaterialProcessingResponseHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddMixOfInputRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_MIX_OF_INPUTS_HEADER" type="udbmodelV1:EOMixOfInputsHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddMixOfInputResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_ADD_MIX_OF_INPUTS_RESP_HEADER" type="udbmodelV1:EOAddMixOfInputsResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddPoOStockRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_POO_STOCK_HEADER" type="udbmodelV1:EOPoOStockHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddPoOStockResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_ADD_POO_STOCK_RESP_HEADER" type="udbmodelV1:EOAddPoOStockResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddPoOTradeRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_POO_TRADE_HEADER" type="udbmodelV1:EOPoOTradeHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddPoOTradeResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_POO_TRADE_RESP_HEADER" type="udbmodelV1:EOPoOTradeResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddPutOnMarketRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_PUT_ON_MARKET_HEADER" type="udbmodelV1:EOPutOnMarketHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddPutOnMarketResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_ADD_PUT_MARKET_RESP_HEADER" type="udbmodelV1:EOAddPutOnMarketResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddTransactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_TRANS_HEADER" type="udbmodelV1:EOTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOAddTransactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_TRANS_RESP_HEADER" type="udbmodelV1:EOTransactionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOBackToBackTradeRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="BACK_TO_BACK_TRADE_REQ_HEADER" type="udbmodelV1:EOBackToBackTradeRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOBackToBackTradeResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="BACK_TO_BACK_TRADE_RESP_HEADER" type="udbmodelV1:EOBackToBackTradeResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOBookOutRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_BOOK_OUT_HEADER" type="udbmodelV1:EOBookOutHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOBookOutResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_BOOK_OUT_RESP_HEADER" type="udbmodelV1:EOBookOutResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOCancelTransactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_CANCEL_TRANSACTION_HEADER" type="udbmodelV1:EOCancelTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOCancelTransactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_CANCEL_TRANS_RESP_HEADER" type="udbmodelV1:EOCancelTransactionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOConfirmTransactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_CONFIRM_TRANS_HEADER" type="udbmodelV1:EOConfirmTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOConfirmTransactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_CONFIRM_TRANS_RESP_HEADER" type="udbmodelV1:EOConfirmTransactionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetFGPTransactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_FGP_GET_TRANS_HEADER" type="udbmodelV1:EOFGPGetTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetFGPTransactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_FGP_TRANS_HEADER" type="udbmodelV1:EOFGPTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetInitialStockRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_GET_INITIAL_STOCK_HEADER" type="udbmodelV1:EOGetInitialStockRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetInitialStockResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="INITIAL_STOCK_REG_HEADER" type="udbmodelV1:EOInitialStockRegHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetLiquefactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_GET_LIQUEFACTION_HEADER" type="udbmodelV1:EOGetLiquefactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetLiquefactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_LIQUEFACTION_HEADER" type="udbmodelV1:EOLiquefactionHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetMaterialProcessListRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="MATERIAL_PROCESS_LIST_REQ_HEADER" type="udbmodelV1:GetMaterialProcessListRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetMaterialProcessListResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="MATERIAL_PROCESS_HEADER" type="udbmodelV1:EOMaterialProcessingHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetMixOfInputRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GET_MIX_OF_INPUTS_REQ_HEADER" type="udbmodelV1:GetMixOfInputsRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetMixOfInputResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_MIX_OF_INPUTS_HEADER" type="udbmodelV1:EOMixOfInputsHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetPoOStockRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_GET_POO_STOCK_HEADER" type="udbmodelV1:EOGetPoOStockHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetPoOStockResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_POO_STOCK_HEADER" type="udbmodelV1:EOPoOStockHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetPoOTradeRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_GET_POO_TRANS_HEADER" type="udbmodelV1:EOGetPoOTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetPoOTradeResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_POO_TRADE_HEADER" type="udbmodelV1:EOPoOTradeHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetPOSListRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GET_POS_LIST_REQ_HEADER" type="udbmodelV1:EOGetPOSListRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetPOSListResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="POS_DETAILS_HEADER" type="udbmodelV1:POSDetailsHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetTransactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_GET_TRANS_HEADER" type="udbmodelV1:EOGetTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOGetTransactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_TRANS_HEADER" type="udbmodelV1:EOTransactionDetailHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOInterTransferRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_INTER_TRANSFER_REQ_HEADER" type="udbmodelV1:EOInterTransferRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOInterTransferResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_INTER_TRANSFER_RES_HEADER" type="udbmodelV1:EOInterTransferResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOStockAccountLossRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_STOCK_ACCOUNT_LOSS_HEADER" type="udbmodelV1:EOStockAccountLossHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOStockAccountLossResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_STOCK_ACCOUNT_LOSS_RESP_HEAD" type="udbmodelV1:EOStockAccountLossResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOStockBalanceRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_STOCK_BALANCE_REQ_HEADER" type="udbmodelV1:EOStockBalanceRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOStockBalanceResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_STOCK_BALANCE_RESP_HEADER" type="udbmodelV1:EOStockBalanceResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOUnitConversionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="UNIT_CONVERSION_REQUEST_HEADER" type="udbmodelV1:EOUnitConversionRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOUnitConversionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="UNIT_CONVERSION_RESPONSE_HEADER" type="udbmodelV1:EOUnitConversionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOUpdatePOSRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="POS_DETAILS_HEADER" type="udbmodelV1:POSDetailsHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOUpdatePOSResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="UPDATE_POS_RESP_HEADER" type="udbmodelV1:EOUpdatePOSResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOUpdateRejectedTransactionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_UPD_REJECTED_TRANS_HEADER" type="udbmodelV1:EOUpdateRejectedTransactionHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="EOUpdateRejectedTransactionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_UPD_REJECTED_TRANS_RESPONSE" type="udbmodelV1:EOUpdateRejectedTransactionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ErrorResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetBookOutRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GET_BOOK_OUT_HEADER" type="udbmodelV1:GetBookOutHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetBookOutResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_BOOK_OUT_HEADER" type="udbmodelV1:EOBookOutHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetCertificateExpiryRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="CERTIFICATE_ID_HEADER" type="udbmodelV1:CertificateIdHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetCertificateExpiryResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="CERTIFICATE_DETAILS_HEADER" type="udbmodelV1:CertificateDetailsHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetCertificateRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="CERTIFICATE_ID_HEADER" type="udbmodelV1:CertificateIdHeader" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="EO_ID_HEADER" type="udbmodelV1:EOIdHeader" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="CERTIFICATE_HEADER" type="udbmodelV1:CertificateHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetCertificateResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_CERTIFICATE_HEADER" type="udbmodelV1:EOCertificateHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetFPOMRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="UdbRequestHeader" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GET_FPOM_REQUEST_HEADER" type="udbmodelV1:GetFPOMRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetFPOMResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_FPOM_HEADER" type="udbmodelV1:EOFPOMHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetGasEOListRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="TSO_DSO_NUMBER" type="baseV1:NonEmptyString50" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_HEADER" type="udbmodelV1:EOHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetGasEOListResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="TSO_DSO_NUMBER" type="baseV1:NonEmptyString50" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_RESPONSE_HEADER" type="EOResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetGasInjectionRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJ_REQ_HEADER" type="udbmodelV1:GetInjectionRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetInjectionResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJECTION_RESPONSE" type="udbmodelV1:GetInjectionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetOrganisationByIDRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_ID_HEADER" type="udbmodelV1:EOIdHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetOrganisationByIDResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_DETAIL_HEADER" type="udbmodelV1:EODetailHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetOrganisationListRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetOrganisationListResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_DETAIL_HEADER" type="udbmodelV1:EODetailHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetPutOnMarketRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_GET_PUT_ON_MARKET_REQUEST" type="udbmodelV1:EOGetPutOnMarketRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetPutOnMarketResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_PUT_ON_MARKET_HEADER" type="udbmodelV1:EOPutOnMarketHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetSourcingContactByIDRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SC_ID_HEADER" type="udbmodelV1:SCIdHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetSourcingContactByIDResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SOURCING_CONTACT_HEADER" type="udbmodelV1:SourcingContactHeader" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="DE_LINKED_SC_HEADER" type="udbmodelV1:DeLinkedSourcingContactHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetSourcingContactListRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetSourcingContactListResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SOURCING_CONTACT_HEADER" type="udbmodelV1:SourcingContactHeader" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="DE_LINKED_SC_HEADER" type="udbmodelV1:DeLinkedSourcingContactHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetStockAccountLossRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GET_STOCK_ACCOUNT_LOSS_HEADER" type="udbmodelV1:GetStockAccountLossHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="GetStockAccountLossResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_STOCK_ACCOUNT_LOSS_HEADER" type="udbmodelV1:EOStockAccountLossHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="InviteEOLeadUserRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="INVITE_EO_LEAD_USER_REQ_HEADER" type="udbmodelV1:InviteEOLeadUserRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="InviteEOLeadUserResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="INVITE_EO_LEAD_USER_RESP_HEADER" type="udbmodelV1:InviteEOLeadUserResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="MemberStateTransactionDataView">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REPORTING_PERIOD_START" type="xs:dateTime" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="REPORTING_PERIOD_END" type="xs:dateTime" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="REPORT_GENERATION_DATE" type="xs:dateTime" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="MS_TRANSACTION_DATA_HEADER" type="MemberStateTransactionDataHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ReplaceSourcingContactNumberRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="REPLACE_SC_REQUEST_HEADER" type="udbmodelV1:ReplaceSourcingContactNumberRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ReplaceSourcingContactNumberResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="REPLACE_SC_RESPONSE_HEADER" type="udbmodelV1:ReplaceSourcingContactNumberResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="SyncEconomicOperatorRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="EO_ID_HEADER" type="udbmodelV1:EOIdHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="SyncEconomicOperatorResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SYNC_ECONOMIC_OPERATOR_HEADER" type="udbmodelV1:SyncEconomicOperatorHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="TransactionBuyerNotification">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="ECONOMIC_OPERATOR_NUMBER" type="baseV1:String255" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="BUYER_NOTIFICATION_HEADER" type="udbmodelV1:EOBuyerNotificationHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="TransactionSellerNotification">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="ECONOMIC_OPERATOR_NUMBER" type="baseV1:String255" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="SELLER_NOTIFICATION_HEADER" type="udbmodelV1:EOSellerNotificationHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="UpdateGasSustainabilityRequest">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="REQUEST_HEADER" type="udbmodelV1:UdbRequestHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJECTION_REQ_HEADER" type="udbmodelV1:GasInjectionRequestHeader" minOccurs="1" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="UpdateGasSustainabilityResponse">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="VOLUNTARY_SCHEME_NUMBER" type="baseV1:NonEmptyString8" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="SERVICE_PROVIDER_NUMBER" type="baseV1:NonEmptyString19" minOccurs="0" maxOccurs="1"/>
+				<xs:element name="RESPONSE_HEADER" type="udbmodelV1:UdbResponseHeader" minOccurs="1" maxOccurs="1"/>
+				<xs:element name="GAS_INJECTION_RESP_HEADER" type="udbmodelV1:GasInjectionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:complexType name="EOResponseHeader">
+		<xs:sequence>
+			<xs:element name="EO_DETAIL_BY_ID_RESPONSE" type="udbmodelV1:EODetailByIdResponse" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="MemberStateTransactionDataHeader">
+		<xs:sequence>
+			<xs:element name="EO_FGP_TRANS_HEADER" type="udbmodelV1:EOFGPTransactionHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_POO_TRADE_HEADER" type="udbmodelV1:EOPoOTradeHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_POO_STOCK_HEADER" type="udbmodelV1:EOPoOStockHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_SELLER_TRANSACTION" type="udbmodelV1:EOTransactionDetailHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="MATERIAL_PROCESS_HEADER" type="udbmodelV1:EOMaterialProcessingHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_MIX_OF_INPUTS_HEADER" type="udbmodelV1:EOMixOfInputsHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_BOOK_OUT_HEADER" type="udbmodelV1:EOBookOutHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="UNIT_CONVERSION_RESPONSE_HEADER" type="udbmodelV1:EOUnitConversionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_STOCK_ACCOUNT_LOSS_HEADER" type="udbmodelV1:EOStockAccountLossHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="INITIAL_STOCK_REG_HEADER" type="udbmodelV1:EOInitialStockRegHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_PUT_ON_MARKET_HEADER" type="udbmodelV1:EOPutOnMarketHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="EO_LIQUEFACTION_HEADER" type="udbmodelV1:EOLiquefactionHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="GAS_INJECTION_HEADER" type="udbmodelV1:GetInjectionResponseHeader" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="GAS_TRANSFER_HEADER" type="udbmodelV1:GasTransferHearder" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="GAS_WITHDRAWAL_HEADER" type="udbmodelV1:GasWithdrawalRequestHeader" minOccurs="0" maxOccurs="1"/>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>

@@ -85,12 +85,16 @@ export function PackageDetailDrawer({
   actorType,
   onClose,
   onChanged,
+  canWrite = false,
 }: {
   pkg: PackageDetail;
   changedBy: string;
   actorType: string;
   onClose: () => void;
   onChanged: () => void;
+  /** Write controls only for the project's owner (JML, 2026-11-18). The
+   *  server still refuses any write that is not the owner's. */
+  canWrite?: boolean;
 }) {
   const idx = LADDER.indexOf(pkg.workflow_state);
   const nextState = idx >= 0 && idx < LADDER.length - 1 ? LADDER[idx + 1] : null;
@@ -196,7 +200,7 @@ export function PackageDetailDrawer({
           <section>
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">Cost basis</h3>
-              {!editing && (
+              {canWrite && !editing && (
                 <button type="button" onClick={() => { setEditing(true); setCostErr(null); }}
                   className="inline-flex items-center gap-1 text-xs text-[var(--brand)] hover:underline">
                   <Pencil className="h-3 w-3" /> Edit
@@ -278,7 +282,7 @@ export function PackageDetailDrawer({
                 ))}
               </ol>
             )}
-            <div className="mt-2 space-y-2">
+            {canWrite && <div className="mt-2 space-y-2">
               <input className={inputClass} placeholder="Document title (e.g. Owner's Engineer SoW)" value={evTitle} onChange={(e) => setEvTitle(e.target.value)} />
               <input ref={fileRef} type="file" className="block w-full text-[12px] text-[var(--text-secondary)] file:mr-2 file:rounded file:border-0 file:bg-[var(--surface-muted)] file:px-2 file:py-1 file:text-[12px] file:text-[var(--text-primary)]" />
               {evErr && <ErrorLine msg={evErr} />}
@@ -287,14 +291,14 @@ export function PackageDetailDrawer({
                 className="inline-flex items-center gap-1.5 rounded bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">
                 {uploadEvidence.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Attach document
               </button>
-            </div>
+            </div>}
           </section>
 
           {/* ── Unlocks & dependencies ── */}
           <section>
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">Unlocks & dependencies</h3>
-              {!editLinks && (
+              {canWrite && !editLinks && (
                 <button type="button" onClick={() => { setEditLinks(true); setLinksErr(null); }}
                   className="inline-flex items-center gap-1 text-xs text-[var(--brand)] hover:underline">
                   <Pencil className="h-3 w-3" /> Edit
@@ -355,7 +359,7 @@ export function PackageDetailDrawer({
               })}
             </ol>
 
-            {nextState && !advancing && (
+            {canWrite && nextState && !advancing && (
               <button type="button" onClick={() => { setAdvancing(true); setAdvErr(null); }}
                 className="mt-3 inline-flex items-center gap-1.5 rounded bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90">
                 <ArrowRight className="h-3.5 w-3.5" /> Advance to {nextState}
@@ -406,7 +410,7 @@ export function PackageDetailDrawer({
               })}
             </ol>
 
-            {nextCapital && !capAdvancing && (
+            {canWrite && nextCapital && !capAdvancing && (
               <button type="button" onClick={() => { setCapAdvancing(true); setCapErr(null); }}
                 className="mt-3 inline-flex items-center gap-1.5 rounded bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90">
                 <ArrowRight className="h-3.5 w-3.5" /> Advance to {CAPITAL_LABEL[nextCapital]}

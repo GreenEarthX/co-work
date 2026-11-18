@@ -51,11 +51,13 @@ async def project_report(project_id: str, request: Request):
     profile = _visible_or_404(project_id, payload)
     persona = persona_for(payload, profile.owner_company_id)
     persona_gates = (await engine_rules()).get("persona_gates", {})
-    snapshot, evaluated_at = await fresh_snapshot(project_id)
+    from app.core import readiness
+    snapshot, evaluated_at, stamp = await readiness.current(project_id)
     return {
         "project_id": project_id,
         "project_name": profile.project_name,
-        "bankability": bankability_view(snapshot, persona, persona_gates, evaluated_at),
+        "readiness": stamp,
+        "bankability": bankability_view(snapshot, persona, persona_gates, evaluated_at, readiness=stamp),
         "open_items": open_items(snapshot, persona, persona_gates, _load_evidence(project_id),
                                  today=date.today().isoformat()),
         "recipients": recipients(project_id),

@@ -258,7 +258,9 @@ def test_every_evaluation_sends_the_cards_to_the_engine(wired, monkeypatch):
     # engine (app/core/contract_tokens.py). These cards were typed by the owner
     # and confirmed by nobody, so every evaluation sends none of them.
     expected = {}
-    assert [p for p, _ in sent] == ["/evaluate", "/evaluate/persona", "/regression/check"]
+    # Since 2026-11-17 (handoff v4 task 1) a persona view is a filter of the ONE stored
+    # snapshot, not an evaluation of its own: with none stored it evaluates once via /evaluate.
+    assert [p for p, _ in sent] == ["/evaluate", "/evaluate", "/regression/check"]
     for _, payload in sent:
         assert payload["terms"] == expected
 

@@ -5,6 +5,7 @@ import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText'
 import { bankabilityAPI } from '@/lib/api'
 import { useSelectedProject } from '@/contexts/ProjectContext'
+import { useDecisionTests, judge, policyLine, type DecisionTest } from '@/lib/decisionPolicy'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -17,7 +18,7 @@ interface Covenant {
   metric: string
   threshold: string
   current_value: string
-  status: 'compliant' | 'warning' | 'breach' | 'not_applicable'
+  status: 'compliant' | 'warning' | 'breach' | 'not_applicable' | 'no_threshold'
   linked_gate?: string
   frequency: string
 }
@@ -41,7 +42,7 @@ interface RegressionRule {
 // COVENANT DEFINITIONS (derived from bankability engine gates)
 // ═══════════════════════════════════════════════════════════════
 
-function deriveCovenants(snapshot: any, _rules: any, cfadsResult?: any): Covenant[] {
+function deriveCovenants(snapshot: any, _rules: any, cfadsResult?: any, dscrTest?: DecisionTest): Covenant[] {
   if (!snapshot) return []
 
   const gates = snapshot.gate_evaluations || []
@@ -57,15 +58,16 @@ function deriveCovenants(snapshot: any, _rules: any, cfadsResult?: any): Covenan
   const dscrValue = cfadsResult?.cfads?.dscr
     ? `${cfadsResult.cfads.dscr.toFixed(2)}x`
     : g8?.is_complete ? 'Not computed — no cashflow basis on file' : 'Pending model audit'
-  const dscrStatus = cfadsResult?.cfads?.dscr
-    ? (cfadsResult.cfads.dscr >= 1.3 ? 'compliant' : cfadsResult.cfads.dscr >= 1.1 ? 'warning' : 'breach')
-    : 'not_applicable'
+  // Judged only against the APPROVED covenant floor (decision test DSCR_COVENANT); no floor is typed here.
+  const outcome = judge(cfadsResult?.cfads?.dscr, dscrTest)
+  const dscrStatus: Covenant['status'] = outcome === 'PASS' ? 'compliant' : outcome === 'FAIL' ? 'breach'
+    : outcome === 'NO_APPROVED_THRESHOLD' ? 'no_threshold' : 'not_applicable'
   covenants.push({
     id: 'cov_dscr',
     name: 'Debt Service Coverage Ratio',
     type: 'financial',
     metric: 'DSCR',
-    threshold: '≥ 1.30x',
+    threshold: policyLine(dscrTest),
     current_value: dscrValue,
     status: dscrStatus,
     linked_gate: 'G8_AUDIT_GRADE_MODEL',
@@ -185,6 +187,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; icon: any }> = {
   warning: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: AlertTriangle },
   breach: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', icon: XCircle },
   not_applicable: { bg: 'bg-gray-50 border-gray-200', text: 'text-gray-500', icon: Shield },
+  no_threshold: { bg: 'bg-slate-50 border-slate-200', text: 'text-slate-700', icon: Shield },
 }
 
 const TYPE_STYLES: Record<string, string> = {
@@ -297,7 +300,8 @@ export function CovenantsPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const covenants = deriveCovenants(snapshot, rules, cfadsResult)
+  const decisionTests = useDecisionTests()
+  const covenants = deriveCovenants(snapshot, rules, cfadsResult, decisionTests.data?.tests.DSCR_COVENANT)
   const regressionRules = rules?.regression_rules || []
 
   // Summary counts

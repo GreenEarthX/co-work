@@ -75,6 +75,7 @@ interface Summary {
   by_phase: Record<string, number>;
   by_state: Record<string, number>;
   fid_readiness_pct: number;
+  pre_fid_withheld?: boolean;
 }
 
 const fmtEur = (n: number) =>
@@ -99,6 +100,9 @@ export function PackageRegister() {
   const queryClient = useQueryClient();
   const projectId = selectedProjectId;
   const projectName = projects.find((p) => p.id === projectId)?.name ?? projectId;
+  // Write controls only for the project's owner (JML, 2026-11-18). Decided by
+  // the server (viewer_is_owner); the server still refuses any other write.
+  const isOwner = projects.find((p) => p.id === projectId)?.viewer_is_owner === true;
 
   const changedBy = authSession?.email ?? role.user_name;
   const actorType = role.company_type;
@@ -134,6 +138,12 @@ export function PackageRegister() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 animate-fade-in py-1">
+      {summary?.pre_fid_withheld && (
+        <div className="rounded border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+          Pre-FID packages (FEL 1, FEL 2, FEED) are not shown and are left out of the totals. They are the
+          owner&apos;s development spend; the owner&apos;s finance or executive function shares them per project.
+        </div>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
@@ -154,13 +164,15 @@ export function PackageRegister() {
           >
             <Link2 className="h-4 w-4" /> {chainOpen ? "Hide" : "Show"} unlock chain
           </button>
-          <button
-            type="button"
-            onClick={() => setFormOpen((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded bg-[var(--brand)] px-3 py-[7px] text-sm font-semibold text-white hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" /> New package
-          </button>
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setFormOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded bg-[var(--brand)] px-3 py-[7px] text-sm font-semibold text-white hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" /> New package
+            </button>
+          )}
         </div>
       </div>
 
@@ -186,7 +198,7 @@ export function PackageRegister() {
         </div>
       )}
 
-      {formOpen && (
+      {formOpen && isOwner && (
         <NewPackageForm
           projectId={projectId}
           defaultOwner={role.company_name}
@@ -223,10 +235,12 @@ export function PackageRegister() {
           <PackageOpen className="h-7 w-7 text-[var(--text-muted)]" />
           <p className="text-sm font-semibold text-[var(--text-primary)]">No packages yet</p>
           <p className="max-w-sm text-[13px] text-[var(--text-secondary)]">
-            The first package is usually <span className="font-mono">DEVEX</span> — owner's engineer and
-            site diligence. Create it to begin the spend → evidence → capital loop.
+            {isOwner
+              ? <>The first package is usually <span className="font-mono">DEVEX</span> — owner's engineer and
+                site diligence. Create it to begin the spend → evidence → capital loop.</>
+              : "The project's owner has recorded no package that is open to you."}
           </p>
-          {!formOpen && (
+          {isOwner && !formOpen && (
             <button
               type="button"
               onClick={() => setFormOpen(true)}
@@ -287,6 +301,7 @@ export function PackageRegister() {
           pkg={openPackage}
           changedBy={changedBy}
           actorType={actorType}
+          canWrite={isOwner}
           onClose={() => setOpenPackage(null)}
           onChanged={() => {
             refreshPackages();

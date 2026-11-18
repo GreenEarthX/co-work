@@ -307,6 +307,47 @@ def _build_plant(req: TEAComputeRequest, units, var_opex, extra_config: dict | N
     return Plant(config), base_ccy
 
 
+def _config_record(req: TEAComputeRequest, units, var_opex) -> dict:
+    """The canonical-mode config as plain data (what OpenPyTEA received, equipment as kwargs)."""
+    a = req.assumptions
+    return {"plant_name": req.pathway_id, "country": req.country, "process_type": req.plant_process_type,
+            "currency": (req.base_currency or "EUR").upper(), "interest_rate": a.discount_rate_pct / 100.0,
+            "plant_utilization": a.capacity_factor, "project_lifetime": a.project_life_years,
+            "variable_opex_inputs": var_opex,
+            "plant_products": {req.fuel_id.lower(): {"production": _nameplate_kg_per_day(req)}},
+            "equipment": [{"name": (u.id[:8] or f"EQ{i}").upper(), "param": u.sizing,
+                           "process_type": u.process_type, "category": u.category,
+                           "type": u.equipment_type, "material": u.material}
+                          for i, u in enumerate(units)]}
+
+
+def _quote_numbers(req: TEAComputeRequest) -> tuple[float, float, float, str, dict]:
+    """Quote mode on the real OpenPyTEA: (capex, opex/yr, lcop, currency, config record)."""
+    from openpytea.plant import Plant
+    from tea_engine import escalation
+    from tea_engine.compute.quote_plant import quote_config
+    escalation.apply()
+    config, equipment = quote_config(req, escalation.target_year())
+    plant = Plant({**config, "equipment": equipment})
+    plant.calculate_all()
+    d = plant.to_dict()
+    capex = float(d["capital_costs"]["fixed_capital"])
+    opex = float(d["variable_opex"]["total"]) + float(d["fixed_opex"]["total"])
+    lcop = float(d["metrics"]["levelized_cost"])
+    return round(capex, 2), round(opex, 2), round(lcop, 4), config["currency"], config
+
+
+def _quote_stub(req: TEAComputeRequest) -> tuple[float, float, float, dict]:
+    """Deterministic stand-in for quote mode (stub path only, labelled engine=stub)."""
+    q = req.quote_plant
+    capex = sum(e.installed_cost for e in q.equipment) * (1 + q.contingency)
+    opex = (sum(v.consumption * v.price for v in q.variable_opex.values()) * 365
+            + q.operators_hired * q.operator_hourly_rate * 1960 + sum(q.fixed_opex_components.values()))
+    out_kg = _nameplate_t_per_year(req) * 1000.0 * req.assumptions.capacity_factor
+    lcop = (capex * req.assumptions.discount_rate_pct / 100.0 + opex) / max(out_kg, 1.0)
+    return round(capex, 2), round(opex, 2), round(lcop, 4), {"stub": True}
+
+
 def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float, str]:
     """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop, currency)."""
     plant, base_ccy = _build_plant(req, units, var_opex)
@@ -340,14 +381,36 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
     nameplate_t = _nameplate_t_per_year(req)   # G2: validates the unit up front (→ 422 on unknown)
     integrity.usd_to_base_rate((req.base_currency or "EUR").upper(), req.fx_usd_to_eur,
                                req.fx_benchmark_usd_to_eur)   # G5: fx band (→ 422)
-    units, var_opex, pf_meta = resolve_process_function(req)
-
-    if _HAS_OPENPYTEA and not _stub_allowed():
-        capex, opex, lcop, currency = _real_numbers(req, units, var_opex)
-        is_stub = False
+    from tea_engine.compute.quote_plant import defaults_used as _defaults_used
+    if req.quote_plant is not None:
+        units, var_opex, pf_meta = [], {}, None
+        if _HAS_OPENPYTEA and not _stub_allowed():
+            capex, opex, lcop, currency, config_record = _quote_numbers(req)
+            is_stub = False
+        else:
+            capex, opex, lcop, config_record = _quote_stub(req)
+            currency, is_stub = (req.base_currency or "EUR").upper(), True
     else:
-        capex, opex, lcop = _stub_numbers(req, units)
-        currency, is_stub = (req.base_currency or "EUR").upper(), True
+        units, var_opex, pf_meta = resolve_process_function(req)
+        config_record = _config_record(req, units, var_opex)
+        if _HAS_OPENPYTEA and not _stub_allowed():
+            capex, opex, lcop, currency = _real_numbers(req, units, var_opex)
+            is_stub = False
+        else:
+            capex, opex, lcop = _stub_numbers(req, units)
+            currency, is_stub = (req.base_currency or "EUR").upper(), True
+    defaults = [] if is_stub else _defaults_used(config_record)
+    feed_balance = []
+    if req.quote_plant is not None:
+        from tea_engine.compute.quote_plant import feedstock_balance, quote_year_defaults
+        feed_balance = feedstock_balance(req)
+        if not is_stub:
+            defaults += quote_year_defaults(req, _escalation_target_year())
+    if req.quote_plant is None and not is_stub:
+        # Canonical mode does NOT pass the stated contingency to OpenPyTEA (its own
+        # default applies). Said, not hidden, until JML decides whether it should.
+        defaults.append({"name": "assumptions.contingency_pct", "value": req.assumptions.contingency_pct,
+                         "basis": "STATED BUT NOT APPLIED: canonical mode uses OpenPyTEA's contingency factor"})
 
     # Co-product revenue credit — the plant sells diesel/naphtha/etc. alongside the
     # primary product. Credit it against OPEX so the TEA treats co-products the same
@@ -400,6 +463,10 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
     calc_boundary = integrity.calculation_boundary(
         pf_meta, len(units), req.fuel_id,
         _pfx.canonical_equipment_count(req.fuel_id), _pfx.canonical_nodes(req.fuel_id))
+    if req.quote_plant is not None:
+        calc_boundary = {"basis": "QUOTE_LINES", "lines": len(req.quote_plant.equipment),
+                         "note": "The caller's own lines, each an installed quote. No canonical "
+                                 "equipment and no purchased feedstock beyond those stated."}
 
     return TEAResult(
         engine=engine_name(),
@@ -438,6 +505,9 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
         plausibility=plausibility,
         cost_basis=cost_basis,
         calculation_boundary=calc_boundary,
+        openpytea_config=None if is_stub else config_record,
+        defaults_used=defaults,
+        feedstock_balance=feed_balance,
     )
 
 

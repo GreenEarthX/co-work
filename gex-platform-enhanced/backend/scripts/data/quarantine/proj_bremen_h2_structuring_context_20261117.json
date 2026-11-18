@@ -1,0 +1,50 @@
+{
+  "quarantined_at": "2026-11-17T14:00:36.557967+00:00",
+  "quarantined_by": "Claude Code session, handoff v4 task 7 (JML runbook)",
+  "reason": "PROVENANCE: the record's structuring inputs were loaded from the Breizh SAF reference case, not from Bremen H2's own records. Breizh SAF is a reference case only (JML).",
+  "provenance_finding": "The row's source column reads 'backend api/v1/routes_structuring.DEMO_CONTEXTS, moved to PostgreSQL 2026-10-25': it began as a hardcoded demo dictionary in code, whose Bremen entry carried the Breizh SAF reference inputs, and was loaded by move_project_datasets_20261025.py from scripts/data/project_datasets_20261025.json. It names no Bremen document and no approver; verification_state UNVERIFIED.",
+  "similarity_note": "9/9 recorded inputs equal tests/fixtures/reference_cases/breizh_saf.json. Similarity is a review flag only; the removal rests on provenance.",
+  "audit_table": "none \u2014 no data-change audit table exists for project_dataset (checked: entitlement_audit, marketplace_record_history, project_premise_change cover other records). This file is the audit copy.",
+  "backup_before_removal": "files/db_backups/daily/gex_platform_2026-11-17_1500.dump (verified)",
+  "payload_sha256": "43f92972beab19343d31ebff29185c757f3e656159607ca489753f09b349fadf",
+  "row": {
+    "project_id": "proj_bremen_h2",
+    "kind": "structuring_context",
+    "payload": {
+      "llcr": 1.41,
+      "wacc": 0.089,
+      "stage": "BUILDABLE",
+      "dscr_p50": 1.34,
+      "dscr_p90": 1.18,
+      "molecule": "H2",
+      "epc_status": "SHORTLISTING",
+      "gate_scores": {
+        "G0": 95,
+        "G1": 88,
+        "G2": 72,
+        "G3": 90,
+        "G4": 78,
+        "G5": 45,
+        "G6": 0,
+        "G7": 55,
+        "G8": 68,
+        "G9": 92,
+        "G10": 0,
+        "G11": 0
+      },
+      "grid_status": "FIRM_OFFER",
+      "jurisdiction": "DE",
+      "cert_readiness": 88,
+      "insurance_status": "QUOTED",
+      "project_size_eur": 180000000,
+      "offtake_coverage_pct": 0.55
+    },
+    "verification_state": "UNVERIFIED",
+    "verified_by": null,
+    "verified_at": null,
+    "source": "backend api/v1/routes_structuring.DEMO_CONTEXTS, moved to PostgreSQL 2026-10-25",
+    "created_at": "2026-10-25T15:59:18.721049+00:00",
+    "created_by": "gex_user",
+    "updated_at": "2026-10-25T15:59:18.721049+00:00"
+  }
+}

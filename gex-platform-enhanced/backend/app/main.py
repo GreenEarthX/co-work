@@ -381,6 +381,30 @@ except ImportError:
     print("⚠️  spend_wave not found - skipping")
 
 try:
+    from app.api.v1.routes_devex_brief import router as devex_brief_router
+    HAS_DEVEX_BRIEF = True
+except ImportError:
+    devex_brief_router = None
+    HAS_DEVEX_BRIEF = False
+    print("⚠️  routes_devex_brief not found - skipping")
+
+try:
+    from app.api.v1.routes_calculation_chain import (chain_router as calc_chain_router,
+                                                     cost_basis_router, review_router as tea_review_router)
+    HAS_CALC_CHAIN = True
+except ImportError:
+    HAS_CALC_CHAIN = False
+    print("⚠️  routes_calculation_chain not found - skipping")
+
+try:
+    from app.api.v1.routes_returns_cases import router as returns_cases_router
+    HAS_RETURNS_CASES = True
+except ImportError:
+    returns_cases_router = None
+    HAS_RETURNS_CASES = False
+    print("⚠️  routes_returns_cases not found - skipping")
+
+try:
     from app.api.v1.drawdown_schedule import router as drawdown_router, init_db as drawdown_init_db
     drawdown_init_db()
     HAS_DRAWDOWN = True
@@ -640,6 +664,16 @@ async def shutdown_event_bus():
 if HAS_ABAC_MIDDLEWARE and settings.ENABLE_ABAC_MIDDLEWARE:
     app.add_middleware(ABACMiddleware, phase=settings.ABAC_PHASE)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+@app.middleware("http")
+async def no_store_for_pre_fid_and_returns(request, call_next):
+    """Cache-Control: no-store on pre-FID, derived and returns responses (app/core/no_store.py)."""
+    from app.core import no_store
+    response = await call_next(request)
+    if no_store.applies(request.url.path):
+        response.headers["Cache-Control"] = no_store.NO_STORE
+    return response
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -778,6 +812,8 @@ if HAS_ECOSYSTEM:
     app.include_router(routes_ecosystem.router, prefix="/api/v1", tags=["Ecosystem Navigator"])
 
 from app.api.v1.routes_projects import router as projects_router
+from app.api.v1.routes_decision_tests import router as decision_tests_router
+app.include_router(decision_tests_router)
 app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
 # Bankability reports (JML 2026-10-28): the pull report, designated executives
 # and the in-app notifications pushed on every re-evaluation that moves something.
@@ -887,6 +923,20 @@ if HAS_CAPITAL_BRIDGE:
 # ── Spend Wave + Drawdown Schedule (Bridge Doc v4.1) ──
 if HAS_SPEND_WAVE:
     app.include_router(spend_wave_router, tags=["Spend Wave"])
+
+# ── DEVEX brief: producer view and producer-approved, per-section shares ──
+if HAS_DEVEX_BRIEF:
+    app.include_router(devex_brief_router)
+
+# ── Published returns cases: owner-published, versioned, shared per version ──
+if HAS_RETURNS_CASES:
+    app.include_router(returns_cases_router)
+
+# ── The calculation chain: saved cost basis -> reviewed TEA -> financing -> returns ──
+if HAS_CALC_CHAIN:
+    app.include_router(cost_basis_router)
+    app.include_router(tea_review_router)
+    app.include_router(calc_chain_router)
 
 if HAS_DRAWDOWN:
     app.include_router(drawdown_router, tags=["Drawdown Schedule"])

@@ -104,3 +104,27 @@ describe('Deals', () => {
     expect(screen.queryByRole('button', { name: 'Share contact' })).toBeNull()
   })
 })
+
+describe('Changed since you looked (check 9)', () => {
+  it('tells the asker what changed since its assessment, and nothing when nothing did', async () => {
+    const change = { status_then: 'compatible', status_now: 'incompatible', eligible_now: false, purpose: 'enquiry',
+      assessed_at: '2026-11-14T10:00:00Z', assessment_id: 'a1', listing_state_now: 'OPEN', listing_fields: ['product'],
+      outcomes: [{ requirement: 'max_ci_gco2e_mj', label: 'Carbon intensity', then: 'compatible', now: 'incompatible',
+        reason_now: 'CI 40 gCO2e/MJ exceeds your 28.2 limit.' }] }
+    serve(['enquiry.send'], { ...RECEIVED, role: 'sent', changed_since_assessed: change,
+      can: { reply: true, share_contact: false, decline: false, withdraw: true } })
+    deals('/deals/e1')
+    const box = await screen.findByTestId('changed-since')
+    expect(within(box).getByText(/Compatible → Incompatible · now excluded by a required item/)).toBeInTheDocument()
+    expect(within(box).getByText(/Carbon intensity: Compatible → Incompatible\. CI 40/)).toBeInTheDocument()
+    expect(within(box).getByText('Changed on the listing: product evidence.')).toBeInTheDocument()
+  })
+
+  it('shows nothing when the assessment still holds', async () => {
+    serve(['enquiry.send'], { ...RECEIVED, role: 'sent', changed_since_assessed: null,
+      can: { reply: true, share_contact: false, decline: false, withdraw: true } })
+    deals('/deals/e1')
+    await screen.findByTestId('counterparty')
+    expect(screen.queryByTestId('changed-since')).toBeNull()
+  })
+})

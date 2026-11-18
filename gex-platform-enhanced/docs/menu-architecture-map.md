@@ -227,24 +227,25 @@ Further reduction below ~28–30 requires the **portfolio-vs-project** split
 > which CTRM functions exist? Advisory (does not gate access), but it answers
 > the buy-side / CTRM diligence question the access audit cannot.
 
-### Commercial workspace (13 doors)
+### Commercial workspace (14 doors)
 
 ```mermaid
 flowchart TD
-  COM[Commercial · 13 doors]
+  COM[Commercial · 14 doors]
   COM --> D0["Commercial Overview → /marketplace"]:::ok
   COM --> D1["Purchase → /offtaker-supply"]:::ok
   COM --> D2["Sales → /finance-demand"]:::ok
   COM --> D3["Offtake Quality → /offtake-quality"]:::ok
   COM --> D4["Market Discovery → /market-discovery"]:::ok
   COM --> D5["RFQs → /rfqs"]:::ok
-  COM --> D6["Counterparties → /counterparties"]:::ok
-  COM --> D7["Your Matches → /matching"]:::ok
-  COM --> D8["RFQ Management → /trader-dashboard"]:::ok
-  COM --> D9["Contracts → /contracts"]:::ok
-  COM --> D10["Term Sheet Tracker → /term-sheet"]:::ok
-  COM --> D11["Delivery & Settlement → /settlement"]:::ok
-  COM --> D12["Capacity & Logistics → /capacity"]:::ok
+  COM --> D6["Deals → /deals"]:::ok
+  COM --> D7["Counterparties → /counterparties"]:::ok
+  COM --> D8["Your Matches → /matching"]:::ok
+  COM --> D9["RFQ Management → /trader-dashboard"]:::ok
+  COM --> D10["Contracts → /contracts"]:::ok
+  COM --> D11["Term Sheet Tracker → /term-sheet"]:::ok
+  COM --> D12["Delivery & Settlement → /settlement"]:::ok
+  COM --> D13["Capacity & Logistics → /capacity"]:::ok
   COM -.->|Optional (post-v1)| GP0[[Deal capture / blotter — ABSENT]]:::gap
   COM -.->|Not intended — integrate external CTRM| GP1[[Position book / net exposure — ABSENT]]:::gap
   COM -.->|Not intended — integrate external CTRM| GP2[[Mark-to-market / P&L — ABSENT]]:::gap
@@ -350,6 +351,8 @@ stamping is the next tightening before the gate can fail the build.
 | Sources & Uses coverage (SUC ratio) | 🟠 engine-only | — | present |
 | Sources & Uses statement (itemized) | 🟠 engine-only | — | v1 — build (no engine primitive yet) |
 | Covenant package | ✅ UI | 🟢 governed | present + stamped |
+| Returns (unlevered / levered IRR, NPV, ROI, ROE) | ✅ UI | 🟢 governed | present + stamped |
+| Hurdle rate (WACC + premium; cost of equity) | ✅ UI | 🟢 governed | present + stamped |
 | Hedging (rate / FX / power) | 🟠 engine-only | — | Optional (post-v1) |
 | Refinancing / mini-perm | ⛔ absent | — | Optional (post-v1) |
 

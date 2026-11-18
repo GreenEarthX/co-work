@@ -26,15 +26,24 @@ logger = logging.getLogger("gex.structuring_engine")
 @dataclass
 class Gap:
     gap_id: str
-    gap_type: str  # OFFTAKE | CERTIFICATION | EPC_WRAP | INSURANCE | FINANCIAL_MODEL | GRID | PERMITS | CAPITAL | REGULATORY
-    severity: str  # BLOCKING | DEGRADING | ADVISORY
+    gap_type: str  # OFFTAKE | CERTIFICATION | EPC_WRAP | INSURANCE | GRID | CAPITAL | REGULATORY
+    severity: str  # BLOCKING | DEGRADING | ADVISORY | NOT_JUDGED
     description: str
     current_value: str
     required_value: str
     delta: str
     affected_gates: list[str]
-    affected_metrics: list[str]  # DSCR | LLCR | WACC | COVERAGE
+    affected_metrics: list[str]  # DSCR | WACC | COVERAGE
     risk_category: str  # maps to RiskCategory
+    # What the gap concerns (task 3, one mapping table: GAP_MAPPING below).
+    kind: str = "REQUIREMENT"            # REQUIREMENT | COMMITMENT | DECISION_TEST
+    requirement_key: Optional[str] = None
+    requirement_label: Optional[str] = None
+    gate_id: Optional[str] = None
+    gate_name: Optional[str] = None
+    gate_remaining_requirements: list[str] = field(default_factory=list)
+    decision_test: Optional[dict] = None
+    capital_decisions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -73,10 +82,12 @@ class DeRiskingPackage:
     total_rate_reduction_bps: int
     before_wacc_pct: float
     after_wacc_pct: float
-    before_dscr: float
-    after_dscr: float
-    before_state: str
-    projected_state: str
+    before_dscr: Optional[float]
+    after_dscr: Optional[float]
+    current_state: Optional[str]          # the engine's, unchanged by any package
+    conditional_outcome: dict             # what would have to complete; never achieved
+    estimates: dict                       # after-figures: ESTIMATE, with the method
+    gaps_targeted: list[str]
     gaps_remaining: list[str]
     stackability_warnings: list[str]
     created_at: str
@@ -141,147 +152,85 @@ class StructuringEngine:
         self._pricing = risk_pricing_db
         self._demand = demand_aggregation
 
-    def analyze_gaps(
-        self,
-        project_id: str,
-        gate_scores: dict[str, int],
-        bankability_state: str,
-        dscr_p50: float,
-        dscr_p90: float,
-        llcr: float,
-        wacc: float,
-        offtake_coverage_pct: float,
-        cert_readiness: int,
-        epc_status: str,
-        insurance_status: str,
-        grid_status: str,
-        jurisdiction: str,
-    ) -> list[Gap]:
-        gaps = []
+    def analyze_gaps(self, project_id: str, context: dict, policies: Optional[dict] = None) -> list[Gap]:
+        """Gaps, each following what it concerns (tasks 2 and 3).
 
-        # Offtake gap
-        if offtake_coverage_pct < 0.70:
+        REQUIREMENT  one per open requirement of G1, G2, G4, G5, G7, in the engine's
+                     words. It closes only when that requirement is verified; the
+                     gate stays incomplete until all its applicable requirements are.
+        COMMITMENT   a gate's open commitment or coherence reason (engine words).
+        DECISION_TEST  DSCR, WACC, offtake coverage, regulatory premium: a metric
+                     against an attributed policy value. It feeds the capital
+                     decision it affects, never a gate. No approved value: NOT_JUDGED.
+        """
+        from app.core import decision_policy as dp
+
+        snapshot = context.get("_snapshot") or {}
+        gaps: list[Gap] = []
+        for gate in snapshot.get("gate_evaluations", []):
+            mapping = GAP_MAPPING["requirements"].get(gate["gate_id"])
+            if not mapping or gate.get("determination") in ("SATISFIED", "WAIVED"):
+                continue
+            short = gate["gate_id"].split("_")[0]
+            details = {d["key"]: d for d in gate.get("evidence_detail", [])}
+            open_keys = [k for k in gate.get("blocking_items") or []
+                         if details.get(k, {}).get("applicable", True)]
+            remaining = [details.get(k, {}).get("label") or k for k in open_keys]
+            for key in open_keys:
+                d = details.get(key, {})
+                gaps.append(Gap(
+                    gap_id=f"GAP_{short}_{key}", gap_type=mapping["gap_type"],
+                    severity=_SEVERITY.get(d.get("severity"), "DEGRADING"),
+                    description=f"{gate['gate_name']}: {d.get('label') or key} — {d.get('status') or 'NOT_STARTED'}",
+                    current_value=d.get("status") or "NOT_STARTED",
+                    required_value=("VERIFIED" + (f" at {d['required_maturity']}" if d.get("required_maturity") else "")),
+                    delta="Requirement not yet verified",
+                    affected_gates=[short], affected_metrics=[], risk_category=mapping["risk_category"],
+                    kind="REQUIREMENT", requirement_key=key, requirement_label=d.get("label") or key,
+                    gate_id=gate["gate_id"], gate_name=gate["gate_name"],
+                    gate_remaining_requirements=remaining,
+                ))
+            for i, reason in enumerate(gate.get("blocked_reasons") or []):
+                gaps.append(Gap(
+                    gap_id=f"GAP_{short}_REASON_{i}", gap_type=mapping["gap_type"], severity="BLOCKING",
+                    description=f"{gate['gate_name']}: {reason}", current_value=reason,
+                    required_value="Resolved in the engine's evaluation", delta=reason,
+                    affected_gates=[short], affected_metrics=[], risk_category=mapping["risk_category"],
+                    kind="COMMITMENT", gate_id=gate["gate_id"], gate_name=gate["gate_name"],
+                    gate_remaining_requirements=remaining,
+                ))
+
+        # Decision tests: the metric is always shown; judged only against an approved value.
+        policies = policies or {}
+        reg_premium = self._pricing.get_regulatory_risk_premium(context.get("jurisdiction") or "")
+        metrics = {
+            "DSCR_P50": context.get("dscr_p50"), "DSCR_P90": context.get("dscr_p90"),
+            "WACC": context.get("wacc"), "OFFTAKE_COVERAGE": context.get("offtake_coverage_pct"),
+            "REGULATORY_PREMIUM": (reg_premium / 10_000.0) if reg_premium is not None else None,
+        }
+        g4 = next((g for g in snapshot.get("gate_evaluations", []) if g["gate_id"] == "G4_OFFTAKE_BANKABLE"), None)
+        g4_open = list((g4 or {}).get("blocking_items") or [])
+        for test_id, value in metrics.items():
+            spec = GAP_MAPPING["decision_tests"][test_id]
+            result = dp.evaluate(test_id, value, policy=policies.get(dp.DECISION_TESTS[test_id]["policy_key"]))
+            if result["outcome"] == dp.PASS:
+                continue
+            severity = {dp.FAIL: "BLOCKING", dp.NO_THRESHOLD: "NOT_JUDGED",
+                        dp.NOT_ASSESSABLE: "NOT_JUDGED"}[result["outcome"]]
             gaps.append(Gap(
-                gap_id="GAP_OFFTAKE",
-                gap_type="OFFTAKE",
-                severity="BLOCKING",
-                description=f"Offtake coverage {offtake_coverage_pct:.0%} below 70% minimum",
-                current_value=f"{offtake_coverage_pct:.0%}",
-                required_value="70-85%",
-                delta=f"{0.70 - offtake_coverage_pct:.0%} shortfall",
-                affected_gates=["G4"],
-                affected_metrics=["DSCR", "COVERAGE"],
-                risk_category="OFFTAKE",
+                gap_id=f"GAP_TEST_{test_id}", gap_type=spec["gap_type"], severity=severity,
+                description=f"{result['label']}: {result['message']}",
+                current_value="missing" if value is None else f"{value:g}",
+                required_value=(f"{result['comparator']} {result['policy']['value']:g} "
+                                f"({result['policy']['status']})" if result.get("policy") else result["message"]),
+                delta=result["message"], affected_gates=[], affected_metrics=spec["metrics"],
+                risk_category=spec["risk_category"], kind="DECISION_TEST", decision_test=result,
+                capital_decisions=result["capital_decisions"],
+                # Offtake coverage stays a recorded figure; its gap names the G4 requirements it concerns.
+                gate_remaining_requirements=g4_open if test_id == "OFFTAKE_COVERAGE" else [],
             ))
-
-        # DSCR gap
-        if dscr_p50 < 1.30:
-            severity = "BLOCKING" if dscr_p50 < 1.20 else "DEGRADING"
-            gaps.append(Gap(
-                gap_id="GAP_DSCR",
-                gap_type="CAPITAL",
-                severity=severity,
-                description=f"DSCR P50 {dscr_p50:.2f}x below 1.30x target",
-                current_value=f"{dscr_p50:.2f}x",
-                required_value="1.30x (P50) / 1.20x (P90)",
-                delta=f"{1.30 - dscr_p50:.2f}x shortfall",
-                affected_gates=["G8", "G10"],
-                affected_metrics=["DSCR"],
-                risk_category="INTEREST_RATE",
-            ))
-
-        # WACC gap
-        if wacc > 0.080:
-            gaps.append(Gap(
-                gap_id="GAP_WACC",
-                gap_type="CAPITAL",
-                severity="DEGRADING",
-                description=f"WACC {wacc:.1%} above 8.0% target — compressing returns",
-                current_value=f"{wacc:.1%}",
-                required_value="<8.0%",
-                delta=f"+{(wacc - 0.080)*10000:.0f}bps above target",
-                affected_gates=["G6", "G8", "G10"],
-                affected_metrics=["WACC", "DSCR"],
-                risk_category="INTEREST_RATE",
-            ))
-
-        # Certification gap
-        if cert_readiness < 80:
-            gaps.append(Gap(
-                gap_id="GAP_CERTIFICATION",
-                gap_type="CERTIFICATION",
-                severity="BLOCKING" if cert_readiness < 60 else "DEGRADING",
-                description=f"Certification readiness {cert_readiness}/100 below 80 threshold",
-                current_value=f"{cert_readiness}/100",
-                required_value="80/100",
-                delta=f"{80 - cert_readiness} points shortfall",
-                affected_gates=["G2"],
-                affected_metrics=["DSCR"],
-                risk_category="CERTIFICATION",
-            ))
-
-        # EPC gap
-        if epc_status in ["NOT_STARTED", "PENDING", "SHORTLISTING"]:
-            gaps.append(Gap(
-                gap_id="GAP_EPC",
-                gap_type="EPC_WRAP",
-                severity="BLOCKING" if epc_status == "NOT_STARTED" else "DEGRADING",
-                description=f"EPC status: {epc_status} — no performance guarantees available",
-                current_value=epc_status,
-                required_value="CONTRACT_EXECUTED",
-                delta="EPC contract + performance guarantees required",
-                affected_gates=["G5", "G6"],
-                affected_metrics=["DSCR"],
-                risk_category="CONSTRUCTION",
-            ))
-
-        # Insurance gap
-        if insurance_status not in ["PLACED", "BOUND"]:
-            gaps.append(Gap(
-                gap_id="GAP_INSURANCE",
-                gap_type="INSURANCE",
-                severity="DEGRADING",
-                description=f"Insurance status: {insurance_status} — G7 incomplete",
-                current_value=insurance_status,
-                required_value="PLACED",
-                delta="CAR/DSU + performance + marine required",
-                affected_gates=["G7"],
-                affected_metrics=["DSCR"],
-                risk_category="CONSTRUCTION",
-            ))
-
-        # Grid gap
-        if grid_status not in ["CONNECTED", "FIRM_OFFER"]:
-            gaps.append(Gap(
-                gap_id="GAP_GRID",
-                gap_type="GRID",
-                severity="BLOCKING" if grid_status == "NOT_APPLIED" else "DEGRADING",
-                description=f"Grid status: {grid_status}",
-                current_value=grid_status,
-                required_value="FIRM_OFFER or CONNECTED",
-                delta="Grid connection required for COD",
-                affected_gates=["G1"],
-                affected_metrics=["DSCR"],
-                risk_category="GRID",
-            ))
-
-        # Regulatory risk (jurisdiction-based)
-        reg_premium = self._pricing.get_regulatory_risk_premium(jurisdiction)
-        if reg_premium > 30:
-            gaps.append(Gap(
-                gap_id="GAP_REGULATORY",
-                gap_type="REGULATORY",
-                severity="DEGRADING" if reg_premium < 80 else "BLOCKING",
-                description=f"Jurisdiction {jurisdiction} carries +{reg_premium}bps regulatory risk premium",
-                current_value=f"+{reg_premium}bps",
-                required_value="<30bps for investment-grade jurisdictions",
-                delta=f"+{reg_premium - 30}bps above threshold",
-                affected_gates=["G8", "G10"],
-                affected_metrics=["WACC"],
-                risk_category="REGULATORY",
-            ))
-
-        gaps.sort(key=lambda g: {"BLOCKING": 0, "DEGRADING": 1, "ADVISORY": 2}[g.severity])
+        order = {"BLOCKING": 0, "DEGRADING": 1, "ADVISORY": 2, "NOT_JUDGED": 3}
+        gaps.sort(key=lambda g: order[g.severity])
         return gaps
 
     def match_instruments(
@@ -344,76 +293,45 @@ class StructuringEngine:
             f"{inst.cost_bps}bps cost. Coverage up to {inst.max_coverage_pct:.0%}."
         )
 
-    def assemble_package(
-        self,
-        project_id: str,
-        selected_instrument_ids: list[str],
-        current_wacc: float,
-        current_dscr: float,
-        current_state: str,
-        gaps: list[Gap],
-    ) -> DeRiskingPackage:
+    def assemble_package(self, project_id: str, selected_instrument_ids: list[str],
+                         current_wacc: Optional[float], current_dscr: Optional[float],
+                         context: dict, gaps: list[Gap]) -> DeRiskingPackage:
+        """A package of instruments. It changes no state, closes no gap, completes no
+        requirement and passes no decision test (task 4): its after-figures are
+        ESTIMATES with the method shown, and the next state is conditional."""
         from app.core.instrument_registry import get_instrument_registry
         registry = get_instrument_registry()
 
         stackability = registry.check_stackability(selected_instrument_ids)
-        items = []
-        total_cost = 0
-        total_reduction = 0
-        gaps_addressed = set()
-
+        items, total_cost, total_reduction, targeted = [], 0, 0, set()
         for inst_id in selected_instrument_ids:
             inst = registry.get(inst_id)
             if not inst:
                 continue
-
             addressed = [g.gap_id for g in gaps if g.risk_category in [r.value for r in inst.risks_addressed]]
-            gaps_addressed.update(addressed)
-
+            targeted.update(addressed)
             items.append(PackageItem(
-                instrument_id=inst.id,
-                instrument_name=inst.name,
-                instrument_type=inst.type.value,
-                provider=inst.provider,
-                coverage_pct=inst.max_coverage_pct,
-                cost_bps=inst.cost_bps,
-                rate_reduction_bps=inst.effective_rate_reduction_bps,
-                gaps_addressed=addressed,
-                application_deadline=inst.application_window,
-                status="RECOMMENDED",
-            ))
+                instrument_id=inst.id, instrument_name=inst.name, instrument_type=inst.type.value,
+                provider=inst.provider, coverage_pct=inst.max_coverage_pct, cost_bps=inst.cost_bps,
+                rate_reduction_bps=inst.effective_rate_reduction_bps, gaps_addressed=addressed,
+                application_deadline=inst.application_window, status="RECOMMENDED"))
             total_cost += inst.cost_bps
             total_reduction += int(inst.effective_rate_reduction_bps * inst.max_coverage_pct)
 
-        # Compute after-metrics (simplified — production would call PF Engine)
-        after_wacc = current_wacc - (total_reduction / 10000)
-        after_dscr = current_dscr + (total_reduction * 0.0008)
-
-        # Project state transition
-        projected_state = current_state
-        if after_dscr >= 1.30 and len([g for g in gaps if g.severity == "BLOCKING" and g.gap_id not in gaps_addressed]) == 0:
-            state_map = {
-                "BUILDABLE": "STRUCTURALLY_BANKABLE",
-                "STRUCTURALLY_BANKABLE": "CREDIT_APPROVED",
-                "COMMERCIALLY_PLAUSIBLE": "BUILDABLE",
-            }
-            projected_state = state_map.get(current_state, current_state)
-
-        remaining = [g.gap_id for g in gaps if g.gap_id not in gaps_addressed]
-
+        estimates = package_estimates(current_wacc, current_dscr, context.get("dscr_p90"), total_reduction)
+        snapshot = context.get("_snapshot") or {}
         return DeRiskingPackage(
             package_id=f"PKG-{project_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}",
-            project_id=project_id,
-            items=items,
-            total_cost_bps=total_cost,
+            project_id=project_id, items=items, total_cost_bps=total_cost,
             total_rate_reduction_bps=total_reduction,
-            before_wacc_pct=round(current_wacc * 100, 2),
-            after_wacc_pct=round(after_wacc * 100, 2),
-            before_dscr=current_dscr,
-            after_dscr=round(after_dscr, 3),
-            before_state=current_state,
-            projected_state=projected_state,
-            gaps_remaining=remaining,
+            before_wacc_pct=None if current_wacc is None else round(current_wacc * 100, 2),
+            after_wacc_pct=estimates["wacc_pct"]["value"],
+            before_dscr=current_dscr, after_dscr=estimates["dscr_p50"]["value"],
+            current_state=snapshot.get("current_state"),
+            conditional_outcome=conditional_outcome(snapshot, context.get("rules")),
+            estimates=estimates,
+            gaps_targeted=sorted(targeted),
+            gaps_remaining=[g.gap_id for g in gaps],
             stackability_warnings=stackability.warnings,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -541,102 +459,103 @@ class StructuringEngine:
         inst = self._registry.get(instrument_id)
         return inst.application_lead_time_weeks if inst else 12
 
-    def recommend(
-        self,
-        project_id: str,
-        jurisdiction: str,
-        molecule: str,
-        stage: str,
-        project_size_eur: int,
-        gate_scores: dict[str, int],
-        dscr_p50: float,
-        dscr_p90: float,
-        llcr: float,
-        wacc: float,
-        offtake_coverage_pct: float,
-        cert_readiness: int,
-        epc_status: str,
-        insurance_status: str,
-        grid_status: str,
-    ) -> StructuringRecommendation:
-        """
-        The full pipeline: gaps → instruments → package → allocation → timeline.
-        Returns a single, governed recommendation.
-        """
-        # Step 1: Gap analysis
-        gaps = self.analyze_gaps(
-            project_id, gate_scores, stage, dscr_p50, dscr_p90,
-            llcr, wacc, offtake_coverage_pct, cert_readiness,
-            epc_status, insurance_status, grid_status, jurisdiction,
-        )
-
-        # Step 2: Match instruments
-        matches = self.match_instruments(
-            project_id, gaps, jurisdiction, molecule, stage, project_size_eur,
-        )
-
-        # Step 3: Auto-select top instrument per gap (analyst can override)
-        selected_ids = []
-        seen_gaps = set()
+    def recommend(self, project_id: str, context: dict, policies: Optional[dict] = None) -> StructuringRecommendation:
+        """gaps -> instruments -> package -> allocation -> timeline. The state stays the engine's."""
+        gaps = self.analyze_gaps(project_id, context, policies)
+        matches = self.match_instruments(project_id, gaps, context.get("jurisdiction"), context.get("molecule"),
+                                         context.get("stage"), context.get("project_size_eur") or 0)
+        selected_ids, seen = [], set()
         for match in matches:
-            if match.gap_id not in seen_gaps and match.relevance_score >= 50:
+            if match.gap_id not in seen and match.relevance_score >= 50:
                 selected_ids.append(match.instrument_id)
-                seen_gaps.add(match.gap_id)
-
-        # Deduplicate
+                seen.add(match.gap_id)
         selected_ids = list(dict.fromkeys(selected_ids))
-
-        # Step 4: Assemble package
-        package = self.assemble_package(
-            project_id, selected_ids, wacc, dscr_p50, stage, gaps,
-        )
-
-        # Step 5: Risk allocation
+        package = self.assemble_package(project_id, selected_ids, context.get("wacc"), context.get("dscr_p50"),
+                                        context, gaps)
         allocation = self.allocate_risks(project_id, package, gaps)
-
-        # Step 6: Timeline
         timeline = self.sequence_timeline(project_id, package)
-
-        # Step 7: Summary
-        blocking_count = sum(1 for g in gaps if g.severity == "BLOCKING")
-        summary = (
-            f"Project has {len(gaps)} gaps ({blocking_count} blocking). "
-            f"Recommended package of {len(package.items)} instruments "
-            f"reduces WACC from {package.before_wacc_pct:.1f}% to {package.after_wacc_pct:.1f}%, "
-            f"improves DSCR from {package.before_dscr:.2f}x to {package.after_dscr:.2f}x"
-        )
-        if package.projected_state != package.before_state:
-            summary += f", advancing project from {package.before_state} to {package.projected_state}"
-        summary += "."
-
-        if package.gaps_remaining:
-            summary += f" {len(package.gaps_remaining)} gaps remain unaddressed."
-
+        blocking = sum(1 for g in gaps if g.severity == "BLOCKING")
+        not_judged = sum(1 for g in gaps if g.severity == "NOT_JUDGED")
+        summary = (f"{len(gaps)} gaps ({blocking} blocking, {not_judged} not judged for want of an approved "
+                   f"threshold or an input). {len(package.items)} instruments targeted. The state stays "
+                   f"{package.current_state or 'not evaluated'} until the engine finds the requirements verified; "
+                   f"the after-figures are estimates.")
         return StructuringRecommendation(
-            project_id=project_id,
-            summary=summary,
-            gaps=gaps,
-            matched_instruments=matches,
-            package=package,
-            risk_allocation=allocation,
-            timeline=timeline,
-            before_metrics={
-                "wacc_pct": round(wacc * 100, 2),
-                "dscr_p50": dscr_p50,
-                "dscr_p90": dscr_p90,
-                "llcr": llcr,
-                "state": stage,
-            },
-            after_metrics={
-                "wacc_pct": package.after_wacc_pct,
-                "dscr_p50": package.after_dscr,
-                "dscr_p90": round(dscr_p90 + (package.total_rate_reduction_bps * 0.0006), 3),
-                "llcr": round(llcr + (package.total_rate_reduction_bps * 0.0005), 3),
-                "state": package.projected_state,
-            },
-            workflow_state="DRAFT",
-            created_at=datetime.now(timezone.utc).isoformat(),
+            project_id=project_id, summary=summary, gaps=gaps, matched_instruments=matches,
+            package=package, risk_allocation=allocation, timeline=timeline,
+            before_metrics={"wacc": context.get("wacc"), "dscr_p50": context.get("dscr_p50"),
+                            "dscr_p90": context.get("dscr_p90"), "llcr": None,
+                            "state": package.current_state},
+            after_metrics=package.estimates,
+            workflow_state="DRAFT", created_at=datetime.now(timezone.utc).isoformat(),
         )
+
+
+# ── One mapping table (task 3; documented in docs/structuring_gap_mapping.md) ──
+# Requirement gaps follow the gate whose evidence they concern. Metric gaps are
+# decision tests and follow the capital decision they affect (decision_policy).
+GAP_MAPPING = {
+    "requirements": {
+        "G1_GRID_UTILITIES_REALITY":    {"gap_type": "GRID", "risk_category": "GRID"},
+        "G2_CERTIFICATION_PATH_LOCKED": {"gap_type": "CERTIFICATION", "risk_category": "CERTIFICATION"},
+        "G4_OFFTAKE_BANKABLE":          {"gap_type": "OFFTAKE", "risk_category": "OFFTAKE"},
+        "G5_EPC_RISK_PRICED":           {"gap_type": "EPC_WRAP", "risk_category": "CONSTRUCTION"},
+        "G7_INSURANCE_BOUND":           {"gap_type": "INSURANCE", "risk_category": "CONSTRUCTION"},
+    },
+    "decision_tests": {
+        "DSCR_P50": {"gap_type": "CAPITAL", "risk_category": "INTEREST_RATE", "metrics": ["DSCR"]},
+        "DSCR_P90": {"gap_type": "CAPITAL", "risk_category": "INTEREST_RATE", "metrics": ["DSCR"]},
+        "WACC": {"gap_type": "CAPITAL", "risk_category": "INTEREST_RATE", "metrics": ["WACC"]},
+        "OFFTAKE_COVERAGE": {"gap_type": "OFFTAKE", "risk_category": "OFFTAKE", "metrics": ["COVERAGE"]},
+        "REGULATORY_PREMIUM": {"gap_type": "REGULATORY", "risk_category": "REGULATORY", "metrics": ["WACC"]},
+    },
+}
+_SEVERITY = {"deal_killer": "BLOCKING", "warning": "DEGRADING", "advisory": "ADVISORY"}
+
+ESTIMATE_METHOD = ("ESTIMATE, not a PF-engine result: WACC less the package's coverage-weighted "
+                   "rate reduction; DSCR raised by 0.0008x per bp (P50) and 0.0006x per bp (P90), linear "
+                   "proxies with no cash-flow model. An estimate never changes a state, closes a gap, "
+                   "completes a requirement or passes a decision test.")
+
+
+def package_estimates(wacc: Optional[float], dscr_p50: Optional[float], dscr_p90: Optional[float],
+                      reduction_bps: int) -> dict:
+    def est(value, label):
+        return {"value": value, "basis": "ESTIMATE" if value is not None else "NOT_ASSESSABLE", "label": label}
+    return {
+        "method": ESTIMATE_METHOD,
+        "wacc_pct": est(None if wacc is None else round((wacc - reduction_bps / 10_000) * 100, 2), "WACC after package"),
+        "dscr_p50": est(None if dscr_p50 is None else round(dscr_p50 + reduction_bps * 0.0008, 3), "DSCR P50 after package"),
+        "dscr_p90": est(None if dscr_p90 is None else round(dscr_p90 + reduction_bps * 0.0006, 3), "DSCR P90 after package"),
+        "llcr": {"value": None, "basis": "UNAVAILABLE",
+                 "label": "LLCR is computed by the PF engine on a returns case; no estimate is shown"},
+    }
+
+
+def conditional_outcome(snapshot: dict, rules: Optional[dict] = None) -> dict:
+    """What the next state would need, in the engine's words. Never achieved."""
+    if not snapshot:
+        return {"label": "conditional — not achieved", "status": "NOT_EVALUATED", "gates": []}
+    nxt = snapshot.get("next_state")
+    required = (rules or {}).get("state_requirements", {}).get(nxt) if nxt else None
+    gate_ids = required if required is not None else (snapshot.get("gates_blocking_next_state") or [])
+    gates = []
+    for g in snapshot.get("gate_evaluations", []):
+        if g["gate_id"] in gate_ids and g.get("determination") not in ("SATISFIED", "WAIVED"):
+            details = {d["key"]: d for d in g.get("evidence_detail", [])}
+            gates.append({"gate_id": g["gate_id"], "gate_name": g["gate_name"],
+                          "open_requirements": [details.get(k, {}).get("label") or k
+                                                for k in g.get("blocking_items") or []],
+                          "open_reasons": list(g.get("blocked_reasons") or [])})
+    return {
+        "label": "conditional — not achieved",
+        "current_state": snapshot.get("current_state"),
+        "would_follow": nxt, "would_follow_label": snapshot.get("next_state_label"),
+        "state_requirements_source": "engine /rules state_requirements" if required is not None else
+                                     "engine snapshot gates_blocking_next_state",
+        "gates": gates,
+        "commitments": list(snapshot.get("commitments_blocking_next_state") or []),
+    }
 
 
 # ── Singleton ──

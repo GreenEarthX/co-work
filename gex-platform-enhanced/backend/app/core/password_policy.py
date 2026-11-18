@@ -36,9 +36,10 @@ THE ONE EXEMPTION, STATED RATHER THAN HIDDEN
 Demo-user seeding (`auth._seed_user`) hashes `DEMO_PASSWORD` directly and does
 not come through here, so the shared `demo1234` still works. That is
 deliberate — the demo accounts exist to be logged into from a README — and it
-is safe only because `GEX_SEED_DEMO_USERS=0` disables the whole seed set in
-production. If that variable is ever not set in a real deployment, the policy
-below is irrelevant: there are seventeen accounts with a known password.
+is safe only because seeding is OFF unless `GEX_SEED_DEMO_USERS` is explicitly
+enabled, a production environment refuses to start with it enabled
+(`config.py`), and it only CREATES a missing account — it never resets an
+existing account's password (JML, 2026-11-18).
 
 USAGE
 

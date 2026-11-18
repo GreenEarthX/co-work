@@ -11,7 +11,7 @@ from app.core.project_truth import build_deal_killer_project_data
 # The project's structuring context, from PostgreSQL (404 when not recorded).
 # eligible_instruments used to call this without importing it — NameError, a
 # 500 for every project that the screen swallowed into an empty catalog.
-from app.api.v1.routes_structuring import _get_demo_context
+from app.api.v1.routes_structuring import _context as _structuring_context
 
 instruments_router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -36,7 +36,7 @@ async def list_instruments(
 async def eligible_instruments(project_id: str):
     from app.core.instrument_registry import get_instrument_registry
     registry = get_instrument_registry()
-    ctx = _get_demo_context(project_id)
+    ctx = await _structuring_context(project_id)
     results = registry.get_eligible_for_project(
         ctx["jurisdiction"], ctx["molecule"], ctx["stage"], ctx["project_size_eur"],
     )
@@ -76,7 +76,7 @@ async def instrument_compatibility(project_id: str):
     registry = get_instrument_registry()
 
     # Import demo context from structuring routes
-    ctx = _get_demo_context(project_id)
+    ctx = await _structuring_context(project_id)
 
     stage = ctx["stage"]
     jurisdiction = ctx["jurisdiction"]

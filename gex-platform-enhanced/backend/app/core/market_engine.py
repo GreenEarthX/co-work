@@ -333,13 +333,34 @@ def project_economics(party: Party) -> dict:
         sales = _rows(conn, "SELECT * FROM project_sales_detail")
         lines = _rows(conn, "SELECT * FROM project_input_line ORDER BY project_id, seq")
         classes = _rows(conn, "SELECT * FROM input_classification")
+        # F15: availability is DERIVED from the tokens, never read from a stored percentage. Each live
+        # token's rate, window and state; the screen turns them into tonnes per period. SPLIT parents
+        # are counted through their children; VOIDED and ANNULLED tokens hold nothing.
+        tokens = _rows(conn, "SELECT c.project_id, t.delivery_start, t.delivery_end, t.tokenised_mtpd, "
+                             "t.lifecycle_state FROM tokens t JOIN capacities c ON c.id = t.capacity_id "
+                             "WHERE COALESCE(t.lifecycle_state, 'MINTED') NOT IN ('SPLIT', 'VOIDED', 'ANNULLED') "
+                             # Commercial, so the OWNER's (and GEX's), as 112 made the sales records:
+                             # project access is not ownership.
+                             "AND (current_setting('app.current_company_id', true) = 'PLATFORM_ADMIN' OR "
+                             "app_company_owns_project(c.project_id, current_setting('app.current_company_id', true)))")
+        # Every project the caller owns gets a list, empty when it has no token: "0 t from tokens"
+        # is an answer; a missing key would read as "not yours".
+        owned = _rows(conn, "SELECT project_id FROM projects WHERE "
+                            "current_setting('app.current_company_id', true) = 'PLATFORM_ADMIN' OR "
+                            "app_company_owns_project(project_id, current_setting('app.current_company_id', true))")
     finally:
         conn.close()
     by_project: dict = {}
     for line in lines:
         by_project.setdefault(line["project_id"], []).append(line)
+    windows: dict = {o["project_id"]: [] for o in owned}
+    for t in tokens:
+        windows.setdefault(t["project_id"], []).append({
+            "start": str(t["delivery_start"])[:10], "end": str(t["delivery_end"])[:10],
+            "rate_mtpd": float(t["tokenised_mtpd"] or 0), "state": t["lifecycle_state"] or "MINTED"})
     return {"spot_prices": prices, "sales_detail": {r["project_id"]: r for r in sales},
-            "input_lines": by_project, "input_classification": {r["feedstock"]: r for r in classes}}
+            "input_lines": by_project, "input_classification": {r["feedstock"]: r for r in classes},
+            "token_windows": windows}
 
 
 # ── the market on the order model (Phase 3, alembic 087) ────────────────────
@@ -697,6 +718,34 @@ def _store_assessment(conn, party: Party, rfq: dict, listing: dict, assessment: 
                 assessment["requirements_sha256"], json.dumps(listing, default=str),
                 json.dumps(assessment["outcomes"]), assessment["status"], party.company_id, party.user_id))
     return str(row["id"])
+
+
+def _changed_since(conn, assessment_id: Optional[str]) -> Optional[dict]:
+    """Report §6.3, check 9: the stored assessment (never updated) against the same RFQ and listing
+    assessed NOW. None when nothing that matters changed. Availability counts: a listing that is no
+    longer open says so."""
+    from app.core import compatibility as cx
+
+    a = _row(conn, "SELECT * FROM compatibility_assessment WHERE id = ?", (assessment_id,)) if assessment_id else None
+    if a is None:
+        return None
+    r = _rfq_by_id(conn, str(a["rfq_id"]))
+    o = _row(conn, "SELECT * FROM tb_order WHERE id = ?", (str(a["listing_order_id"]),))
+    if r is None or o is None:
+        return None
+    rfq = {**_rfq(conn, r), "requirements": a["requirements"]}     # what was assessed
+    full = _listing(conn, o)
+    listing_now = _public_listing(conn, full)
+    now = cx.assess(rfq, listing_now)
+    ch = cx.changes_since({"status": a["status"], "outcomes": a["outcomes"]}, now, a["listing"], listing_now)
+    if full["listing_state"] != "OPEN":
+        ch = ch or {"status_then": a["status"], "status_now": now["status"], "eligible_now": now["eligible"],
+                    "outcomes": [], "listing_fields": []}
+        ch["listing_fields"] = ch["listing_fields"] + ["availability"]
+    if ch:
+        ch.update(assessment_id=str(a["id"]), assessed_at=_iso(a["computed_at"]), purpose=a["purpose"],
+                  listing_state_now=full["listing_state"])
+    return ch
 
 
 def rfq_compatibility(party: Party, rfq_id: str, offer_ids: Optional[list[str]] = None) -> dict:
@@ -1103,7 +1152,13 @@ def my_matches(party: Party) -> list[dict]:
         for p in _rows(conn, "SELECT * FROM tb_order WHERE listing_order_id IS NOT NULL ORDER BY created_at DESC"):
             m = _match(conn, p)
             if party.company_id in (m["seller_company_id"], m["buyer_company_id"]):
-                out.append({**_reveal(m), "side": "seller" if m["seller_company_id"] == party.company_id else "buyer"})
+                item = {**_reveal(m), "side": "seller" if m["seller_company_id"] == party.company_id else "buyer"}
+                if m["status"] == "pending":
+                    # Check 9: has anything that the proposal was assessed on changed since?
+                    a = _row(conn, "SELECT id FROM compatibility_assessment WHERE proposal_order_id = ? "
+                                   "ORDER BY computed_at DESC LIMIT 1", (m["id"],))
+                    item["changed_since_assessed"] = _changed_since(conn, str(a["id"]) if a else None)
+                out.append(item)
         return out
     finally:
         conn.close()
@@ -1131,6 +1186,14 @@ def accept_match(party: Party, match_id: str) -> dict:
         r = _rfq_by_id(conn, m["rfq_id"], lock=True)
         if listing["status"] != "open" or r["status"] != "published":
             _refuse(409, "NO_LONGER_AVAILABLE", "The listing or the RFQ is no longer open.")
+        # Report §6.3: the acceptance is a decision, so it keeps the assessment it was made on (118).
+        from app.core import compatibility as cx
+
+        public_now = _public_listing(conn, _listing(conn, listing))
+        rfq_now = _rfq(conn, r)
+        at_acceptance = cx.assess(rfq_now, public_now)
+        acceptance_assessment = _store_assessment(conn, party, rfq_now, public_now, at_acceptance,
+                                                  purpose="acceptance", proposal_order_id=match_id)
         # The contract carries exactly the agreed quantity (F13): min(listing, RFQ) over the overlap.
         # The unsold part of the reserved token returns to MINTED, available to list again.
         token = m["token_id"]
@@ -1153,14 +1216,17 @@ def accept_match(party: Party, match_id: str) -> dict:
                          keep=match_id)
         _close_proposals(conn, trail, party, "rfq_id", m["rfq_id"], f"superseded by {match_id}", keep=match_id)
         _move_token(conn, trail, token, {"RESERVED"}, "MATCHED", f"match {match_id} agreed")
-        trail.add("match.accepted", "match", match_id, {"side": side}, m["correlation_id"], m["project_id"])
+        trail.add("match.accepted", "match", match_id, {"side": side, "assessment_id": acceptance_assessment,
+                                                         "compatibility": at_acceptance["status"]},
+                  m["correlation_id"], m["project_id"])
         trail.add("match.agreed", "match", match_id, {"offer_id": m["offer_id"], "rfq_id": m["rfq_id"]},
                   m["correlation_id"], m["project_id"])
         trail.add("contract.created", "contract", made["contract_id"],
                   {"match_id": match_id, "token_id": token, "contract_ref": made["contract_ref"],
                    "terms_hash": made["terms_hash"]}, m["correlation_id"], m["project_id"])
         _commit(conn, trail)
-        return _reveal(_match(conn, _proposal(conn, match_id)))
+        return {**_reveal(_match(conn, _proposal(conn, match_id))), "assessment_id": acceptance_assessment,
+                "compatibility": at_acceptance["status"]}
     finally:
         conn.close()
 

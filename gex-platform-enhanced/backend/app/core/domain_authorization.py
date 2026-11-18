@@ -98,6 +98,10 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/capital-bridge": "finance",
     "/api/v1/drawdown-schedule": "finance",
     "/api/v1/spend-wave": "finance",
+    "/api/v1/devex-brief": "finance",
+    "/api/v1/returns-cases": "finance",
+    "/api/v1/calculation-chain": "finance",
+    "/api/v1/decision-tests": "finance",
     "/api/v1/instruments": "finance",
     "/api/v1/sovereign-instruments": "finance",
     "/api/v1/risk-pricing": "finance",
@@ -129,6 +133,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     # Per-node equation configurations. Owner-scoped in the router.
     "/api/v1/equipment-equations": "projects",
     "/api/v1/plant-builder": "projects",
+    "/api/v1/cost-basis": "projects",
     # Pure calculations: these POSTs build a cost basis from the request body and
     # return it; nothing is stored. They sit with the derived-data domain so the
     # roles the Cost Basis screen is built for (producer finance, banks) can run
@@ -173,6 +178,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "/api/v1/gates": "verification",
     "/api/v1/data-room": "verification",
     "/api/v1/tea": "verification",
+    "/api/v1/tea-review": "verification",
     # governance
     "/api/v1/ciso": "governance",
     "/api/v1/audit": "governance",

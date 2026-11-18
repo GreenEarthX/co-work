@@ -39,7 +39,12 @@ class Settings(BaseSettings):
 
     # Demo mode — when False, x-demo-* header fallback is disabled
     GEX_DEMO_MODE: bool = True
-    
+
+    # Demo-account seeding (JML, 2026-11-18): OFF unless explicitly enabled.
+    # When on, startup CREATES a missing demo account and never touches an
+    # existing one (password, roles, state). Refused in production below.
+    GEX_SEED_DEMO_USERS: bool = False
+
     # Database — PostgreSQL is the committed system of record (ADR 2026-07-06).
     #
     # RUNTIME credential. From migration 045 this is `gex_app`: no SUPERUSER, no
@@ -219,6 +224,11 @@ if settings.ENVIRONMENT.lower() in ("production", "prod", "staging"):
         raise RuntimeError(
             "FATAL: GEX_DEMO_MODE=True in a production environment — demo "
             "header authentication bypasses JWT verification. Set GEX_DEMO_MODE=False."
+        )
+    if settings.GEX_SEED_DEMO_USERS:
+        raise RuntimeError(
+            "FATAL: GEX_SEED_DEMO_USERS is enabled in a production environment — "
+            "it creates accounts with a published password. Unset it."
         )
 elif settings.SECRET_KEY == _DEV_SECRET_DEFAULT:
     import logging

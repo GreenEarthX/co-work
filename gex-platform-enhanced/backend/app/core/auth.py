@@ -65,9 +65,10 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # Demo credentials are a development convenience, never a production posture:
 #   GEX_DEMO_PASSWORD overrides the shared demo password.
-#   GEX_SEED_DEMO_USERS=0 disables demo-user seeding entirely (production).
+#   GEX_SEED_DEMO_USERS (settings, default OFF; JML 2026-11-18) enables seeding,
+#   which only CREATES missing demo accounts. Refused in production (config.py).
 DEMO_PASSWORD = os.getenv("GEX_DEMO_PASSWORD", "demo1234")
-SEED_DEMO_USERS = os.getenv("GEX_SEED_DEMO_USERS", "1").lower() not in ("0", "false", "no")
+SEED_DEMO_USERS = bool(settings.GEX_SEED_DEMO_USERS)
 
 DEMO_USER_SEEDS: list[dict[str, Any]] = [
     {
@@ -457,11 +458,25 @@ def _actor_types_for_seed(seed: dict[str, Any]) -> list[str]:
     return types
 
 
-def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> None:
+def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> bool:
+    """CREATE a missing demo account; never touch an existing one (JML, 2026-11-18).
+
+    It used to upsert: every backend start wrote the demo password, roles,
+    `is_active` and profile back over the stored row, so a changed password
+    did not survive a restart and an account disabled by GEX came back to
+    life. An existing row — matched by email or user id — is now left exactly
+    as it is: password, roles, permissions, approval and disabled state.
+    Returns True when an account was created.
+    """
     email = seed["email"].lower()
     company_name = seed["company_name"]
     company_id = company_slug(company_name)
     user_id = company_slug(email)
+    exists = conn.execute(
+        "SELECT 1 FROM auth_users WHERE email = ? OR user_id = ?", (email, user_id)
+    ).fetchone()
+    if exists:
+        return False
     password_hash = pwd_context.hash(DEMO_PASSWORD)
     actor_types = _actor_types_for_seed(seed)
     visible_projects = visible_project_ids_for_company(company_name)
@@ -489,29 +504,7 @@ def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> None:
             is_active, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-        ON CONFLICT(email) DO UPDATE SET
-            password_hash=excluded.password_hash,
-            company_id=excluded.company_id,
-            company_name=excluded.company_name,
-            company_type=excluded.company_type,
-            service_type=excluded.service_type,
-            business_function=excluded.business_function,
-            user_name=excluded.user_name,
-            clearance_level=excluded.clearance_level,
-            jurisdiction=excluded.jurisdiction,
-            kyc_status=excluded.kyc_status,
-            nda_signed_with_json=excluded.nda_signed_with_json,
-            assigned_audits_json=excluded.assigned_audits_json,
-            capabilities_json=excluded.capabilities_json,
-            credit_rating=excluded.credit_rating,
-            credit_rating_source=excluded.credit_rating_source,
-            export_licenses_json=excluded.export_licenses_json,
-            token_ready=excluded.token_ready,
-            transformation_license=excluded.transformation_license,
-            aggregation_limit_mt=excluded.aggregation_limit_mt,
-            is_platform_admin=excluded.is_platform_admin,
-            is_active=1,
-            updated_at=excluded.updated_at
+        ON CONFLICT DO NOTHING
         """,
         (
             user_id,
@@ -544,8 +537,8 @@ def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> None:
         ),
     )
 
-    # Insert all actor types per project (prosumers get multiple rows)
-    conn.execute("DELETE FROM auth_user_project_roles WHERE user_id = ?", (user_id,))
+    # Insert all actor types per project (prosumers get multiple rows). Only for
+    # an account created just now: an existing account's roles are not rewritten.
     for project_id in visible_projects:
         for actor_type in actor_types:
             conn.execute(
@@ -559,6 +552,7 @@ def _seed_user(conn: sqlite3.Connection, seed: dict[str, Any]) -> None:
                 """,
                 (user_id, project_id, actor_type),
             )
+    return True
 
 
 def init_auth_db() -> None:

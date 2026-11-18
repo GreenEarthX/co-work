@@ -43,7 +43,7 @@ def _payload(uid, **kw):
 def _party(uid):
     from app.core import market_engine as me
 
-    return me.Party(user_id=uid, company_id=USERS[uid][0], company_name=NAMES[USERS[uid][0]])
+    return me.Party(business_function="COMMERCIAL", user_id=uid, company_id=USERS[uid][0], company_name=NAMES[USERS[uid][0]])
 
 
 def _keypair():

@@ -18,7 +18,7 @@ interface InfoTooltipProps {
  * Usage:
  *   <span className="flex items-center gap-1.5">
  *     <span>DSCR P50</span>
- *     <InfoTooltip text="Cash Flow Available for Debt Service ÷ Debt Service. Lenders require P50 ≥ 1.30x." />
+ *     <InfoTooltip text="Cash Flow Available for Debt Service ÷ Debt Service. Judged against the lender's approved floor." />
  *   </span>
  */
 export function InfoTooltip({

@@ -3,6 +3,7 @@ import { Printer, MapPin, Calendar, TrendingUp, AlertTriangle, XCircle, CheckCir
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { useProjectDataset, DatasetNotice } from './useProjectDataset'
+import { useDecisionTests, judge, type DecisionTest } from '@/lib/decisionPolicy'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -71,16 +72,16 @@ const MOLECULE_STYLES: Record<string, { bg: string; text: string }> = {
   'e-NG':      { bg: 'bg-cyan-100',   text: 'text-cyan-800'   },
 }
 
-function dscrColor(val: number): string {
-  if (val >= 1.30) return 'text-green-700'
-  if (val >= 1.20) return 'text-amber-600'
-  return 'text-red-600'
+// Judged only against the APPROVED floor of each decision test (reference data
+// registry); with none, neutral. No floor is typed here (handoff v4 task 6).
+function dscrColor(val: number, test?: DecisionTest): string {
+  const o = judge(val, test)
+  return o === 'PASS' ? 'text-green-700' : o === 'FAIL' ? 'text-red-600' : 'text-slate-800'
 }
 
-function dscrBg(val: number): string {
-  if (val >= 1.30) return 'bg-green-50 border-green-200'
-  if (val >= 1.20) return 'bg-amber-50 border-amber-200'
-  return 'bg-red-50 border-red-200'
+function dscrBg(val: number, test?: DecisionTest): string {
+  const o = judge(val, test)
+  return o === 'PASS' ? 'bg-green-50 border-green-200' : o === 'FAIL' ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'
 }
 
 function trustArcPath(score: number): string {
@@ -193,6 +194,7 @@ function TrustArc({ score }: { score: number }) {
 // ═══════════════════════════════════════════════════════════════
 
 export function BankersSnapshot() {
+  const tests = useDecisionTests().data?.tests
   const { selectedProjectId } = useSelectedProject()
   const { projects: visibleProjects } = useVisibleProjects()
   const project = visibleProjects.find(p => p.id === selectedProjectId)
@@ -325,23 +327,23 @@ export function BankersSnapshot() {
             {/* Financials Card */}
             <SectionCard title="Key Financials">
               <MetricRow label="CapEx" value={`€${data.financials.capex}M`} />
-              <div className={`flex items-baseline justify-between py-1.5 px-2 rounded-lg border mt-1 ${dscrBg(data.financials.dscrP50)}`}>
+              <div className={`flex items-baseline justify-between py-1.5 px-2 rounded-lg border mt-1 ${dscrBg(data.financials.dscrP50, tests?.DSCR_P50)}`}>
                 <span className="text-xs font-bold text-gray-700">DSCR P50</span>
-                <span className={`text-base font-black tabular-nums ${dscrColor(data.financials.dscrP50)}`}>
+                <span className={`text-base font-black tabular-nums ${dscrColor(data.financials.dscrP50, tests?.DSCR_P50)}`}>
                   {data.financials.dscrP50.toFixed(2)}x
                 </span>
               </div>
-              <div className={`flex items-baseline justify-between py-1.5 px-2 rounded-lg border mt-1 ${dscrBg(data.financials.dscrP90)}`}>
+              <div className={`flex items-baseline justify-between py-1.5 px-2 rounded-lg border mt-1 ${dscrBg(data.financials.dscrP90, tests?.DSCR_P90)}`}>
                 <div>
                   <span className="text-xs font-bold text-gray-700">DSCR P90</span>
                   <span className="text-xs text-gray-400 ml-1">(downside)</span>
                 </div>
-                <span className={`text-base font-black tabular-nums ${dscrColor(data.financials.dscrP90)}`}>
+                <span className={`text-base font-black tabular-nums ${dscrColor(data.financials.dscrP90, tests?.DSCR_P90)}`}>
                   {data.financials.dscrP90.toFixed(2)}x
                 </span>
               </div>
               <div className="mt-2 space-y-0">
-                <MetricRow label="LLCR" value={`${data.financials.llcr.toFixed(2)}x`} valueClass={data.financials.llcr >= 1.4 ? 'text-green-700' : data.financials.llcr >= 1.2 ? 'text-amber-600' : 'text-red-600'} />
+                <MetricRow label="LLCR" value={`${data.financials.llcr.toFixed(2)}x`} valueClass="text-slate-800" />
                 <MetricRow label="WACC" value={`${data.financials.wacc.toFixed(1)}%`} valueClass="text-gray-800" />
                 <MetricRow
                   label="Break-even"

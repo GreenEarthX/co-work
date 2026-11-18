@@ -352,7 +352,7 @@ def listing_summary(conn, token_id: Optional[str]) -> dict:
                                             "basis": q["basis"]})
     ci = record._row(conn, f"SELECT value_gco2e_mj, method, system_boundary, basis FROM token_carbon_intensity "
                            f"WHERE token_id IN ({marks}) ORDER BY recorded_at DESC, id DESC LIMIT 1", tuple(chain))
-    certs = record._rows(conn, f"SELECT DISTINCT c.id, c.kind, c.scheme, c.body, c.scope, c.state, c.valid_until "
+    certs = record._rows(conn, f"SELECT DISTINCT c.id, c.kind, c.scheme, c.body, c.scope, c.state, c.valid_from, c.valid_until "
                                f"FROM product_certificate c LEFT JOIN token_certificate_coverage v ON v.certificate_id = c.id "
                                f"WHERE c.project_id = ? AND (c.scope IN ('organisation', 'site') OR v.token_id IN ({marks}))",
                          ((p or {}).get("project_id"), *chain)) if p else []
@@ -364,7 +364,12 @@ def listing_summary(conn, token_id: Optional[str]) -> dict:
                              ({"value_gco2e_mj": float(t["carbon_intensity_gco2e_mj"]), "basis": "declared_at_mint"}
                               if t.get("carbon_intensity_gco2e_mj") is not None else None)),
         "quality": list(quality.values()),
+        # Validity dates are shown (not identifying): a buyer, and core/compatibility, judge the
+        # certificate over the DELIVERY window, not only today.
         "certificates": sorted(({"kind": c["kind"], "scheme": c["scheme"], "body": c["body"], "scope": c["scope"],
-                                 "covers": COVERS[c["scope"]], "status": effective_state(c)} for c in certs),
+                                 "covers": COVERS[c["scope"]], "status": effective_state(c),
+                                 "valid_from": str(c["valid_from"])[:10] if c.get("valid_from") else None,
+                                 "valid_until": str(c["valid_until"])[:10] if c.get("valid_until") else None}
+                                for c in certs),
                                key=lambda c: (c["kind"], c["scheme"])),
     }

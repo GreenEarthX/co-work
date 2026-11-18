@@ -39,10 +39,11 @@ from datetime import datetime, timezone
 from typing import Optional
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core import pre_fid_access
 
 DB_PATH = settings.SQLITE_DB_PATH
 
@@ -969,7 +970,9 @@ def bootstrap_capital_stack(
 # SPEND WAVE + DRAWDOWN + PERSONNEL + DFI_CRITERIA — CRUD
 # ═══════════════════════════════════════════════════════════════════════════
 
-@router.post("/projects/{project_id}/spend-wave", status_code=201)
+# Pre-FID access: one rule on every path (app/core/pre_fid_access.py).
+@router.post("/projects/{project_id}/spend-wave", status_code=201, dependencies=[Depends(
+    pre_fid_access.require_section("FUNDING", write=True, route="capital_bridge.spend_wave.write"))])
 def upsert_spend_wave_row(project_id: str, row: SpendWaveRow,
                           db: sqlite3.Connection = Depends(get_db)):
     if not _project_exists(db, project_id):
@@ -986,8 +989,25 @@ def upsert_spend_wave_row(project_id: str, row: SpendWaveRow,
     return {"row_id": rid, **row.model_dump()}
 
 
+def _funding_db(project_id: str, request: Request):
+    """FUNDING must be open to the caller; a shared read is made in the owner's tenant."""
+    from app.core.db_backend import capital_connection, capital_is_postgres
+
+    access = pre_fid_access.require(pre_fid_access.resolve(request, project_id), "FUNDING",
+                                    route="capital_bridge.spend_wave.read")
+    tenant = pre_fid_access.read_tenant(access)
+    conn = capital_connection(company_id=tenant) if tenant else capital_connection()
+    if not capital_is_postgres():
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 @router.get("/projects/{project_id}/spend-wave")
-def list_spend_wave(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def list_spend_wave(project_id: str, db: sqlite3.Connection = Depends(_funding_db)):
     rows = db.execute(
         "SELECT * FROM spend_wave WHERE project_id=? ORDER BY year, tranche_id",
         (project_id,)
@@ -1253,7 +1273,7 @@ def compute_capital_bridge(project_id: str, db: sqlite3.Connection = Depends(get
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/projects/{project_id}/full")
-def get_full_project(project_id: str, db: sqlite3.Connection = Depends(get_db)):
+def get_full_project(project_id: str, db: sqlite3.Connection = Depends(get_db), request: Request = None):
     """
     Unified one-shot view of a project across all CapitalBridge tables
     plus the core projects/auth tables. Used by Finance workspace
@@ -1270,12 +1290,6 @@ def get_full_project(project_id: str, db: sqlite3.Connection = Depends(get_db)):
     tranches = db.execute(
         "SELECT * FROM capital_stack_tranches WHERE project_id=?", (project_id,)
     ).fetchall()
-    packages = db.execute(
-        "SELECT * FROM development_packages WHERE project_id=?", (project_id,)
-    ).fetchall()
-    spend = db.execute(
-        "SELECT * FROM spend_wave WHERE project_id=? ORDER BY year", (project_id,)
-    ).fetchall()
     drawdown = db.execute(
         "SELECT * FROM drawdown_quarters WHERE project_id=? ORDER BY year, quarter", (project_id,)
     ).fetchall()
@@ -1289,12 +1303,35 @@ def get_full_project(project_id: str, db: sqlite3.Connection = Depends(get_db)):
         "SELECT user_id, actor_type FROM auth_user_project_roles WHERE project_id=?", (project_id,)
     ).fetchall()
 
+    # Pre-FID packages and the spend wave: the owner's, and anyone else's only under the
+    # owner's PACKAGES / FUNDING share, a shared read being made in the OWNER's tenant
+    # (handoff v4 task 9) — the same helpers the package and spend-wave APIs use.
+    from app.api.v1.development_packages import _project_rows
+    packages, hide_packages = _project_rows(project_id, db, request, "capital_bridge.full")
+    hide_funding = pre_fid_access.withheld(request, project_id, "FUNDING", route="capital_bridge.full")
+    spend = []
+    if not hide_funding:
+        tenant = (pre_fid_access.read_tenant(pre_fid_access.resolve(request, project_id))
+                  if request is not None else None)
+        spend_sql = "SELECT * FROM spend_wave WHERE project_id=? ORDER BY year"
+        if tenant:
+            from app.core.db_backend import capital_connection
+            owner = capital_connection(company_id=tenant)
+            try:
+                spend = owner.execute(spend_sql, (project_id,)).fetchall()
+            finally:
+                owner.close()
+        else:
+            spend = db.execute(spend_sql, (project_id,)).fetchall()
     return {
         "project":      dict(project),
         "control":      dict(ctrl) if ctrl else None,
         "capital_stack": [dict(r) for r in tranches],
+        # Pre-FID packages and the spend wave go to the owner, and to anyone
+        # else only under the owner's PACKAGES / FUNDING share (pre_fid_access).
         "packages":     [dict(r) for r in packages],
         "spend_wave":   [dict(r) for r in spend],
+        "pre_fid_withheld": {"packages": hide_packages, "spend_wave": hide_funding},
         "drawdown":     [dict(r) for r in drawdown],
         "personnel":    [dict(r) for r in personnel],
         "dfi_criteria": [dict(r) for r in dfi_crit],

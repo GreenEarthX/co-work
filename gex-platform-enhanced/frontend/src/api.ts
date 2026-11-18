@@ -292,7 +292,15 @@ export interface ListingProduct {
   specification_standard?: string | null;
   carbon_intensity?: { value_gco2e_mj: number; method?: string; system_boundary?: string; basis: string } | null;
   quality?: { parameter: string; value: number; unit: string; basis: string }[];
-  certificates?: { kind: string; scheme: string; body: string; scope: string; covers: string; status: string }[];
+  certificates?: { kind: string; scheme: string; body: string; scope: string; covers: string; status: string;
+                   valid_from?: string | null; valid_until?: string | null }[];
+}
+
+/** Check 9: what changed since a stored assessment (backend market_engine._changed_since). */
+export interface ChangedSinceAssessed {
+  status_then: string; status_now: string; eligible_now: boolean; purpose: string; assessed_at: string;
+  assessment_id: string; listing_state_now: string; listing_fields: string[];
+  outcomes: { requirement: string; label: string; then: string | null; now: string | null; reason_now: string | null }[];
 }
 
 /** A non-binding enquiry (backend core/enquiry.py, alembic 119). */
@@ -307,6 +315,7 @@ export interface Enquiry {
                                details?: Record<string, string | null> } };
   about_rfq_id: string | null; assessment_id: string | null; created_at: string; decided_at: string | null;
   can: { reply: boolean; share_contact: boolean; decline: boolean; withdraw: boolean };
+  changed_since_assessed?: ChangedSinceAssessed | null;
   messages?: { side: "you" | "them"; body: string; evidence_request: string | null; at: string }[];
 }
 
@@ -362,6 +371,8 @@ export interface MarketRFQ extends RFQListing {
 
 export interface MarketMatch {
   id: string;
+  /** Check 9: on a pending proposal, what changed since it was assessed (null: nothing). */
+  changed_since_assessed?: ChangedSinceAssessed | null;
   project_id?: string | null;
   status: string;
   side: "seller" | "buyer";
@@ -466,6 +477,8 @@ export interface SalesDetailRecord {
     status: "open" | "pending" | "sold"; counterparty: string | null }[];
   verification_state: string;
   source: string;
+  /** D-A (alembic 120): why the record's certainty was withdrawn; null when not quarantined. */
+  quarantine_reason?: string | null;
 }
 export interface InputLineRecord {
   project_id: string;
@@ -482,6 +495,8 @@ export interface InputLineRecord {
   firming_cost: number | null;
   verification_state: string;
   source: string;
+  /** D-A (alembic 120): why the record's certainty was withdrawn; null when not quarantined. */
+  quarantine_reason?: string | null;
 }
 export interface InputClassRecord {
   feedstock: string;
@@ -489,13 +504,17 @@ export interface InputClassRecord {
   capital_relevance: string;
   item_type: string;
   verification_state: string;
+  quarantine_reason?: string | null;
 }
 export interface ProjectEconomics {
   spot_prices: Record<string, SpotPrice>;
   sales_detail: Record<string, SalesDetailRecord>;
   input_lines: Record<string, InputLineRecord[]>;
   input_classification: Record<string, InputClassRecord>;
+  /** F15: each live token of the caller's OWN projects — availability is derived from these. */
+  token_windows?: Record<string, TokenWindow[]>;
 }
+export interface TokenWindow { start: string; end: string; rate_mtpd: number; state: string }
 
 // Product records (Phase 1, alembic 116): quality, carbon intensity with its basis, and
 // certificates, as the seller declares them. Nothing here can mark a claim verified: only an

@@ -18,6 +18,7 @@ import { Link } from 'react-router-dom'
 import { ProductionRoadmapGantt } from '@/components/gantt/ProductionRoadmapGantt'
 import { TaskRouter } from '@/components/TaskRouter'
 import { useSelectedProject } from '@/contexts/ProjectContext'
+import { useDecisionTests, policyLine } from '@/lib/decisionPolicy'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { CooperationHandoffFeed } from '@/components/CooperationHandoffFeed'
 import type { CustomerProject, Offtake } from '@/data/customerProjects'
@@ -168,6 +169,7 @@ function complianceRows(project: CustomerProject) {
 
 export function FinanceDashboardPage() {
   const { selectedProjectId } = useSelectedProject()
+  const decisionTests = useDecisionTests()
   const { projects: visibleProjects } = useVisibleProjects()
   const project = visibleProjects.find(p => p.id === selectedProjectId) ?? visibleProjects[0]
   const [showLegacyDashboard, setShowLegacyDashboard] = useState(false)
@@ -294,7 +296,7 @@ export function FinanceDashboardPage() {
         <Row
           label="DSCR  current"
           value="pending"
-          target="covenant ≥ 1.25×"
+          target={`covenant: ${policyLine(decisionTests.data?.tests.DSCR_COVENANT)}`}
           note="post-COD only"
           chip={{ text: 'AWAITING ENGINE', tone: 'none', title: 'Forward projection from the financial model, two quarters before commercial operation' }}
         />

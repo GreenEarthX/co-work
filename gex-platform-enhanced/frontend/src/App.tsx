@@ -1,5 +1,6 @@
 // Screen: All screens (root router)
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createQueryClient } from '@/lib/sensitiveQueries'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 import { ProjectProvider } from '@/contexts/ProjectContext'
 import { RequireAuth } from '@/components/RequireAuth'
@@ -85,6 +86,9 @@ import { PlantBuilder } from '@/features/finance/PlantBuilder'
 import { AdversarialReviewPage } from '@/features/reviews/AdversarialReviewPage'
 import { SpendWaveView } from '@/features/finance/SpendWaveView'
 import { DebtCashflowWaterfall } from '@/features/finance/DebtCashflowWaterfall'
+import { ReturnsPage } from '@/features/finance/ReturnsPage'
+import { DevexBrief } from '@/features/finance/DevexBrief'
+import { CalculationChain } from '@/features/finance/CalculationChain'
 import { DrawdownTimeline } from '@/features/finance/DrawdownTimeline'
 import { DFIDashboard } from '@/features/finance/DFIDashboard'
 import { LineagePanel } from '@/features/finance/LineagePanel'
@@ -97,8 +101,8 @@ import PlantCanvas from '@/features/canvas/PlantCanvas'
 import CanvasPlantBuilder from '@/features/canvas/PlantBuilder'
 import SiteInfrastructure from '@/features/canvas/SiteInfrastructure'
 
-// This fixes the QueryClient error
-const queryClient = new QueryClient()
+// Pre-FID, derived and returns queries are never shown from cache (lib/sensitiveQueries).
+const queryClient = createQueryClient()
 
 // Unbuilt screens are not routed (JML, 2026-10-23): no page shows a placeholder.
 
@@ -182,6 +186,10 @@ function App() {
                 <Route path="evidence-hierarchy"  element={<EvidenceHierarchy />} />
                 <Route path="spend-wave"         element={<SpendWaveView />} />
                 <Route path="debt-waterfall"     element={<DebtCashflowWaterfall />} />
+                <Route path="returns"            element={<ReturnsPage />} />
+                <Route path="devex-brief"        element={<DevexBrief />} />
+                <Route path="calculation-chain"  element={<CalculationChain />} />
+                <Route path="devex-shared"       element={<Navigate to="/finance/devex-brief" replace />} />
                 <Route path="drawdown-timeline"  element={<DrawdownTimeline />} />
                 <Route path="dfi-dashboard"      element={<DFIDashboard />} />
                 <Route path="lineage"            element={<LineagePanel />} />

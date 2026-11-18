@@ -22,6 +22,7 @@ from app.core.project_registry import (
     company_slug,
     get_effective_context,
 )
+from app.core.request_tenant import company_from_payload
 
 router = APIRouter()
 
@@ -60,6 +61,16 @@ class VisibleProject(BaseModel):
     # Gates, state and capital eligibility — from the ENGINE only, scoped to the
     # caller's persona (app/core/engine_view.py). Never from the profile.
     bankability: Optional[dict] = None
+    # True only when the caller's company is the project's owner
+    # (projects.owner_tenant_id). Screens show write controls on it alone
+    # (JML, 2026-11-18); the server still decides every write.
+    viewer_is_owner: bool = False
+    # None: the caller sees the project through its own relationship to it.
+    # Otherwise the project is listed ONLY because its owner shared something
+    # with this user, and this says what (JML, 2026-11-18, finding A):
+    # {"basis": "owner_share", "shared": [...labels]}. Nothing else of the
+    # project is sent — no profile, no other parties, no gates.
+    disclosure: Optional[dict] = None
 
 
 class ProjectProfileIntelligence(BaseModel):
@@ -623,13 +634,101 @@ async def get_visible_projects(
         return []
 
     by_id = {p.project_id: p for p in all_project_profiles()}
+    caller = company_from_payload(payload)
     result: list[VisibleProject] = []
     for pid in _visible_ids_from_jwt(payload):
         vp = _profile_to_visible(by_id[pid]) if pid in by_id else None
         if vp:
             vp.bankability = await _engine_bankability(pid, payload, by_id[pid].owner_company_id)
+            vp.viewer_is_owner = _is_owner(pid, caller)
             result.append(vp)
+    listed = {vp.id for vp in result}
+    for pid, items in shared_projects(payload).items():
+        if pid not in listed:
+            vp = _shared_listing(pid, items, by_id.get(pid))
+            if vp:
+                result.append(vp)
     return result
+
+
+# ── Projects listed because their owner shared something (finding A) ────────
+def _share_label(capability: str) -> Optional[str]:
+    if capability.startswith("RETURNS_SHARE:"):
+        return "Published returns case"
+    if capability.startswith("DEVEX_SHARE:"):
+        return f"DEVEX brief: {capability.split(':', 1)[1]}"
+    return None
+
+
+def shared_projects(payload: dict) -> dict[str, list[str]]:
+    """{project_id: [what the owner shared]} for this user's ACTIVE owner shares.
+
+    A bank holding a share on a project must find it in its project list (JML,
+    2026-11-18). Only active (not revoked, not expired) shares count, so a
+    revocation also takes the project out of the list. If the shares cannot be
+    read the answer is 503 — never a list silently missing them.
+    """
+    if payload.get("is_platform_admin"):
+        return {}
+    user_id = payload.get("user_id") or payload.get("email")
+    if not user_id:
+        return {}
+    from app.core import entitlements as ent
+    try:
+        rows = ent.list_entitlements(user_id=user_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail={
+            "code": "SHARES_UNAVAILABLE",
+            "message": "The projects shared with you could not be read, so the list would be incomplete."}) from exc
+    out: dict[str, list[str]] = {}
+    for row in rows:
+        label = _share_label(row.get("capability") or "")
+        if label and row.get("status") == "active":
+            items = out.setdefault(row["project_id"], [])
+            if label not in items:
+                items.append(label)
+    return {pid: sorted(items) for pid, items in out.items()}
+
+
+def _owner_tenant(project_id: str) -> Optional[str]:
+    from app.core.projects_store import project_owner_record
+    record = project_owner_record(project_id)
+    return (record or {}).get("owner_tenant_id")
+
+
+def _is_owner(project_id: str, caller: Optional[str]) -> bool:
+    if not caller:
+        return False
+    try:
+        return _owner_tenant(project_id) == caller
+    except Exception:  # noqa: BLE001 — unknown ownership never shows write controls
+        return False
+
+
+def _shared_listing(project_id: str, items: list[str],
+                    profile: Optional[ProjectAccessProfile]) -> Optional[VisibleProject]:
+    """The project's name and owner, and what was shared — nothing else. The
+    profile, the other parties (financiers among them) and the gates stay
+    undisclosed unless the owner shares them."""
+    from app.core.projects_store import project_owner_record
+    try:
+        record = project_owner_record(project_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail={
+            "code": "SHARES_UNAVAILABLE",
+            "message": "A project shared with you could not be read, so the list would be incomplete."}) from exc
+    if not record:
+        return None
+    return VisibleProject(
+        id=project_id, name=record.get("project_name") or project_id,
+        molecule="", location="", country="", capacity_mtpd=0.0, capacity_mt_year=0,
+        capex_eur=None, status="development", phase="", owner_company=profile.owner_company_name if profile else "",
+        associated_companies=[], jurisdiction="",
+        bankability={"evaluated": False, "not_shared": True,
+                     "unavailable": "The owner has not shared this project's gates with you."},
+        viewer_is_owner=False,
+        disclosure={"basis": "owner_share", "shared": items},
+    )
 
 
 async def _engine_bankability(project_id: str, payload: dict, owner_company_id: str | None) -> dict:
@@ -647,8 +746,9 @@ async def _engine_bankability(project_id: str, payload: dict, owner_company_id: 
         view = bankability_view(None, persona, {})
         view["unavailable"] = "The bankability engine is not answering."
         return view
-    snapshot, evaluated_at = await fresh_snapshot(project_id)
-    return bankability_view(snapshot, persona, persona_gates, evaluated_at)
+    from app.core import readiness
+    snapshot, evaluated_at, stamp = await readiness.current(project_id)
+    return bankability_view(snapshot, persona, persona_gates, evaluated_at, readiness=stamp)
 
 
 @router.get("/{project_id}/profile-intelligence", response_model=ProjectProfileIntelligence)
@@ -719,6 +819,26 @@ def get_project_dataset(project_id: str, kind: str, request: Request):
         raise HTTPException(status_code=401, detail="Authentication required")
     if kind not in SCREEN_DATASET_KINDS:
         raise HTTPException(status_code=404, detail=f"Unknown dataset kind: {kind}")
+    if kind == "spend_wave":
+        # Pre-FID funding: the owner's, or shared by the owner (FUNDING). Same
+        # rule as the spend-wave API and the DEVEX brief (pre_fid_access).
+        # A shared read is made in the owner's tenant, and a failed read is
+        # "unavailable" (503), never NOT_RECORDED.
+        from app.core import pre_fid_access
+        from app.core.projects_store import StoreUnavailable, dataset_strict
+
+        access = pre_fid_access.require(pre_fid_access.resolve(request, project_id), "FUNDING",
+                                        route="dataset.spend_wave")
+        try:
+            row = dataset_strict(access.project_id, kind, pre_fid_access.read_tenant(access) or tenant)
+        except StoreUnavailable as exc:
+            raise pre_fid_access.unavailable("The project's spend wave") from exc
+        if not row:
+            raise HTTPException(status_code=404, detail={
+                "code": "NOT_RECORDED", "message": "Nothing is recorded for this project yet."})
+        return {"project_id": access.project_id, "kind": kind, "payload": row["payload"],
+                "verification_state": row["verification_state"], "verified_by": row["verified_by"],
+                "verified_at": str(row["verified_at"]) if row["verified_at"] else None, "source": row["source"]}
     pid = resolve_alias(project_id) or project_id
     rows = _rows("SELECT payload, verification_state, verified_by, verified_at, source FROM project_dataset "
                  "WHERE project_id = :pid AND kind = :kind", {"pid": pid, "kind": kind}, company_id=tenant)

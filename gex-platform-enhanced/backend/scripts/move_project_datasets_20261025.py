@@ -13,6 +13,11 @@ Idempotent; dry run unless --execute.
     cd backend && set -a && source .env && set +a
     ./venv/bin/python scripts/move_project_datasets_20261025.py [--execute]
 
+Refuses to load (2026-11-17, handoff v4 task 7): a file with no `approved_by`, a
+dataset with no `from` (its source), and any dataset whose provenance is a
+reference case — Breizh SAF is a reference case only, and contamination is
+defined by provenance, not by numerical similarity. It never reads tests/fixtures.
+
 Needs migration 069. A database rebuilt from Alembic needs this run (after the
 project scripts); a pg_dump restore already carries it.
 """
@@ -24,6 +29,24 @@ import sys
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent / "data" / "project_datasets_20261025.json"
+# Provenance that may never reach a project. Matched on the declared source, not on values.
+REFERENCE_PROVENANCE = ("reference_case", "reference case", "tests/fixtures", "breizh")
+
+
+def refusals(data: dict) -> list[str]:
+    """Why this load file may not be loaded; empty when it may."""
+    out = []
+    if not str(data.get("approved_by") or "").strip():
+        out.append("the file names no approver (approved_by)")
+    for d in data.get("datasets", []):
+        where = f"{d.get('project_id')} {d.get('kind')}"
+        source = str(d.get("from") or "").strip()
+        if not source:
+            out.append(f"{where}: no source (from)")
+        marks = " ".join([source, str(d.get("provenance") or ""), str((d.get("payload") or {}).get("_provenance") or "")]).lower()
+        if any(m in marks for m in REFERENCE_PROVENANCE):
+            out.append(f"{where}: provenance is a reference case ({source}) — never loaded into a project")
+    return out
 
 
 def main(execute: bool) -> int:
@@ -34,6 +57,10 @@ def main(execute: bool) -> int:
         print("ALEMBIC_DATABASE_URL must be exported")
         return 1
     data = json.loads(DATA.read_text())
+    refused = refusals(data)
+    if refused:
+        print("REFUSED — nothing loaded:\n  " + "\n  ".join(refused))
+        return 2
     conn = psycopg2.connect(dsn)
     try:
         cur = conn.cursor()

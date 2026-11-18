@@ -44,7 +44,9 @@ PF_MODEL = "gex_pf_engine · PF cashflow / waterfall model"
 # P1: cost fields a PF body may carry, mapped to the verified base-case figure they
 # must match. Per-kg/rate fields (e.g. opex_eur_kg) are deliberately NOT bound — they
 # are a different unit from the base case's absolute EUR figures.
-_COST_BINDINGS = {"capex": "capex_eur", "total_capex": "capex_eur",
+# `fci_eur` (Fixed Capital Investment, the CAPEX committed at year 0) is the same
+# quantity under the name the returns calculation uses, so it binds the same way.
+_COST_BINDINGS = {"capex": "capex_eur", "total_capex": "capex_eur", "fci_eur": "capex_eur",
                   "opex": "opex_eur_per_year", "opex_eur_per_year": "opex_eur_per_year"}
 _RECONCILE_TOL = 0.01  # 1% relative tolerance
 
@@ -200,9 +202,19 @@ async def dscr_sensitivity(body: dict, project_id: Optional[str] = None):
     debt_share_of_capex, debt_service_pct_per_100bps, covenant_floor,
     target_dscr, power_deltas[], efficiency_deltas[].
     """
-    covenant_floor = float(body.get("covenant_floor", 1.20))
-    target_dscr = float(body.get("target_dscr", 1.30))
+    # The floor is the caller's stated one, else the APPROVED senior-lender floor
+    # (decision test DSCR_P50); with neither, break-evens say "no approved threshold".
+    from app.core import decision_policy as dp
+    if body.get("covenant_floor") is not None:
+        covenant_floor, floor_basis = float(body["covenant_floor"]), "stated by the caller"
+    else:
+        approved = dp.resolve(dp.DECISION_TESTS["DSCR_P50"]["policy_key"]).get("approved")
+        covenant_floor = float(approved["value"]) if approved and approved.get("value") is not None else None
+        floor_basis = (f"{approved['policy_party']}, {approved['status']}" if covenant_floor is not None
+                       else dp.MESSAGES[dp.NO_THRESHOLD])
+    target_dscr = float(body["target_dscr"]) if body.get("target_dscr") is not None else None
     payload = compute_sensitivity(body, covenant_floor=covenant_floor, target_dscr=target_dscr)
+    payload["covenantFloorBasis"] = floor_basis
     gate = await _require_release_ready(project_id)
     return _governed(payload, {"sensitivity_inputs": body, "covenant_floor": covenant_floor}, gate=gate)
 
@@ -232,6 +244,34 @@ async def model_lifetime(body: dict, project_id: Optional[str] = None):
     """
     gate = await _require_release_ready(project_id)
     return _governed(await _call_model("/model/lifetime", method="POST", json_data=body), body, gate=gate)
+
+
+@router.post("/returns")
+async def calculate_returns(body: dict, project_id: Optional[str] = None):
+    """
+    Investor returns: unlevered (project) IRR, levered (equity) IRR, NPV, ROI,
+    ROE, and the hurdle rate each IRR is tested against.
+
+    Body: { fci_eur, operating_years, revenue_y1_eur, opex_y1_eur, tax_rate,
+            depreciation_years, revenue_growth?, opex_growth?,
+            maintenance_capex_eur?, residual_value_eur?, pre_fid_spend_eur?[],
+            construction_schedule_eur?[], ramp_up?[], opex_variable_share?,
+            debt_eur?, interest_rate?, debt_tenor_years?, grant_eur?,
+            cost_of_equity? | (risk_free_rate, equity_beta, equity_risk_premium),
+            country_risk_premium?, technology_risk_premium?, project_risk_premium? }
+
+    `fci_eur` is the Fixed Capital Investment: the CAPEX committed at FID.
+    `pre_fid_spend_eur` is the DEVEX by year, oldest first, paid before year 0.
+    Without `construction_schedule_eur` the answer is the labelled screening
+    case (FCI in full at year 0). With it (CAPEX by year from FID, totalling the
+    FCI, no pre-FID spend) the answer is the scheduled case and carries the
+    screening case beside it. The engine refuses a schedule that does not
+    reconcile to the FCI.
+    The engine returns its definitions and limitations with the numbers; this
+    route adds the governance stamp. Computed in gex_pf_engine core/returns.py.
+    """
+    gate = await _require_release_ready(project_id)
+    return _governed(await _call_model("/returns/calculate", method="POST", json_data=body), body, gate=gate)
 
 
 @router.post("/covenants")

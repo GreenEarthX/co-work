@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GEX TEST FIXTURE: synthetic. No real registry, account, device or certificate.
+     Shaped on the v81 tables and B3 examples of AIB-EECS-SD03 HubCom Release 9.1. NOT validated
+     against an XSD: the AIB XSD files were not obtained (SD03 points to a page that answered 404
+     on 15 Nov 2026). Codes in tags are placeholders, as in SD03's own examples. Account-holder
+     check characters are not computed. Proves nothing about any live registry. -->
+<r:Env xmlns:r="http://system.aib-net.org" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <r:Header MessageTransmissionTime="2026-04-15T09:00:00Z">
+    <r:MessageID>TEST0001</r:MessageID>
+    <r:FromRegistry cS="GS1">9999999000001</r:FromRegistry>
+    <r:ToRegistry cS="GS1">9999999000002</r:ToRegistry>
+    <r:Context>transfer</r:Context>
+  </r:Header>
+  <r:Body>
+    <r:SendingAccountID>99XTEST01A</r:SendingAccountID>
+    <r:ReceivingAccountID>99XTEST02B</r:ReceivingAccountID>
+    <r:NumberOfCertificates>50</r:NumberOfCertificates>
+    <r:Message>GEX TEST FIXTURE</r:Message>
+    <r:Certificates faceValue="MWh">
+      <r:StartCertificateNumber cS="eecs">999999900000000000000000000001</r:StartCertificateNumber>
+      <r:EndCertificateNumber cS="eecs">999999900000000000000000000050</r:EndCertificateNumber>
+      <r:IssuingBody>99</r:IssuingBody>
+      <r:CountryOfIssue>ZZ</r:CountryOfIssue>
+      <r:DateOfIssue>2026-04-10</r:DateOfIssue>
+      <r:ProductionPeriod start="2026-03-01T00:00:00+01:00" end="2026-03-31T23:59:59+02:00" length="month"/>
+      <r:EnergyCarrier>Electricity</r:EnergyCarrier>
+      <r:Conversion tag="XNNNN"/>
+      <r:Storage tag="S0100"/>
+      <r:Product name="EECS:GO" legalStatus="LC">
+        <r:Purpose>Disclosure</r:Purpose>
+        <r:CompetentAuthority>XX01</r:CompetentAuthority>
+        <r:ProductType type="driver">Source</r:ProductType>
+      </r:Product>
+      <r:ProductionDeviceID>999999900000000017</r:ProductionDeviceID>
+      <r:ProductionDeviceName>TEST wind device</r:ProductionDeviceName>
+      <r:DateOperational>2025-06-01</r:DateOperational>
+      <r:Capacity>
+        <r:ElectricalCapacity>10000.000</r:ElectricalCapacity>
+      </r:Capacity>
+      <r:ProductionTechnology>XNNNNNN</r:ProductionTechnology>
+      <r:EnergySource>XNNNNNNNN</r:EnergySource>
+      <r:SupportFlag>0</r:SupportFlag>
+      <r:ProductionDeviceLocation>
+        <r:Coordinates Longitude="0.0" Latitude="0.0" CoordinateCode="WGS-84"/>
+      </r:ProductionDeviceLocation>
+      <r:DisseminationLevel>02</r:DisseminationLevel>
+      <r:AdditionalInfo>GEX TEST FIXTURE</r:AdditionalInfo>
+    </r:Certificates>
+  </r:Body>
+</r:Env>

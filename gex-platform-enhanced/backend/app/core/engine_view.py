@@ -70,7 +70,7 @@ def _next_milestone(snapshot: dict) -> str:
 
 
 def bankability_view(snapshot: Optional[dict], persona: str, persona_gates: dict,
-                     evaluated_at: Optional[str] = None) -> dict:
+                     evaluated_at: Optional[str] = None, readiness: Optional[dict] = None) -> dict:
     """The engine snapshot as the screens' `bankability` block, scoped to `persona`.
 
     No snapshot → `evaluated: False` and no figures: "not yet evaluated" is
@@ -80,6 +80,7 @@ def bankability_view(snapshot: Optional[dict], persona: str, persona_gates: dict
         return {"evaluated": False, "source": "engine", "overall_completion": None, "gates": [],
                 "capital_status": [], "unlocked_capital": [], "next_milestone": "", "risk_alerts": [],
                 "state": None, "state_label": None, "rules_version": None, "evaluated_at": None,
+                "readiness": readiness,
                 "scope": {"persona": persona, "visible_gates": 0, "total_gates": 0}}
     visible = set(persona_gates.get(persona, []))
     all_gates = snapshot.get("gate_evaluations", [])
@@ -115,6 +116,9 @@ def bankability_view(snapshot: Optional[dict], persona: str, persona_gates: dict
         "next_state": snapshot.get("next_state"),
         "rules_version": snapshot.get("rules_version"),
         "evaluated_at": evaluated_at or snapshot.get("evaluated_at"),
+        # Freshness (task 1): a STALE view is shown as stale and supports no
+        # pass/fail judgement; the screens read readiness.status.
+        "readiness": readiness,
         "scope": {
             "persona": persona,
             "visible_gates": len(gates),

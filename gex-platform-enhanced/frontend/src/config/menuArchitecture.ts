@@ -368,6 +368,24 @@ export const MENU_TABS: MenuTab[] = [
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
       { id: 'package-builder', path: '/finance-package', label: 'Development Packages', section: 'DEAL STRUCTURING',
         visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK')] },
+      // Investor returns from the PF engine (core/returns.py): unlevered and levered
+      // IRR, NPV, ROI, ROE against the hurdle rate. Stamped; the inputs are the user's.
+      // The calculation chain (JML, 2026-11-18): saved Cost Basis -> reviewed TEA ->
+      // financing case -> returns published from them. The owner's screen; a bank
+      // reads the shared returns version, which cites the chain by id and hash.
+      { id: 'calculation-chain', path: '/finance/calculation-chain', label: 'Calculation Chain', section: 'DEAL STRUCTURING',
+        // + the appointed independent engineer (18 Nov): the server shows it the cost bases and TEA runs only.
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), PROD('ENGINEERING'), TP('ENGINEER')] },
+      { id: 'returns', path: '/finance/returns', label: 'Returns & Hurdle Rate', section: 'DEAL STRUCTURING',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK'), TP('DFI')] },
+      // ONE DEVEX Brief page (JML, 2026-11-18). The project owner's finance and
+      // executive functions see the complete brief; a bank or DFI user sees only
+      // the sections the owner shared with that user for that project — the
+      // backend (/api/v1/devex-brief) sends nothing else, and without a share the
+      // page shows a refusal, not data. Shares stay individual, revocable, audited.
+      // /finance/devex-shared (the former bank screen) redirects here.
+      { id: 'devex-brief', path: '/finance/devex-brief', label: 'DEVEX Brief', section: 'DEAL STRUCTURING',
+        visible_to: [PROD('FINANCE_TREASURY'), PROD('EXECUTIVE'), TP('BANK'), TP('DFI')] },
       { id: 'risk-allocation', path: '/finance-risk-matrix', label: 'Risk Allocation', section: 'DEAL STRUCTURING',
         visible_to: [PROD('FINANCE_TREASURY'), TP('BANK'), TP('INSURER')] },
       { id: 'drawdown-timeline', path: '/finance/drawdown-timeline', label: 'Drawdown Timeline', section: 'DEAL STRUCTURING',

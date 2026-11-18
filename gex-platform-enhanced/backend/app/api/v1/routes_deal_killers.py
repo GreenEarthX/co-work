@@ -42,6 +42,9 @@ class DealKillerStatusOut(BaseModel):
     active_killers:       list[ActiveKillerOut]
     fatal_count:          int
     critical_count:       int
+    # Killers neither fired nor cleared (task 6): not assessable for want of an
+    # input, or no approved threshold. GEX claims no pass for them.
+    unjudged_killers:     list[dict] = []
 
 
 class ICPackExportCheckOut(BaseModel):
@@ -94,6 +97,12 @@ async def get_deal_killers(project_id: str) -> DealKillerStatusOut:
         ],
         fatal_count=len(fatal_active),
         critical_count=len(critical_active),
+        unjudged_killers=[
+            {"id": k.id, "gate": k.gate, "status": k.current_status.value,
+             "message": (k.assessment or {}).get("message"), "assessment": k.assessment}
+            for k in engine.evaluate(project_data)
+            if k.current_status in (KillerStatus.NOT_ASSESSABLE, KillerStatus.NO_APPROVED_THRESHOLD)
+        ],
     )
 
 

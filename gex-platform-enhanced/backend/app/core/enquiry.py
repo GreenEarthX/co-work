@@ -70,6 +70,9 @@ def _view(conn, party: Party, e: dict, messages: bool = True) -> dict:
                 "decline": not mine_sent and e["status"] == "open",
                 "withdraw": mine_sent and e["status"] == "open"},
     }
+    if mine_sent and e.get("assessment_id") and e["status"] in ("open", "contact_shared"):
+        # Check 9: what changed since the asker's assessment (the stored row is never updated).
+        out["changed_since_assessed"] = me._changed_since(conn, str(e["assessment_id"]))
     if e["status"] in SHARED:
         # D-D: released to both parties by the receiving party's consent.
         asker = {"company_id": e["from_company_id"], "company_name": _company_name(conn, e["from_company_id"]),

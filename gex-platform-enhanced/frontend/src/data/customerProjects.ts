@@ -84,6 +84,12 @@ export interface CustomerProject {
      */
     risk_flags?: RiskFlag[];
   };
+  /** True only when the session's company owns the project (server-decided).
+   *  Write controls show on it alone (JML, 2026-11-18). */
+  viewer_is_owner?: boolean;
+  /** Set when the project is listed only because its owner shared something
+   *  with this user: what was shared. Nothing else of the project is known. */
+  disclosure?: { basis: "owner_share"; shared: string[] } | null;
   /** Molecule-specific regulatory and hazard gating — shown alongside standard bankability gates. */
   molecule_gating?: MoleculeGating;
   /** Structured offtake agreements — replaces unstructured description text for bankability analysis. */

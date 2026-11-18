@@ -41,6 +41,8 @@ UNIT_FAMILIES: dict[str, tuple[str, ...]] = {
     # A gas density is only meaningful at stated reference conditions; the KEY names them
     # (the frontend family requires temperature and pressure as context).
     "DENSITY_MASS":      ("kg/m3",),
+    # Rates as fractions: hurdles, premiums, WACC targets (decision tests, task 6).
+    "DISCOUNT_RATE":     ("fraction",),
 }
 
 # Families whose values are money: a row in one must carry currency + price date.
@@ -82,12 +84,46 @@ PARAMETERS: dict[str, ParameterDef] = {
     "h2_price_rfnbo": ParameterDef("COST_PER_MASS", "RFNBO (renewable) hydrogen price"),
     "h2_price_grey": ParameterDef("COST_PER_MASS", "Conventional (SMR) hydrogen price"),
     "ppa_price_solar": ParameterDef("COST_PER_ENERGY", "Solar PPA price"),
+    # Purchased CO2 for a CO2-to-fuel plant (JML 2026-11-18: HamburgOne buys North Sea's CO2
+    # shortfall). Merchant liquid CO2 delivered to site; on-site capture is priced by its own
+    # equipment lines, not by this key.
+    "co2_feedstock_price": ParameterDef(
+        "COST_PER_MASS", "Purchased CO2 feedstock price (merchant liquid CO2, delivered)"),
     "ehb_premium": ParameterDef(
         "COST_PER_MASS", "European Hydrogen Bank fixed premium per kg"),
     "subsidy_45v_max": ParameterDef(
         "COST_PER_MASS", "45V clean hydrogen production credit, top tier"),
     "debt_gearing": ParameterDef(
         "FRACTION_OF_TOTAL", "Senior debt as a fraction of total capex"),
+    # ── Decision-test thresholds (handoff v4, task 6). Each row names its policy
+    # party and context (migration 121). Proposed only: JML approves GEX defaults;
+    # an institution's value is established only with its own reference.
+    "dscr_floor_p50": ParameterDef(
+        "DIMENSIONLESS", "Minimum base-case (P50) DSCR a senior lender requires"),
+    "dscr_floor_p90": ParameterDef(
+        "DIMENSIONLESS", "Minimum downside (P90) DSCR a senior lender requires"),
+    "dscr_covenant_floor": ParameterDef(
+        "DIMENSIONLESS", "DSCR below which a lock-up covenant applies"),
+    "dscr_default_floor": ParameterDef(
+        "DIMENSIONLESS", "DSCR below which a senior lender would treat debt service as failed (event of default)"),
+    "wacc_target_max": ParameterDef(
+        "DISCOUNT_RATE", "Highest after-tax WACC at which equity investors are expected to proceed"),
+    "offtake_coverage_min": ParameterDef(
+        "FRACTION_OF_TOTAL", "Minimum share of output under offtake a lender requires"),
+    "regulatory_premium_max": ParameterDef(
+        "DISCOUNT_RATE", "Largest jurisdiction regulatory risk premium compatible with investment-grade pricing"),
+    "project_risk_premium": ParameterDef(
+        "DISCOUNT_RATE", "Premium over after-tax WACC giving the project hurdle rate"),
+    "technology_risk_premium": ParameterDef(
+        "DISCOUNT_RATE", "Premium added to the cost of equity for technology risk"),
+    "llcr_floor": ParameterDef(
+        "DIMENSIONLESS", "Minimum LLCR a senior lender requires"),
+    "sponsor_equity_hurdle": ParameterDef(
+        "DISCOUNT_RATE", "Equity return a commercial sponsor requires (cost of equity)"),
+    "dfi_irr_hurdle": ParameterDef(
+        "DISCOUNT_RATE", "A DFI's project IRR hurdle, used as ONE input to its additionality assessment"),
+    "dfi_catalytic_ratio_min": ParameterDef(
+        "DIMENSIONLESS", "A DFI's minimum ratio of commercial to DFI money mobilised"),
     # Capital-bridge fuel defaults. No seed rows: until an analyst proposes one,
     # these resolve to the code fallback, marked model_default.
     "offtake_price_base": ParameterDef(

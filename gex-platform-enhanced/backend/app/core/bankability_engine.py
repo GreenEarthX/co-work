@@ -302,6 +302,7 @@ GATE_REGISTRY: list[GateDefinition] = [
         id="G8_AUDIT_GRADE_MODEL", name="Audit-Grade Financial Model",
         required_evidence=[
             "base_case_model",
+            "engine_returns_case",
             "model_audit_opinion",
             "downside_cases",
             "covenant_suite_defined",
@@ -628,6 +629,7 @@ EVIDENCE_OWNER_FUNCTION: dict[str, str] = {
     "foak_exclusions_warranty_backstop": "TREASURY",
     # G8_AUDIT_GRADE_MODEL
     "base_case_model": "FINANCE",
+    "engine_returns_case": "FINANCE",
     "model_audit_opinion": "FINANCE",
     "downside_cases": "FINANCE",
     "covenant_suite_defined": "FINANCE",

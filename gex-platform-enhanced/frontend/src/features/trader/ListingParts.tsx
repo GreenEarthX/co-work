@@ -47,7 +47,8 @@ export function EvidenceCell({ product }: { product?: ListingProduct }) {
   return (
     <span className="flex flex-wrap gap-1">
       {certs.map((c) => (
-        <span key={`${c.kind}-${c.scheme}-${c.scope}`} title={`${c.body}: ${c.covers}`}>
+        <span key={`${c.kind}-${c.scheme}-${c.scope}`}
+              title={`${c.body}: ${c.covers}. ${c.valid_from ? `Valid ${c.valid_from} to ${c.valid_until ?? 'no end date'}` : 'No validity dates recorded'}`}>
           <EvidenceChip status={c.status}>{c.scheme}{c.scope === 'batch' ? '' : ` (${c.scope})`}</EvidenceChip>
         </span>
       ))}

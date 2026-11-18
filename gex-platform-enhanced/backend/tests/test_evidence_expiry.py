@@ -110,7 +110,12 @@ def test_every_change_of_validity_is_audited_and_an_unchanged_write_adds_nothing
 
 def _stale_run(monkeypatch, next_expiry):
     calls: list[dict] = []
-    snap = {"rules_version": "t", "next_expiry": next_expiry, "current_state": "BUILDABLE"}
+    # A current snapshot carries the evidence fingerprint it was evaluated on (handoff v4,
+    # task 1); here it matches, so only the expiry decides whether to re-evaluate.
+    from app.core import readiness
+    snap = {"rules_version": "t", "next_expiry": next_expiry, "current_state": "BUILDABLE",
+            readiness.FINGERPRINT_KEY: "fp-current"}
+    monkeypatch.setattr(readiness, "current_fingerprint", lambda pid: "fp-current")
 
     async def rules():
         return {"rules_version": "t"}

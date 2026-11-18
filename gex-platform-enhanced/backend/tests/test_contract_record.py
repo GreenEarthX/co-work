@@ -130,10 +130,15 @@ def test_order_of_legs_and_clauses_does_not_move_any_hash():
 
 
 def test_the_clause_types_are_the_migrations():
-    tree = ast.parse((Path(__file__).resolve().parents[1] / "alembic/versions/083_contract_record_core.py").read_text())
-    found = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Assign)
-                 and any(getattr(t, "id", None) == "CLAUSE_TYPES" for t in node.targets))
-    assert tuple(ast.literal_eval(found)) == CLAUSE_TYPES
+    """The LATEST migration that sets CLAUSE_TYPES (083, widened by 104 for `title`)."""
+    versions = Path(__file__).resolve().parents[1] / "alembic/versions"
+    latest = None
+    for path in sorted(versions.glob("[0-9][0-9][0-9]_*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "CLAUSE_TYPES" for t in node.targets):
+                latest = (path.name, node.value)
+    assert latest and latest[0].startswith("104_"), latest
+    assert tuple(ast.literal_eval(latest[1])) == CLAUSE_TYPES
 
 
 def test_the_event_hash_covers_its_timestamp():

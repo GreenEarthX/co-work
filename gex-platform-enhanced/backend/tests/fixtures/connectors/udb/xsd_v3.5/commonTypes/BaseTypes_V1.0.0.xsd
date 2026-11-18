@@ -1,0 +1,542 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://udb.ener.ec.europa.eu/commonTypes/baseTypes/v1" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://udb.ener.ec.europa.eu/commonTypes/baseTypes/v1" xmlns:baseV1="http://udb.ener.ec.europa.eu/commonTypes/baseTypes/v1" version="1.0">
+	<xs:simpleType name="emailAddress">
+		<xs:annotation>
+			<xs:documentation>Simple type for email addresses</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:pattern value="[A-Za-z0-9](([_\.\-]?[a-zA-Z0-9]+)*)@([A-Za-z0-9]+)(([\.\-]?[a-zA-Z0-9]+)*)\.([A-Za-z]{2,})"/>
+			<xs:maxLength value="255"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="FileReference">
+		<xs:annotation>
+			<xs:documentation>URI of a file attached to the payload.</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:anyURI"/>
+	</xs:simpleType>
+	<xs:simpleType name="httpURL">
+		<xs:annotation>
+			<xs:documentation>Simple type for an URL</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:anyURI">
+			<xs:pattern value="(https?)://(-|[a-z]|[A-Z]|[0-9]|_|@|:|\+|&amp;)+(\.([a-z]|[A-Z]|[0-9]|-|_|/|\/|\(|\)|\?|\=|&amp;|:|#|\%|\?)+)+"/>
+			<xs:maxLength value="2000"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="LatitudeDT">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 6 decimal and 8 digits from -90 to +90</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="6"/>
+			<xs:maxInclusive value="90"/>
+			<xs:minInclusive value="-90"/>
+			<xs:totalDigits value="8"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="LongitudeDT">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 6 decimal and 9 total digits from -180 to +180</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="6"/>
+			<xs:maxInclusive value="180"/>
+			<xs:minInclusive value="-180"/>
+			<xs:totalDigits value="9"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyNumber19">
+		<xs:annotation>
+			<xs:documentation>Nineteen numbers only</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:int"/>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString1">
+		<xs:annotation>
+			<xs:documentation>Non empty 1 character only</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="1"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString10">
+		<xs:annotation>
+			<xs:documentation>Non empty 10 characters only</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="10"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString100">
+		<xs:annotation>
+			<xs:documentation>Only allow 100 characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="100"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString1024">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 1024 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="1024"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString12">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="12"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString128">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 128 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="128"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString16">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 16 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="16"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString19">
+		<xs:annotation>
+			<xs:documentation>Non Empty 19 character string</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="19"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString2">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="2"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString20">
+		<xs:annotation>
+			<xs:documentation>Non empty 20 characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="20"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString255">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 256 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="255"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString3">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 3 characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="3"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString32">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 32 characters and containing at least 1 character (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="32"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString4">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 3 characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="4"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString4000">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 4000 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="4000"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString5">
+		<xs:annotation>
+			<xs:documentation>Non empty 5 characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="5"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString50">
+		<xs:annotation>
+			<xs:documentation>Non empty 50 characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="50"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString64">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 64 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="64"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString7">
+		<xs:annotation>
+			<xs:documentation>Non empty 5 characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="7"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyString8">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="8"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number10and3Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 3 decimal and 10 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="3"/>
+			<xs:totalDigits value="10"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number13and6Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 6 decimal and 13 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="6"/>
+			<xs:totalDigits value="13"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number14and2Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 2 decimal and 7 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="2"/>
+			<xs:totalDigits value="14"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number19">
+		<xs:annotation>
+			<xs:documentation>Nineteen numbers only</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:int"/>
+	</xs:simpleType>
+	<xs:simpleType name="Number19and3Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 3 decimal and 19 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="3"/>
+			<xs:totalDigits value="19"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number5and1Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 1 decimal and 5 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="1"/>
+			<xs:totalDigits value="5"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number6and2Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 2 decimal and 7 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="2"/>
+			<xs:totalDigits value="6"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number7and3Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 3 decimal and 7 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="3"/>
+			<xs:totalDigits value="7"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="Number9and4Decimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing 4 decimal and 9 digits</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="4"/>
+			<xs:totalDigits value="9"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="OneDecimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing decimal values with one decimal places.</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="1"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="PercentageInt">
+		<xs:annotation>
+			<xs:documentation>Simple type only allows full percentages (Integer from 0 to 100).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:int">
+			<xs:maxInclusive value="100"/>
+			<xs:minInclusive value="0"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="PercentageOneDecimal">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing decimal values with one decimal places from 0 to 100.</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="1"/>
+			<xs:maxInclusive value="100"/>
+			<xs:minInclusive value="0"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="PercentageTwoDecimals">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing decimal values from 0 to 100.</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="2"/>
+			<xs:maxInclusive value="100"/>
+			<xs:minInclusive value="0"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="PositiveInteger">
+		<xs:restriction base="xs:positiveInteger"/>
+	</xs:simpleType>
+	<xs:simpleType name="String10">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="10"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String100">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="100"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String1024">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 1024 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="1024"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String12">
+		<xs:annotation>
+			<xs:documentation>String of length 12</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:maxLength value="12"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String128">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 128 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="128"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String16">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 16 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="16"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String2">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="2"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String20">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="20"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String2000">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="2000"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String255">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 256 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="255"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String3">
+		<xs:annotation>
+			<xs:documentation>Allowed 3 alphanumeric characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="3"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String30">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="30"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String32">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 32 characters and containing at least 1 character (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="32"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String4">
+		<xs:annotation>
+			<xs:documentation>Allowed 4 alphanumeric characters</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="4"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String4000">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 4000 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="4000"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String5">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="5"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String50">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="50"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String64">
+		<xs:annotation>
+			<xs:documentation>Simple type allowing only string inputs limited to 64 characters and containing at least 1 characters (useful for mandatory string values).</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="64"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String7">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="7"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="String8">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="0"/>
+			<xs:maxLength value="8"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="ThreeDecimals">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing decimal values with three decimal places.</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="3"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="TwoDecimals">
+		<xs:annotation>
+			<xs:documentation>Simple type only allowing decimal values with two decimal places.</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:decimal">
+			<xs:fractionDigits value="2"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:complexType name="Log">
+		<xs:annotation>
+			<xs:documentation>Log entry.</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="CODE" type="String255" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>Alphanumerical error code.</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="MESSAGE" type="String1024" minOccurs="1" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>Error message</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="MultilingualString">
+		<xs:annotation>
+			<xs:documentation>Text needed to be internationalized.</xs:documentation>
+		</xs:annotation>
+		<xs:simpleContent>
+			<xs:extension base="NonEmptyString1024">
+				<xs:attribute name="lang" use="optional" default="en" type="xs:language">
+					<xs:annotation>
+						<xs:documentation>Language in which the text is expressed.
+
+If the language is not specified, the default value will be applied ('en').</xs:documentation>
+					</xs:annotation>
+				</xs:attribute>
+			</xs:extension>
+		</xs:simpleContent>
+	</xs:complexType>
+</xs:schema>

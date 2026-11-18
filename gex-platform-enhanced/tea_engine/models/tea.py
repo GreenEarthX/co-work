@@ -28,8 +28,10 @@ class ProcessUnitSpec(BaseModel):
 
 
 class FinancialAssumptions(BaseModel):
-    """The assumption basis — recorded as its own evidence entry (assumption pack)."""
-    model_config = ConfigDict(extra="ignore")
+    """The assumption basis — recorded as its own evidence entry (assumption pack).
+    Unknown keys are REFUSED (18 Nov 2026): a misspelt assumption used to be dropped
+    silently and the run went ahead on the default."""
+    model_config = ConfigDict(extra="forbid")
 
     discount_rate_pct:   float = 8.0
     electricity_eur_mwh: float = 60.0
@@ -46,8 +48,61 @@ class FinancialAssumptions(BaseModel):
     provenance:          dict = Field(default_factory=dict)
 
 
+# ── Quote mode (calculation chain, 18 Nov 2026) ────────────────────────────────
+# A plant priced from its OWN lines (a saved Cost Basis): each line an installed
+# quote, every utility with an explicit unit, and every OpenPyTEA setting that
+# would otherwise default stated by the caller. What is still left to OpenPyTEA is
+# returned in TEAResult.defaults_used, never applied silently.
+
+STREAM_UNITS = ("MWh/day", "m3/day", "kg/day", "Nm3/day", "t/day")
+
+
+class QuoteEquipment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name:           str = Field(min_length=1)
+    installed_cost: float = Field(gt=0)        # base currency, installed (all OpenPyTEA install factors 0)
+    cost_year:      Optional[int] = Field(default=None, ge=2000, le=2100)   # None -> the cost base year, declared
+    source:         str = Field(min_length=1)
+
+
+class StreamInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consumption: float = Field(ge=0)           # per day, in `unit`
+    unit:        Literal["MWh/day", "m3/day", "kg/day", "Nm3/day", "t/day"]
+    price:       float = Field(ge=0)           # base currency per unit of `unit` (per day stripped)
+    source:      str = Field(min_length=1)
+
+
+FIXED_OPEX_COMPONENT_KEYS = (
+    "supervision_costs", "direct_salary_overhead", "laboratory_charges", "maintenance_costs",
+    "taxes_insurance_costs", "rent_of_land_costs", "environmental_charges", "operating_supplies",
+    "general_plant_overhead", "patents_royalties", "distribution_selling_costs", "RnD_costs")
+
+
+class QuotePlant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    equipment:            list[QuoteEquipment] = Field(min_length=1)
+    variable_opex:        dict[str, StreamInput] = Field(default_factory=dict)
+    loc_factor:           float = Field(gt=0)
+    loc_factor_basis:     str = Field(min_length=1)
+    contingency:          float = Field(ge=0, le=1)     # fraction of ISBL+OSBL
+    operators_hired:      float = Field(gt=0)
+    operator_hourly_rate: float = Field(gt=0)           # base currency per hour
+    fixed_opex_components: dict[str, float] = Field(default_factory=dict)  # annual, base currency
+    # Mass feedstocks made or captured on site, t per year at the stated run time, each
+    # with its basis. Checked against the molecule's stoichiometry (feedstock_balance).
+    on_site_supply:       dict[str, "OnSiteSupply"] = Field(default_factory=dict)
+
+
+class OnSiteSupply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    t_per_year: float = Field(ge=0)
+    basis:      str = Field(min_length=1)
+
+
 class TEAComputeRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    # Unknown keys are REFUSED (18 Nov 2026) — see FinancialAssumptions.
+    model_config = ConfigDict(extra="forbid")
 
     project_id:         str
     pathway_id:         str
@@ -92,6 +147,9 @@ class TEAComputeRequest(BaseModel):
     country:               str = "Netherlands"      # drives OpenPyTEA location factors
     plant_process_type:    str = "Fluids"
     variable_opex_inputs:  dict = Field(default_factory=dict)  # {stream:{consumption,price}}
+    # Quote mode: price THESE lines instead of the canonical train (no feedstock is
+    # bought unless listed in quote_plant.variable_opex).
+    quote_plant:           Optional[QuotePlant] = None
 
 
 class PlantSummaryExtract(BaseModel):
@@ -138,6 +196,13 @@ class TEAResult(BaseModel):
     mass_balance:         Optional[dict] = None
     cost_basis:           Optional[dict] = None
     calculation_boundary: Optional[dict] = None
+    # The exact config OpenPyTEA received (equipment as Equipment(**kwargs)) and every
+    # OpenPyTEA default that still applied — so a reader can list them as assumptions.
+    openpytea_config:     Optional[dict] = None
+    defaults_used:        list[dict] = Field(default_factory=list)
+    # Quote mode: each mass feedstock of the molecule, required vs supplied on site vs
+    # bought (a stated variable_opex stream). A shortfall is reported, never filled.
+    feedstock_balance:    list[dict] = Field(default_factory=list)
     note:             str = ("Provisional cost basis. Promote to model_base_case "
                              "only via IE/CFO approval_decision; no release-gated "
                              "compute until then.")
@@ -208,3 +273,5 @@ class TEAMonteCarloResult(BaseModel):
                  "a probability of the real project outcome. Its width is only as good as "
                  "the uncertainty basis; inputs marked model_default are GEX/OpenPyTEA "
                  "defaults, not project evidence.")
+
+QuotePlant.model_rebuild()

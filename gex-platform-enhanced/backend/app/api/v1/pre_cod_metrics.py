@@ -93,7 +93,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 # Ticket 7b — single source of truth. Pre-COD metrics CONSUME development
@@ -103,6 +103,30 @@ from pydantic import BaseModel, Field
 from app.core.db_backend import domain_connection, domain_is_postgres
 
 router = APIRouter(prefix="/api/v1/pre-cod-metrics", tags=["pre-cod-metrics"])
+
+# CEC, FRI and the capital gap are computed from development packages, which
+# before FID are the owner's development spend (handoff v4 task 9). The owner,
+# GEX staff and a holder of the owner's SUMMARY share get every package; anyone
+# else gets the figures on post-FID packages only, labelled so.
+CEC_ALL = "ALL_PACKAGES"
+CEC_POST_FID = "POST_FID_ONLY"
+CEC_POST_FID_LABEL = ("Post-FID packages only — the owner has not shared its pre-FID development "
+                      "spend (SUMMARY) with you, so it is not in this figure.")
+
+
+def _packages(project_id: str, db, request: Optional[Request], route: str) -> tuple[list, str]:
+    """(packages, basis) under the pre-FID rule (one rule: pre_fid_access)."""
+    from app.api.v1.development_packages import _project_rows
+    rows, withheld = _project_rows(project_id, db, request, route, section="SUMMARY")
+    return [dict(r) for r in rows], (CEC_POST_FID if withheld else CEC_ALL)
+
+
+def _summary_access(request: Optional[Request], project_id: str, *, write: bool, route: str):
+    from app.core import pre_fid_access
+    if request is None:
+        return None
+    return pre_fid_access.require(pre_fid_access.resolve(request, project_id), "SUMMARY",
+                                  write=write, route=route)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -238,6 +262,10 @@ class PreCODReport(BaseModel):
     # STANDARD PF
     llcr: MetricResult
     suc:  MetricResult
+
+    # Which packages the package metrics cover (pre-FID rule)
+    cec_basis:          str = CEC_ALL
+    cec_basis_label:    Optional[str] = None
 
     # DSCR FOOTNOTE
     dscr_applicable:        bool  = False
@@ -684,20 +712,22 @@ def _one_liner(signal: str, cec: float, fri: float,
 def compute_pre_cod_metrics(
     project_id: str,
     body: PreCODRequest,
+    request: Request = None,
     db: Any = Depends(get_db)
 ):
-    packages_raw = db.execute(
-        "SELECT * FROM development_packages WHERE project_id=?", (project_id,)
-    ).fetchall()
+    if body.save_snapshot:     # a snapshot is the owner's record: a share never writes
+        _summary_access(request, project_id, write=True, route="pre_cod.snapshot")
+    packages, cec_basis = _packages(project_id, db, request, "pre_cod.compute")
 
-    if not packages_raw:
+    if not packages:
+        if cec_basis == CEC_POST_FID:
+            from app.core import pre_fid_access
+            raise pre_fid_access.refusal("SUMMARY", False)
         raise HTTPException(
             404,
             f"No development packages found for project {project_id}. "
             "Create packages via POST /api/v1/packages before computing metrics."
         )
-
-    packages = [dict(r) for r in packages_raw]
 
     # Infer bankability state from package phase maturity
     phase_order = ["FEL_1", "FEL_2", "FEED", "FID", "CONSTRUCTION"]
@@ -713,6 +743,9 @@ def compute_pre_cod_metrics(
     # Compute all six metrics
     cec_r = _compute_cec(packages)
     fri_r = _compute_fri(packages)
+    if cec_basis == CEC_POST_FID:
+        cec_r.formatted = f"{cec_r.formatted} — post-FID packages only"
+        cec_r.known_limitation = CEC_POST_FID_LABEL
     rmr_r = _compute_rmr(body.rmr)
     cbm_r = _compute_cbm(body.cohort)
     llcr_r = _compute_llcr(body.llcr)
@@ -756,6 +789,8 @@ def compute_pre_cod_metrics(
         "CBM":  "requires the adjacency cohort median (not yet live)",
     }
     for nm, m in (("CEC", cec_r), ("FRI", fri_r), ("RMR", rmr_r), ("CBM", cbm_r), ("LLCR", llcr_r), ("SUC", suc_r)):
+        if nm == "CEC" and cec_basis == CEC_POST_FID:
+            continue
         m.known_limitation = (
             _missing.get(nm, "input not supplied") if m.status == "PENDING"
             else ("estimate — not independently verified" if m.data_freshness in ("estimated", "stale") else None)
@@ -793,6 +828,8 @@ def compute_pre_cod_metrics(
         capital_gap_eur=capital_gap,
         blocked_packages=blocked,
         one_liner=liner,
+        cec_basis=cec_basis,
+        cec_basis_label=CEC_POST_FID_LABEL if cec_basis == CEC_POST_FID else None,
     )
 
     if body.save_snapshot:
@@ -816,8 +853,11 @@ def compute_pre_cod_metrics(
 def get_metric_history(
     project_id: str,
     limit: int = Query(20, le=100),
+    request: Request = None,
     db: Any = Depends(get_db)
 ):
+    # Snapshots hold every package's figures: they open only with SUMMARY.
+    _summary_access(request, project_id, write=False, route="pre_cod.history")
     rows = db.execute("""
         SELECT snapshot_id, computed_at, cec_value, fri_value, rmr_value,
                cbm_value, llcr_value, suc_value, overall_score,
@@ -832,18 +872,21 @@ def get_metric_history(
 @router.get("/portfolio/summary")
 def portfolio_summary(
     project_ids: str = Query(..., description="Comma-separated project IDs"),
+    request: Request = None,
     db: Any = Depends(get_db)
 ):
     ids = [p.strip() for p in project_ids.split(",") if p.strip()]
     results = []
+    withheld: list = []
 
     for pid in ids:
-        rows = db.execute(
-            "SELECT * FROM development_packages WHERE project_id=?", (pid,)
-        ).fetchall()
-        if not rows:
+        pkgs, basis = _packages(pid, db, request, "pre_cod.portfolio")
+        if not pkgs:
+            if basis == CEC_POST_FID:   # packages exist, none open to this caller: say so, never drop it
+                withheld.append({"project_id": pid, "cec": None, "cec_basis": CEC_POST_FID,
+                                 "cec_basis_label": "Withheld — every package of this project is pre-FID "
+                                                    "and its owner has not shared SUMMARY with you."})
             continue
-        pkgs = [dict(r) for r in rows]
         cec = _compute_cec(pkgs)
         fri = _compute_fri(pkgs)
 
@@ -862,6 +905,8 @@ def portfolio_summary(
             "fid_signal":         signal,
             "capital_gap_eur":    gap,
             "blocked_packages":   sum(1 for p in pkgs if p["workflow_state"] in ("identified","scoped")),
+            "cec_basis":          basis,
+            "cec_basis_label":    CEC_POST_FID_LABEL if basis == CEC_POST_FID else None,
         })
 
     return {
@@ -872,4 +917,7 @@ def portfolio_summary(
         "portfolio_avg_fri":    round(sum(r["fri"] for r in results) / len(results), 3) if results else 0,
         "projects_fid_ready":   sum(1 for r in results if r["fid_signal"] == "READY"),
         "total_capital_gap_eur": sum(r["capital_gap_eur"] for r in results),
+        "withheld_projects":    withheld,
+        "portfolio_basis":      ("MIXED — some projects' figures cover post-FID packages only"
+                                 if withheld or any(r["cec_basis"] == CEC_POST_FID for r in results) else CEC_ALL),
     }

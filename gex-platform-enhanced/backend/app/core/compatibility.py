@@ -82,7 +82,8 @@ def _regimes(req: dict, listing: dict, m: bool) -> dict:
     level, missing, weak = _required_level(req), [], []
     for regime in req["regimes"]:
         r = regime.lower()
-        best = max((_evidence(c["status"]) for c in _certs(listing) if (c.get("scheme") or "").lower() == r), default=0)
+        best = max((_evidence(c["status"]) for c in _certs(listing)
+                    if (c.get("scheme") or "").lower() == r and not _gap(c, listing)), default=0)
         if not best and r in pathway:
             best = EVIDENCE_ORDER["asserted"]
         if not best:
@@ -96,11 +97,27 @@ def _regimes(req: dict, listing: dict, m: bool) -> dict:
     return _o("regimes", COMPATIBLE, f"{', '.join(req['regimes'])} claimed.", m, "Regime")
 
 
+def _gap(c: dict, listing: dict) -> Optional[str]:
+    """Why this certificate does not cover the whole delivery window, or None. A certificate's
+    status is today's; delivery is later. No dates recorded counts as not shown to cover it."""
+    start, end = _day(listing["delivery_start"]), _day(listing["delivery_end"])
+    if not c.get("valid_from"):
+        return f"{c['scheme']} states no validity dates"
+    if c["valid_from"] > start:
+        return f"{c['scheme']} is valid only from {c['valid_from']}; delivery starts {start}"
+    if c.get("valid_until") and c["valid_until"] < end:
+        return f"{c['scheme']} expires {c['valid_until']}, before delivery ends {end}"
+    return None
+
+
 def _schemes(req: dict, listing: dict, m: bool) -> dict:
     accepted = {s.lower() for s in req["accepted_schemes"]}
     level = max(_required_level(req), EVIDENCE_ORDER["asserted"])
     mine = [c for c in _certs(listing) if (c.get("scheme") or "").lower() in accepted]
-    live = [c for c in mine if _evidence(c["status"]) >= level]
+    strong = [c for c in mine if _evidence(c["status"]) >= level]
+    live = [c for c in strong if not _gap(c, listing)]
+    if strong and not live:
+        return _o("accepted_schemes", NEEDS, "; ".join(_gap(c, listing) for c in strong) + ".", m, "Certificate")
     if live:
         c = max(live, key=lambda c: _evidence(c["status"]))
         cover = "" if c.get("scope") == "batch" else f" ({c.get('covers') or c.get('scope')}, not this quantity)"
@@ -115,7 +132,7 @@ def _schemes(req: dict, listing: dict, m: bool) -> dict:
 def _evidence_floor(req: dict, listing: dict, m: bool) -> dict:
     """min_evidence_state on its own: at least one certificate at that level."""
     level, want = _required_level(req), req["min_evidence_state"]
-    if any(_evidence(c["status"]) >= level for c in _certs(listing)):
+    if any(_evidence(c["status"]) >= level and not _gap(c, listing) for c in _certs(listing)):
         return _o("min_evidence_state", COMPATIBLE, f"At least one certificate is {want} or better.", m, "Evidence")
     return _o("min_evidence_state", NEEDS, f"No certificate is {want} yet.", m, "Evidence")
 
@@ -227,3 +244,28 @@ def blocking(a: dict) -> list[str]:
 
 def outcome_of(a: dict, key: str) -> Optional[dict[str, Any]]:
     return next((o for o in a["outcomes"] if o["requirement"] == key), None)
+
+
+# Fields of the anonymous listing whose change matters to a decision (report §6.3). The product
+# carries the evidence: a certificate's status (incl. expiry), carbon intensity, quality.
+WATCHED = ("volume_mtpd", "price_eur_kg", "delivery_start", "delivery_end", "offer_type", "valid_until", "incoterm",
+           "named_place", "product")
+
+
+def changes_since(then: dict, now: dict, listing_then: dict, listing_now: dict) -> Optional[dict]:
+    """What differs between a STORED assessment (`then`: status, outcomes) and the same pair assessed
+    now, or None when nothing that matters changed. The stored row is never touched (118)."""
+    old = {o["requirement"]: o for o in then["outcomes"]}
+    new = {o["requirement"]: o for o in now["outcomes"]}
+    outcomes = [{"requirement": k, "label": (new.get(k) or old[k])["label"],
+                 "then": (old.get(k) or {}).get("outcome"), "now": (new.get(k) or {}).get("outcome"),
+                 "reason_now": (new.get(k) or {}).get("reason")}
+                for k in sorted(set(old) | set(new))
+                if (old.get(k) or {}).get("outcome") != (new.get(k) or {}).get("outcome")
+                or (old.get(k) or {}).get("reason") != (new.get(k) or {}).get("reason")]
+    fields = [f for f in WATCHED if json.dumps(listing_then.get(f), sort_keys=True, default=str)
+              != json.dumps(listing_now.get(f), sort_keys=True, default=str)]
+    if not outcomes and not fields and then["status"] == now["status"]:
+        return None
+    return {"status_then": then["status"], "status_now": now["status"], "eligible_now": now["eligible"],
+            "outcomes": outcomes, "listing_fields": fields}

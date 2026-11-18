@@ -40,9 +40,10 @@ PROFILE = reg.ProjectAccessProfile(project_id=PID, project_name="TEST market sel
                                    jurisdiction="DE")
 
 USERS = {   # user -> (company name, platform admin, business function)
-    "u_seller": (SELLER, False, "EXECUTIVE"), "u_seller2": (SELLER, False, "COMMERCIAL"),
-    "u_buyer": (BUYER, False, "EXECUTIVE"), "u_buyer2": (BUYER, False, "COMMERCIAL"),
-    "u_other": (OTHER, False, "EXECUTIVE"), "u_gex": ("GreenEarthX", True, "EXECUTIVE"),
+    # D-B (JML 2026-11-14): Commercial acts, the CEO approves the trade confirmation.
+    "u_seller": (SELLER, False, "COMMERCIAL"), "u_seller2": (SELLER, False, "EXECUTIVE"),
+    "u_buyer": (BUYER, False, "COMMERCIAL"), "u_buyer2": (BUYER, False, "EXECUTIVE"),
+    "u_other": (OTHER, False, "COMMERCIAL"), "u_gex": ("GreenEarthX", True, "EXECUTIVE"),
 }
 MOLECULE = "e-Methanol"                 # tb_commodity.market_molecule (065) — EMEOH
 
@@ -75,6 +76,19 @@ def _q(sql: str, params: tuple = ()) -> dict | None:
         cur.execute(sql, params)
         conn.commit()
         return cur.fetchone() if cur.description else None
+    finally:
+        conn.close()
+
+
+def _rows(sql: str, params: tuple = ()) -> list:
+    from pg_support import connect_dsn
+
+    conn = connect_dsn(DSN["url"])
+    try:
+        cur = conn.cursor()
+        cur.execute("SET app.current_company_id = 'PLATFORM_ADMIN'")
+        cur.execute(sql, params)
+        return cur.fetchall()
     finally:
         conn.close()
 
@@ -113,7 +127,7 @@ def _store(pg_store):
     global OFFER
     token = dict(_q("SELECT t.*, c.molecule, c.project_id AS capacity_project_id FROM tokens t "
                     "JOIN capacities c ON c.id = t.capacity_id WHERE t.id = %s", (TOKEN,)))
-    seller = me.Party(user_id="u_seller", company_id=reg.company_slug(SELLER), company_name=SELLER)
+    seller = me.Party(business_function="COMMERCIAL", user_id="u_seller", company_id=reg.company_slug(SELLER), company_name=SELLER)
     OFFER = me.create_listing(seller, token, volume_mtpd=50, price_eur_kg=1.10, delivery_start="2027-01-01",
                               delivery_end="2029-12-31", location="TEST Hamburg berth 7")["id"]
     yield
@@ -217,7 +231,20 @@ def test_5_both_parties_must_accept(client):
     r = client.post(f"/api/v1/market/matches/{m}/accept", headers=_auth("u_seller"))
     assert r.json()["status"] == "accepted" and r.json()["seller_accepted_by"] == "u_seller", r.text
     assert r.json()["buyer_accepted_by"] == "u_buyer"
-    assert _token_row()["lifecycle_state"] == "MATCHED"
+    # Discovery review F13 (alembic 114): the match is for 40 MTPD over 2027-2028 (the RFQ), not the
+    # listing's 50 MTPD over 2027-2029. The token is carved: the contract carries exactly the agreed
+    # piece, and the unsold tonnes go back to the seller as available (MINTED) tokens.
+    assert _token_row()["lifecycle_state"] == "SPLIT"
+    kids = [dict(r) for r in _rows("SELECT t.id, t.lifecycle_state, t.tokenised_mtpd, t.delivery_start, t.delivery_end, "
+                                   "t.holder_company_id, s.reason FROM token_split s JOIN tokens t ON t.id = s.child_token_id "
+                                   "WHERE s.parent_token_id = %s ORDER BY t.lifecycle_state, t.delivery_start", (TOKEN,))]
+    kept = [k for k in kids if k["lifecycle_state"] == "MATCHED"]
+    assert len(kept) == 1 and (kept[0]["tokenised_mtpd"], kept[0]["delivery_start"], kept[0]["delivery_end"]) == \
+        (40.0, "2027-01-01", "2028-12-31")
+    STATE["kept"] = kept[0]["id"]
+    rest = sorted((k["tokenised_mtpd"], k["delivery_start"], k["delivery_end"]) for k in kids if k["id"] != kept[0]["id"])
+    assert rest == [(10.0, "2027-01-01", "2029-12-31"), (40.0, "2029-01-01", "2029-12-31")]
+    assert all(k["lifecycle_state"] == "MINTED" and k["reason"] == "market_acceptance" for k in kids if k not in kept)
     assert _q("SELECT count(*) AS n FROM tb_fill f JOIN tb_order o ON o.id IN (f.buy_order_id, f.sell_order_id) "
               "WHERE o.id = %s", (m,))["n"] == 1
     # The agreement made the contract in the one record, in the same transaction — nowhere else.
@@ -237,7 +264,7 @@ def test_6_the_contract_is_what_both_accepted_and_nothing_is_typed_after(client)
     c = r.json()
     assert c["id"] == STATE["contract"]
     assert (c["token_id"], c["seller_company_id"], c["buyer_company_id"], c["correlation_id"]) == \
-        (TOKEN, reg.company_slug(SELLER), reg.company_slug(BUYER), CHAIN)
+        (STATE["kept"], reg.company_slug(SELLER), reg.company_slug(BUYER), CHAIN)
     assert (c["volume_mtpd"], c["price_eur_kg"], c["delivery_terms"], c["payment_terms"], c["status"]) == \
         (40.0, 1.10, "TEST FOB", "TEST 30 days", "pending_confirmation")
     assert client.post("/api/v1/market/contracts", headers=_auth("u_seller"),
@@ -287,14 +314,18 @@ def test_7_settlement_the_payee_confirms_and_title_passes_to_the_buyer(client):
     s = r.json()
     STATE["settlement"] = s["settlement_id"]
     assert (s["total_amount"], s["token_id"], s["correlation_id"], s["settlement_status"]) == \
-        (1100.0, TOKEN, CHAIN, "PENDING")
+        (1100.0, STATE["kept"], CHAIN, "PENDING")
     url = f"/api/v1/market/settlements/{s['settlement_id']}/confirm"
     assert _code(client.post(url, headers=_auth("u_buyer"), json={"payment_reference": "TEST-REF"})) == "PAYEE_CONFIRMS"
     assert _code(client.post(url, headers=_auth("u_other"), json={"payment_reference": "TEST-REF"})) == "SETTLEMENT_NOT_FOUND"
     r = client.post(url, headers=_auth("u_seller"), json={"payment_reference": "TEST-REF-001"})
     assert r.json()["settlement_status"] == "CONFIRMED", r.text
-    tok = _token_row()
+    tok = dict(_q("SELECT * FROM tokens WHERE id = %s", (STATE["kept"],)))
     assert tok["lifecycle_state"] == "SETTLED" and tok["holder_company_id"] == reg.company_slug(BUYER)
+    # Title to the agreed 40 MTPD for 2027-2028 only; the unsold tonnes stay with the seller.
+    others = _rows("SELECT holder_company_id, lifecycle_state FROM tokens WHERE parent_token_id = %s AND id <> %s",
+                   (TOKEN, STATE["kept"]))
+    assert others and all(o["holder_company_id"] is None and o["lifecycle_state"] == "MINTED" for o in others)
 
 
 def test_8_one_trail_from_listing_to_settlement(client):

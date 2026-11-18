@@ -48,6 +48,8 @@ interface ServerProject {
   profile_verification: string | null
   /** The engine's evaluation for this caller (null only from an old server). */
   bankability: (CustomerProject['bankability'] & { overall_completion: number | null }) | null
+  viewer_is_owner?: boolean
+  disclosure?: CustomerProject['disclosure']
 }
 
 /** Not yet evaluated by the engine: no figures, and the screens say so. */
@@ -85,6 +87,8 @@ export function serverToCustomerProject(sp: ServerProject): CustomerProject {
     description: sp.description || '',
     owner_company: sp.owner_company,
     associated_companies: sp.associated_companies ?? [],
+    viewer_is_owner: sp.viewer_is_owner === true,
+    disclosure: sp.disclosure ?? null,
     bankability: sp.bankability
       ? { ...sp.bankability, overall_completion: sp.bankability.overall_completion ?? 0,
           capital_status: (sp.bankability.capital_status ?? []).map(c => ({ ...c, amount: c.amount ?? '' })) }

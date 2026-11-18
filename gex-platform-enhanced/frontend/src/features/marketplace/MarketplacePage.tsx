@@ -36,7 +36,7 @@ import { type CustomerProject } from '@/data/customerProjects'
 import { useVisibleProjects } from '@/hooks/useVisibleProjects'
 import { useQuery } from '@tanstack/react-query'
 import {
-  marketAPI, type InputLineRecord, type MarketContract, type MarketMatch, type ProjectEconomics,
+  marketAPI, type InputLineRecord, type MarketContract, type MarketMatch, type ProjectEconomics, type TokenWindow,
   type SalesDetailRecord,
 } from '@/api'
 
@@ -61,6 +61,7 @@ interface SalesDetail {
   tokenised: { start: string; end: string; volume_mtpd: number; price: number; pct: number; status: string }
   inMarket: { start: string; end: string; volume_mtpd: number; targetPrice: number; pct: number; status: 'open' | 'pending' | 'sold'; counterparty: string | null }[]
   verification: VerificationState
+  quarantine?: string | null
 }
 
 /** Production input line — physical or contractual input to a production process */
@@ -84,6 +85,7 @@ interface FeedstockLine {
   status: 'contracted' | 'planned' | 'spot'
   isUtility: boolean
   verification: VerificationState
+  quarantine?: string | null
 }
 
 export interface ProjectFeedstockSummary {
@@ -110,10 +112,33 @@ export interface ProjectFeedstockSummary {
 interface EnhancedChartPoint {
   period: string
   maxPotential: number
-  sold: number
-  pending: number
-  open: number
-  tokenised: number
+  /** Tonnes in the period, from the tokens (F15): contracted or settled, listed, tokenised not listed. */
+  contracted: number
+  listed: number
+  available: number
+}
+
+type TokenBucket = 'contracted' | 'listed' | 'available'
+const BUCKET: Record<string, TokenBucket> = {
+  MINTED: 'available', RESERVED: 'listed', MATCHED: 'contracted', SETTLED: 'contracted', RETIRED: 'contracted',
+}
+const DAY = 86_400_000
+
+/**
+ * F15: tonnes of each kind in [from, to) — every live token's rate (t/day, MTPD) times the days its
+ * delivery window overlaps the period. Derived from the tokens only; the sales record's stored
+ * "available / tokenised / in market" figures are not read.
+ */
+export function periodTonnes(windows: TokenWindow[], from: Date, to: Date): Record<TokenBucket, number> {
+  const out: Record<TokenBucket, number> = { contracted: 0, listed: 0, available: 0 }
+  for (const w of windows) {
+    const bucket = BUCKET[w.state]
+    if (!bucket) continue
+    const start = Math.max(from.getTime(), Date.parse(`${w.start}T00:00:00Z`))
+    const end = Math.min(to.getTime(), Date.parse(`${w.end}T00:00:00Z`) + DAY)        // the end day counts
+    if (end > start) out[bucket] += w.rate_mtpd * ((end - start) / DAY)
+  }
+  return out
 }
 
 // ── The records, from PostgreSQL (alembic 066) ──────────────────────────────
@@ -140,7 +165,7 @@ function toSalesDetail(r: SalesDetailRecord | undefined): SalesDetail | undefine
     region: r.region ?? '—', eSource: r.e_source ?? '—', greenEnergyPct: r.green_energy_pct ?? 0,
     certifier: r.certifier ?? '—', bePrice: r.breakeven_price ?? 0,
     available: r.available, tokenised: r.tokenised, inMarket: r.in_market ?? [],
-    verification: asVerification(r.verification_state),
+    verification: asVerification(r.verification_state), quarantine: r.quarantine_reason ?? null,
   }
 }
 
@@ -149,6 +174,7 @@ function toSalesDetail(r: SalesDetailRecord | undefined): SalesDetail | undefine
 
 interface FeedstockSpec {
   verification: VerificationState
+  quarantine?: string | null
   feedstock: string
   supplier: string
   ratio: number
@@ -197,7 +223,8 @@ function getEnrichment(feedstock: string, econ: ProjectEconomics): InputEnrichme
 
 function toSpec(r: InputLineRecord): FeedstockSpec {
   return {
-    verification: asVerification(r.verification_state), feedstock: r.feedstock, supplier: r.supplier ?? '—',
+    verification: asVerification(r.verification_state), quarantine: r.quarantine_reason ?? null,
+    feedstock: r.feedstock, supplier: r.supplier ?? '—',
     ratio: r.ratio, ratioUnit: r.ratio_unit as FeedstockSpec['ratioUnit'], unitPrice: r.unit_price,
     priceUnit: r.price_unit as FeedstockSpec['priceUnit'], status: r.status, isUtility: r.is_utility,
     capacityFactor: r.capacity_factor ?? undefined, firmingCost: r.firming_cost ?? undefined,
@@ -246,6 +273,7 @@ export function buildFeedstockSummary(p: CustomerProject, econ: ProjectEconomics
       status: s.status,
       isUtility: s.isUtility,
       verification: s.verification,
+      quarantine: s.quarantine ?? null,
     }
   })
 
@@ -271,21 +299,20 @@ export function buildFeedstockSummary(p: CustomerProject, econ: ProjectEconomics
 }
 
 /**
- * Recorded volumes per period, nothing modelled: capacity × days, and the
- * sold / pending / open / tokenised volumes the sales record holds, held flat.
+ * Volumes per period, nothing modelled: capacity × days, and (F15, 16 Nov) the tonnes the
+ * project's TOKENS hold in each period by state — never the sales record's stored figures.
  * Until 2026-10-23 this generated ramps, seasonal sine waves, noise and a
  * "Gabillon forward" line from a formula — none of it was data.
  */
 function generateEnhancedChartData(
   gran: Granularity,
   project: CustomerProject,
-  detail: SalesDetail | undefined,
+  windows: TokenWindow[],
 ): EnhancedChartPoint[] {
   const counts: Record<Granularity, number> = { daily: 90, weekly: 52, monthly: 12, quarterly: 8, yearly: 5 }
   const days: Record<Granularity, number> = { daily: 1, weekly: 7, monthly: 30, quarterly: 91, yearly: 365 }
-  const vol = (status: 'open' | 'pending' | 'sold') =>
-    detail?.inMarket.filter(r => r.status === status).reduce((s, r) => s + r.volume_mtpd, 0) ?? 0
   const base = new Date()
+  base.setUTCHours(0, 0, 0, 0)
   const pts: EnhancedChartPoint[] = []
   for (let i = 0; i < counts[gran]; i++) {
     const d = new Date(base)
@@ -298,16 +325,36 @@ function generateEnhancedChartData(
       case 'yearly':   d.setFullYear(d.getFullYear() + i); label = String(d.getFullYear()); break
     }
     const n = days[gran]
+    const t = periodTonnes(windows, d, new Date(d.getTime() + n * DAY))
     pts.push({
       period: label,
       maxPotential: Math.round(project.capacity_mtpd * n),
-      sold: Math.round(vol('sold') * n),
-      pending: Math.round(vol('pending') * n),
-      open: Math.round(vol('open') * n),
-      tokenised: Math.round((detail?.tokenised.volume_mtpd ?? 0) * n),
+      contracted: Math.round(t.contracted),
+      listed: Math.round(t.listed),
+      available: Math.round(t.available),
     })
   }
   return pts
+}
+
+/** F15: the next 12 months' tonnes by token state, and the share of capacity tokenised. */
+export function TokenAvailabilityLine({ windows, capacityMtpd }: { windows?: TokenWindow[]; capacityMtpd: number }) {
+  if (!windows) return null                                // not the caller's project: nothing is shown
+  const from = new Date(); from.setUTCHours(0, 0, 0, 0)
+  const to = new Date(from.getTime() + 365 * DAY)
+  const t = periodTonnes(windows, from, to)
+  const total = t.contracted + t.listed + t.available
+  const cap = capacityMtpd * 365
+  const fmt = (v: number) => `${Math.round(v).toLocaleString()} t`
+  return (
+    <div data-testid="token-availability" className="px-5 py-1 pl-7 flex items-center gap-4 text-[10px] text-gray-500 border-t border-gray-50">
+      <span>Next 12 months, from tokens:</span>
+      <span>contracted {fmt(t.contracted)}</span>
+      <span>listed {fmt(t.listed)}</span>
+      <span>tokenised, not listed {fmt(t.available)}</span>
+      <span className="ml-auto">Tokenised: {cap > 0 ? `${Math.round((total / cap) * 100)}% of capacity` : '—'}</span>
+    </div>
+  )
 }
 
 // ── Badge components ────────────────────────────────────────────────────────
@@ -320,20 +367,16 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function MarketStatusBadge({ status }: { status: 'open' | 'pending' | 'sold' }) {
-  const styles = {
-    sold:    'bg-emerald-50 text-emerald-700 border-emerald-200',
-    pending: 'bg-amber-50 text-amber-700 border-amber-200',
-    open:    'bg-gray-100 text-gray-600 border-gray-200',
+// D-A (alembic 120): a record whose confirmation was withdrawn for want of a source says so,
+// with the reason on hover; it is never shown as plain UNVERIFIED or, worse, as CONFIRMED.
+function VerifBadge({ state, quarantine }: { state: VerificationState; quarantine?: string | null }) {
+  if (quarantine) {
+    return (
+      <span title={quarantine} className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border bg-orange-50 text-orange-700 border-orange-300">
+        Claimed · source not recorded
+      </span>
+    )
   }
-  return (
-    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${styles[status]}`}>
-      {status}
-    </span>
-  )
-}
-
-function VerifBadge({ state }: { state: VerificationState }) {
   const styles: Record<VerificationState, string> = {
     UNVERIFIED: 'bg-gray-100 text-gray-500 border-gray-300',
     SUBMITTED:  'bg-amber-50 text-amber-600 border-amber-300',
@@ -510,7 +553,8 @@ function ProjectEconomicsCard({
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">{project.molecule}</span>
           <span className="text-[10px] text-gray-500">{project.location}</span>
           <StatusBadge status={project.status} />
-          {unverified && <VerifBadge state="UNVERIFIED" />}
+          {unverified && <VerifBadge state="UNVERIFIED"
+            quarantine={detail?.quarantine ?? summary.lines.find(l => l.quarantine)?.quarantine ?? null} />}
         </div>
         <div className="flex items-center gap-4 text-xs font-mono whitespace-nowrap">
           <span className="text-gray-400">{annualOutput.toLocaleString()} <span className="text-[9px]">MT/yr nameplate</span></span>
@@ -572,20 +616,8 @@ function ProjectEconomicsCard({
         ))
       )}
 
-      {/* Market allocation inline (if detail exists) — one compact line */}
-      {detail && (
-        <div className="px-5 py-1 pl-7 flex items-center gap-4 text-[10px] text-gray-400 border-t border-gray-50">
-          {detail.inMarket.map((row, i) => (
-            <span key={i} className="flex items-center gap-1">
-              <MarketStatusBadge status={row.status} />
-              <span className="font-mono">{row.volume_mtpd}</span>
-              <span>@ {row.targetPrice.toLocaleString()}</span>
-              {row.counterparty && <span className="text-gray-500">→ {row.counterparty}</span>}
-            </span>
-          ))}
-          <span className="ml-auto">Tok: {detail.tokenised.pct}%</span>
-        </div>
-      )}
+      {/* F15: availability from the tokens over the next 12 months, never the record's stored figures */}
+      <TokenAvailabilityLine windows={econ.token_windows?.[project.id]} capacityMtpd={project.capacity_mtpd} />
 
       {/* ── Variable costs: production inputs — all flat, no toggle ── */}
       <div className="px-5 py-1 flex items-center text-[10px] font-bold text-gray-400 uppercase tracking-wider border-t border-gray-100">
@@ -623,7 +655,7 @@ function ProjectEconomicsCard({
             <div className={`w-[8%] text-right font-mono ${line.isUtility ? '' : 'font-bold text-gray-700'}`}>{line.effectiveCostPerMtOutput.toLocaleString()}</div>
             <div className="w-[4%] text-center font-mono text-[10px]">{line.capacityFactor > 0 ? `${Math.round(line.capacityFactor * 100)}%` : ''}</div>
             <div className="w-[6%] text-center"><ContractBadge status={contractStatus} /></div>
-            <div className="w-[5%] text-center"><VerifBadge state={verifState} /></div>
+            <div className="w-[5%] text-center"><VerifBadge state={verifState} quarantine={line.quarantine} /></div>
             <div className="w-[7%] text-center"><CertBadges certs={enrich.certRelevance} /></div>
             <div className="w-[8%] text-center">{enrich.capitalRelevance ? <CapitalBadge rel={enrich.capitalRelevance} /> : <span className="text-[10px] text-gray-400">—</span>}</div>
           </div>
@@ -708,6 +740,7 @@ export function ProductionInputsPanel({
               <span className="text-gray-500 w-48 truncate">{line.supplier}</span>
               <span className="font-mono text-gray-500 w-24 text-right">{line.ratio} {line.ratioUnit}</span>
               <span className="font-mono font-bold text-gray-700 w-20 text-right">{line.effectiveCostPerMtOutput.toLocaleString()} €/MT</span>
+              <VerifBadge state={line.verification} quarantine={line.quarantine} />
             </div>
           ))}
         </div>
@@ -829,11 +862,12 @@ export function MarketplacePage() {
     return projects[0]
   }, [filterProj, filterMol, projects])
 
-  const chartDetail = chartProject ? toSalesDetail(econ.sales_detail[chartProject.id]) : undefined
+  const chartWindows = useMemo(() => (chartProject ? econ.token_windows?.[chartProject.id] ?? [] : []),
+    [chartProject, econ])
 
   const chartData = useMemo(
-    () => (chartProject ? generateEnhancedChartData(gran, chartProject, chartDetail) : []),
-    [gran, chartProject, chartDetail],
+    () => (chartProject ? generateEnhancedChartData(gran, chartProject, chartWindows) : []),
+    [gran, chartProject, chartWindows],
   )
 
   const feedstockSummaries = useMemo(() => {
@@ -962,7 +996,8 @@ export function MarketplacePage() {
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-gray-900 mr-2">{chartProject.name} — {chartProject.molecule}</h2>
+            {/* Projects load after the page: until then there is no chart project (a direct load used to crash here). */}
+            <h2 className="text-sm font-bold text-gray-900 mr-2">{chartProject ? `${chartProject.name} — ${chartProject.molecule}` : 'Loading projects…'}</h2>
           </div>
           <div className="flex items-center gap-1">
             {grans.map(g => (
@@ -986,11 +1021,10 @@ export function MarketplacePage() {
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={50} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)} />
                 <Tooltip content={<Tip />} />
-                <Bar dataKey="sold" name="Sold" stackId="output" fill="#047857" radius={[0, 0, 0, 0]} maxBarSize={36} />
-                <Bar dataKey="pending" name="Pending" stackId="output" fill="#10b981" radius={[0, 0, 0, 0]} maxBarSize={36} />
-                <Bar dataKey="open" name="Open" stackId="output" fill="#6ee7b7" radius={[3, 3, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="contracted" name="Contracted" stackId="output" fill="#047857" radius={[0, 0, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="listed" name="Listed" stackId="output" fill="#10b981" radius={[0, 0, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="available" name="Tokenised, not listed" stackId="output" fill="#6ee7b7" radius={[3, 3, 0, 0]} maxBarSize={36} />
                 <Line dataKey="maxPotential" name="Max Potential" type="monotone" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="6 3" dot={false} />
-                <Line dataKey="tokenised" name="Tokenised" type="monotone" stroke="#0ea5a0" strokeWidth={2} dot={{ r: 2.5, fill: '#0ea5a0' }} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -999,11 +1033,11 @@ export function MarketplacePage() {
         <div className="px-5 pb-4 flex items-center gap-5 text-xs text-gray-500 flex-wrap">
           {(
             <>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#047857' }} /> Sold</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#10b981' }} /> Pending</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#6ee7b7' }} /> Open</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#047857' }} /> Contracted</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#10b981' }} /> Listed</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#6ee7b7' }} /> Tokenised, not listed</span>
               <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-[1.5px] border-dashed" style={{ borderColor: '#94a3b8' }} /> Max Potential</span>
-              <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-2" style={{ borderColor: '#0ea5a0' }} /> Tokenised</span>
+              <span>From the project's tokens; no stored percentage.</span>
             </>
           )}
         </div>

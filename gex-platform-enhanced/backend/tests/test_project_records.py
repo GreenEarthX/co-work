@@ -105,16 +105,59 @@ def test_project_inputs_come_from_postgresql_and_nothing_stands_in():
     assert other["inputs_recorded"] is False and other["deal_killers"] == {}
 
 
-def test_structuring_refuses_a_project_with_no_recorded_context():
+def _engine_snapshot(monkeypatch, snap):
+    """Gate scores and state come from the gate engine only, through the one readiness
+    authority (2026-11-17, core/readiness.py). Pin its answer so these tests read the
+    PostgreSQL records alone and do not depend on whether the dev database holds an
+    evaluation or the engine is up."""
+    from app.api.v1 import routes_bankability_proxy
+    from app.core import readiness
+
+    async def current(pid):
+        stamp = readiness.stamp(pid, snap, None, current_fingerprint=None, current_rules_version=None)
+        return snap, None, stamp
+
+    async def rules():
+        return {"rules_version": "4.8.0", "state_requirements": {}}
+
+    monkeypatch.setattr(readiness, "current", current)
+    monkeypatch.setattr(routes_bankability_proxy, "engine_rules", rules)
+
+
+def _get_demo_context(project_id):
+    import asyncio
+
+    from app.api.v1.routes_structuring import _context
+    return asyncio.run(_context(project_id))
+
+
+ENGINE_SNAPSHOT = {"current_state": "TECHNICALLY_PLAUSIBLE",
+                   "gate_evaluations": [{"gate_id": f"G{i}_x", "completion_pct": 10.0} for i in range(12)]}
+
+
+def test_structuring_refuses_a_project_with_no_recorded_context(monkeypatch):
     requires_pg()
     from fastapi import HTTPException
 
-    from app.api.v1.routes_structuring import _get_demo_context
+    _engine_snapshot(monkeypatch, ENGINE_SNAPSHOT)
+    assert _get_demo_context("proj_lehavre_eng")["jurisdiction"] == "FR"
+    # Bremen's record was the Breizh reference case and was removed (handoff v4 task 7):
+    # it is now refused like any project with no inputs of its own.
+    for pid in ("proj_hamburgone_emethanol", "proj_bremen_h2"):
+        with pytest.raises(HTTPException) as refused:
+            _get_demo_context(pid)
+        assert refused.value.detail["code"] == "STRUCTURING_INPUTS_NOT_RECORDED"
 
-    assert _get_demo_context("proj_bremen_h2")["jurisdiction"] == "DE"
+
+def test_structuring_refuses_a_project_the_gate_engine_has_not_evaluated(monkeypatch):
+    """A recorded dataset is not enough: stored gate scores no longer count."""
+    requires_pg()
+    from fastapi import HTTPException
+
+    _engine_snapshot(monkeypatch, None)
     with pytest.raises(HTTPException) as refused:
-        _get_demo_context("proj_hamburgone_emethanol")
-    assert refused.value.detail["code"] == "STRUCTURING_CONTEXT_NOT_RECORDED"
+        _get_demo_context("proj_lehavre_eng")
+    assert (refused.value.status_code, refused.value.detail["code"]) == (409, "NOT_EVALUATED_BY_GATE_ENGINE")
 
 
 def test_retired_ids_resolve_through_postgresql():
@@ -125,7 +168,7 @@ def test_retired_ids_resolve_through_postgresql():
     assert normalize_project_id("proj_bremen_h2") == "proj_bremen_h2"
 
 
-def test_eligible_instruments_answers_for_a_recorded_context_and_refuses_otherwise():
+def test_eligible_instruments_answers_for_a_recorded_context_and_refuses_otherwise(monkeypatch):
     """It raised NameError (a 500 for every project) until 2026-10-25."""
     requires_pg()
     import asyncio
@@ -134,7 +177,8 @@ def test_eligible_instruments_answers_for_a_recorded_context_and_refuses_otherwi
 
     from app.api.v1.routes_instruments import eligible_instruments
 
-    assert asyncio.run(eligible_instruments("proj_bremen_h2"))["project_id"] == "proj_bremen_h2"
+    _engine_snapshot(monkeypatch, ENGINE_SNAPSHOT)
+    assert asyncio.run(eligible_instruments("proj_lehavre_eng"))["project_id"] == "proj_lehavre_eng"
     with pytest.raises(HTTPException) as refused:
         asyncio.run(eligible_instruments("proj_hamburgone_emethanol"))
     assert refused.value.status_code == 404

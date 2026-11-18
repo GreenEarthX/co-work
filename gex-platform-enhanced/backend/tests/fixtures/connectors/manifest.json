@@ -1,0 +1,1054 @@
+{
+  "fixture_set": "gex_connector_fixtures",
+  "version": "0.2",
+  "date": "2026-11-16",
+  "status": "TEST ONLY. Synthetic. The expected outcomes are the rules of docs/GREENMESH_CONNECTOR_FIELD_MAPPING.md v0.3, which is a DRAFT awaiting JML's approval. No extraction or matching code exists yet; these cases specify what it must do.",
+  "mapping_doc": "docs/GREENMESH_CONNECTOR_FIELD_MAPPING.md",
+  "mapping_doc_version": "0.3",
+  "sources": {
+    "udb_xsd": {
+      "what": "UDB Exchange Model XSDs, package v3.5 (model marked DRAFT)",
+      "url": "https://ec.europa.eu/assets/move-ener/udb/COM/Info/APIs/EXM_Files/UDB-Exchange-Model%20-%20xml%20schemas%20v3.5.zip",
+      "retrieved": "2026-11-15",
+      "zip_sha256": "01e5bbb2984012d51cbba61634b6fb31bda479a6156bd03e6dda7beca11e8bd6",
+      "files_sha256": {
+        "udb/xsd_v3.5/commonTypes/BaseTypes_V1.0.0.xsd": "adb592d9727fcd79db168b117b5d95218f3a5cae66f08f1dc946cd27f8566bcc",
+        "udb/xsd_v3.5/udbModel/udbModel_v1.0.xsd": "5d1e7c56ce6dd5cd5635efb10eda979249ef6e134e97504549404a0e6e420997",
+        "udb/xsd_v3.5/services/UDBService/udbService_v1.0.xsd": "f257ad4b12504affef3ea705f64824cc1e5dabbac805e6a5c075645f01d9e431"
+      },
+      "root_schema": "udb/xsd_v3.5/services/UDBService/udbService_v1.0.xsd"
+    },
+    "aib_sd03": {
+      "what": "AIB-EECS-SD03 HubCom EECS Registration Databases, Release 9.1 (25 Mar 2026): v81 mandatory/optional tables (B4.3) and B3 examples",
+      "url": "https://www.aib-net.org/sites/default/files/assets/eecs/subsidiary-documents/AIB-EECS-SD03%20HubCom%20EECS%20Registration%20Databases%20-%20Release%209.1.pdf",
+      "xsd": "NOT OBTAINED. SD03 says the XSD files (exportenv80.xsd; transfers_v81.xsd, also named exportenv81.xsd in B3.2.3) are downloaded from https://www.aib-net.org/eecs/cmo-cmo-schemes, which answered 404 on 2026-11-15. AIB fixtures are checked against SD03's tables only."
+    }
+  },
+  "vocabulary": {
+    "extraction": {
+      "EXTRACTED": "Field read; identity scope established by the specification (mapping v0.2 §1).",
+      "IDENTITY_UNRESOLVED": "Recorded, not refused; cannot support a verified claim or confirm an allocation (§1 rule 4).",
+      "MAPPING_NOT_CONFIRMED": "Field read, but its GEX meaning is NOT CONFIRMED in the mapping (§2, §3).",
+      "UNIT_REFUSED": "Unit refused: a volume or a unit whose meaning is not confirmed (§3).",
+      "UNIT_NOT_CONVERTIBLE": "No approved conversion between the evidence unit and the input unit (§2: hydrogen MWh to kg)."
+    },
+    "match": {
+      "MATCH": "The extracted value agrees with the GEX input.",
+      "MISMATCH": "It does not."
+    },
+    "allocation_request": {
+      "PROVISIONAL": "Recorded with the declared quantity; nothing reserved (§5.7).",
+      "PROVISIONAL_OVERLAP_FLAGGED": "Recorded; a potential overlap flagged privately for authorised review; nothing reserved (§5.7)."
+    },
+    "requester_sees": {
+      "DETAIL": "Within the tenant: the authorised detail.",
+      "REVIEW_PENDING": "Across tenants: only that a review is pending, never another company's data (§5.7)."
+    },
+    "confirmation": {
+      "CONFIRMABLE": "Identity, quantity and eligibility checks pass; availability rechecked atomically at confirmation (§5.7).",
+      "NOT_CONFIRMABLE": "A check is unresolved or eligibility is not established.",
+      "REFUSED_NEUTRAL": "Refused with exactly the neutral_refusal_text, for any cause the requester cannot see into; no other company's data, no database message (§5.11).",
+      "REFUSED_WITH_DETAIL": "Availability fails at confirmation; within the tenant the authorised detail is given (§5.7).",
+      "REFUSED_BELOW_UNIT": "The request divides the document below the unit the rule establishes (§5.3).",
+      "REFUSED_OWN_DATA_DETAIL": "Refused for a reason derived only from what the requester submitted or holds; detail may be given (§5.11)."
+    },
+    "eligibility": {
+      "NOT_ESTABLISHED": "No approved rule row: never implicit permission (§5.5).",
+      "COMPATIBLE": "An approved rule row says compatible.",
+      "INCOMPATIBLE": "An approved rule row says incompatible."
+    },
+    "document_overlap": {
+      "NONE": "No overlap with another recorded document.",
+      "RECORDED": "Overlap between documents recorded; not refused: documents may legitimately describe the same certificates (§5.3)."
+    },
+    "label": {
+      "DECLARED": "Offline evidence is the party's declaration; only registry confirmation could make it VERIFIED."
+    },
+    "unit_outcome": {
+      "ACCEPTED": "Accepted with the stated conversion.",
+      "UNIT_REFUSED": "Refused."
+    },
+    "divisibility": {
+      "ESTABLISHED": "An approved rule states the unit the document divides to (§5.5, §5.8).",
+      "NOT_ESTABLISHED": "No rule states a unit: one allocation of the whole eligible quantity, or none (§5.3)."
+    },
+    "concurrency": {
+      "EXACTLY_ONE_CONFIRMED": "Of simultaneous confirmations that cannot both fit, exactly one succeeds (§5.7)."
+    },
+    "validity": {
+      "VALID_AT_EVENT": "Valid at the date(s) the rule tests (§9.2).",
+      "NOT_VALID_AT_EVENT": "Not valid at a date the rule tests (§9.2).",
+      "NOT_VALID_OVER_PERIOD": "A continuing condition fails during the period the rule tests (§9.2)."
+    },
+    "historical_decision": {
+      "PRESERVED": "The earlier decision stays on record; any reassessment is a new linked decision (§9.2)."
+    },
+    "reassessment": {
+      "REQUIRED": "A withdrawal or suspension in scope reaches back over the allocation's event dates (§9.2).",
+      "CONSIDERED_NO_CHANGE": "Assessed against reason, scope and effective date; the allocation is unaffected (§9.2)."
+    },
+    "downstream": {
+      "REASSESSMENT_PENDING": "Downstream claims wait for the reassessment (§9.2).",
+      "UNAFFECTED": "Downstream claims are not affected."
+    },
+    "quantity_state": {
+      "RESTORED": "Available again after an authorised reversal with no active dependents (§9.3).",
+      "RESTRICTED": "Not available for another allocation (§9.2, §9.3)."
+    },
+    "correction": {
+      "REVERSED": "Authorised, linked reversal entry recorded (§9.3).",
+      "REFUSED_DEPENDENTS_ACTIVE": "Refused while dependents are active (§9.3).",
+      "SUPERSEDED_DRAFT": "A generated, unsubmitted file is superseded by a replacement (§9.3).",
+      "PENDING_EXTERNALLY": "Submission is evidenced; waits for the external acknowledgement (§9.3)."
+    },
+    "external_ack": {
+      "REQUIRED": "An external acknowledgement must be recorded.",
+      "NOT_REQUIRED": "No external acknowledgement is needed."
+    },
+    "approval": {
+      "FOUR_EYES": "Proposed and approved by two different people of the company (§9.3)."
+    },
+    "reference": {
+      "UNRESOLVED_ASSERTION": "Free text kept as an assertion: no access, no claim (§5.10).",
+      "SHARED_REFERENCE_ALLOWED": "Several companies may reference the same document; each keeps its own record (§5.11)."
+    },
+    "disclosure": {
+      "INDISTINGUISHABLE_FROM_UNKNOWN": "The answer is the same as for an unknown identifier (§5.10)."
+    },
+    "evidence_records": {
+      "ONE_PER_COMPANY": "One evidence record per company; linked only in the operator-side identity index (§5.11)."
+    },
+    "priority": {
+      "NONE": "The first uploader gains no exclusive right (§5.11)."
+    }
+  },
+  "test_rules": [
+    {
+      "rule_id": "TEST-RULE-001",
+      "status": "approved",
+      "verdict": "COMPATIBLE",
+      "evidence": "EECS:GO Electricity",
+      "intended_use": "TEST_USE_COMPATIBLE",
+      "note": "Synthetic. Not a legal or scheme position.",
+      "divisibility": null,
+      "validity_test": null
+    },
+    {
+      "rule_id": "TEST-RULE-002",
+      "status": "proposed",
+      "verdict": "COMPATIBLE",
+      "evidence": "EECS:GO Electricity",
+      "intended_use": "TEST_USE_PROPOSED_ONLY",
+      "note": "Synthetic. Proposed rows are not in force.",
+      "divisibility": null,
+      "validity_test": null
+    },
+    {
+      "rule_id": "TEST-RULE-003",
+      "status": "approved",
+      "verdict": "INCOMPATIBLE",
+      "evidence": "EECS:GO Electricity",
+      "intended_use": "TEST_USE_INCOMPATIBLE",
+      "note": "Synthetic. Not a legal or scheme position.",
+      "divisibility": null,
+      "validity_test": null
+    },
+    {
+      "rule_id": "TEST-RULE-004",
+      "status": "approved",
+      "verdict": "COMPATIBLE",
+      "evidence": "EECS:GO Electricity",
+      "intended_use": "TEST_USE_DIVISIBLE",
+      "divisibility": "whole_certificate",
+      "validity_test": null,
+      "note": "Synthetic. Not a legal or scheme position."
+    },
+    {
+      "rule_id": "TEST-RULE-005",
+      "status": "approved",
+      "verdict": "COMPATIBLE",
+      "evidence": "UDB transaction (seller certificate)",
+      "intended_use": "TEST_USE_AT_DISPATCH",
+      "divisibility": null,
+      "validity_test": {
+        "kind": "at_event",
+        "event": "dispatch"
+      },
+      "note": "Synthetic. Not a legal or scheme position."
+    },
+    {
+      "rule_id": "TEST-RULE-006",
+      "status": "approved",
+      "verdict": "COMPATIBLE",
+      "evidence": "UDB transaction (seller certificate)",
+      "intended_use": "TEST_USE_OVER_PERIOD",
+      "divisibility": null,
+      "validity_test": {
+        "kind": "over_period",
+        "period": "production"
+      },
+      "note": "Synthetic. Not a legal or scheme position."
+    }
+  ],
+  "test_parties": {
+    "TEST_CO_A": {
+      "aib_account": "99XTEST02B",
+      "udb_eo": "EOTEST000002"
+    },
+    "TEST_CO_B": {
+      "aib_account": "99XTEST03C",
+      "udb_eo": "EOTEST000003",
+      "note": "Not the holder named in aib/electricity_go_a.xml."
+    },
+    "TEST_CO_C": {
+      "udb_eo": "EOTEST000004"
+    },
+    "note": "The account and EO mappings are fixture state: GEX has no such mapping table today (mapping v0.2, NONE (gap))."
+  },
+  "cases": [
+    {
+      "id": "aib_clean_match_no_rule",
+      "section": "§2, §5.5",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "input_type": "ELECTRICITY",
+        "quantity": 50,
+        "unit": "MWh",
+        "received_on": "2026-03-20",
+        "period": [
+          "2026-03-01",
+          "2026-03-31"
+        ],
+        "intended_use": "TEST_USE_NO_RULE"
+      },
+      "expected": {
+        "extraction": "EXTRACTED",
+        "quantity": "MATCH",
+        "unit": "MATCH",
+        "period": "MATCH",
+        "holder": "MATCH",
+        "allocation_request": "PROVISIONAL",
+        "requester_sees": "DETAIL",
+        "eligibility": "NOT_ESTABLISHED",
+        "confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "aib_clean_match_approved_test_rule",
+      "section": "§2, §5.5, §5.7",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "input_type": "ELECTRICITY",
+        "quantity": 50,
+        "unit": "MWh",
+        "received_on": "2026-03-20",
+        "period": [
+          "2026-03-01",
+          "2026-03-31"
+        ],
+        "intended_use": "TEST_USE_COMPATIBLE"
+      },
+      "expected": {
+        "extraction": "EXTRACTED",
+        "quantity": "MATCH",
+        "unit": "MATCH",
+        "period": "MATCH",
+        "holder": "MATCH",
+        "allocation_request": "PROVISIONAL",
+        "requester_sees": "DETAIL",
+        "eligibility": "COMPATIBLE",
+        "confirmation": "CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "aib_proposed_rule_not_in_force",
+      "section": "§5.5",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "input_type": "ELECTRICITY",
+        "quantity": 50,
+        "unit": "MWh",
+        "received_on": "2026-03-20",
+        "period": [
+          "2026-03-01",
+          "2026-03-31"
+        ],
+        "intended_use": "TEST_USE_PROPOSED_ONLY"
+      },
+      "expected": {
+        "extraction": "EXTRACTED",
+        "allocation_request": "PROVISIONAL",
+        "eligibility": "NOT_ESTABLISHED",
+        "confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "aib_incompatible_test_rule",
+      "section": "§5.4, §5.5",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "input_type": "ELECTRICITY",
+        "quantity": 50,
+        "unit": "MWh",
+        "received_on": "2026-03-20",
+        "period": [
+          "2026-03-01",
+          "2026-03-31"
+        ],
+        "intended_use": "TEST_USE_INCOMPATIBLE"
+      },
+      "expected": {
+        "extraction": "EXTRACTED",
+        "allocation_request": "PROVISIONAL",
+        "eligibility": "INCOMPATIBLE",
+        "confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "aib_documents_overlap_reference_only",
+      "section": "§5.3",
+      "files": [
+        "aib/electricity_go_a.xml",
+        "aib/electricity_go_b_overlaps_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "operation": "reference",
+        "note": "Both documents referenced; nothing allocated."
+      },
+      "overlap": {
+        "registry": "9999999",
+        "first": "aib/electricity_go_a.xml",
+        "second": "aib/electricity_go_b_overlaps_a.xml",
+        "certificates": 10
+      },
+      "expected": {
+        "extraction": "EXTRACTED",
+        "document_overlap": "RECORDED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "aib_allocation_overlap_cross_tenant",
+      "section": "§5.3, §5.7",
+      "files": [
+        "aib/electricity_go_a.xml",
+        "aib/electricity_go_b_overlaps_a.xml"
+      ],
+      "gex": {
+        "steps": [
+          {
+            "company": "TEST_CO_A",
+            "file": "aib/electricity_go_a.xml",
+            "quantity": 50,
+            "unit": "MWh",
+            "intended_use": "TEST_USE_COMPATIBLE",
+            "confirmed": true
+          },
+          {
+            "company": "TEST_CO_B",
+            "file": "aib/electricity_go_b_overlaps_a.xml",
+            "quantity": 40,
+            "unit": "MWh",
+            "intended_use": "TEST_USE_COMPATIBLE",
+            "confirmed": false
+          }
+        ]
+      },
+      "overlap": {
+        "registry": "9999999",
+        "first": "aib/electricity_go_a.xml",
+        "second": "aib/electricity_go_b_overlaps_a.xml",
+        "certificates": 10
+      },
+      "expected": {
+        "allocation_request": "PROVISIONAL_OVERLAP_FLAGGED",
+        "requester_sees": "REVIEW_PENDING",
+        "confirmation": "REFUSED_NEUTRAL",
+        "label": "DECLARED"
+      },
+      "open": "Whether the 30 non-overlapping certificates may be allocated separately is not decided (mapping v0.2 §8)."
+    },
+    {
+      "id": "aib_hydrogen_conversion_unresolved",
+      "section": "§1, §2",
+      "files": [
+        "aib/hydrogen_go_conversion.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "input_type": "H2",
+        "quantity": 900,
+        "unit": "kg",
+        "received_on": "2026-03-25",
+        "period": [
+          "2026-03-01",
+          "2026-03-31"
+        ],
+        "intended_use": "TEST_USE_COMPATIBLE"
+      },
+      "expected": {
+        "extraction": "EXTRACTED",
+        "pre_conversion_cancellation_statement": "IDENTITY_UNRESOLVED",
+        "quantity": "UNIT_NOT_CONVERTIBLE",
+        "bidding_zone": "MAPPING_NOT_CONFIRMED",
+        "allocation_request": "PROVISIONAL",
+        "confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "udb_quantity_match",
+      "section": "§3",
+      "files": [
+        "udb/get_transaction_quantity_match.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "input_type": "H2",
+        "quantity": 5000,
+        "unit": "kg",
+        "received_on": "2026-03-15",
+        "period": [
+          "2026-03-01",
+          "2026-03-31"
+        ],
+        "intended_use": "TEST_USE_COMPATIBLE"
+      },
+      "expected": {
+        "extraction": "EXTRACTED",
+        "quantity": "MATCH",
+        "unit": "MATCH",
+        "period": "MATCH",
+        "holder": "MATCH",
+        "material": "MAPPING_NOT_CONFIRMED",
+        "allocation_request": "PROVISIONAL",
+        "requester_sees": "DETAIL",
+        "confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      },
+      "note": "Not CONFIRMABLE while MATERIAL_CODE has no confirmed mapping, even with a compatible rule."
+    },
+    {
+      "id": "udb_parent_child_reference",
+      "section": "§5.3",
+      "files": [
+        "udb/get_transaction_lineage.xml"
+      ],
+      "gex": {
+        "steps": [
+          {
+            "company": "TEST_CO_A",
+            "pos": "TEST-POS-0100",
+            "quantity_t": 100,
+            "stage": "receipt of the root"
+          },
+          {
+            "company": "TEST_CO_B",
+            "pos": "TEST-POS-0101",
+            "quantity_t": 60,
+            "stage": "downstream receipt"
+          }
+        ]
+      },
+      "lineage": {
+        "root": "TEST-POS-0100",
+        "children": [
+          "TEST-POS-0101"
+        ]
+      },
+      "expected": {
+        "allocation_request": "PROVISIONAL",
+        "label": "DECLARED"
+      },
+      "note": "A parent and its child at different stages are not double counting (mapping v0.2 §5.3)."
+    },
+    {
+      "id": "udb_lineage_overdraw",
+      "section": "§5.3, §5.7",
+      "files": [
+        "udb/get_transaction_lineage.xml"
+      ],
+      "gex": {
+        "steps": [
+          {
+            "company": "TEST_CO_B",
+            "pos": "TEST-POS-0101",
+            "quantity_t": 60,
+            "intended_use": "TEST_USE_COMPATIBLE",
+            "confirmed": true
+          },
+          {
+            "company": "TEST_CO_C",
+            "pos": "TEST-POS-0102",
+            "quantity_t": 60,
+            "intended_use": "TEST_USE_COMPATIBLE",
+            "confirmed": false
+          }
+        ]
+      },
+      "lineage": {
+        "root": "TEST-POS-0100",
+        "children": [
+          "TEST-POS-0101",
+          "TEST-POS-0102"
+        ]
+      },
+      "expected": {
+        "allocation_request": "PROVISIONAL_OVERLAP_FLAGGED",
+        "requester_sees": "REVIEW_PENDING",
+        "confirmation": "REFUSED_NEUTRAL",
+        "label": "DECLARED"
+      },
+      "note": "The children draw 120 t from a 100 t root. GEX sees only evidence recorded in GEX."
+    },
+    {
+      "id": "udb_units",
+      "section": "§3",
+      "files": [
+        "udb/get_transaction_units.xml"
+      ],
+      "units": {
+        "kg": {
+          "outcome": "ACCEPTED",
+          "to": "kg",
+          "factor": 1
+        },
+        "t": {
+          "outcome": "ACCEPTED",
+          "to": "kg",
+          "factor": 1000
+        },
+        "MWh": {
+          "outcome": "ACCEPTED",
+          "to": "MWh",
+          "factor": 1
+        },
+        "KWh": {
+          "outcome": "ACCEPTED",
+          "to": "MWh",
+          "factor": 0.001,
+          "note": "UDB spells KWh; GEX spells kWh: mapped explicitly."
+        },
+        "MT": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "meaning not confirmed"
+        },
+        "gal": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "volume"
+        },
+        "L": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "volume"
+        },
+        "L20": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "volume; meaning not confirmed"
+        },
+        "LA": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "volume; meaning not confirmed"
+        },
+        "SCM": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "volume"
+        },
+        "SL": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "volume; meaning not confirmed"
+        },
+        "Nm3h": {
+          "outcome": "UNIT_REFUSED",
+          "reason": "volume rate"
+        }
+      },
+      "expected": {
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac01_partial_allocation_divisible",
+      "section": "§5.8, §10 AC-01",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_DIVISIBLE",
+        "unit": "MWh",
+        "steps": [
+          {
+            "quantity": 30,
+            "period": [
+              "2026-03-01",
+              "2026-03-31"
+            ],
+            "expected_confirmation": "CONFIRMABLE"
+          },
+          {
+            "quantity": 20,
+            "period": [
+              "2026-04-01",
+              "2026-04-30"
+            ],
+            "expected_confirmation": "CONFIRMABLE"
+          },
+          {
+            "quantity": 1,
+            "period": [
+              "2026-04-01",
+              "2026-04-30"
+            ],
+            "expected_confirmation": "REFUSED_WITH_DETAIL"
+          }
+        ]
+      },
+      "expected": {
+        "divisibility": "ESTABLISHED",
+        "requester_sees": "DETAIL",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac02_partial_without_divisibility",
+      "section": "§5.3, §10 AC-02",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_COMPATIBLE",
+        "unit": "MWh",
+        "alternatives": [
+          {
+            "quantity": 30,
+            "expected_confirmation": "NOT_CONFIRMABLE"
+          },
+          {
+            "quantity": 50,
+            "expected_confirmation": "CONFIRMABLE"
+          }
+        ]
+      },
+      "expected": {
+        "divisibility": "NOT_ESTABLISHED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac03_below_unit",
+      "section": "§5.3, §10 AC-03",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_DIVISIBLE",
+        "unit": "MWh",
+        "quantity": 30.5
+      },
+      "expected": {
+        "divisibility": "ESTABLISHED",
+        "confirmation": "REFUSED_BELOW_UNIT",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac04_conflict_same_tenant",
+      "section": "§5.7, §10 AC-04",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_DIVISIBLE",
+        "unit": "MWh",
+        "steps": [
+          {
+            "quantity": 30,
+            "expected_request": "PROVISIONAL",
+            "expected_confirmation": "CONFIRMABLE"
+          },
+          {
+            "quantity": 30,
+            "expected_request": "PROVISIONAL_OVERLAP_FLAGGED",
+            "expected_confirmation": "REFUSED_WITH_DETAIL"
+          }
+        ]
+      },
+      "expected": {
+        "requester_sees": "DETAIL",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac06_concurrent_confirmation",
+      "section": "§5.7, §10 AC-06",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_DIVISIBLE",
+        "unit": "MWh",
+        "simultaneous": [
+          30,
+          30
+        ]
+      },
+      "expected": {
+        "concurrency": "EXACTLY_ONE_CONFIRMED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac07_historical_expiry",
+      "section": "§9.2, §10 AC-07",
+      "files": [
+        "udb/get_transaction_quantity_match.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_AT_DISPATCH",
+        "certificate": {
+          "reference": "TEST-CERT-SELLER-0001",
+          "valid_from": "2026-01-01",
+          "valid_until": "2026-06-30"
+        },
+        "decision": {
+          "event_dispatch": "2026-03-15",
+          "verified_on": "2026-03-20"
+        },
+        "reassessed_on": "2026-09-01",
+        "new_request": {
+          "event_dispatch": "2026-08-01"
+        }
+      },
+      "expected": {
+        "historical_decision": "PRESERVED",
+        "validity": "VALID_AT_EVENT",
+        "new_request_validity": "NOT_VALID_AT_EVENT",
+        "new_request_confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac08_continuing_condition",
+      "section": "§9.2, §10 AC-08",
+      "files": [
+        "udb/get_transaction_quantity_match.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_OVER_PERIOD",
+        "certificate": {
+          "reference": "TEST-CERT-SELLER-0001",
+          "valid_from": "2026-01-01",
+          "valid_until": "2026-03-20"
+        },
+        "production_period": [
+          "2026-03-01",
+          "2026-03-31"
+        ]
+      },
+      "expected": {
+        "validity": "NOT_VALID_OVER_PERIOD",
+        "confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac09_retrospective_withdrawal",
+      "section": "§9.2, §10 AC-09",
+      "files": [
+        "udb/get_transaction_quantity_match.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_AT_DISPATCH",
+        "certificate": {
+          "reference": "TEST-CERT-SELLER-0001",
+          "valid_from": "2026-01-01",
+          "valid_until": "2026-06-30"
+        },
+        "decision": {
+          "event_dispatch": "2026-03-15",
+          "verified_on": "2026-03-20",
+          "confirmed": true
+        },
+        "event": {
+          "kind": "withdrawal",
+          "effective": "2026-02-01",
+          "scope": "certificate",
+          "reason": "TEST_REASON",
+          "recorded_on": "2026-05-10"
+        }
+      },
+      "expected": {
+        "reassessment": "REQUIRED",
+        "historical_decision": "PRESERVED",
+        "downstream": "REASSESSMENT_PENDING",
+        "quantity_state": "RESTRICTED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac10_withdrawal_prospective",
+      "section": "§9.2, §10 AC-10",
+      "files": [
+        "udb/get_transaction_quantity_match.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_AT_DISPATCH",
+        "certificate": {
+          "reference": "TEST-CERT-SELLER-0001",
+          "valid_from": "2026-01-01",
+          "valid_until": "2026-06-30"
+        },
+        "decision": {
+          "event_dispatch": "2026-03-15",
+          "verified_on": "2026-03-20",
+          "confirmed": true
+        },
+        "event": {
+          "kind": "withdrawal",
+          "effective": "2026-05-01",
+          "scope": "certificate",
+          "reason": "TEST_REASON",
+          "recorded_on": "2026-05-10"
+        }
+      },
+      "expected": {
+        "reassessment": "CONSIDERED_NO_CHANGE",
+        "historical_decision": "PRESERVED",
+        "downstream": "UNAFFECTED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac11_suspension_prospective",
+      "section": "§9.2, §10 AC-11",
+      "files": [
+        "udb/get_transaction_quantity_match.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "intended_use": "TEST_USE_AT_DISPATCH",
+        "certificate": {
+          "reference": "TEST-CERT-SELLER-0001",
+          "valid_from": "2026-01-01",
+          "valid_until": "2026-06-30"
+        },
+        "decision": {
+          "event_dispatch": "2026-03-15",
+          "verified_on": "2026-03-20",
+          "confirmed": true
+        },
+        "event": {
+          "kind": "suspension",
+          "effective": "2026-04-01",
+          "scope": "certificate",
+          "reason": "TEST_REASON",
+          "recorded_on": "2026-04-02"
+        },
+        "new_request": {
+          "event_dispatch": "2026-04-10"
+        }
+      },
+      "expected": {
+        "reassessment": "CONSIDERED_NO_CHANGE",
+        "downstream": "UNAFFECTED",
+        "new_request_validity": "NOT_VALID_AT_EVENT",
+        "new_request_confirmation": "NOT_CONFIRMABLE",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac12_correction_no_dependents",
+      "section": "§9.3, §10 AC-12",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "allocation": {
+          "quantity": 50,
+          "unit": "MWh",
+          "confirmed": true
+        },
+        "dependents": [],
+        "reversal": {
+          "material": true,
+          "proposed_by": "TEST_USER_1",
+          "approved_by": "TEST_USER_2"
+        }
+      },
+      "expected": {
+        "correction": "REVERSED",
+        "approval": "FOUR_EYES",
+        "quantity_state": "RESTORED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac13_correction_with_dependents",
+      "section": "§9.3, §10 AC-13",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "allocation": {
+          "quantity": 50,
+          "unit": "MWh",
+          "confirmed": true
+        },
+        "dependents": [
+          "closed_period",
+          "generated_pack"
+        ],
+        "reversal": {
+          "material": true,
+          "proposed_by": "TEST_USER_1",
+          "approved_by": "TEST_USER_2"
+        }
+      },
+      "expected": {
+        "correction": "REFUSED_DEPENDENTS_ACTIVE",
+        "quantity_state": "RESTRICTED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac14_correction_draft_export",
+      "section": "§9.3, §10 AC-14",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "allocation": {
+          "quantity": 50,
+          "unit": "MWh",
+          "confirmed": true
+        },
+        "dependents": [
+          "registry_file"
+        ],
+        "registry_file": {
+          "generated": true,
+          "downloaded": true,
+          "submission_evidence": null
+        }
+      },
+      "expected": {
+        "correction": "SUPERSEDED_DRAFT",
+        "external_ack": "NOT_REQUIRED",
+        "label": "DECLARED"
+      },
+      "note": "A download is not submission evidence."
+    },
+    {
+      "id": "ac15_correction_submitted_export",
+      "section": "§9.3, §10 AC-15",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "allocation": {
+          "quantity": 50,
+          "unit": "MWh",
+          "confirmed": true
+        },
+        "dependents": [
+          "registry_file"
+        ],
+        "registry_file": {
+          "generated": true,
+          "downloaded": true,
+          "submission_evidence": "TEST-SUBMISSION-RECEIPT-0001"
+        }
+      },
+      "expected": {
+        "correction": "PENDING_EXTERNALLY",
+        "external_ack": "REQUIRED",
+        "quantity_state": "RESTRICTED",
+        "label": "DECLARED"
+      }
+    },
+    {
+      "id": "ac16_free_text_assertion",
+      "section": "§5.10, §10 AC-16",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "company": "TEST_CO_A",
+        "evidence_ref_typed": "TEST-CS-OTHER-9999",
+        "registered_elsewhere": {
+          "company": "TEST_CO_B",
+          "statement_id": "TEST-CS-OTHER-9999"
+        }
+      },
+      "expected": {
+        "reference": "UNRESOLVED_ASSERTION",
+        "disclosure": "INDISTINGUISHABLE_FROM_UNKNOWN",
+        "label": "DECLARED"
+      },
+      "note": "The GO file is the requester's own evidence; the typed id belongs to another tenant's registered record."
+    },
+    {
+      "id": "ac19_shared_reference_no_priority",
+      "section": "§5.11, §10 AC-19",
+      "files": [
+        "aib/electricity_go_a.xml"
+      ],
+      "gex": {
+        "uploads": [
+          {
+            "company": "TEST_CO_A",
+            "order": 1
+          },
+          {
+            "company": "TEST_CO_B",
+            "order": 2
+          }
+        ],
+        "allocation_request": {
+          "company": "TEST_CO_B",
+          "quantity": 50,
+          "unit": "MWh",
+          "intended_use": "TEST_USE_COMPATIBLE"
+        }
+      },
+      "expected": {
+        "evidence_records": "ONE_PER_COMPANY",
+        "priority": "NONE",
+        "reference": "SHARED_REFERENCE_ALLOWED",
+        "confirmation": "REFUSED_OWN_DATA_DETAIL",
+        "label": "DECLARED"
+      },
+      "note": "B's refusal may say the document names another holder: B can read that in its own upload."
+    }
+  ],
+  "neutral_refusal_text": "This allocation cannot be confirmed. Request an evidence review."
+}

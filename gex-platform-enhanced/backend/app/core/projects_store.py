@@ -57,6 +57,53 @@ def _rows(sql: str, params: dict, company_id: str = PLATFORM_ADMIN) -> list[dict
         return []
 
 
+class StoreUnavailable(RuntimeError):
+    """A read that must not be mistaken for 'nothing recorded' could not be made."""
+
+
+def _rows_strict(sql: str, params: dict, company_id: str = PLATFORM_ADMIN) -> list[dict]:
+    """`_rows`, but a failure is raised, not turned into an empty answer.
+
+    `_rows` degrades to "no rows" because the registry sits on hot paths. That
+    is wrong wherever an empty answer has a meaning of its own: "this project
+    has no owner", "no pre-FID spend is recorded". Those callers use this.
+    """
+    try:
+        with _engine().connect() as conn:
+            conn.execute(text(f"SET LOCAL app.current_company_id = '{_safe(company_id)}'"))
+            return [dict(r) for r in conn.execute(text(sql), params).mappings()]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("projects_store strict read failed (%s): %s", sql.split()[0], exc)
+        raise StoreUnavailable(str(exc)) from exc
+
+
+def project_owner_record(project_id: str) -> Optional[dict[str, Any]]:
+    """The authoritative owner of a project: `projects.owner_tenant_id`.
+
+    Returns {project_id, project_name, owner_tenant_id}, following a retired id
+    to the current one, or None when there is no such active project. Raises
+    StoreUnavailable when the record cannot be read. The tenant id is taken
+    from the record; it is never derived from a company name.
+    """
+    sql = ("SELECT project_id, project_name, owner_tenant_id FROM projects "
+           "WHERE project_id = :pid AND is_active")
+    rows = _rows_strict(sql, {"pid": project_id})
+    if not rows:
+        alias = _rows_strict("SELECT project_id FROM project_id_alias WHERE alias = :a", {"a": project_id})
+        if alias:
+            rows = _rows_strict(sql, {"pid": alias[0]["project_id"]})
+    return rows[0] if rows else None
+
+
+def dataset_strict(project_id: str, kind: str, company_id: str) -> Optional[dict[str, Any]]:
+    """One recorded dataset read in the given tenant, or None when none is
+    recorded. Raises StoreUnavailable when the read fails."""
+    rows = _rows_strict("SELECT payload, verification_state, verified_by, verified_at, source FROM project_dataset "
+                        "WHERE project_id = :pid AND kind = :kind",
+                        {"pid": project_id, "kind": kind}, company_id=company_id)
+    return rows[0] if rows else None
+
+
 def _safe(company_id: str) -> str:
     """Whitelist before interpolation — SET LOCAL cannot take a bind param."""
     import re

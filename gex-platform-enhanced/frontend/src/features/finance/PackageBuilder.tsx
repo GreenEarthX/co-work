@@ -12,6 +12,7 @@
 import { useProjectResource } from './useProjectResource';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { HELP, TAB_DESCRIPTIONS } from '@/config/helpText';
+import { ReadinessStamp } from '@/components/ReadinessStamp';
 
 export function PackageBuilder() {
   const { data: recommendation, loading, error } = useProjectResource<any>((pid) => `/api/v1/structuring/${pid}/recommend`);
@@ -22,7 +23,9 @@ export function PackageBuilder() {
 
   const pkg = recommendation.package || {};
   const before = recommendation.before_metrics || {};
-  const after = recommendation.after_metrics || {};
+  const est = recommendation.after_metrics || {};
+  const outcome = pkg.conditional_outcome || {};
+  const fmt = (v: number | null | undefined, suffix: string) => (v === null || v === undefined ? '—' : `${v}${suffix}`);
 
   return (
     <div className="p-6 space-y-6">
@@ -35,60 +38,69 @@ export function PackageBuilder() {
         </p>
       </div>
 
-      <div className="border-l-4 border-teal-500 bg-teal-900/10 px-4 py-2 rounded-r-lg">
-        <span className="text-xs font-bold uppercase tracking-wider text-teal-400">
-          Structure Zone
-        </span>
-      </div>
+      <ReadinessStamp readiness={recommendation.readiness} />
 
-      {/* Summary banner */}
-      <div className="shadow-card rounded-2xl p-6 bg-gradient-to-r from-teal-900/20 to-blue-900/20 border border-teal-500/30">
+      <div className="shadow-card rounded-2xl p-6 border border-teal-500/30">
         <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
           {recommendation.summary}
         </p>
       </div>
 
-      {/* Before / After comparison */}
       <div className="grid grid-cols-2 gap-6">
         <div className="shadow-card rounded-2xl p-5">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-4">Before Package</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-4">Before package (recorded inputs)</h3>
           <div className="space-y-3">
             {[
-              ['WACC', `${before.wacc_pct}%`, HELP.WACC],
-              ['DSCR P50', `${before.dscr_p50}x`, HELP.DSCR_P50],
-              ['DSCR P90', `${before.dscr_p90}x`, HELP.DSCR_P90],
-              ['LLCR', `${before.llcr}x`, HELP.LLCR],
-              ['State', before.state, HELP.BANKABILITY_STATE],
+              ['WACC', fmt(before.wacc === null || before.wacc === undefined ? null : +(before.wacc * 100).toFixed(2), '%'), HELP.WACC],
+              ['DSCR P50', fmt(before.dscr_p50, 'x'), HELP.DSCR_P50],
+              ['DSCR P90', fmt(before.dscr_p90, 'x'), HELP.DSCR_P90],
+              ['LLCR', 'Unavailable here — engine-computed on a returns case', HELP.LLCR],
+              ['State (gate engine)', before.state ?? 'not evaluated', HELP.BANKABILITY_STATE],
             ].map(([label, value, tip]) => (
-              <div key={label as string} className="flex justify-between">
+              <div key={label as string} className="flex justify-between gap-4">
                 <span className="text-sm text-gray-500 flex items-center gap-1">{label} {tip && <InfoTooltip text={tip as string} />}</span>
-                <span className="text-sm font-mono font-bold" style={{ color: 'var(--text-primary)' }}>
-                  {value}
-                </span>
+                <span className="text-sm font-mono font-bold text-right" style={{ color: 'var(--text-primary)' }}>{value}</span>
               </div>
             ))}
           </div>
         </div>
-        <div className="shadow-card rounded-2xl p-5 ring-2 ring-teal-500/30">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-4">After Package</h3>
+        <div className="shadow-card rounded-2xl p-5 border border-dashed border-slate-400" data-testid="package-estimates">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">After package — ESTIMATE</h3>
+          <p className="text-[11px] text-slate-500 mb-4">{est.method}</p>
           <div className="space-y-3">
-            {[
-              ['WACC', `${after.wacc_pct}%`, after.wacc_pct < before.wacc_pct],
-              ['DSCR P50', `${after.dscr_p50}x`, after.dscr_p50 > before.dscr_p50],
-              ['DSCR P90', `${after.dscr_p90}x`, after.dscr_p90 > before.dscr_p90],
-              ['LLCR', `${after.llcr}x`, after.llcr > before.llcr],
-              ['State', after.state, after.state !== before.state],
-            ].map(([label, value, improved]) => (
-              <div key={label as string} className="flex justify-between">
-                <span className="text-sm text-gray-500">{label}</span>
-                <span className={`text-sm font-mono font-bold ${improved ? 'text-teal-400' : ''}`}
-                      style={improved ? {} : { color: 'var(--text-primary)' }}>
-                  {value}
-                </span>
-              </div>
-            ))}
+            {(['wacc_pct', 'dscr_p50', 'dscr_p90', 'llcr'] as const).map((k) => {
+              const e = est[k] || {};
+              const suffix = k === 'wacc_pct' ? '%' : 'x';
+              return (
+                <div key={k} className="flex justify-between gap-4">
+                  <span className="text-sm text-gray-500">{e.label}</span>
+                  <span className="text-sm font-mono">{e.value === null || e.value === undefined ? (e.basis === 'UNAVAILABLE' ? 'Unavailable' : '—') : `${e.value}${suffix}`}
+                    <span className="ml-2 text-[10px] uppercase text-slate-500">{e.basis}</span></span>
+                </div>
+              );
+            })}
+            <div className="flex justify-between gap-4">
+              <span className="text-sm text-gray-500">State</span>
+              <span className="text-sm font-mono">{pkg.current_state ?? 'not evaluated'} <span className="text-[10px] uppercase text-slate-500">unchanged</span></span>
+            </div>
           </div>
         </div>
+      </div>
+
+      <div className="shadow-card rounded-2xl p-5" data-testid="conditional-outcome">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+          {outcome.label || 'conditional — not achieved'}
+        </h3>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-primary)' }}>
+          {outcome.would_follow
+            ? `${outcome.would_follow_label || outcome.would_follow} would follow only once the gate engine finds these requirements verified:`
+            : 'No further state.'}
+        </p>
+        <ul className="mt-2 space-y-1 text-xs text-[var(--text-secondary)]">
+          {(outcome.gates || []).map((g: any) => (
+            <li key={g.gate_id}><span className="font-semibold">{g.gate_name}</span>: {[...(g.open_requirements || []), ...(g.open_reasons || [])].join('; ')}</li>
+          ))}
+        </ul>
       </div>
 
       {/* Package items */}

@@ -32,6 +32,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 MODULE = BACKEND / "app" / "api" / "v1" / "mass_balance.py"
 
 OWNER = "test_custody_owner"
+TEST_USER = "usr_test_custody"
 LOT = {
     "project_id": "proj_TEST_custody",
     "molecule": "E_METHANOL",
@@ -52,7 +53,8 @@ def client(pg_store):
     from pg_support import connect_dsn
 
     from app.api.v1.mass_balance import init_db, router
-    from app.core.request_tenant import reset_current_company, set_current_company
+    from app.core.request_tenant import (reset_current_company, reset_current_user,
+                                         set_current_company, set_current_user)
 
     conn = connect_dsn(pg_store)
     try:
@@ -76,9 +78,12 @@ def client(pg_store):
         # On PostgreSQL the policies decide, so the request carries the project
         # owner as its tenant — ABAC's job in the real app.
         token = set_current_company(OWNER)
+        # The signed-in user, as ABACMiddleware binds it: custody actors come from it (G-20).
+        utoken = set_current_user(request.headers.get("x-test-user", TEST_USER))
         try:
             return await call_next(request)
         finally:
+            reset_current_user(utoken)
             reset_current_company(token)
 
     return TestClient(app)
@@ -117,13 +122,20 @@ def test_the_module_does_not_claim_engineering_balance():
         assert claim not in doc.lower(), f"docstring claims to {claim}"
 
 
-def test_the_module_still_performs_no_physics():
+@pytest.mark.parametrize("module", [MODULE, BACKEND / "app" / "core" / "custody_ledger.py"])
+def test_the_module_still_performs_no_physics(module):
     """The original finding, pinned. If any of these appear, either real process
     logic arrived here (wrong layer — it belongs in src/engine) or the module is
-    drifting back toward the claim its old name made."""
-    src = MODULE.read_text().lower()
+    drifting back toward the claim its old name made.
+
+    `conversion_factor` was on this list until 2026-11-12. GreenMesh Phase 1 Step 2
+    (migration 097) brought DECLARED conversion factors: an accounting ratio a
+    facility or its engineer states, versioned and stored, never computed here —
+    what RED III mass balance needs to turn inputs into a period credit. The process
+    terms stay forbidden, in the period module as well."""
+    src = module.read_text().lower()
     body = src[src.index('"""', src.index('"""') + 3) + 3:]      # strip docstring
-    for term in ("recycle", "stoichiom", "utilit", "conversion_factor", "purge"):
+    for term in ("recycle", "stoichiom", "utilit", "purge"):
         assert term not in body, (
             f"'{term}' appeared in the custody ledger. Engineering balance lives "
             "in the frontend equation engine, not here."

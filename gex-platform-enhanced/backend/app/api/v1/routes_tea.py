@@ -138,6 +138,11 @@ def init_db():
     # this column stay NULL — that NULL is how you find the bases that predate it.
     if "engine_version" not in _mbc_cols:
         conn.execute("ALTER TABLE model_base_case ADD COLUMN engine_version TEXT")
+    # 124 (calculation chain): the saved cost basis a run priced, who ran it, who reviewed it.
+    for _col in ("cost_basis_version_id", "cost_basis_sha256", "run_by", "review_basis",
+                 "reviewed_by_company", "reviewed_at", "review_conditions", "tea_inputs"):
+        if _col not in _mbc_cols:
+            conn.execute(f"ALTER TABLE model_base_case ADD COLUMN {_col} TEXT")
     # General claim table (mirrors efuel_truth_stack Claim) — home for GHG and
     # other pathway claims that walk the 9-state machine, like model_base_case.
     conn.execute("""
@@ -243,6 +248,8 @@ def _project_currency(project_id: str) -> Optional[str]:
 # ───────────────────────────────────────────────────────────────────────────
 
 class ComputeRequest(BaseModel):
+    # Unknown keys are refused (18 Nov 2026): a misspelt input used to vanish here.
+    model_config = {"extra": "forbid"}
     pathway_id: str
     # Optional: omit to let tea_engine derive the equipment train from the
     # molecule's canonical process function (fuel_id).
@@ -258,6 +265,11 @@ class ComputeRequest(BaseModel):
     fx_usd_to_eur: Optional[float] = None
     fx_override_reason: Optional[str] = None
     reconciliation_group_id: Optional[str] = None
+    # Calculation chain (18 Nov 2026): price a saved cost basis's own lines (see
+    # tea_engine.models.QuotePlant), and say where the plant is.
+    country: Optional[str] = None
+    quote_plant: Optional[dict] = None
+    plant_process_type: Optional[str] = None     # Fluids | Solids | Mixed (OpenPyTEA's capital factors)
 
 
 class MonteCarloRequest(ComputeRequest):
@@ -517,7 +529,10 @@ def _tea_payload(project_id: str, body: "ComputeRequest") -> dict:
         **({"fx_benchmark_usd_to_eur": bench} if bench is not None else {}),
         **({"fx_benchmark_ref_id": bench_ref} if bench_ref else {}),
         **_tea_governed_policy(),
-        **_tea_governed_train(body.fuel_id),
+        **({} if body.quote_plant else _tea_governed_train(body.fuel_id)),
+        **({"country": body.country} if body.country else {}),
+        **({"quote_plant": body.quote_plant} if body.quote_plant else {}),
+        **({"plant_process_type": body.plant_process_type} if body.plant_process_type else {}),
     }
 
 
@@ -533,6 +548,13 @@ async def compute_base_case(
     db: Any = Depends(get_db),
 ) -> dict[str, Any]:
     """Run TEA on :8002, record the run as evidence, create a submitted base-case claim."""
+    return await run_compute(project_id, request, body, db)
+
+
+async def run_compute(project_id: str, request: Request, body: ComputeRequest, db: Any,
+                      link: Optional[dict] = None) -> dict[str, Any]:
+    """The compute itself. `link` (calculation chain, 18 Nov): {cost_basis_version_id,
+    cost_basis_sha256, run_by}, written on the base case row in the same INSERT."""
     auth = request.headers.get("Authorization")
     fx_override = _fx_override_gate(request, body)      # increment 3: CFO authority + reason
     tea_payload = _tea_payload(project_id, body)        # increment 2: currency resolution
@@ -601,6 +623,17 @@ async def compute_base_case(
         run_evidence_id, prior["claim_id"] if prior else None,
         body.reconciliation_group_id, now, now,
     ))
+    if link:
+        # Same transaction as the INSERT: a run is never left without the cost basis it priced,
+        # nor without the exact config OpenPyTEA received and the defaults it still applied (125).
+        db.execute("UPDATE model_base_case SET cost_basis_version_id=?, cost_basis_sha256=?, run_by=?, "
+                   "tea_inputs=? WHERE claim_id=?",
+                   (link["cost_basis_version_id"], link["cost_basis_sha256"], link["run_by"],
+                    json.dumps({"request": tea_payload, "openpytea_config": result.get("openpytea_config"),
+                                "defaults_used": result.get("defaults_used") or [],
+                                "calculation_boundary": result.get("calculation_boundary"),
+                                "feedstock_balance": result.get("feedstock_balance") or [],
+                                "result_status": result_status}), claim_id))
     db.commit()
 
     # CANONICAL (system of record, write-time contract): the run as a derived
@@ -755,7 +788,16 @@ def approve_base_case(
     if not approver:
         raise HTTPException(401, "no approver identity (x-demo-user header or approved_by)")
     body.approved_by = approver
-    if approver == "tea_engine":
+    return apply_approval(row, body, db)
+
+
+def apply_approval(row: Any, body: ApprovalRequest, db: Any, review: Optional[dict] = None) -> dict[str, Any]:
+    """Fold submitted -> verified | rejected. `review` (calculation chain, 18 Nov):
+    {review_basis, reviewed_by_company, reviewed_at, review_conditions}, written on the
+    row in the same UPDATE. Only the chain's review route passes it, so a base case
+    approved through the legacy route above carries no review standing."""
+    claim_id = row["claim_id"]
+    if body.approved_by == "tea_engine":
         raise HTTPException(403, "tea_engine may not verify its own run")
 
     target = "verified" if body.outcome in ("approve", "approve_with_conditions") else "rejected"
@@ -803,6 +845,11 @@ def approve_base_case(
         "WHERE claim_id=?",
         (target, body.approved_by, decision["evidence_id"], claim_id),
     )
+    if review:
+        db.execute("UPDATE model_base_case SET review_basis=?, reviewed_by_company=?, reviewed_at=?, "
+                   "review_conditions=? WHERE claim_id=?",
+                   (review["review_basis"], review["reviewed_by_company"], review["reviewed_at"],
+                    json.dumps(review.get("review_conditions") or []), claim_id))
     db.commit()
     canonical = _canonical(
         "append_entry", project_id=row["project_id"], entry_type="approval_decision",

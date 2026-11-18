@@ -430,10 +430,32 @@ def commitment_family(canonical: str) -> Optional[str]:
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
+# ── DFI additionality criteria (handoff v4, task 6) ───────────────────────────
+# Additionality is evidenced criteria, not an IRR comparison. The first three are
+# core: without evidence for each, an assessment is "not assessable".
+
+ADDITIONALITY_CRITERION = Concept(
+    name="additionality_criterion",
+    canonical_source="app.api.v1.additionality.CORE_CRITERIA",
+    summary="What a development finance institution needs evidenced to decide its money is additional.",
+    terms=(
+        Term("financing_unavailable", "Financing otherwise unavailable on commercial terms (tenor, currency, pricing)",
+             "Evidence that commercial lenders would not finance the project on these terms.", "Core"),
+        Term("risk_mitigation", "Risk mitigation (guarantees, first loss)",
+             "Evidence of the risk the DFI's instrument takes that others will not.", "Core"),
+        Term("mobilisation", "Mobilisation of private finance (commercial money per unit of DFI money)",
+             "Evidenced commercial money that the DFI's participation brings in.", "Core"),
+        Term("standards_contribution", "Contribution to standards or project design",
+             "Environmental, social or governance standards the DFI adds to the project.", "Supporting"),
+    ),
+)
+
+
 CONCEPTS: dict[str, Concept] = {
     c.name: c
     for c in (EVIDENCE_STATE, EVIDENCE_ASSURANCE, PACKAGE_WORKFLOW,
-              READINESS, RISK_CATEGORY, PROJECT_PHASE, COMMITMENT_INSTRUMENT)
+              READINESS, RISK_CATEGORY, PROJECT_PHASE, COMMITMENT_INSTRUMENT,
+              ADDITIONALITY_CRITERION)
 }
 
 # Concepts that are two axes of one subject, declared so nobody "helpfully"

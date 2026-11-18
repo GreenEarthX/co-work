@@ -9,6 +9,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { marketAPI, type Enquiry } from '@/api'
 import { useMarketPolicy } from '@/lib/marketPolicy'
 import { CounterpartyBadge } from '@/features/trader/ListingParts'
+import { ChangedSince } from './ChangedSince'
 
 const STATUS: Record<Enquiry['status'], { label: string; cls: string }> = {
   open: { label: 'Open', cls: 'bg-blue-50 text-blue-800' },
@@ -53,6 +54,7 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
         <StatusChip status={e.status} />
         <span className="text-sm text-gray-800">{subjectLine(e)}</span>
       </div>
+      <ChangedSince change={e.changed_since_assessed} />
       <div className="rounded-md border border-gray-200 p-3 text-sm" data-testid="counterparty">
         {id_ ? (
           <>

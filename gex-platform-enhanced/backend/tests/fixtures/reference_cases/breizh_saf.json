@@ -1,0 +1,26 @@
+{
+  "reference_case": "BREIZH_SAF",
+  "status": "REFERENCE ONLY — illustrative, not a client project",
+  "purpose": "The structuring paragon: a worked example of how a project moves through the twelve gates, used to test engines and to explain the method. It is never a default, never a fallback, and never stored as a project's data.",
+  "source_workbook": "GreenEarthX-Files/AA Working documents/Excel sheets/Breizh_SAF_Project_Workbook_v1.4_precod.xlsx (saved 2026-07-01)",
+  "rules": [
+    "May be read by tests and documentation only.",
+    "May not be imported by application code, seeded into a database, or used as a default value.",
+    "tests/test_no_breizh_data_points.py fails the build if application code carries any identifying data point below.",
+    "Changes to this file are changes to the reference case: they need the CPO's approval and a note in the change log."
+  ],
+  "identifying_strings": ["breizh", "gex-brz", "brz_saf", "brz-saf", "lorient"],
+  "identity": {
+    "project_id": "GEX-BRZ-SAF-001", "name": "Breizh SAF Complex", "location": "Lorient, Brittany, France",
+    "country": "FR", "molecule": "SAF", "technology": "PEM Electrolyser 120MW + Fischer-Tropsch",
+    "capex_eur": 285000000, "owners_costs_eur": 18500000
+  },
+  "gate_scores": {"G0": 95, "G1": 88, "G2": 72, "G3": 90, "G4": 78, "G5": 45, "G6": 0, "G7": 55,
+                  "G8": 68, "G9": 92, "G10": 0, "G11": 0},
+  "structuring_inputs": {"stage": "BUILDABLE", "dscr_p50": 1.34, "dscr_p90": 1.18, "llcr": 1.41, "wacc": 0.089,
+                         "offtake_coverage_pct": 0.55, "cert_readiness": 88, "epc_status": "SHORTLISTING",
+                         "insurance_status": "QUOTED", "grid_status": "FIRM_OFFER"},
+  "change_log": [
+    {"date": "2026-11-17", "by": "Claude, for JML", "change": "Created from the workbook and the structuring defaults removed from routes_structuring.py."}
+  ]
+}
