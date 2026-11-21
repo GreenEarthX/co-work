@@ -88,6 +88,17 @@ def client(isolated_store, monkeypatch):
             request.state.auth_user_payload = _json.loads(raw)
         return await call_next(request)
 
+    # Reviewer authority (core/reviewer_authority): who is appointed where, read from a
+    # dict here instead of PostgreSQL. ie@x.test is an appointed IE of P-OK and P-BAD only.
+    import app.core.reviewer_authority as ra
+    def appointed(u, p, types):
+        if p == "P-OTHER" or u not in ("ie@x.test", "test_ie", "cert@x.test"):
+            return set()
+        return ({"CERTIFIER"} if u == "cert@x.test" else {"INDEPENDENT_ENGINEER"}) & set(types)
+    monkeypatch.setattr(ra, "project_owner", lambda p: "owner_co")
+    monkeypatch.setattr(ra, "appointed_as", appointed)
+    monkeypatch.setattr(ra, "is_test_account", lambda u: u == "test_ie")
+
     app.include_router(rt.router, prefix="/api/v1/tea")
     tc = TestClient(app)
     tc.tea_calls = calls   # payloads the bridge forwarded to :8002 (assert resolution)
@@ -104,12 +115,17 @@ def _compute(client, project, pathway):
     return r.json()
 
 
-def _approve(client, claim, outcome="approve"):
-    return client.post(
-        f"/api/v1/tea/base-case/{claim}/approve",
-        headers={"x-demo-user": "ie@x.test"},
-        json={"approved_by": "ie@x.test", "outcome": outcome,
-              "approver_role": "independent_engineer"})
+IE = {"user_id": "ie@x.test", "company_id": "ie_firm"}
+
+
+def _signed_in(user: dict) -> dict:
+    import json as _json
+    return {"x-test-payload": _json.dumps(user)}
+
+
+def _approve(client, claim, outcome="approve", user=IE, **extra):
+    return client.post(f"/api/v1/tea/base-case/{claim}/approve", headers={**_signed_in(user), **extra.pop("headers", {})},
+                       json={"outcome": outcome, **extra})
 
 
 def test_result_status_is_stored_on_the_base_case(client):
@@ -343,3 +359,55 @@ def test_missing_result_status_does_not_block(client, monkeypatch):
     r = _approve(client, body["base_case"]["claim_id"])
     assert r.status_code == 200, r.text
     assert r.json()["base_case"]["state"] == "verified"
+
+
+# ── The legacy approval routes take identity from the token and authority from the project
+#    (19 Nov 2026: the x-demo-user header and the body's approved_by were trusted before). ──
+
+def test_a_forged_header_does_not_change_who_approves(client):
+    claim = _compute(client, "P-OK", "adv-ok")["base_case"]["claim_id"]
+    r = _approve(client, claim, headers={"x-demo-user": "someone_else@x.test"})
+    assert r.status_code == 200, r.text
+    assert r.json()["base_case"]["approved_by"] == "ie@x.test"           # the signed-in user, not the header
+    assert r.json()["base_case"]["review_basis"] == "INDEPENDENT"
+
+
+def test_a_body_naming_another_approver_is_refused(client):
+    claim = _compute(client, "P-OK", "adv-ok")["base_case"]["claim_id"]
+    r = _approve(client, claim, approved_by="someone_else@x.test")
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "APPROVER_NOT_ACCEPTED"
+
+
+def test_no_sign_in_no_approval(client):
+    claim = _compute(client, "P-OK", "adv-ok")["base_case"]["claim_id"]
+    r = client.post(f"/api/v1/tea/base-case/{claim}/approve", headers={"x-demo-user": "ie@x.test"},
+                    json={"outcome": "approve", "approved_by": "ie@x.test"})
+    assert r.status_code == 401
+
+
+def test_a_reviewer_of_another_project_and_the_owner_cannot_approve(client):
+    claim = _compute(client, "P-OTHER", "adv-ok")["base_case"]["claim_id"]
+    r = _approve(client, claim)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "NOT_APPOINTED"
+    claim = _compute(client, "P-OK", "adv-ok")["base_case"]["claim_id"]
+    r = _approve(client, claim, user={"user_id": "cfo", "company_id": "owner_co", "business_function": "EXECUTIVE"})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "OWNER_CANNOT_APPROVE"
+    r = _approve(client, claim, user={"user_id": "tea_engine", "company_id": "x"})
+    assert r.status_code == 403                                           # the engine is appointed nowhere
+
+
+def test_a_test_account_review_is_labelled_test(client):
+    claim = _compute(client, "P-OK", "adv-ok")["base_case"]["claim_id"]
+    r = _approve(client, claim, user={"user_id": "test_ie", "company_id": "foxwell_test"})
+    assert r.status_code == 200 and r.json()["base_case"]["review_basis"] == "TEST"
+
+
+def test_a_chain_base_case_is_reviewed_on_the_chain_only(client, monkeypatch):
+    from app.core.db_backend import domain_connection
+    claim = _compute(client, "P-OK", "adv-ok")["base_case"]["claim_id"]
+    db = domain_connection()
+    db.execute("UPDATE model_base_case SET cost_basis_version_id='cb-1' WHERE claim_id=?", (claim,))
+    db.commit()
+    db.close()
+    r = _approve(client, claim)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "USE_CHAIN_REVIEW"

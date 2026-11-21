@@ -146,6 +146,13 @@ PARAMETERS: dict[str, ParameterDef] = {
     # the +/-5% band a CFO override must sit inside. It was a hardcoded constant in
     # tea_engine/integrity.py (USD_TO_BASE) until 2026-10-26, so changing the rate
     # moved every priced capex with nothing proposing or approving it.
+    # Gabillon P-forward of the CEPCI for years after the last published one (JML, 20 Nov 2026):
+    # calibrated on the published history by the PF engine (pricing/gabillon/history.py);
+    # value_base = E_P[CEPCI], value_low / value_high = the 90% band. A quote dated such a year
+    # is converted with it in quote-mode TEA. A published value always replaces it.
+    **{f"cepci_forward_{y}": ParameterDef(
+        "DIMENSIONLESS", f"CEPCI {y} forward (Gabillon P-expectation calibrated on the published "
+        "CEPCI history); replaced by the published value as soon as one exists") for y in range(2025, 2031)},
     "tea_fx_usd_to_eur": ParameterDef(
         "EXCHANGE_RATE", "USD->EUR multiplier applied to OpenPyTEA's USD cost "
         "correlations, and the benchmark a CFO FX override is bounded against"),

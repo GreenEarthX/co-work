@@ -1,6 +1,6 @@
 """correlation_set — a fingerprint of the cost data that priced a basis.
 
-OpenPyTEA's 417 published cost correlations (1,291 fitted coefficients, Turton /
+OpenPyTEA's 430 published cost correlations (3.2.3; 417 in 3.1.0) (1,291 fitted coefficients, Turton /
 Towler & Sinnott / Seider) and its CEPCI index series live in CSV files inside
 site-packages. They are literature constants, so unlike GEX's own assumptions they must
 NOT be editable — editing them destroys the traceability that makes a number defensible
@@ -120,7 +120,7 @@ def _count_correlations(d: Optional[str]) -> Optional[int]:
     if not os.path.isfile(path):
         return None
     # Not a line count: the notes column contains embedded newlines, so counting lines
-    # overstates the row count (420 against the real 417). Parse it.
+    # overstates the row count (420 against the real 417 in 3.1.0). Parse it.
     try:
         import pandas as pd
         return int(len(pd.read_csv(path)))
@@ -138,3 +138,37 @@ def _gex_supplied() -> list[int]:
 
 def set_hash() -> str:
     return str(fingerprint()["hash"])
+
+
+# OpenPyTEA 3.2.0 renamed three categories; the correlations under them are unchanged
+# (coefficients identical, measured 20 Nov 2026 against 3.1.0's CSV). A request or a stored
+# equipment row that still uses an old name is translated and the translation is LISTED in
+# the run's defaults_used — never applied silently.
+RENAMED_CATEGORIES: dict[str, str] = {
+    "Compressors & blowers": "Compressors, fans, & blowers",
+    "Adsorption & membrane separation": "Absorption, adsorption, & membrane separation",
+    "CO2 capture": "Absorption, adsorption, & membrane separation",
+}
+
+
+def current_category(category: str) -> str:
+    return RENAMED_CATEGORIES.get(category, category)
+
+
+_LISTED = ("key", "category", "type", "units", "s_lower", "s_upper", "form", "cost_year",
+           "default material", "source")
+
+
+def listing() -> dict[str, Any]:
+    """Every published correlation the engine can cost with (read-only), and the pin."""
+    d = _data_dir()
+    rows: list[dict] = []
+    if d:
+        import csv
+        with open(os.path.join(d, _CORRELATIONS), newline="") as fh:
+            rows = [{k: (r.get(k) or "").strip() or None for k in _LISTED} for r in csv.DictReader(fh)]
+    return {"fingerprint": fingerprint(), "renamed_categories": RENAMED_CATEGORIES,
+            "correlations": rows,
+            "note": ("Published literature constants (Turton, Towler & Sinnott, Seider, NREL, DOE and others "
+                     "as each row's source states). Pinned, not editable: GEX governs its own equipment "
+                     "train (tea_equipment_spec), never these.")}

@@ -18,11 +18,13 @@ and DAC EUR 123/t (Roland Berger for GasTerra, "Feasibility and potential of e-m
 April 2025) — capture costs, before liquefaction and transport.
 
     cd backend && set -a && source .env && set +a
-    ./venv/bin/python scripts/propose_co2_feedstock_price_20261118.py [--approve] [--execute]
+    ./venv/bin/python scripts/propose_co2_feedstock_price_20261118.py [--execute]
 
---approve applies JML's decision of 18 Nov 2026 ("approve the CO2 price at 208 EUR/t", given in the
-Claude Code session) through the registry lifecycle: the approver is recorded as JML, never the proposer.
-Idempotent. A database rebuilt from Alembic needs this run; a pg_dump restore carries the row.
+It PROPOSES only. It used to take --approve and record JML's chat instruction of 18 Nov as the
+approval, so one script run both proposed and approved (JML, 19 Nov 2026: "the approval should
+identify the actual human authoriser; record the script separately as the mechanism"). Removed:
+an approval is made by a person, on the reference registry screen, with their own account.
+Idempotent. A database rebuilt from Alembic needs this run, then the approval on screen.
 """
 from __future__ import annotations
 
@@ -34,8 +36,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core import reference_registry as reg  # noqa: E402
 
 PROPOSER = "CO2_PRICE_REVIEW_20261118"
-APPROVER = "JML (instruction in session, 2026-11-18; applied by Claude)"
-APPROVAL_REASON = "JML approved co2_feedstock_price DE at EUR 208/t for North Sea's purchased CO2 shortfall"
 PROPOSAL = {
     "parameter_key": "co2_feedstock_price", "pathway": "ANY", "region": "DE",
     "value_low": 190.0, "value_base": 208.0, "value_high": 342.0, "unit": "EUR/t", "currency": "EUR",
@@ -53,7 +53,7 @@ PROPOSAL = {
 }
 
 
-def main(execute: bool, approve: bool = False) -> int:
+def main(execute: bool) -> int:
     from app.core.db_backend import fuelref_connection
     conn = fuelref_connection(company_id="PLATFORM_ADMIN")   # curating GEX-held reference data
     try:
@@ -72,10 +72,6 @@ def main(execute: bool, approve: bool = False) -> int:
             ref_id, state = row["ref_id"], row["state"]
             print(f"proposed {ref_id}: co2_feedstock_price DE {row['value_low']}/{row['value_base']}/"
                   f"{row['value_high']} {row['unit']}")
-        if approve and state == "proposed":
-            out = reg.approve(conn, ref_id, actor=APPROVER, reason=APPROVAL_REASON)
-            print(f"approved by {out['parameter']['approved_by']}; registry version "
-                  f"{out['version']['version_number']}")
         conn.commit()
         return 0
     finally:
@@ -83,4 +79,6 @@ def main(execute: bool, approve: bool = False) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main("--execute" in sys.argv, approve="--approve" in sys.argv))
+    if "--approve" in sys.argv:
+        sys.exit("--approve was removed (19 Nov 2026): approve on the reference registry screen.")
+    sys.exit(main("--execute" in sys.argv))

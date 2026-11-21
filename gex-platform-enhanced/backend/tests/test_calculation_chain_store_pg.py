@@ -27,9 +27,9 @@ def _insert_cost_basis(cur, project_id, owner):
     vid = str(uuid.uuid4())
     cur.execute(
         "INSERT INTO cost_basis_version (version_id, project_id, owner_tenant_id, version_number, molecule, "
-        "configuration, result, catalogue_sha256, content_sha256, saved_by) "
+        "configuration, result, catalogue_sha256, content_sha256, saved_by, status) "
         "VALUES (%s,%s,%s,(SELECT coalesce(max(version_number),0)+1 FROM cost_basis_version WHERE project_id=%s),"
-        "'E_METHANOL',%s,%s,'c','h','test')",
+        "'E_METHANOL',%s,%s,'c','h','test','READY')",
         (vid, project_id, owner, project_id, json.dumps({}), json.dumps({})))
     return vid
 
@@ -89,6 +89,16 @@ def test_a_tenant_cannot_save_for_a_project_it_does_not_own():
         conn.close()
 
 
+def _financing_insert(cur, project_id, owner, status, debt, limitations="[]"):
+    cur.execute(
+        "INSERT INTO financing_case_version (version_id, project_id, owner_tenant_id, version_number, "
+        "tea_claim_id, tea_cost_basis_hash, fci_eur, debt_eur, interest_rate, debt_tenor_years, grant_eur, "
+        "terms, content_sha256, saved_by, case_id, status, limitations) "
+        "VALUES (%s,%s,%s,(SELECT coalesce(max(version_number),0)+1 FROM financing_case_version WHERE project_id=%s),"
+        "'c','h',100,%s,0.05,10,20,'{}','h','t',%s,%s,%s)",
+        (str(uuid.uuid4()), project_id, owner, project_id, debt, str(uuid.uuid4()), status, limitations))
+
+
 def test_financing_debt_plus_grant_cannot_exceed_fci():
     conn = pg_connect()
     cur = conn.cursor()
@@ -98,12 +108,44 @@ def test_financing_debt_plus_grant_cannot_exceed_fci():
         cur.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
         project_id, owner = _owned_project(cur)
         cur.execute("SET LOCAL app.current_company_id = %s", (owner,))
-        with pytest.raises(Exception):
+        cur.execute("SAVEPOINT s1")
+        with pytest.raises(Exception) as e:
+            _financing_insert(cur, project_id, owner, "ELIGIBLE", 90)          # 90 + 20 > 100
+        assert "financing_case_version_eligible_complete" in str(e.value)       # the rule, not a missing column
+        cur.execute("ROLLBACK TO SAVEPOINT s1")
+        _financing_insert(cur, project_id, owner, "ELIGIBLE", 80)               # within fixed capital
+        _financing_insert(cur, project_id, owner, "DRAFT", 90,                  # a draft may exceed it, said
+                          '[{"code": "DEBT_EXCEEDS_FCI", "detail": "x"}]')
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def test_an_eligible_case_is_bounded_by_its_defined_uses_not_by_fixed_capital():
+    """128: with uses defined, debt + grant may exceed fixed capital (100) up to the uses (150)."""
+    conn = pg_connect()
+    cur = conn.cursor()
+    try:
+        cur.execute("BEGIN")
+        cur.execute("SET LOCAL ROLE gex_app")
+        cur.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
+        project_id, owner = _owned_project(cur)
+        cur.execute("SET LOCAL app.current_company_id = %s", (owner,))
+
+        def eligible(debt, uses):
             cur.execute(
                 "INSERT INTO financing_case_version (version_id, project_id, owner_tenant_id, version_number, "
                 "tea_claim_id, tea_cost_basis_hash, fci_eur, debt_eur, interest_rate, debt_tenor_years, grant_eur, "
-                "terms, content_sha256, saved_by) VALUES (%s,%s,%s,1,'c','h',100,90,0.05,10,20,'{}','h','t')",
-                (str(uuid.uuid4()), project_id, owner))
+                "terms, content_sha256, saved_by, case_id, status, limitations, uses_total_eur) "
+                "VALUES (%s,%s,%s,(SELECT coalesce(max(version_number),0)+1 FROM financing_case_version WHERE "
+                "project_id=%s),'c','h',100,%s,0.05,10,20,'{}','h','t',%s,'ELIGIBLE','[]',%s)",
+                (str(uuid.uuid4()), project_id, owner, project_id, debt, str(uuid.uuid4()), uses))
+
+        eligible(120, 150)                                   # 140 > 100 fixed capital, within 150 uses
+        cur.execute("SAVEPOINT s1")
+        with pytest.raises(Exception) as e:
+            eligible(140, 150)                               # 160 > 150 uses
+        assert "financing_case_version_eligible_complete" in str(e.value)
     finally:
         conn.rollback()
         conn.close()

@@ -87,12 +87,25 @@ def test_the_h2_compressor_is_costable():
     """The specific correlation the CEPCI gap blocked. RFNBO depends on it."""
     capex, opex, lcop, currency = runner._real_numbers(
         _req(),
-        [ProcessUnitSpec(id="h2comp", category="Compressors & blowers",
+        [ProcessUnitSpec(id="h2comp", category="Compressors, fans, & blowers",
                          equipment_type="H2 compressor",
                          material="316 stainless steel", sizing=300)],
         {"electricity": {"consumption": 1.0, "price": 45.0}},
     )
     assert capex > 0 and lcop > 0 and currency
+
+
+def test_an_old_openpytea_category_name_is_translated_and_listed():
+    """OpenPyTEA 3.2 renamed three categories. A request with an old name prices exactly as
+    with the new one, and the translation is in defaults_used, never silent."""
+    unit = {"id": "co2c", "equipment_type": "CO2 compressor", "material": "Carbon steel", "sizing": 6.0}
+    old = runner.run_tea(_req(process_units=[{**unit, "category": "Compressors & blowers"}]))
+    new = runner.run_tea(_req(process_units=[{**unit, "category": "Compressors, fans, & blowers"}]))
+    assert old.plant_summary.capex_eur == new.plant_summary.capex_eur and old.lcop == new.lcop
+    renamed = [d for d in old.defaults_used if d["name"] == "category.co2c"]
+    assert renamed and renamed[0]["value"] == "Compressors, fans, & blowers"
+    assert renamed[0]["basis"].startswith("RENAMED")
+    assert not [d for d in new.defaults_used if d["name"].startswith("category.")]
 
 
 # ── 2. Bad input is 422, never 500 ──────────────────────────────────────────
@@ -269,8 +282,9 @@ def test_provenance_distinguishes_model_default_from_project_input():
     r_def = runner.run_tea(TEAComputeRequest(assumptions=FinancialAssumptions(), **base))
     assert r_def.input_provenance["electricity_eur_mwh"]["source_class"] == "model_default"
     assert r_def.result_status == "SCREENING"
+    # contingency_pct is not a canonical input (19 Nov 2026: refused when stated; OpenPyTEA's applies)
     full = FinancialAssumptions(discount_rate_pct=8.5, electricity_eur_mwh=55,
-        capacity_factor=0.65, project_life_years=25, contingency_pct=20,
+        capacity_factor=0.65, project_life_years=25,
         co2_eur_t=60, hydrogen_eur_t=2800, feedstock_oil_eur_t=1100)
     r_full = runner.run_tea(TEAComputeRequest(assumptions=full, **base))
     assert all(v["source_class"] == "sponsor_assumption"
@@ -553,3 +567,15 @@ def test_monte_carlo_refuses_an_engine_too_old_to_seed(monkeypatch):
     monkeypatch.setattr(runner, "_engine_version", lambda: None)   # unreadable → refuse too
     with pytest.raises(RuntimeError):
         runner.run_monte_carlo(_mc())
+
+
+def test_the_correlation_listing_is_the_pinned_set_with_its_sources():
+    """GET /tea/correlations (the TEA parameters screen): every row the engine prices with,
+    each with its published source, and no category the engine has retired."""
+    from tea_engine.correlation_set import RENAMED_CATEGORIES, fingerprint, listing
+    l = listing()
+    assert len(l["correlations"]) == fingerprint()["correlations"] == l["fingerprint"]["correlations"]
+    assert all(r["source"] for r in l["correlations"])
+    cats = {r["category"] for r in l["correlations"]}
+    assert not cats & set(RENAMED_CATEGORIES), "a retired category name is still in the engine's data"
+    assert set(RENAMED_CATEGORIES.values()) <= cats

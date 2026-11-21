@@ -20,7 +20,7 @@ from tea_engine.auth.gex_jwt import (
     AuthenticatedUser,
     get_current_user_or_service as get_current_user,
 )
-from tea_engine.compute import run_monte_carlo, run_sensitivity, run_tea
+from tea_engine.compute import run_index_band, run_monte_carlo, run_sensitivity, run_tea
 from tea_engine.models import (
     TEAComputeRequest,
     TEAMonteCarloRequest,
@@ -80,6 +80,27 @@ def regime_for(fuel_id: str, user: AuthenticatedUser = Depends(get_current_user)
                 "certification_gate": regimes.certification_gate(fuel_id)}
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+
+@router.get("/cepci")
+def cepci_series() -> dict:
+    """The CEPCI series this engine escalates with (JML, 20 Nov 2026): the history the Gabillon
+    forward is calibrated on. Published values plus the years GEX supplied from the same source."""
+    from tea_engine.compute.quote_plant import published_cepci
+    from tea_engine import cepci_extension as ce
+    from tea_engine import escalation
+    series = published_cepci()
+    return {"index": "CEPCI", "series": [{"year": y, "value": v} for y, v in sorted(series.items())],
+            "last_year": max(series), "target_year": escalation.target_year(),
+            "gex_supplied_years": list(ce.GEX_SUPPLIED_CEPCI_YEARS),
+            "source": "openpytea data/cepci_values.csv (Manchester GCED CEPCI table) + GEX-supplied years"}
+
+
+@router.get("/correlations")
+def correlations(user: AuthenticatedUser = Depends(get_current_user)) -> dict:
+    """The published cost correlations this engine prices with, and their fingerprint."""
+    from tea_engine.correlation_set import listing
+    return listing()
 
 
 @router.get("/regimes")
@@ -162,5 +183,20 @@ def sensitivity(
         ) from e
     except NotImplementedError as e:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e
+
+
+@router.post("/index-band")
+def index_band(
+    request: TEAComputeRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    """The run's cost-index band from the approved Gabillon CEPCI forward rows (p05 / p95)."""
+    logger.info("tea/index-band project=%s user=%s", request.project_id, user.user_id)
+    try:
+        return run_index_band(request)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e

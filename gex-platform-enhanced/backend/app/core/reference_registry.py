@@ -178,6 +178,15 @@ def resolve_or_default(parameter_key: str, default: Any, pathway: str = "ANY",
     return Resolved(default, "model_default")
 
 
+def list_proposed(conn) -> list[dict]:
+    """Rows awaiting a decision, each with the row in force it would supersede (or None)."""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM reference_parameter WHERE state = 'proposed' ORDER BY proposed_at").fetchall()]
+    for r in rows:
+        r["in_force"] = in_force(conn, r["parameter_key"], r["pathway"], r["region"])
+    return rows
+
+
 def get_row(conn, ref_id: str) -> Optional[dict]:
     row = conn.execute("SELECT * FROM reference_parameter WHERE ref_id = ?",
                        (ref_id,)).fetchone()
@@ -326,10 +335,11 @@ def approve(conn, ref_id: str, actor: str, reason: Optional[str] = None) -> dict
     if current:
         conn.execute("UPDATE reference_parameter SET state = 'superseded' WHERE ref_id = ?",
                      (current["ref_id"],))
-    conn.execute(
+    done = conn.execute(
         "UPDATE reference_parameter SET state = 'approved', approved_by = ?, "
-        "approved_at = ?, supersedes_ref_id = ? WHERE ref_id = ?",
+        "approved_at = ?, supersedes_ref_id = ? WHERE ref_id = ? AND state = 'proposed'",
         (actor, now, current["ref_id"] if current else None, ref_id))
+    _changed_one(done, ref_id, "approve")
 
     previous = latest_version(conn)
     ids = set(previous["ref_ids"]) if previous else set()
@@ -349,7 +359,17 @@ def approve(conn, ref_id: str, actor: str, reason: Optional[str] = None) -> dict
 
 def reject(conn, ref_id: str, actor: str) -> dict:
     _pending(conn, ref_id)
-    conn.execute(
+    done = conn.execute(
         "UPDATE reference_parameter SET state = 'rejected', rejected_by = ?, "
-        "rejected_at = ? WHERE ref_id = ?", (actor, _now(), ref_id))
+        "rejected_at = ? WHERE ref_id = ? AND state = 'proposed'", (actor, _now(), ref_id))
+    _changed_one(done, ref_id, "reject")
     return get_row(conn, ref_id)
+
+
+def _changed_one(cur, ref_id: str, verb: str) -> None:
+    """A decision that changed no row is refused, never reported as done (20 Nov 2026: under
+    the wrong tenant an UPDATE matched 0 rows silently)."""
+    n = getattr(cur, "rowcount", None)
+    if n is not None and n != 1:
+        raise RegistryError(f"could not {verb} {ref_id}: {n} rows changed (not writable on this "
+                            "connection, or no longer proposed)", 409)

@@ -232,3 +232,84 @@ def describe() -> dict:
         "target_year": target_year(),
         "series_covers": ([years[0], years[-1]] if years else None),
     }
+
+
+# ── Forward years, per request (JML, 20 Nov 2026) ──────────────────────────────
+# The cost base moves past the last published CEPCI (2024) with the Gabillon P-forward,
+# one APPROVED reference row per year, sent by the backend bridge in the request (this
+# engine is stateless). The rows enter OpenPyTEA's in-memory series only for the duration
+# of the one run that carries them, under a lock, and are removed after: a forward must
+# never price another request that did not send it, and the fingerprint inside
+# cost_basis_hash must read the series THIS request priced with.
+
+import threading
+from contextlib import contextmanager
+
+_SCOPE_LOCK = threading.RLock()
+_SCOPED: set[int] = set()          # forward years the current scope injected
+
+
+def published_series() -> dict[int, float]:
+    """The CEPCI years held outside any request scope: published, plus GEX-supplied history."""
+    from tea_engine import cepci_extension  # noqa: F401  (applies at import)
+    from openpytea.equipment import CEPCI_DF
+    return {int(y): float(v) for y, v in CEPCI_DF["cepci"].items() if int(y) not in _SCOPED}
+
+
+def request_target_year(req) -> int:
+    """The cost base of THIS run: the request's cost_base_year, else the engine default."""
+    return int(req.cost_base_year) if getattr(req, "cost_base_year", None) else target_year()
+
+
+def needed_years(req) -> list[int]:
+    """Every year this run escalates from or to."""
+    years = {request_target_year(req)}
+    q = getattr(req, "quote_plant", None)
+    if q is not None:
+        years |= {e.cost_year for e in q.equipment if e.cost_year}
+    return sorted(years)
+
+
+def forwards_used(req, published: dict[int, float] | None = None) -> dict[int, object]:
+    """The forward rows this run relies on: a needed year with no published value. A forward
+    for a published year is ignored (a published value always wins). Refuses a needed year
+    with neither, naming the row to approve."""
+    published = published if published is not None else published_series()
+    sent = dict(getattr(req, "cepci_forward", None) or {})
+    used, missing = {}, []
+    for y in needed_years(req):
+        if y in published:
+            continue
+        if y in sent:
+            used[y] = sent[y]
+        else:
+            missing.append(y)
+    if missing:
+        last = max(published)
+        raise ValueError(
+            "No published CEPCI for " + ", ".join(map(str, missing)) + f" (published to {last}) and no approved "
+            "forward: approve the Gabillon CEPCI forward on the GEX staff console (reference key "
+            + ", ".join(f"cepci_forward_{y}" for y in missing) + "), then run the TEA again.")
+    return used
+
+
+@contextmanager
+def request_scope(req):
+    """Hold the series for one run: inject this request's forward years, yield the target year,
+    remove them. Re-entrant (Monte Carlo runs the point estimate inside its own scope)."""
+    from openpytea.equipment import CEPCI_DF
+    with _SCOPE_LOCK:
+        apply()
+        used = forwards_used(req)
+        added = []
+        for y, f in sorted(used.items()):
+            if y not in CEPCI_DF.index:
+                CEPCI_DF.loc[y, "cepci"] = float(f.value)
+                added.append(y)
+        _SCOPED.update(added)
+        try:
+            yield request_target_year(req)
+        finally:
+            if added:
+                CEPCI_DF.drop(index=added, inplace=True)
+                _SCOPED.difference_update(added)

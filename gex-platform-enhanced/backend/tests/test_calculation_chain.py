@@ -268,3 +268,57 @@ def test_every_tea_request_field_is_accepted_by_the_platform_route():
     """The chain's TEA body must pass the platform route's no-extras rule (it caught plant_process_type)."""
     from app.api.v1.routes_tea import ComputeRequest
     ComputeRequest(**cc.tea_request(_cb(), fuel_id="E_METHANOL", pathway_id="p", stated=STATED_TEA))
+
+
+def test_a_test_accounts_review_is_test_and_unlocks_nothing():
+    ie = {"user_id": "test_ie", "company_id": "foxwell_test", "business_function": "ENGINEERING"}
+    assert cc.review_standing(reviewer=ie, run_by="eng", cost_basis_saved_by="eng", owner_tenant=OWNER,
+                              appointed_ie=True, test_account=True) == "TEST"
+    assert cc.review_standing(reviewer=ie, run_by="eng", cost_basis_saved_by="eng", owner_tenant=OWNER,
+                              appointed_ie=True) == "INDEPENDENT"
+    cb = _cb()
+    base = _base(cb, review_basis="TEST")
+    with pytest.raises(cc.ChainError) as e:
+        cc.promotion_record(draft={"status": "DRAFT", "limitations": [], "terms": TERMS, "project_id": "p",
+                                   "owner_tenant_id": OWNER, "case_id": "c1", "version_id": "d1"},
+                            base_case=base, previous={"version_number": 1, "version_id": "d1"}, saved_by="cfo")
+    assert e.value.code == "REVIEW_NOT_INDEPENDENT"
+    fin = cc.financing_record(project_id="p", owner_tenant=OWNER, base_case={**base, "review_basis": "INDEPENDENT"},
+                              terms=TERMS, previous=None, saved_by="cfo")
+    with pytest.raises(cc.ChainError) as e:
+        cc.returns_inputs(cost_basis=cb, base_case=base, financing=fin, stated={}, project_capex_eur=None,
+                          approved_gearing=None)
+    assert e.value.code == "REVIEW_NOT_INDEPENDENT"
+
+
+def _cb_with_categories():
+    lines = [{**l, "category": CAT[l["equipment_id"]].category} for l in LINES]
+    result = {**RESULT, "equipment_lines": lines}
+    return {**cc.cost_basis_record(project_id="p", owner_tenant=OWNER, configuration=CONFIG, result=result,
+                                   product=cc.product_output(CONFIG, CAT), catalogue_hash="c" * 64, previous=None,
+                                   saved_by="eng", saved_by_function="ENGINEERING"), "saved_at": "2026-11-19"}
+
+
+def test_osbl_priced_by_the_lines_sets_openpyteas_factor_to_zero_and_says_why():
+    cb = _cb_with_categories()                                  # SITE_PREP is INFRASTRUCTURE: OSBL
+    assert cc.osbl_kind(cb["result"]["equipment_lines"][2]) == "INFRASTRUCTURE"
+    assert cc.osbl_kind(cb["result"]["equipment_lines"][0]) is None          # the electrolyser is ISBL
+    q = cc.tea_request(cb, fuel_id="E_METHANOL", pathway_id="p:cb", stated=STATED_TEA)["quote_plant"]
+    assert q["osbl_factor"] == 0.0 and "SITE_PREP" in q["osbl_factor_basis"]
+
+
+def test_a_tea_that_added_the_osbl_factor_on_top_of_osbl_lines_fails():
+    cb = _cb_with_categories()
+    ti = _tea_inputs(cb)                                       # a run with no stated OSBL factor (as v2 was)
+    check = cc.osbl_check(cb, ti)
+    assert check["result"] == "FAIL" and "on top" in check["detail"]
+    ti["request"]["quote_plant"]["osbl_factor"] = 0.0
+    assert cc.osbl_check(cb, ti)["result"] == "REPORTED"
+
+
+def test_feed_units_are_isbl_and_without_osbl_lines_the_default_applies():
+    assert cc.osbl_kind({"equipment_id": "CO2_CAPTURE_50KT", "category": "UTILITIES"}) is None
+    assert cc.osbl_kind({"equipment_id": "WATER_TREATMENT_500M3", "category": "UTILITIES"}) == "UTILITIES"
+    cb = _cb()                                                 # no categories: no OSBL line recognised
+    assert cc.osbl_rule(cb) is None
+    assert "osbl_factor" not in cc.tea_request(cb, fuel_id="E_METHANOL", pathway_id="p", stated=STATED_TEA)["quote_plant"]

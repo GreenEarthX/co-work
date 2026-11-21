@@ -533,7 +533,39 @@ def _tea_payload(project_id: str, body: "ComputeRequest") -> dict:
         **({"country": body.country} if body.country else {}),
         **({"quote_plant": body.quote_plant} if body.quote_plant else {}),
         **({"plant_process_type": body.plant_process_type} if body.plant_process_type else {}),
+        **_cost_base(body),
     }
+
+
+def _cost_base(body: "ComputeRequest") -> dict:
+    """The run's cost base and the approved Gabillon forward rows it needs (JML, 20 Nov 2026):
+    the cost base year and any quote's price year with a cepci_forward_<year> catalogue key.
+    Only those, so approving an unrelated year never changes this run's cost_basis_hash. A
+    year with no approved row is simply not sent; the engine then refuses and names it."""
+    year = int(settings.TEA_COST_BASE_YEAR)
+    years = {year} | {e.get("cost_year") for e in ((body.quote_plant or {}).get("equipment") or [])}
+    return {"cost_base_year": year, **({"cepci_forward": f} if (f := approved_cepci_forward(years)) else {})}
+
+
+def approved_cepci_forward(years: set) -> dict:
+    """Approved cepci_forward_<year> reference rows for these years. The engine uses one only for
+    a year with no published CEPCI (a published value always wins)."""
+    from app.core import reference_registry as reg
+    from app.core.reference_catalog import PARAMETERS
+    wanted = sorted(y for y in years if y and f"cepci_forward_{y}" in PARAMETERS)
+    if not wanted or not reg.registry_available():
+        return {}
+    conn = reg._connection()
+    try:
+        out = {}
+        for y in wanted:
+            row = reg.in_force(conn, f"cepci_forward_{y}", "ANY", "ANY")
+            if row:
+                out[y] = {"value": float(row["value_base"]), "low": row.get("value_low"),
+                          "high": row.get("value_high"), "ref_id": row["ref_id"], "basis": row["source_name"]}
+        return out
+    finally:
+        conn.close()
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -551,6 +583,27 @@ async def compute_base_case(
     return await run_compute(project_id, request, body, db)
 
 
+async def _analysis(tea_payload: dict, auth: Optional[str], result: dict) -> dict:
+    """The run's results, recorded WITH the run so a report reprints them, never recomputes them
+    (20 Nov 2026): the line-by-line breakdown, the cost basis, the one-way tornado, the
+    Gabillon cost-index band and the product's Gabillon price (PF engine). A part the engine could not produce is recorded with its reason;
+    the run itself stands."""
+    out = {"breakdown": result.get("breakdown"), "cost_basis": result.get("cost_basis"),
+           "engine_version": result.get("engine_version"), "lcop": result.get("lcop")}
+    for key, path in (("sensitivity", "/sensitivity"), ("index_band", "/index-band")):
+        try:
+            out[key] = await _call_tea(path, tea_payload, auth)
+            if key == "sensitivity":
+                out[key].pop("run_evidence", None)
+        except HTTPException as e:
+            out[key] = {"error": str(e.detail)[:500]}
+    # The product's Gabillon price on the same levelised basis (PF engine), recorded with the run.
+    from app.core import tea_market_reference
+    out["market_reference"] = await tea_market_reference.fetch(
+        tea_payload.get("fuel_id"), out["breakdown"], out["lcop"])
+    return out
+
+
 async def run_compute(project_id: str, request: Request, body: ComputeRequest, db: Any,
                       link: Optional[dict] = None) -> dict[str, Any]:
     """The compute itself. `link` (calculation chain, 18 Nov): {cost_basis_version_id,
@@ -559,6 +612,7 @@ async def run_compute(project_id: str, request: Request, body: ComputeRequest, d
     fx_override = _fx_override_gate(request, body)      # increment 3: CFO authority + reason
     tea_payload = _tea_payload(project_id, body)        # increment 2: currency resolution
     result = await _call_tea("/compute", tea_payload, auth)
+    analysis = await _analysis(tea_payload, auth, result) if link else None
     ps = result["plant_summary"]
     # G1/G2 propagation: carry the TEA integrity verdict onto the base case so an
     # implausible/screening basis is visible here and gate-able at approval.
@@ -633,7 +687,7 @@ async def run_compute(project_id: str, request: Request, body: ComputeRequest, d
                                 "defaults_used": result.get("defaults_used") or [],
                                 "calculation_boundary": result.get("calculation_boundary"),
                                 "feedstock_balance": result.get("feedstock_balance") or [],
-                                "result_status": result_status}), claim_id))
+                                "result_status": result_status, "analysis": analysis}), claim_id))
     db.commit()
 
     # CANONICAL (system of record, write-time contract): the run as a derived
@@ -769,26 +823,48 @@ def set_project_currency(
     return {"project_id": project_id, "base_currency": ccy, "set_by": set_by, "set_at": now}
 
 
+class LegacyApproval(BaseModel):
+    """`approved_by` is accepted only if it IS the signed-in user (old clients send it)."""
+    model_config = {"extra": "forbid"}
+    outcome: str = "approve"
+    conditions: list[str] = []
+    approved_by: Optional[str] = None
+
+
+def _authority(request: Request, body: LegacyApproval, project_id: str, actor_types: tuple) -> tuple[str, str]:
+    """(approver, review basis) from the signed-in user and their appointment on THIS project
+    (core/reviewer_authority). Never from a header or the body (19 Nov 2026)."""
+    from app.core import reviewer_authority as ra
+    from app.core.request_tenant import payload_from_request
+    payload = payload_from_request(request) or {}
+    try:
+        uid = ra.signed_in(payload, body.approved_by)
+        return uid, ra.review_basis(payload=payload, project_id=project_id, actor_types=actor_types)
+    except ra.AuthorityError as e:
+        raise HTTPException(e.status, {"code": e.code, "message": e.message})
+
+
 @router.post("/base-case/{claim_id}/approve")
 def approve_base_case(
     claim_id: str,
-    body: ApprovalRequest,
-    x_demo_user: Optional[str] = Header(default=None),
+    body: LegacyApproval,
+    request: Request,
     db: Any = Depends(get_db),
 ) -> dict[str, Any]:
-    """IE/CFO approval_decision: folds submitted → verified (or rejected).
-
-    Approver identity comes from the session header (x-demo-user, same convention
-    as routes_approvals) — the request body is a fallback, not an assertion of
-    identity. The approver MUST NOT be tea_engine (no self-verification)."""
+    """An appointed independent engineer's approval_decision on a base case NOT priced from a saved
+    cost basis: folds submitted → verified (or rejected). A chain base case is reviewed on the
+    calculation chain (/api/v1/tea-review), where the owner's internal review is also possible."""
     row = db.execute("SELECT * FROM model_base_case WHERE claim_id=?", (claim_id,)).fetchone()
     if not row:
         raise HTTPException(404, "base case not found")
-    approver = x_demo_user or body.approved_by
-    if not approver:
-        raise HTTPException(401, "no approver identity (x-demo-user header or approved_by)")
-    body.approved_by = approver
-    return apply_approval(row, body, db)
+    if dict(row).get("cost_basis_version_id"):
+        raise HTTPException(409, {"code": "USE_CHAIN_REVIEW", "message": "This base case was priced from a saved "
+                                  "cost basis: review it on the calculation chain (POST /api/v1/tea-review)."})
+    uid, basis = _authority(request, body, row["project_id"], ("INDEPENDENT_ENGINEER",))
+    return apply_approval(row, ApprovalRequest(approved_by=uid, outcome=body.outcome, conditions=body.conditions,
+                                               approver_role="independent_engineer"), db,
+                          review={"review_basis": basis, "reviewed_by_company": None, "reviewed_at": _now(),
+                                  "review_conditions": body.conditions})
 
 
 def apply_approval(row: Any, body: ApprovalRequest, db: Any, review: Optional[dict] = None) -> dict[str, Any]:
@@ -974,20 +1050,18 @@ async def compute_lca_claims(
 
 @router.post("/claim/{claim_id}/approve")
 def approve_claim(
-    claim_id: str, body: ApprovalRequest,
-    x_demo_user: Optional[str] = Header(default=None),
+    claim_id: str, body: LegacyApproval, request: Request,
     db: Any = Depends(get_db),
 ) -> dict[str, Any]:
-    """Generic pathway-claim approval (IE / certifier). Folds submitted → verified;
-    blocks tea_engine self-approval and illegal transitions. Approver identity from
-    the session header (x-demo-user), body as fallback."""
+    """Pathway-claim approval by a certifier or independent engineer appointed on the claim's
+    project (19 Nov 2026: identity from the token only). Folds submitted → verified; blocks
+    illegal transitions. A test account's approval is recorded and labelled TEST."""
     row = db.execute("SELECT * FROM pathway_claims WHERE claim_id=?", (claim_id,)).fetchone()
     if not row:
         raise HTTPException(404, "claim not found")
-    approver = x_demo_user or body.approved_by
-    if not approver:
-        raise HTTPException(401, "no approver identity (x-demo-user header or approved_by)")
-    body.approved_by = approver
+    approver, basis = _authority(request, body, row["project_id"], ("CERTIFIER", "INDEPENDENT_ENGINEER"))
+    body = ApprovalRequest(approved_by=approver, outcome=body.outcome, conditions=body.conditions,
+                           approver_role="test_reviewer" if basis == "TEST" else "certifier_or_ie")
     if approver == "tea_engine":
         raise HTTPException(403, "tea_engine may not verify its own run")
     target = "verified" if body.outcome in ("approve", "approve_with_conditions") else "rejected"

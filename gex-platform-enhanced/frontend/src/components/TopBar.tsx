@@ -8,6 +8,7 @@ import {
   isVisibleInNav,
 } from "@/config/menuArchitecture";
 import { useUserRole } from "@/contexts/UserRoleContext";
+import { isPlatformAdmin } from "@/lib/authToken";
 import { TopBarDropdown } from "./TopBarDropdown";
 
 export function TopBar() {
@@ -19,6 +20,9 @@ export function TopBar() {
   // (governance domain: EXECUTIVE or GEX staff). The old CISOGate compared a
   // password held in this bundle (default "Enter-123") — no control at all.
   const cisoAuthed = sessionTier === "authenticated";
+  // GEX administrators (is_platform_admin on the token): three plain buttons to the staff
+  // screens. Navigation only; each staff route refuses anyone else (403 GEX_STAFF_ONLY).
+  const gexAdmin = cisoAuthed && isPlatformAdmin();
   const [logoError, setLogoError] = useState(false);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -223,6 +227,21 @@ export function TopBar() {
               )}
             </div>
           </button>
+
+          {gexAdmin && (
+            <div className="mr-2 flex items-center rounded-md border text-[11px] font-semibold"
+              data-testid="gex-admin-buttons"
+              style={{ borderColor: "rgba(255,255,255,0.22)", color: "#e5e7eb" }}>
+              <span className="px-2 py-1.5 font-mono text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.5)" }}>GEX</span>
+              {([["/gex-console", "Console", "GEX staff console"],
+                 ["/gex-console/gabillon", "Gabillon", "Gabillon parameters (PF engine) and CEPCI forward rows"],
+                 ["/gex-console/tea-parameters", "TEA parameters", "Cost correlations, equipment train and TEA reference values"]] as const)
+                .map(([to, text, title]) => (
+                  <button key={to} type="button" onClick={() => navigate(to)} title={title}
+                    className="border-l px-2 py-1.5 transition-colors hover:bg-white/10"
+                    style={{ borderColor: "rgba(255,255,255,0.22)" }}>{text}</button>))}
+            </div>
+          )}
 
           {/* CISO admin — always visible, amber when locked, indigo when authed */}
           <div className="relative mr-1">

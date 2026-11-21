@@ -51,15 +51,23 @@ def _staff(request: Request) -> str:
     return actor
 
 
-def _conn():
+def _conn(write: bool = False):
     if not reg.registry_available():
         raise HTTPException(status_code=503,
                             detail="the reference registry needs FUELREF_DB_BACKEND=postgres")
+    if write:
+        # The registry's write policies (061) admit only PLATFORM_ADMIN. Every write route has
+        # passed _staff() first, so this is GEX curating GEX-held reference data, the same
+        # bootstrap reason as entitlements; the use is logged by _tenant_context. Under the
+        # caller's own company (greenearthx) an approval's UPDATE matched 0 rows and its version
+        # insert was refused: from 19 Nov no on-screen approval was ever recorded (20 Nov).
+        from app.core.db_backend import PLATFORM_ADMIN, fuelref_connection
+        return fuelref_connection(company_id=PLATFORM_ADMIN)
     return reg._connection()
 
 
 def _run(fn, *args, write: bool = False):
-    conn = _conn()
+    conn = _conn(write)
     try:
         result = fn(conn, *args)
         if write:
@@ -98,6 +106,13 @@ def resolve(key: str, pathway: str = "ANY", region: str = "ANY",
         raise HTTPException(status_code=404,
                             detail=f"no approved {key} for {pathway}/{region}")
     return row
+
+
+@router.get("/parameters/proposed")
+def list_proposed(request: Request):
+    """GEX staff: what awaits approval, beside what it would supersede (the staff console)."""
+    _staff(request)
+    return _run(reg.list_proposed)
 
 
 @router.get("/parameters/{ref_id}")

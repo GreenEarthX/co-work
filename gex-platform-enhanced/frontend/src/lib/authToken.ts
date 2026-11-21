@@ -154,3 +154,21 @@ export function getAuthUserId(): string | null {
     return null
   }
 }
+
+/**
+ * Whether the signed-in account is a GEX platform administrator (the token's
+ * `is_platform_admin` claim). NAVIGATION ONLY: it decides which buttons the top bar
+ * shows. Every staff route checks the claim itself and refuses anyone else.
+ */
+export function isPlatformAdmin(): boolean {
+  const token = getAuthToken()
+  if (!token) return false
+  const parts = token.split('.')
+  if (parts.length !== 3) return false
+  try {
+    const claims = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return claims?.is_platform_admin === true
+  } catch {
+    return false
+  }
+}

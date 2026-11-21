@@ -71,6 +71,8 @@ import { CounterpartiesPage } from '@/features/trader/CounterpartiesPage'
 import { GanttVisibilityConfig } from '@/features/ciso/GanttVisibilityConfig'
 import { ScreenAccessPage } from '@/features/ciso/ScreenAccessPage'
 import { GexStaffConsolePage } from '@/features/gexConsole/GexStaffConsolePage'
+import { GabillonParametersPage } from '@/features/gexConsole/GabillonParametersPage'
+import { TeaParametersPage } from '@/features/gexConsole/TeaParametersPage'
 import { ChangePasswordPage } from '@/features/account/ChangePasswordPage'
 import { GapAnalysis } from '@/features/finance/GapAnalysis'
 import { GabillonAdminPage } from '@/features/pricing/GabillonAdminPage'
@@ -257,6 +259,8 @@ function App() {
               <Route path="ciso-gantt-config"    element={<GanttVisibilityConfig />} />
               <Route path="ciso-screen-access"   element={<ScreenAccessPage />} />
               <Route path="gex-console"          element={<GexStaffConsolePage />} />
+              <Route path="gex-console/gabillon" element={<GabillonParametersPage />} />
+              <Route path="gex-console/tea-parameters" element={<TeaParametersPage />} />
               <Route path="account/password"     element={<ChangePasswordPage />} />
 
               {/* ── Gabillon / Pricing (CISO Webmaster + project view) ── */}

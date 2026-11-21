@@ -11,7 +11,7 @@ openpytea 2.1.0 ships two data files that disagree with each other:
 One correlation declares a `cost_year` outside that range:
 
     key       h2_compressor_pandolfo_1987
-    category  Compressors & blowers
+    category  Compressors & blowers (3.2: "Compressors, fans, & blowers")
     type      H2 compressor
     cost_year 1987
 

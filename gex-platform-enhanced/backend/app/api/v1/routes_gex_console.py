@@ -222,3 +222,90 @@ def ledger_anchor_health(request: Request) -> dict[str, Any]:
                     "attempts": int(f["attempts"]), "last_error": f["last_error"], "created_at": _s(f["created_at"]),
                     "next_attempt_at": _s(f["next_attempt_at"])} for f in failed],
     }
+
+
+# ── Model parameters, read only (JML, 20 Nov 2026) ────────────────────────────
+# Two screens for GEX administrators: what the Gabillon model runs on, and what the TEA
+# engine runs on. Nothing is edited here. A reference value is approved on the console's
+# "Reference values awaiting approval" panel; a Gabillon calibration is the PF engine's.
+
+_REF_COLS = ("ref_id, parameter_key, pathway, region, value_low, value_base, value_high, unit, currency, "
+             "price_base_date, source_class, source_name, valid_from, state, proposed_by, proposed_at, "
+             "approved_by, approved_at, note")
+TEA_REFERENCE_KEYS = ("tea_fx_usd_to_eur", "tea_lcop_plausible_band", "tea_mc_default_rel_std",
+                      "tea_mc_max_rel_std", "co2_feedstock_price", "h2_density_normal_0c_101325pa",
+                      "electrolyser_installed_capex", "electrolyser_system_sec", "stack_life_hours",
+                      "stack_replacement_pct_capex")
+
+
+def _plain(v: Any) -> Any:
+    """Numbers stay numbers; anything else that is not JSON becomes text."""
+    if v is None or isinstance(v, (int, float, str, bool)):
+        return v
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _reference(where: str, params: dict) -> list[dict]:
+    return [{k: _plain(v) for k, v in r.items()} for r in _rows(
+        f"SELECT {_REF_COLS} FROM reference_parameter WHERE {where} "
+        "ORDER BY parameter_key, valid_from DESC NULLS LAST, proposed_at DESC", params)]
+
+
+@router.get("/gabillon")
+async def gabillon_parameters(request: Request) -> dict[str, Any]:
+    """The Gabillon parameters per molecule (PF engine) and the Gabillon CEPCI forward rows."""
+    _require_staff(request)
+    from app.api.v1.routes_pricing_proxy import _call_pricing
+    molecules: list[dict] = []
+    engine_error = None
+    try:
+        cat = (await _call_pricing("/molecules")).get("catalog", [])
+        for c in cat + [{"key": "H2", "label": "Hydrogen", "unit": "€/t (≡ €/kg × 1000)"}]:
+            p = await _call_pricing(f"/params/{c['key']}")
+            molecules.append({"key": c["key"], "label": c.get("label"), "unit": c.get("unit"),
+                              "calibration_status": p.get("calibration_status"), "params": p.get("params")})
+    except HTTPException as e:
+        engine_error = str(e.detail)[:300]
+    return {"molecules": molecules, "engine_error": engine_error,
+            "cepci_forward": _reference("parameter_key LIKE 'cepci_forward_%'", {}),
+            "notes": [
+                "SEED = expert priors with no market observations (n_observations 0); MARKET = fitted to "
+                "observations on the PF engine's calibration screen.",
+                "The CEPCI forward rows are the Gabillon P-forward calibrated on the CEPCI history; a TEA run "
+                "uses only an APPROVED row, and a published CEPCI value always wins.",
+                "Electricity has no Gabillon curve: power is not storable.",
+            ]}
+
+
+@router.get("/tea-parameters")
+async def tea_parameters(request: Request) -> dict[str, Any]:
+    """What the TEA engine prices with: the pinned correlation set, GEX's equipment train under
+    four eyes, and the TEA reference values."""
+    _require_staff(request)
+    import httpx
+    from app.api.v1.routes_tea import TEA_ENGINE_URL
+    engine, engine_error = None, None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(f"{TEA_ENGINE_URL}/tea/correlations",
+                                 headers={"Authorization": request.headers.get("Authorization", "")})
+        if r.status_code == 200:
+            engine = r.json()
+        else:
+            engine_error = f"TEA engine answered {r.status_code}"
+    except httpx.HTTPError as e:
+        engine_error = f"TEA engine unavailable: {type(e).__name__}"
+    spec = [{k: _plain(v) for k, v in r.items()} for r in _rows(
+        "SELECT spec_id, fuel_id, role, node, category, equipment_type, material, base_param, base_param_unit, "
+        "scale_exp, reference_nameplate_t_per_year, state, proposed_by, proposed_at, approved_by, approved_at, note "
+        "FROM tea_equipment_spec ORDER BY fuel_id, state, role")]
+    pinned = [{k: _plain(v) for k, v in r.items()} for r in _rows(
+        "SELECT set_hash, openpytea_version, correlations, cepci_year_min, cepci_year_max, "
+        "gex_supplied_cepci_years, state, first_seen_at, first_seen_project, reviewed_by, reviewed_at, note "
+        "FROM tea_correlation_set ORDER BY first_seen_at")]
+    return {"engine": engine, "engine_error": engine_error, "equipment_spec": spec,
+            "correlation_sets_seen": pinned,
+            "reference": _reference("parameter_key = ANY(:k)", {"k": list(TEA_REFERENCE_KEYS)})}

@@ -76,7 +76,8 @@ class StreamInput(BaseModel):
 FIXED_OPEX_COMPONENT_KEYS = (
     "supervision_costs", "direct_salary_overhead", "laboratory_charges", "maintenance_costs",
     "taxes_insurance_costs", "rent_of_land_costs", "environmental_charges", "operating_supplies",
-    "general_plant_overhead", "patents_royalties", "distribution_selling_costs", "RnD_costs")
+    "general_plant_overhead", "interest_working_capital", "patents_royalties", "distribution_selling_costs",
+    "RnD_costs")
 
 
 class QuotePlant(BaseModel):
@@ -86,12 +87,26 @@ class QuotePlant(BaseModel):
     loc_factor:           float = Field(gt=0)
     loc_factor_basis:     str = Field(min_length=1)
     contingency:          float = Field(ge=0, le=1)     # fraction of ISBL+OSBL
+    # OSBL as a fraction of ISBL. Stated (with its basis) when the lines already price the
+    # outside-battery-limits works, so OpenPyTEA's default (0.3 for Fluids) is not added on
+    # top of them (JML, 19 Nov 2026). None: the default applies and is listed.
+    osbl_factor:          Optional[float] = Field(default=None, ge=0, le=2)
+    osbl_factor_basis:    Optional[str] = None
     operators_hired:      float = Field(gt=0)
     operator_hourly_rate: float = Field(gt=0)           # base currency per hour
     fixed_opex_components: dict[str, float] = Field(default_factory=dict)  # annual, base currency
     # Mass feedstocks made or captured on site, t per year at the stated run time, each
     # with its basis. Checked against the molecule's stoichiometry (feedstock_balance).
     on_site_supply:       dict[str, "OnSiteSupply"] = Field(default_factory=dict)
+
+
+class CepciForward(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value:  float = Field(gt=0)            # E_P[CEPCI] for the year
+    low:    Optional[float] = Field(default=None, gt=0)    # 5% band
+    high:   Optional[float] = Field(default=None, gt=0)    # 95% band
+    ref_id: str = Field(min_length=1)      # the approved reference row it comes from
+    basis:  str = Field(min_length=1)
 
 
 class OnSiteSupply(BaseModel):
@@ -143,6 +158,12 @@ class TEAComputeRequest(BaseModel):
     # Absent -> the code registry in process_functions.py, reported as `canonical`.
     governed_train:         Optional[list] = None   # [{role,node,category,equipment_type,material,base_param,scale_exp}]
     governed_train_version: Optional[str]  = None   # content hash of the approved set
+    # The cost base of this run (JML, 20 Nov 2026): every cost is escalated to this year. A year
+    # after the last published CEPCI needs its approved Gabillon forward in `cepci_forward`, as
+    # does any quote dated such a year; a published value always wins over a forward. The bridge
+    # sends both; absent -> the engine default (escalation.target_year()), declared.
+    cost_base_year:        Optional[int] = Field(default=None, ge=2000, le=2100)
+    cepci_forward:         dict[int, CepciForward] = Field(default_factory=dict)
     # passthrough for the real OpenPyTEA Plant constructor
     country:               str = "Netherlands"      # drives OpenPyTEA location factors
     plant_process_type:    str = "Fluids"
@@ -203,6 +224,10 @@ class TEAResult(BaseModel):
     # Quote mode: each mass feedstock of the molecule, required vs supplied on site vs
     # bought (a stated variable_opex stream). A shortfall is reported, never filled.
     feedstock_balance:    list[dict] = Field(default_factory=list)
+    # What the run priced, read from the calculated plant (20 Nov 2026): capital build-up,
+    # equipment lines, each operating cost, the cost per kg by component (it adds back to
+    # the LCOP) and the cost by year. None on the stub.
+    breakdown:            Optional[dict] = None
     note:             str = ("Provisional cost basis. Promote to model_base_case "
                              "only via IE/CFO approval_decision; no release-gated "
                              "compute until then.")
@@ -212,6 +237,14 @@ class SensitivityVar(BaseModel):
     parameter: str
     low_lcop:  float
     high_lcop: float
+    # The range moved and why that range (20 Nov 2026): a rate moves in points, a price
+    # by a fraction, and each says whether its range is sourced or a screening convention.
+    label:       Optional[str] = None
+    unit:        Optional[str] = None
+    base_input:  Optional[float] = None
+    low_input:   Optional[float] = None
+    high_input:  Optional[float] = None
+    range_basis: Optional[str] = None
 
 
 class TEASensitivityResult(BaseModel):

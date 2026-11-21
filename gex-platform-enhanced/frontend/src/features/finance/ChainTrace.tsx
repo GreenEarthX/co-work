@@ -33,7 +33,8 @@ const tone: Record<string, string> = {
 
 export function reviewLabel(basis?: string) {
   return basis === 'INDEPENDENT' ? 'Independent review' : basis === 'OWNER_INTERNAL'
-    ? "Owner's internal review — not independent" : 'not reviewed on the chain'
+    ? "Owner's internal review — not independent" : basis === 'TEST'
+      ? 'TEST review by a test account — not a review' : 'not reviewed on the chain'
 }
 
 function fmtVal(v: unknown) {

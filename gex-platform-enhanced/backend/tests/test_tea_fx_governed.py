@@ -253,10 +253,10 @@ def test_the_correlation_set_fingerprint_is_deterministic_and_describes_the_data
     from tea_engine.correlation_set import fingerprint, set_hash
     f = fingerprint()
     assert f["hash"].startswith("sha256:")
-    assert f["correlations"] == 417, (
-        "417 published correlations; a line count gives 420 because the notes column "
+    assert f["correlations"] == 430, (
+        "430 published correlations in 3.2.3 (417 in 3.1.0); a line count overstates it because the notes column "
         "contains embedded newlines")
-    assert f["openpytea_version"] == "3.0.0"
+    assert f["openpytea_version"] == "3.2.3"
     # the EFFECTIVE series, not the shipped file: cepci_extension injects 1987
     assert f["gex_supplied_cepci_years"] == [1987]
     assert f["cepci_year_range"][0] == 1987, "the fingerprint must cover GEX's additions"
@@ -280,8 +280,8 @@ def test_the_cost_basis_hash_covers_the_correlation_set():
 def test_the_artefact_names_the_data_that_priced_it():
     cs = run_tea(_req()).cost_basis["correlation_set"]
     assert cs["hash"].startswith("sha256:")
-    assert cs["correlations"] == 417
-    assert cs["openpytea_version"] == "3.0.0"
+    assert cs["correlations"] == 430
+    assert cs["openpytea_version"] == "3.2.3"
     assert cs["gex_supplied_cepci_years"] == [1987]
 
 

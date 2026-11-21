@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 
+from tea_engine.correlation_set import current_category
 from tea_engine.models import (
     EvidenceEntryProposal,
     LcopStats,
@@ -95,7 +96,7 @@ def cost_basis_hash(req: TEAComputeRequest) -> str:
     _esc = None
     if not _stub_allowed():
         from tea_engine import escalation as _e
-        _esc = {"provider": _e.active_provider().name, "target_year": _e.target_year()}
+        _esc = {"provider": _e.active_provider().name, "target_year": _e.request_target_year(req)}
     blob = json.dumps({"request": req.model_dump(),
                        "engine": engine_name(),
                        "engine_version": _engine_version(),
@@ -112,6 +113,21 @@ def _ensure_runnable() -> None:
             "Install openpytea in this service image, or set TEA_STUB=1 for "
             "deterministic stub output."
         )
+
+
+def _current_units(units):
+    return [u if current_category(u.category) == u.category
+            else u.model_copy(update={"category": current_category(u.category)}) for u in units]
+
+
+def category_renames(req: TEAComputeRequest) -> list[dict]:
+    """The old OpenPyTEA category names this request used, each as a listed default."""
+    named = [(u.id, u.category) for u in (req.process_units or [])]
+    named += [(str(e.get("role")), str(e.get("category"))) for e in (req.governed_train or [])]
+    return [{"name": f"category.{who}", "value": current_category(cat),
+             "basis": f"RENAMED: OpenPyTEA 3.2 calls {cat!r} {current_category(cat)!r}; "
+                      "same correlations, same coefficients"}
+            for who, cat in named if current_category(cat) != cat]
 
 
 def resolve_process_function(req: TEAComputeRequest):
@@ -132,7 +148,7 @@ def resolve_process_function(req: TEAComputeRequest):
         var_opex = req.variable_opex_inputs or {
             "electricity": {"consumption": 1.0, "price": a.electricity_eur_mwh}
         }
-        return list(req.process_units), var_opex, None
+        return _current_units(req.process_units), var_opex, None
 
     nameplate_t_yr = _nameplate_t_per_year(req)
     # A governed train (migration 075) replaces the code registry's equipment. It
@@ -144,7 +160,7 @@ def resolve_process_function(req: TEAComputeRequest):
         governed = [
             pfx.EquipmentSpec(
                 role=str(e["role"]), node=str(e.get("node") or "synthesis"),
-                category=str(e["category"]), type=str(e["equipment_type"]),
+                category=current_category(str(e["category"])), type=str(e["equipment_type"]),
                 material=str(e["material"]), base_param=float(e["base_param"]),
                 scale_exp=float(e.get("scale_exp") or pfx.DEFAULT_SCALE_EXP),
             )
@@ -264,8 +280,9 @@ def _build_plant(req: TEAComputeRequest, units, var_opex, extra_config: dict | N
     # answer, and it refuses a year the escalation series does not cover rather than
     # letting OpenPyTEA raise from inside inflation_adjustment without naming the year.
     from tea_engine import escalation
-    escalation.apply()                     # a provider may supply years CEPCI lacks
-    _target_year = escalation.target_year()
+    # Inside escalation.request_scope (run_tea / run_monte_carlo): the series already holds
+    # this request's approved forward years, and the target is the request's cost base.
+    _target_year = escalation.request_target_year(req)
 
     equipment = [
         Equipment(
@@ -321,20 +338,104 @@ def _config_record(req: TEAComputeRequest, units, var_opex) -> dict:
                           for i, u in enumerate(units)]}
 
 
-def _quote_numbers(req: TEAComputeRequest) -> tuple[float, float, float, str, dict]:
-    """Quote mode on the real OpenPyTEA: (capex, opex/yr, lcop, currency, config record)."""
+def _quote_plant(req: TEAComputeRequest):
+    """Quote mode on the real OpenPyTEA: (the calculated plant, config record)."""
     from openpytea.plant import Plant
     from tea_engine import escalation
     from tea_engine.compute.quote_plant import quote_config
-    escalation.apply()
-    config, equipment = quote_config(req, escalation.target_year())
+    config, equipment = quote_config(req, escalation.request_target_year(req))
     plant = Plant({**config, "equipment": equipment})
     plant.calculate_all()
+    return plant, config
+
+
+def _headline(plant) -> tuple[float, float, float]:
     d = plant.to_dict()
     capex = float(d["capital_costs"]["fixed_capital"])
     opex = float(d["variable_opex"]["total"]) + float(d["fixed_opex"]["total"])
     lcop = float(d["metrics"]["levelized_cost"])
-    return round(capex, 2), round(opex, 2), round(lcop, 4), config["currency"], config
+    return round(capex, 2), round(opex, 2), round(lcop, 4)
+
+
+def _quote_numbers(req: TEAComputeRequest) -> tuple[float, float, float, str, dict]:
+    """Quote mode on the real OpenPyTEA: (capex, opex/yr, lcop, currency, config record)."""
+    plant, config = _quote_plant(req)
+    return (*_headline(plant), config["currency"], config)
+
+
+def breakdown(plant, req: TEAComputeRequest) -> dict:
+    """What a calculated OpenPyTEA plant priced, line by line (20 Nov 2026).
+
+    Read from the plant OpenPyTEA calculated, never recomputed by a second formula, except
+    the cost per kg: OpenPyTEA's LCOP is (discounted capital + discounted cash cost -
+    discounted by-product revenue) / discounted production, each year t discounted by
+    (1 + r)^t. Variable cost runs with production (ramp), fixed cost from the first
+    production year at its full value, so the cash cost splits exactly; the parts are
+    returned with `check` = LCOP minus their sum, which must be ~0.
+    """
+    import numpy as np
+    d = plant.to_dict()
+    cap = d["capital_costs"]
+    r = float(plant.interest_rate)
+    capital = np.asarray(plant.capital_cost_array, dtype=float)[0]
+    prod = np.asarray(plant.prod_array, dtype=float)[0]
+    cash = np.asarray(plant.cash_cost_array, dtype=float)[0]
+    side = np.asarray(plant.side_revenue_array, dtype=float)[0]
+    n = len(prod)
+    disc = (1.0 + r) ** np.arange(1, n + 1)
+    dp = float(np.sum(prod / disc))
+    full = float(prod.max()) if n else 0.0
+    var_streams = {k: float(v) for k, v in (d["variable_opex"].get("breakdown") or {}).items()}
+    var_total = float(d["variable_opex"]["total"])
+    fixed = {k: float(v) for k, v in d["fixed_opex"].items() if k != "total" and v is not None}
+    fixed_total = float(d["fixed_opex"]["total"])
+    ramp = prod / full if full else prod * 0
+    disc_var = float(np.sum(var_total * ramp / disc))
+    disc_cash = float(np.sum(cash / disc))
+    disc_fixed = disc_cash - disc_var
+    per_kg_capital = float(np.sum(capital / disc)) / dp if dp else None
+    per_kg_var = disc_var / dp if dp else None
+    per_kg_fixed = disc_fixed / dp if dp else None
+    per_kg_side = float(np.sum(side / disc)) / dp if dp else None
+    lcop = float(d["metrics"]["levelized_cost"])
+    per_kg = None
+    if dp:
+        per_kg = {
+            "capital": per_kg_capital,
+            "variable": {k: (v / var_total * per_kg_var if var_total else 0.0) for k, v in var_streams.items()},
+            "fixed": {k: (v / fixed_total * per_kg_fixed if fixed_total else 0.0) for k, v in fixed.items()},
+            "by_product_credit": -per_kg_side,
+            "levelized_cost": lcop,
+            "check": lcop - (per_kg_capital + per_kg_var + per_kg_fixed - per_kg_side),
+        }
+    equipment = [{"name": e.name, "category": e.category, "cost_year": e.cost_year,
+                  "target_year": e.target_year, "num_units": getattr(e, "num_units", 1),
+                  "purchased_cost": float(e.purchased_cost), "direct_cost": float(e.direct_cost)}
+                 for e in plant.equipment_list]
+    years = [{"year": i, "discount_factor": float(1.0 / disc[i]), "production_kg": float(prod[i]),
+              "capital": float(capital[i]), "fixed_opex": float(cash[i] - var_total * ramp[i]),
+              "variable_opex": float(var_total * ramp[i]), "by_product_revenue": float(side[i]),
+              "cost": float(capital[i] + cash[i] - side[i])} for i in range(n)]
+    return {
+        "currency": plant.currency,
+        "unit": f"{plant.currency}/kg",
+        "discount_rate": r,
+        "plant_utilization": float(plant.plant_utilization),
+        "project_lifetime": int(plant.project_lifetime),
+        "exchange_rate": float(plant.exchange_rate),
+        "location_factor": (float(plant.loc_factor) if getattr(plant, "loc_factor", None) is not None else None),
+        "production_kg_per_year_full": full,
+        "capital_costs": {k: (float(cap[k]) if cap.get(k) is not None else None)
+                          for k in ("isbl", "osbl", "design_and_engineering", "contingency",
+                                    "fixed_capital", "working_capital")},
+        "equipment": equipment,
+        "variable_opex": {"streams": var_streams, "total": var_total},
+        "fixed_opex": {"components": fixed, "total": fixed_total},
+        "per_kg": per_kg,
+        "years": years,
+        "note": ("Pre-tax, unfinanced: the discount rate is the only cost of money, there is no debt and "
+                 "no tax. NPV, IRR and payback are not computed here: returns come from the financing case."),
+    }
 
 
 def _quote_stub(req: TEAComputeRequest) -> tuple[float, float, float, dict]:
@@ -348,22 +449,36 @@ def _quote_stub(req: TEAComputeRequest) -> tuple[float, float, float, dict]:
     return round(capex, 2), round(opex, 2), round(lcop, 4), {"stub": True}
 
 
-def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float, str]:
-    """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop, currency)."""
+def _real_plant(req: TEAComputeRequest, units, var_opex):
     plant, base_ccy = _build_plant(req, units, var_opex)
     plant.calculate_all()
-    d = plant.to_dict()
-
-    capex = float(d["capital_costs"]["fixed_capital"])
-    opex = float(d["variable_opex"]["total"]) + float(d["fixed_opex"]["total"])
-    lcop = float(d["metrics"]["levelized_cost"])
-    return round(capex, 2), round(opex, 2), round(lcop, 4), base_ccy
+    return plant, base_ccy
 
 
-def _escalation_target_year() -> int:
+def _real_numbers(req: TEAComputeRequest, units, var_opex) -> tuple[float, float, float, str]:
+    """Run the real OpenPyTEA plant TEA and extract (capex, opex/yr, lcop, currency)."""
+    plant, base_ccy = _real_plant(req, units, var_opex)
+    return (*_headline(plant), base_ccy)
+
+
+def _escalation_target_year(req: TEAComputeRequest) -> int:
     """The cost base, from the same source the Equipment construction uses."""
     from tea_engine import escalation
-    return escalation.target_year()
+    return escalation.request_target_year(req)
+
+
+def _forwards(req) -> dict:
+    from tea_engine import escalation
+    return escalation.forwards_used(req)
+
+
+def _scope(req):
+    """The run's CEPCI series (published + this request's approved forwards). None on the stub."""
+    from contextlib import nullcontext
+    if not (_HAS_OPENPYTEA and not _stub_allowed()):
+        return nullcontext()
+    from tea_engine import escalation
+    return escalation.request_scope(req)
 
 
 def _correlation_set_block() -> dict:
@@ -375,6 +490,11 @@ def _correlation_set_block() -> dict:
 
 
 def run_tea(req: TEAComputeRequest) -> TEAResult:
+    with _scope(req):
+        return _run_tea(req)
+
+
+def _run_tea(req: TEAComputeRequest) -> TEAResult:
     from tea_engine import integrity
     _ensure_runnable()
     cbh = cost_basis_hash(req)
@@ -382,11 +502,19 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
     integrity.usd_to_base_rate((req.base_currency or "EUR").upper(), req.fx_usd_to_eur,
                                req.fx_benchmark_usd_to_eur)   # G5: fx band (→ 422)
     from tea_engine.compute.quote_plant import defaults_used as _defaults_used
+    if req.quote_plant is None and "contingency_pct" in req.assumptions.model_fields_set:
+        # JML, 19 Nov 2026: canonical mode does not apply a stated contingency (OpenPyTEA's
+        # own factor prices its generic train), so it refuses one rather than ignore it.
+        raise ValueError("Canonical mode does not apply a stated contingency: price the plant's own lines "
+                         "in quote mode (quote_plant.contingency), or leave contingency_pct unstated so "
+                         "OpenPyTEA's default applies and is listed.")
+    plant = None
     if req.quote_plant is not None:
         units, var_opex, pf_meta = [], {}, None
         if _HAS_OPENPYTEA and not _stub_allowed():
-            capex, opex, lcop, currency, config_record = _quote_numbers(req)
-            is_stub = False
+            plant, config_record = _quote_plant(req)
+            capex, opex, lcop = _headline(plant)
+            currency, is_stub = config_record["currency"], False
         else:
             capex, opex, lcop, config_record = _quote_stub(req)
             currency, is_stub = (req.base_currency or "EUR").upper(), True
@@ -394,23 +522,25 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
         units, var_opex, pf_meta = resolve_process_function(req)
         config_record = _config_record(req, units, var_opex)
         if _HAS_OPENPYTEA and not _stub_allowed():
-            capex, opex, lcop, currency = _real_numbers(req, units, var_opex)
+            plant, currency = _real_plant(req, units, var_opex)
+            capex, opex, lcop = _headline(plant)
             is_stub = False
         else:
             capex, opex, lcop = _stub_numbers(req, units)
             currency, is_stub = (req.base_currency or "EUR").upper(), True
-    defaults = [] if is_stub else _defaults_used(config_record)
+    defaults = [] if is_stub else _defaults_used(config_record) + category_renames(req)
     feed_balance = []
     if req.quote_plant is not None:
         from tea_engine.compute.quote_plant import feedstock_balance, quote_year_defaults
         feed_balance = feedstock_balance(req)
         if not is_stub:
-            defaults += quote_year_defaults(req, _escalation_target_year())
-    if req.quote_plant is None and not is_stub:
-        # Canonical mode does NOT pass the stated contingency to OpenPyTEA (its own
-        # default applies). Said, not hidden, until JML decides whether it should.
-        defaults.append({"name": "assumptions.contingency_pct", "value": req.assumptions.contingency_pct,
-                         "basis": "STATED BUT NOT APPLIED: canonical mode uses OpenPyTEA's contingency factor"})
+            defaults += quote_year_defaults(req, _escalation_target_year(req))
+    if not is_stub:
+        from tea_engine.compute.quote_plant import forward_defaults
+        defaults += forward_defaults(req, _escalation_target_year(req))
+    if req.quote_plant is not None and req.quote_plant.osbl_factor is not None and not is_stub:
+        defaults.append({"name": "quote.osbl_factor", "value": req.quote_plant.osbl_factor,
+                         "basis": f"STATED: {req.quote_plant.osbl_factor_basis}"})
 
     # Co-product revenue credit — the plant sells diesel/naphtha/etc. alongside the
     # primary product. Credit it against OPEX so the TEA treats co-products the same
@@ -439,6 +569,10 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
         governed_lcop_band_unit=req.lcop_band_unit)
     plausibility = plausibility + integrity.scaling_flags(pf_meta)   # G4: extreme scale extrapolation
     input_provenance = integrity.classify_inputs(req.assumptions)
+    if req.quote_plant is None:
+        # Canonical mode applies OpenPyTEA's own contingency factor (listed in defaults_used)
+        # and refuses a stated one, so contingency_pct is not an input of the run.
+        input_provenance.pop("contingency_pct", None)
     # The input-side sibling of plausibility_flags. Kept off `plausibility` so it does
     # not reclassify every basis as IMPLAUSIBLE (see TEAResult.mass_balance).
     mass_balance = None
@@ -455,9 +589,10 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
     fx = None if is_stub else integrity.fx_meta(
         currency, req.fx_usd_to_eur, req.fx_benchmark_usd_to_eur, req.fx_benchmark_ref_id)
     cost_basis = integrity.cost_basis_block(
-        currency, None if is_stub else _escalation_target_year(), is_stub, fx,
+        currency, None if is_stub else _escalation_target_year(req), is_stub, fx,
         engine=engine_name(), engine_version=_engine_version(),
-        correlation_set=(None if is_stub else _correlation_set_block()))
+        correlation_set=(None if is_stub else _correlation_set_block()),
+        cepci_forward=(None if is_stub else _forwards(req)))
     # G6: what the cost covers — canonical battery limits vs an unverified caller train.
     import tea_engine.process_functions as _pfx
     calc_boundary = integrity.calculation_boundary(
@@ -508,69 +643,146 @@ def run_tea(req: TEAComputeRequest) -> TEAResult:
         openpytea_config=None if is_stub else config_record,
         defaults_used=defaults,
         feedstock_balance=feed_balance,
+        # Not with a co-product credit: the plant's LCOP is then not the reported one.
+        breakdown=(breakdown(plant, req) if plant is not None and not coproduct_credit else None),
     )
+
+
+CONVENTION = "CONVENTION (GEX screening range, not a sourced range)"
+
+
+def _lever(name, label, unit, base, lo, hi, basis, setter):
+    return {"parameter": name, "label": label, "unit": unit, "base": base, "low": lo, "high": hi,
+            "basis": basis, "set": setter}
+
+
+def _levers(req: TEAComputeRequest) -> list[dict]:
+    """The one-way levers of a run, each with the range it moves and why that range.
+
+    A rate moves in points, not by a percentage of itself (8% +/- 20% would be 6.4-9.6%,
+    which reads as noise). Prices and quotes move by a fraction. No range here is sourced:
+    each says CONVENTION until a governed range exists. Fixed costs that OpenPyTEA sets as
+    a percentage of capital move WITH the capital lever, never as a lever of their own:
+    moving them separately would count the same uncertainty twice.
+    """
+    a = req.assumptions
+    out = []
+    dr = a.discount_rate_pct
+
+    def _dr(r, v):
+        r.assumptions.discount_rate_pct = v
+    out.append(_lever("discount_rate", "Discount rate (no debt in this model)", "%", dr,
+                      max(dr - 2.0, 0.0), dr + 2.0, f"{CONVENTION}: +/- 2 percentage points", _dr))
+    cf = a.capacity_factor
+
+    def _cf(r, v):
+        r.assumptions.capacity_factor = v
+    out.append(_lever("utilization", "Utilisation (share of the year at nameplate)", "fraction", cf,
+                      round(max(cf - 0.10, 0.05), 4), round(min(cf + 0.10, 1.0), 4),
+                      f"{CONVENTION}: +/- 10 points, capped at 1", _cf))
+    q = req.quote_plant
+    if q is not None:
+        total = sum(e.installed_cost for e in q.equipment)
+
+        def _capex(r, v):
+            f = v / total
+            for e, orig in zip(r.quote_plant.equipment, q.equipment):
+                e.installed_cost = orig.installed_cost * f
+        out.append(_lever("installed_cost", "Installed cost of the quoted lines (all together)",
+                          req.base_currency or "EUR", total, total * 0.8, total * 1.2,
+                          f"{CONVENTION}: +/- 20%; fixed costs set as % of capital move with it", _capex))
+        for stream, s_in in q.variable_opex.items():
+            def _price(r, v, stream=stream):
+                r.quote_plant.variable_opex[stream].price = v
+            out.append(_lever(f"price:{stream}", f"Price of {stream}",
+                              f"{req.base_currency or 'EUR'} per {s_in.unit.split('/')[0]}", s_in.price,
+                              s_in.price * 0.8, s_in.price * 1.2,
+                              f"{CONVENTION}: +/- 20%; stated price source: {s_in.source}", _price))
+        return out
+    if req.process_units:
+        for stream, cfg in (req.variable_opex_inputs or {}).items():
+            if isinstance(cfg, dict) and "price" in cfg:
+                def _sp(r, v, stream=stream):
+                    r.variable_opex_inputs[stream]["price"] = v
+                out.append(_lever(f"price:{stream}", f"Price of {stream}", None, cfg["price"],
+                                  cfg["price"] * 0.8, cfg["price"] * 1.2, f"{CONVENTION}: +/- 20%", _sp))
+    else:
+        import tea_engine.process_functions as pfx
+        pf = pfx.get(req.fuel_id)
+        for field in sorted({fs.price_field for fs in pf.feedstocks} if pf else set()):
+            v0 = getattr(a, field)
+
+            def _ap(r, v, field=field):
+                setattr(r.assumptions, field, v)
+            out.append(_lever(f"price:{field}", field, None, v0, v0 * 0.8, v0 * 1.2, f"{CONVENTION}: +/- 20%", _ap))
+    return out
 
 
 def run_sensitivity(req: TEAComputeRequest) -> TEASensitivityResult:
+    """One-way tornado: each lever moved alone to its low and high value, every point a real
+    run of the same plant. Sorted by swing, widest first."""
     _ensure_runnable()
-    base = run_tea(req)
-    base_lcop = base.lcop
+    with _scope(req):
+        base = run_tea(req)
+        tornado = []
+        for lv in _levers(req):
+            lo, hi = req.model_copy(deep=True), req.model_copy(deep=True)
+            lv["set"](lo, lv["low"])
+            lv["set"](hi, lv["high"])
+            tornado.append(SensitivityVar(
+                parameter=lv["parameter"], low_lcop=run_tea(lo).lcop, high_lcop=run_tea(hi).lcop,
+                label=lv["label"], unit=lv["unit"], base_input=lv["base"], low_input=lv["low"],
+                high_input=lv["high"], range_basis=lv["basis"]))
+    tornado.sort(key=lambda t: -abs(t.high_lcop - t.low_lcop))
+    return TEASensitivityResult(engine=engine_name(), cost_basis_hash=base.cost_basis_hash,
+                                base_lcop=base.lcop, tornado=tornado, run_evidence=base.run_evidence)
 
-    # One-way ±20% sweep. Each point re-runs run_tea, so this is real OpenPyTEA
-    # economics when the engine is installed (no reliance on openpytea.analysis
-    # plotting fns, which render matplotlib — unfit for a headless service).
-    # We perturb levers that ACTUALLY bind the real Plant: plant_utilization
-    # (capacity_factor) and each variable_opex_inputs stream price. Perturbing
-    # assumptions.electricity_eur_mwh would be a no-op in real mode (the real
-    # electricity cost lives in variable_opex_inputs). Monte-Carlo can be added
-    # later via openpytea.analysis.monte_carlo.
-    def _capacity(r, f):
-        r.assumptions.capacity_factor = min(r.assumptions.capacity_factor * f, 1.0)
 
-    def _stream_price(stream):
-        def setter(r, f):
-            r.variable_opex_inputs[stream]["price"] = req.variable_opex_inputs[stream]["price"] * f
-        return setter
+INDEX_BAND_NOT_COVERED = [
+    "Electricity and other prices: Gabillon does not apply to power, which cannot be stored; a band for it "
+    "needs a third-party forward curve for the bidding zone.",
+    "The accuracy of the quotes themselves (a quote is a price, not an index).",
+    "Utilisation and the discount rate: see the sensitivity.",
+]
 
-    def _assumption_price(field):
-        def setter(r, f):
-            setattr(r.assumptions, field, getattr(req.assumptions, field) * f)
-        return setter
 
-    levers: list[tuple[str, Any]] = [("capacity_factor", _capacity)]
-    if req.process_units:
-        # caller-supplied train → perturb the supplied stream prices
-        for stream, cfg in (req.variable_opex_inputs or {}).items():
-            if isinstance(cfg, dict) and "price" in cfg:
-                levers.append((f"price:{stream}", _stream_price(stream)))
-    else:
-        # registry-derived train → feedstock prices live in the assumptions; perturb
-        # only the fields the molecule's process function actually consumes.
-        import tea_engine.process_functions as pfx
-        pf = pfx.get(req.fuel_id)
-        fields = {fs.price_field for fs in pf.feedstocks} if pf else set()
-        for field in sorted(fields):
-            levers.append((f"price:{field}", _assumption_price(field)))
-    if len(levers) == 1:  # stub path / nothing else to perturb
-        levers.append(("electricity_eur_mwh", _assumption_price("electricity_eur_mwh")))
+def run_index_band(req: TEAComputeRequest) -> dict:
+    """The cost-index band of a run (JML, 20 Nov 2026: Gabillon, not Monte Carlo).
 
-    tornado = []
-    for name, apply in levers:
-        lo = req.model_copy(deep=True); hi = req.model_copy(deep=True)
-        apply(lo, 0.8); apply(hi, 1.2)
-        tornado.append(SensitivityVar(
-            parameter=name,
-            low_lcop=run_tea(lo).lcop,
-            high_lcop=run_tea(hi).lcop,
-        ))
-
-    return TEASensitivityResult(
-        engine=engine_name(),
-        cost_basis_hash=base.cost_basis_hash,
-        base_lcop=base_lcop,
-        tornado=tornado,
-        run_evidence=base.run_evidence,
-    )
+    Every forward CEPCI year the run relies on is set to the 5% and then the 95% value of
+    its approved Gabillon row, all together, and the same plant is priced again. The band
+    is the escalation uncertainty only, and says so. With no forward year (cost base and
+    every quote year published) there is no band, and the answer says why.
+    """
+    _ensure_runnable()
+    from tea_engine import escalation
+    with _scope(req):
+        base = run_tea(req)
+        used = escalation.forwards_used(req, escalation.published_series())
+    years = {y: {"value": f.value, "low": f.low, "high": f.high, "ref_id": f.ref_id} for y, f in sorted(used.items())}
+    out = {"method": ("Gabillon two-factor P-forward of the CEPCI (PF engine), 90% band: every forward year at "
+                      "its 5% value, then at its 95% value, together"),
+           "years": years, "base": {"lcop": base.lcop, "fixed_capital": base.plant_summary.capex_eur},
+           "not_covered": INDEX_BAND_NOT_COVERED}
+    if not used:
+        return {**out, "applies": False,
+                "reason": "The cost base and every quote year are published CEPCI years: no forward, so no band."}
+    missing = [y for y, f in used.items() if f.low is None or f.high is None]
+    if missing:
+        return {**out, "applies": False,
+                "reason": f"The approved forward row for {', '.join(map(str, missing))} carries no band."}
+    scen = {}
+    for side in ("low", "high"):
+        r = req.model_copy(deep=True)
+        for y in used:
+            f = r.cepci_forward[y]
+            f.value = getattr(f, side)
+        res = run_tea(r)
+        scen[side] = {"lcop": res.lcop, "fixed_capital": res.plant_summary.capex_eur,
+                      "index": {y: getattr(used[y], side) for y in used}}
+    return {**out, "applies": True, "index_low": scen["low"], "index_high": scen["high"],
+            "lcop_range": [min(scen["low"]["lcop"], scen["high"]["lcop"]),
+                           max(scen["low"]["lcop"], scen["high"]["lcop"])]}
 
 
 # ── Monte Carlo (OpenPyTEA analysis.monte_carlo, headless) ──────────────────────
@@ -670,6 +882,11 @@ def _band(mean: float, rel: float, lo: float | None = None, hi: float | None = N
 
 
 def run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
+    with _scope(req):
+        return _run_monte_carlo(req)
+
+
+def _run_monte_carlo(req: TEAMonteCarloRequest) -> TEAMonteCarloResult:
     _ensure_runnable()
     if not (_HAS_OPENPYTEA and not _stub_allowed()):
         raise NotImplementedError(

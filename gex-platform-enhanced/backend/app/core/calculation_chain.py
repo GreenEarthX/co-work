@@ -98,6 +98,13 @@ def product_output(configuration: dict, catalogue: dict) -> dict:
         else:
             continue                         # e.g. product storage: no output of its own
         lines.append(line["equipment_id"])
+    stated = configuration.get("stated_nameplate") or {}
+    if stated.get("value"):
+        # Workbook (19 Nov): the CFO states the nameplate when no catalogue line makes the product.
+        # A catalogue line that disagrees is refused at preview; here the stated figure governs.
+        return {"molecule": molecule, "nameplate_t_per_year": round(float(stated["value"]), 1),
+                "cost_basis_annual_t": round(float(stated["value"]) * (cf or 0), 1),
+                "product_lines": lines, "basis": "STATED_NAMEPLATE", "source": stated.get("source")}
     if nameplate <= 0:
         raise ChainError("NO_PRODUCT_LINE", f"No equipment in this configuration produces {molecule}. "
                          "Add the line that makes the product before saving a cost basis.")
@@ -108,7 +115,9 @@ def product_output(configuration: dict, catalogue: dict) -> dict:
 
 def cost_basis_record(*, project_id: str, owner_tenant: str, configuration: dict, result: dict,
                       product: dict, catalogue_hash: str, previous: Optional[dict], saved_by: str,
-                      saved_by_function: Optional[str]) -> dict:
+                      saved_by_function: Optional[str], open_issues: Optional[list] = None) -> dict:
+    """A DRAFT carries `open_issues` (an open plant boundary, a conflict): it is kept, shown,
+    and no TEA runs from it until a version without them (READY) is saved (127)."""
     record = {
         "version_id": str(uuid.uuid4()),
         "project_id": project_id,
@@ -121,14 +130,52 @@ def cost_basis_record(*, project_id: str, owner_tenant: str, configuration: dict
         "supersedes_version_id": previous["version_id"] if previous else None,
         "saved_by": saved_by,
         "saved_by_function": saved_by_function,
+        "status": "DRAFT" if open_issues else "READY",
+        "open_issues": list(open_issues or []),
     }
     record["content_sha256"] = sha256({k: record[k] for k in (
         "project_id", "version_number", "molecule", "configuration", "result", "catalogue_sha256",
-        "supersedes_version_id")})
+        "supersedes_version_id", "status", "open_issues")})
     return record
 
 
 # ── 2. TEA from a saved cost basis, and its review ─────────────────────────────
+
+# OSBL (outside battery limits: offsites and utilities) vs ISBL, for the OSBL rule (JML, 19 Nov 2026).
+# Units that make the plant's own feedstock (CO2 capture, DAC, ASU, N2 PSA) are process units: ISBL.
+OSBL_CATEGORIES = frozenset({"INFRASTRUCTURE", "STORAGE", "SAFETY", "UTILITIES"})
+FEED_UNIT_PREFIXES = ("CO2_", "DAC_", "ASU_", "N2_")
+OSBL_SCOPES = frozenset({"POWER_INFRASTRUCTURE", "SITE_CIVIL", "STORAGE_LOGISTICS", "UTILITIES"})
+OSBL_BOUNDARY_SCOPES = ("scope.power_infrastructure", "scope.site_civil", "scope.storage_logistics")
+
+
+def osbl_kind(line: dict, catalogue: Optional[dict] = None) -> Optional[str]:
+    """The OSBL kind of a cost basis line, or None for ISBL."""
+    if line.get("kind") in ("QUOTE", "AGGREGATE"):
+        return line.get("scope") if line.get("scope") in OSBL_SCOPES else None
+    cat = line.get("category") or getattr((catalogue or {}).get(line.get("equipment_id")), "category", None)
+    if cat in OSBL_CATEGORIES and not str(line.get("equipment_id", "")).startswith(FEED_UNIT_PREFIXES):
+        return cat
+    return None
+
+
+def osbl_rule(cost_basis: dict) -> Optional[dict]:
+    """{factor: 0, basis} when the cost basis prices OSBL itself, else None (OpenPyTEA's default
+    applies and is listed). Never both: that is the double count this rule removes."""
+    lines = cost_basis["result"].get("equipment_lines") or []
+    n = cost_basis["version_number"]
+    osbl = [l for l in lines if osbl_kind(l)]
+    if osbl:
+        total = sum(float(l["installed_cost_eur"]) for l in osbl)
+        return {"factor": 0.0, "basis": f"OSBL priced line by line in cost basis v{n}: "
+                f"{', '.join(l['equipment_id'] for l in osbl)} (EUR {total:,.0f})"}
+    pb = cost_basis["configuration"].get("plant_boundary") or {}
+    whole = [l for l in lines if l.get("kind") == "AGGREGATE" and l.get("scope") == "WHOLE_PLANT"]
+    if whole and all((pb.get(k) or {}).get("value") == "INCLUDED" for k in OSBL_BOUNDARY_SCOPES):
+        return {"factor": 0.0, "basis": f"the whole-plant aggregate in cost basis v{n} includes OSBL "
+                "(plant boundary: power infrastructure, site and civil, storage INCLUDED)"}
+    return None
+
 
 HOURS_PER_OPERATOR_YEAR = 1960   # OpenPyTEA: 49 weeks x 5 shifts x 8 h (plant.py defaults, pinned by test)
 PROCESS_TYPES = ("Fluids", "Solids", "Mixed")
@@ -157,6 +204,10 @@ def tea_request(cost_basis: dict, *, fuel_id: str, pathway_id: str, stated: dict
     Everything else is derived from the saved version; nothing is taken from a model default unseen.
     """
     cfg, res = cost_basis["configuration"], cost_basis["result"]
+    if cost_basis.get("status") == "DRAFT":
+        raise ChainError("COST_BASIS_DRAFT", f"Cost basis v{cost_basis['version_number']} is a draft: "
+                         + "; ".join(i.get("detail", str(i)) for i in cost_basis.get("open_issues") or [])
+                         + ". Save a version without open issues to run the TEA.")
     cf = cfg.get("capacity_factor")
     if not cf:
         raise ChainError("CAPACITY_FACTOR_REQUIRED", "The saved cost basis states no run time; the TEA "
@@ -171,8 +222,15 @@ def tea_request(cost_basis: dict, *, fuel_id: str, pathway_id: str, stated: dict
     if not lines:
         raise ChainError("NO_EQUIPMENT", "The saved cost basis has no equipment lines.")
     n = cost_basis["version_number"]
-    equipment = [{"name": f"{l['equipment_id']} x{l['quantity']}", "installed_cost": float(l["installed_cost_eur"]),
-                  "source": f"cost basis v{n}: catalogue {l['equipment_id']} x{l['quantity']}"} for l in lines]
+    equipment = []
+    for l in lines:
+        own = l.get("kind") in ("QUOTE", "AGGREGATE")
+        e = {"name": f"{l['equipment_id']} x{l['quantity']}", "installed_cost": float(l["installed_cost_eur"]),
+             "source": (f"cost basis v{n}: {l['kind'].lower()} {l['equipment_id']}, {l.get('source')}" if own
+                        else f"cost basis v{n}: catalogue {l['equipment_id']} x{l['quantity']}")}
+        if own and l.get("price_year"):
+            e["cost_year"] = int(l["price_year"])
+        equipment.append(e)
     variable_opex = {}
     days = 365.0 * cf                                    # OpenPyTEA: per-day x 365 x utilisation
     power = float(res["output"].get("total_annual_power_mwh") or 0)
@@ -225,6 +283,8 @@ def tea_request(cost_basis: dict, *, fuel_id: str, pathway_id: str, stated: dict
                 ("maintenance_costs", res["opex"].get("annual_om_eur")),
                 ("taxes_insurance_costs", res["opex"].get("annual_insurance_eur"))) if v},
             "on_site_supply": on_site,
+            **({"osbl_factor": rule["factor"], "osbl_factor_basis": rule["basis"]}
+               if (rule := osbl_rule(cost_basis)) else {}),
         },
         "plant_process_type": stated["process_type"]["value"],
     }
@@ -306,8 +366,20 @@ def cost_basis_vs_tea(cost_basis: dict, base_case: dict) -> list[dict]:
         _diff("OPEX per year: Cost Basis vs TEA", "cost_basis_eur", res["opex"]["total_annual_opex_eur"],
               "tea_eur", base_case.get("opex_eur_per_year"), "EUR/yr"),
     ]
+    checks += boundary_vs_tea(cost_basis, ti)
+    checks.append(osbl_check(cost_basis, ti))
+    agg = [l for l in res.get("equipment_lines", []) if l.get("kind") == "AGGREGATE"]
+    if agg:
+        checks.append({"check": "Cost detail", "result": "REPORTED",
+                       "detail": f"{len(agg)} AGGREGATE estimate(s), EUR {sum(l['installed_cost_eur'] for l in agg):,.0f} "
+                                 f"(class {', '.join(str(l.get('estimate_class')) for l in agg)}): this TEA prices an "
+                                 "aggregate CAPEX estimate, not an equipment list."})
+    if res["opex"].get("om_unknown_lines"):
+        checks.append({"check": "O&M stated", "result": "REPORTED",
+                       "detail": f"O&M unknown on {res['opex']['om_unknown_lines']}: the TEA applies OpenPyTEA's "
+                                 "maintenance default to the whole plant (listed under defaults)."})
     summed = res["output"]["annual_output_tonnes"]
-    if abs(summed - product["cost_basis_annual_t"]) > 0.5:
+    if res.get("basis") != "WORKBOOK" and abs(summed - product["cost_basis_annual_t"]) > 0.5:
         checks.append({"check": "Cost Basis screen output", "result": "REPORTED",
                        "screen_annual_t": summed, "product_annual_t": product["cost_basis_annual_t"],
                        "detail": "The Cost Basis screen adds every line's output (other molecules included). "
@@ -317,6 +389,61 @@ def cost_basis_vs_tea(cost_basis: dict, base_case: dict) -> list[dict]:
                        "detail": "The Cost Basis counts the product line at its stated capacity with no run "
                                  "time; the TEA applies the capacity factor to the nameplate."})
     return checks
+
+
+def osbl_check(cost_basis: dict, tea_inputs: dict) -> dict:
+    """OSBL counted once: by the lines, or by OpenPyTEA's factor, never both (JML, 19 Nov 2026)."""
+    lines = cost_basis["result"].get("equipment_lines") or []
+    kinds = sorted({k for l in lines if (k := osbl_kind(l))})
+    q = ((tea_inputs.get("request") or {}).get("quote_plant") or {})
+    factor = q.get("osbl_factor")
+    if not tea_inputs.get("request"):
+        return {"check": "OSBL counted once", "result": "MISSING", "detail": "The TEA run recorded no request."}
+    if kinds and factor not in (0, 0.0):
+        return {"check": "OSBL counted once", "result": "FAIL",
+                "detail": f"The cost basis prices OSBL ({', '.join(kinds)}) and the TEA added OpenPyTEA's OSBL "
+                          "factor on top: run the TEA again from this cost basis."}
+    if kinds:
+        missing = sorted({"INFRASTRUCTURE", "STORAGE", "UTILITIES", "SAFETY"} - set(kinds)) if all(
+            l.get("kind", "CATALOGUE") == "CATALOGUE" for l in lines) else []
+        return {"check": "OSBL counted once", "result": "REPORTED",
+                "detail": f"OSBL priced by the lines ({', '.join(kinds)}); OpenPyTEA's factor set to 0."
+                          + (f" Not priced as lines: {', '.join(missing)}." if missing else "")}
+    return {"check": "OSBL counted once", "result": "REPORTED" if factor is None else "PASS",
+            "detail": "No OSBL line: OpenPyTEA's OSBL factor applies (listed under defaults)." if factor is None
+            else f"OSBL factor {factor}: {q.get('osbl_factor_basis')}"}
+
+
+BOUNDARY_ROUTES = {"ON_SITE": (True, False), "PURCHASED": (False, True), "BOTH": (True, True),
+                   "NOT_USED": (False, False)}
+
+
+def boundary_vs_tea(cost_basis: dict, tea_inputs: dict) -> list[dict]:
+    """The plant boundary stated with the cost basis against what the TEA actually priced:
+    a stream made on site must be supplied on site, a bought one bought (v1's defect)."""
+    pb = cost_basis["configuration"].get("plant_boundary")
+    if not pb:
+        return [{"check": "Plant boundary", "result": "REPORTED",
+                 "detail": "This cost basis states no plant boundary (saved before the workbook, 19 Nov)."}]
+    q = (tea_inputs.get("request") or {}).get("quote_plant") or {}
+    out = []
+    for key, b in sorted(pb.items()):
+        if not key.startswith("boundary."):
+            continue
+        stream, route = key.split(".", 1)[1], b.get("value")
+        if route not in BOUNDARY_ROUTES:
+            continue
+        got = (stream in (q.get("on_site_supply") or {}), stream in (q.get("variable_opex") or {}))
+        ok = got == BOUNDARY_ROUTES[route]
+        out.append({"check": f"Plant boundary: {stream}", "result": "PASS" if ok else "FAIL",
+                    "detail": f"stated {route}; the TEA has {'on-site supply' if got[0] else 'no on-site supply'} "
+                              f"and {'a purchase' if got[1] else 'no purchase'}"})
+    open_scopes = sorted(k.split(".", 1)[1] for k, b in pb.items()
+                         if k.startswith("scope.") and b.get("value") == "UNKNOWN")
+    scopes = ", ".join(f"{k.split('.', 1)[1]} {b.get('value')}" for k, b in sorted(pb.items()) if k.startswith("scope."))
+    out.append({"check": "Plant boundary: CAPEX scope", "result": "REPORTED",
+                "detail": scopes + (f". Not settled: {open_scopes}" if open_scopes else "")})
+    return out
 
 
 def _feed_detail(f: dict) -> str:
@@ -345,8 +472,10 @@ def failed(checks: list[dict]) -> list[str]:
 
 
 def review_standing(*, reviewer: dict, run_by: Optional[str], cost_basis_saved_by: Optional[str],
-                    owner_tenant: str, appointed_ie: bool) -> str:
-    """INDEPENDENT or OWNER_INTERNAL, or ChainError. `reviewer` is the token payload."""
+                    owner_tenant: str, appointed_ie: bool, test_account: bool = False) -> str:
+    """INDEPENDENT, OWNER_INTERNAL or TEST, or ChainError. `reviewer` is the token payload.
+    A test fixture account's review is TEST whatever its role: recorded and shown, never
+    independent, so it promotes and publishes nothing (19 Nov 2026)."""
     uid = reviewer.get("user_id")
     if not uid:
         raise ChainError("NO_REVIEWER", "Sign in to review a TEA base case.")
@@ -354,9 +483,9 @@ def review_standing(*, reviewer: dict, run_by: Optional[str], cost_basis_saved_b
         raise ChainError("SELF_REVIEW", "The person who saved the cost basis or ran the TEA cannot review it.")
     company = reviewer.get("company_id") or reviewer.get("tenant_id")
     if appointed_ie and company and company != owner_tenant:
-        return "INDEPENDENT"
+        return "TEST" if test_account else "INDEPENDENT"
     if company == owner_tenant and reviewer.get("business_function") in OWNER_REVIEW_FUNCTIONS:
-        return "OWNER_INTERNAL"
+        return "TEST" if test_account else "OWNER_INTERNAL"
     raise ChainError("NOT_A_REVIEWER", "A TEA base case is reviewed by an independent engineer appointed on "
                      "this project, or by the owner's finance or executive function.")
 
@@ -367,8 +496,13 @@ FINANCING_TERMS = ("debt_eur", "interest_rate", "debt_tenor_years", "grant_eur")
 
 
 def financing_record(*, project_id: str, owner_tenant: str, base_case: dict, terms: dict,
-                     previous: Optional[dict], saved_by: str) -> dict:
-    """`terms`: {name: {value, source, verification_status}} for FINANCING_TERMS."""
+                     previous: Optional[dict], saved_by: str, case_id: Optional[str] = None,
+                     supersedes: Optional[dict] = None, funding_plan: Optional[dict] = None,
+                     gearing_policy: Optional[dict] = None) -> dict:
+    """An ELIGIBLE financing case: may feed a returns version.
+    `terms`: {name: {value, source, verification_status}} for FINANCING_TERMS.
+    `previous`: the project's latest version (numbering); `supersedes`: the version of the
+    SAME case this one replaces (a promoted draft), else `previous` when it is that case."""
     if base_case.get("state") != "verified":
         raise ChainError("TEA_NOT_REVIEWED", f"TEA base case {base_case.get('claim_id')} is "
                          f"{base_case.get('state')}: a financing case needs a reviewed (verified) base case.")
@@ -387,8 +521,19 @@ def financing_record(*, project_id: str, owner_tenant: str, base_case: dict, ter
             raise ChainError("SOURCE_REQUIRED", f"'{name}' needs a source.")
     fci = float(base_case["capex_eur"])
     v = {t: (terms[t]["value"] if t in terms else 0) for t in FINANCING_TERMS}
-    if float(v["debt_eur"]) + float(v["grant_eur"]) > fci:
-        raise ChainError("DEBT_EXCEEDS_FCI", "Debt plus grant exceed the reviewed CAPEX.")
+    plan = funding_plan or {}
+    uses_total = None
+    if plan:
+        from app.core import funding
+        rec = funding.reconcile(plan, base_case=base_case, terms=terms, gearing_policy=gearing_policy)
+        if rec["limitations"]:
+            raise ChainError("FUNDING_UNRECONCILED", "; ".join(l["detail"] for l in rec["limitations"]))
+        uses_total = rec["total_uses_eur"]
+    ceiling = uses_total if uses_total else fci
+    if float(v["debt_eur"]) + float(v["grant_eur"]) > ceiling:
+        raise ChainError("DEBT_EXCEEDS_USES" if uses_total else "DEBT_EXCEEDS_FCI",
+                         "Debt plus grant exceed the case's defined uses." if uses_total else
+                         "Debt plus grant exceed the reviewed CAPEX.")
     record = {
         "version_id": str(uuid.uuid4()),
         "project_id": project_id,
@@ -401,16 +546,123 @@ def financing_record(*, project_id: str, owner_tenant: str, base_case: dict, ter
         "interest_rate": float(v["interest_rate"]),
         "debt_tenor_years": int(v["debt_tenor_years"]),
         "grant_eur": float(v["grant_eur"]),
-        "terms": {t: {"value": terms[t]["value"], "source": terms[t]["source"],
-                      "verification_status": terms[t].get("verification_status") or "ASSUMPTION"}
-                  for t in terms},
-        "supersedes_version_id": previous["version_id"] if previous else None,
+        "terms": _terms(terms),
+        "supersedes_version_id": (supersedes or previous or {}).get("version_id"),
         "saved_by": saved_by,
+        "case_id": case_id or (supersedes or {}).get("case_id") or str(uuid.uuid4()),
+        "status": "ELIGIBLE",
+        "limitations": [],
+        "funding_plan": plan,
+        "uses_total_eur": uses_total,
     }
-    record["content_sha256"] = sha256({k: record[k] for k in (
-        "project_id", "version_number", "tea_claim_id", "tea_cost_basis_hash", "fci_eur", "debt_eur",
-        "interest_rate", "debt_tenor_years", "grant_eur", "terms", "supersedes_version_id")})
+    record["content_sha256"] = _financing_hash(record)
     return record
+
+
+def _terms(terms: dict) -> dict:
+    # the workbook's date and standing (TERM_SHEET, ...): what the CFO declared, not a verification
+    return {t: {"value": terms[t]["value"], "source": terms[t]["source"],
+                "verification_status": terms[t].get("verification_status") or "ASSUMPTION",
+                **{k: terms[t][k] for k in ("as_of", "standing") if terms[t].get(k)}}
+            for t in terms}
+
+
+def _financing_hash(record: dict) -> str:
+    return sha256({k: record.get(k) for k in (
+        "project_id", "version_number", "tea_claim_id", "tea_cost_basis_hash", "fci_eur", "debt_eur",
+        "interest_rate", "debt_tenor_years", "grant_eur", "terms", "supersedes_version_id", "case_id",
+        "status", "limitations", "funding_plan", "uses_total_eur")})
+
+
+def financing_draft_record(*, project_id: str, owner_tenant: str, case_id: Optional[str],
+                           base_case: Optional[dict], terms: dict, previous: Optional[dict],
+                           case_latest: Optional[dict], saved_by: str,
+                           extra_limitations: Iterable = (), funding_plan: Optional[dict] = None,
+                           gearing_policy: Optional[dict] = None) -> dict:
+    """A DRAFT financing case: recorded with its limitations stated, used by nothing until promoted.
+    A draft may lack a TEA run, terms and fixed capital, and may exceed it; it may not hold a
+    term without a source or a term GEX does not know."""
+    for name, term in terms.items():
+        if name not in FINANCING_TERMS:
+            raise ChainError("UNKNOWN_TERM", f"'{name}' is not a financing term.")
+        if not str(term.get("source") or "").strip():
+            raise ChainError("SOURCE_REQUIRED", f"'{name}' needs a source.")
+    record = {
+        "version_id": str(uuid.uuid4()),
+        "project_id": project_id,
+        "owner_tenant_id": owner_tenant,
+        "version_number": (previous["version_number"] + 1) if previous else 1,
+        "tea_claim_id": (base_case or {}).get("claim_id"),
+        "tea_cost_basis_hash": (base_case or {}).get("cost_basis_hash"),
+        "fci_eur": float(base_case["capex_eur"]) if base_case and base_case.get("capex_eur") else None,
+        "debt_eur": _val(terms, "debt_eur", float),
+        "interest_rate": _val(terms, "interest_rate", float),
+        "debt_tenor_years": _val(terms, "debt_tenor_years", int),
+        "grant_eur": _val(terms, "grant_eur", float) or 0.0,
+        "terms": _terms(terms),
+        "supersedes_version_id": (case_latest or {}).get("version_id"),
+        "saved_by": saved_by,
+        "case_id": case_id or (case_latest or {}).get("case_id") or str(uuid.uuid4()),
+        "status": "DRAFT",
+        "limitations": draft_limitations(base_case, terms) + list(extra_limitations),
+        "funding_plan": funding_plan or {},
+        "uses_total_eur": None,
+    }
+    if funding_plan:
+        from app.core import funding
+        rec = funding.reconcile(funding_plan, base_case=base_case, terms=terms, gearing_policy=gearing_policy)
+        known = {l["code"] for l in record["limitations"]}
+        record["limitations"] += [l for l in rec["limitations"] if l["code"] not in known]
+        record["uses_total_eur"] = rec["total_uses_eur"] or None
+    record["content_sha256"] = _financing_hash(record)
+    return record
+
+
+def _val(terms: dict, name: str, cast):
+    return cast(terms[name]["value"]) if name in terms else None
+
+
+def draft_limitations(base_case: Optional[dict], terms: dict) -> list[dict]:
+    """What stops a draft from being ELIGIBLE, each stated (re-checked again at promotion)."""
+    out = []
+    if not base_case:
+        out.append({"code": "NO_TEA_RUN", "detail": "No TEA run is named: fixed capital is unknown."})
+    else:
+        if base_case.get("state") != "verified" or base_case.get("review_basis") != "INDEPENDENT":
+            out.append({"code": "TEA_NOT_INDEPENDENTLY_REVIEWED",
+                        "detail": f"TEA run {base_case.get('claim_id')} is {base_case.get('state')}, review "
+                                  f"{base_case.get('review_basis') or 'none'}."})
+        if ((base_case.get("tea_inputs") or {}).get("calculation_boundary") or {}).get("basis") != "QUOTE_LINES":
+            out.append({"code": "TEA_NOT_FROM_QUOTE_MODE", "detail": "The TEA run did not price the cost basis's own lines."})
+    missing = [t for t in FINANCING_TERMS if t != "grant_eur" and t not in terms]
+    if missing:
+        out.append({"code": "TERMS_MISSING", "detail": f"Not stated: {', '.join(missing)}."})
+    return out
+
+
+def promotion_record(*, draft: dict, base_case: Optional[dict], previous: dict, saved_by: str,
+                     gearing_policy: Optional[dict] = None) -> dict:
+    """Promote a DRAFT to ELIGIBLE: a new version of the same case, on the 124 rules. A limitation
+    the draft carries that only a new draft can clear (unreconciled grants) refuses it."""
+    if draft.get("status") != "DRAFT":
+        raise ChainError("NOT_A_DRAFT", "Only a draft is promoted.")
+    sticky = [l for l in draft.get("limitations") or [] if l["code"] in STICKY_LIMITATIONS]
+    if sticky:
+        raise ChainError("DRAFT_HAS_OPEN_LIMITATIONS", "; ".join(l["detail"] for l in sticky)
+                         + " Save a corrected draft first.")
+    if not base_case:
+        raise ChainError("NO_TEA_RUN", "Name the independently reviewed TEA run in a new draft first.")
+    if base_case.get("review_basis") != "INDEPENDENT":
+        raise ChainError("REVIEW_NOT_INDEPENDENT", f"TEA run {base_case.get('claim_id')} has review "
+                         f"{base_case.get('review_basis') or 'none'}: promotion needs an independent review.")
+    terms = {t: {k: v for k, v in term.items()} for t, term in (draft.get("terms") or {}).items()}
+    return financing_record(project_id=draft["project_id"], owner_tenant=draft["owner_tenant_id"],
+                            base_case=base_case, terms=terms, previous=previous, saved_by=saved_by,
+                            case_id=draft["case_id"], supersedes=draft, funding_plan=draft.get("funding_plan") or {},
+                            gearing_policy=gearing_policy)
+
+
+STICKY_LIMITATIONS = ("GRANTS_UNRECONCILED", "STACK_DEBT_UNRECONCILED")
 
 
 # ── 4. Returns inputs from the chain ───────────────────────────────────────────
@@ -423,6 +675,9 @@ def returns_inputs(*, cost_basis: dict, base_case: dict, financing: dict, stated
     `stated`: {field: {value, source, verification_status}} for every ReturnsRequest
     field that is NOT a chain field (revenue price, tax, depreciation, hurdle ...).
     """
+    if financing.get("status", "ELIGIBLE") != "ELIGIBLE":
+        raise ChainError("FINANCING_DRAFT", "This financing case is a draft: promote it (an independently "
+                         "reviewed TEA run, every term with a source) before a returns version uses it.")
     if financing["tea_claim_id"] != base_case["claim_id"]:
         raise ChainError("CHAIN_BROKEN", "The financing case cites another TEA base case.")
     if base_case.get("state") != "verified":

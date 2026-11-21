@@ -17,6 +17,13 @@ httpx==0.27.2
 # service seeds with, and fixed the vectorised-MC bug that levelised every sample
 # over the longest horizon. Upgrading also moves priced numbers (~+2% CAPEX), which
 # is why the engine version is part of cost_basis_hash — see openpytea_runner.
-openpytea==3.0.0
+# 3.1.0 (20 Nov 2026, the version the online tea-service runs): fixed operating cost is
+# charged from the first production year (3.0.0 charged it in every construction year
+# too) and working capital carries no interest by default. Reference e-methanol LCOP
+# 2.307 -> 2.0785 EUR/kg (-9.9%) on identical inputs; the hash moves with the version.
+# 3.2.3 (20 Nov 2026): no coefficient changed; +13 correlations (electrolysers, H2 storage,
+# biogas upgrading, biomass CHP); three categories renamed, translated and listed by
+# correlation_set.RENAMED_CATEGORIES. Quote mode prices identically to 3.1.0.
+openpytea==3.2.3
 
 python-json-logger==2.0.7

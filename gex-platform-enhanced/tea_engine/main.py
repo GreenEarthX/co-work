@@ -59,7 +59,9 @@ app.add_middleware(
 @app.get("/healthz", include_in_schema=False)
 def healthz() -> dict[str, str]:
     """No auth — for Cloud Run liveness probes."""
-    return {"status": "ok", "engine": app.version, "tea_engine": engine_name()}
+    from tea_engine.compute.openpytea_runner import _engine_version
+    return {"status": "ok", "engine": app.version, "tea_engine": engine_name(),
+            "openpytea_version": _engine_version() or ""}
 
 
 @app.get("/whoami")

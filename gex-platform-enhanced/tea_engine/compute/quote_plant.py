@@ -28,8 +28,9 @@ FIXED_OPEX_FACTORS = {
     "rent_of_land": (0.015, "x (ISBL + OSBL)"),
     "environmental_charges": (0.01, "x (ISBL + OSBL)"),
     "operating_supplies": (0.009, "x ISBL"),
-    "general_plant_overhead": (0.65, "x (labour + supervision + overhead + maintenance)"),
+    "general_plant_overhead": (0.65, "x (labour + supervision + direct salary overhead)"),
     "working_capital": (0.15, "x fixed capital"),
+    "working_capital_interest": (0.0, "x working capital (OpenPyTEA 3.1: none by default; 3.0 charged the discount rate)"),
     "patents_royalties": (0.02, "x cash cost of production"),
     "distribution_selling": (0.02, "x cash cost of production"),
     "rnd": (0.03, "x cash cost of production"),
@@ -39,6 +40,7 @@ COMPONENT_FOR = {"supervision": "supervision_costs", "direct_salary_overhead": "
                  "taxes_insurance": "taxes_insurance_costs", "rent_of_land": "rent_of_land_costs",
                  "environmental_charges": "environmental_charges", "operating_supplies": "operating_supplies",
                  "general_plant_overhead": "general_plant_overhead", "patents_royalties": "patents_royalties",
+                 "working_capital_interest": "interest_working_capital",
                  "distribution_selling": "distribution_selling_costs", "rnd": "RnD_costs"}
 TIMING_DEFAULTS = {"capex_ramp": [0.3, 0.6, 0.1], "production_ramp": [0, 0, 0.4, 0.8],
                    "tax_rate": 0, "depreciation": None}
@@ -50,12 +52,17 @@ def quote_config(req: TEAComputeRequest, target_year: int) -> tuple[dict, list]:
 
     q = req.quote_plant
     a = req.assumptions
+    if q.osbl_factor is not None and not (q.osbl_factor_basis or "").strip():
+        raise ValueError("osbl_factor needs its basis (osbl_factor_basis).")
     unknown = sorted(set(q.fixed_opex_components) - set(_component_keys()))
     if unknown:
         raise ValueError(f"unknown fixed_opex_components: {unknown}")
+    # Each quote escalates from its own price year to the cost base through the series in force
+    # for this run (published CEPCI plus the approved forward years, escalation.request_scope).
     eq_data = [{"name": e.name, "param": 0.0, "process_type": req.plant_process_type,
                 "category": "Vendor quote", "type": None, "material": None,
-                "purchased_cost": e.installed_cost, "cost_year": e.cost_year or target_year, "cost_func": None,
+                "purchased_cost": e.installed_cost,
+                "cost_year": e.cost_year or target_year, "cost_func": None,
                 "target_year": target_year, "erection_factor": 0.0, "piping_factor": 0.0,
                 "instrumentation_factor": 0.0, "electrical_factor": 0.0, "civil_factor": 0.0,
                 "structural_factor": 0.0, "lagging_factor": 0.0, "material_factor": 1.0}
@@ -69,7 +76,8 @@ def quote_config(req: TEAComputeRequest, target_year: int) -> tuple[dict, list]:
         "interest_rate": a.discount_rate_pct / 100.0,
         "plant_utilization": a.capacity_factor,
         "project_lifetime": a.project_life_years,
-        "fixed_capital_factors": {"contingency": q.contingency},
+        "fixed_capital_factors": {"contingency": q.contingency,
+                                  **({"osbl": q.osbl_factor} if q.osbl_factor is not None else {})},
         "operators_hired": q.operators_hired,
         "operator_hourly_rate": q.operator_hourly_rate,
         "fixed_opex_components": dict(q.fixed_opex_components),
@@ -116,6 +124,36 @@ def defaults_used(config: dict) -> list[dict]:
     if config.get("loc_factor") is None:
         out.append({"name": "openpytea.location", "value": config.get("country", "United States"),
                     "basis": "location factor from the country table"})
+    return out
+
+
+def published_cepci() -> dict[int, float]:
+    """The CEPCI years OpenPyTEA holds outside any run (published, plus GEX-supplied history)."""
+    from tea_engine import escalation
+    return escalation.published_series()
+
+
+def forward_defaults(req: TEAComputeRequest, target_year: int) -> list[dict]:
+    """Each forward year this run priced with, declared with its band and its approved row.
+    Both modes: the cost base year itself, and (quote mode) any quote dated after the last
+    published CEPCI. Call inside escalation.request_scope (it reads the published series)."""
+    from tea_engine import escalation
+    published = published_cepci()
+    lines: dict = {}
+    if req.quote_plant is not None:
+        for e in req.quote_plant.equipment:
+            if e.cost_year and e.cost_year not in published:
+                lines.setdefault(e.cost_year, []).append(e.name)
+    out = []
+    for y, f in sorted(escalation.forwards_used(req, published).items()):
+        role = []
+        if y == target_year:
+            role.append("the cost base year")
+        if lines.get(y):
+            role.append(f"the price year of {len(lines[y])} quote(s)")
+        out.append({"name": f"cepci_forward.{y}", "value": f.value,
+                    "basis": (f"FORWARD, not a published index (approved reference row {f.ref_id}): {f.basis}; "
+                              f"90% band {f.low}-{f.high}; used as {' and '.join(role)}")})
     return out
 
 

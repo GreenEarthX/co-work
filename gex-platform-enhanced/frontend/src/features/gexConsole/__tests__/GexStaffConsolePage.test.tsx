@@ -5,7 +5,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { GexStaffConsolePage } from '../GexStaffConsolePage'
+import { GexStaffConsolePage, ReferenceApprovalsPanel } from '../GexStaffConsolePage'
 import { cisoMenuItems } from '@/config/menuArchitecture'
 
 const ME = 'u_staff_me'
@@ -138,5 +138,26 @@ describe('Ledger anchor on the staff console', () => {
     render(<GexStaffConsolePage />)
     await waitFor(() => expect(screen.getByText(/The outbox could not be read/)).toBeInTheDocument())
     expect(screen.queryByTestId('anchor-PENDING')).toBeNull()
+  })
+})
+
+describe('ReferenceApprovalsPanel', () => {
+  it('lists what awaits approval beside what is in force, and the proposer cannot approve', async () => {
+    const row = {
+      ref_id: 'r1', parameter_key: 'co2_feedstock_price', pathway: 'ANY', region: 'DE', value_low: 190, value_base: 208,
+      value_high: 342, unit: 'EUR/t', price_base_date: '2026-09-30', source_class: 'public_source', source_name: 'IMARC',
+      source_url: null, note: 'Re-proposed', proposed_by: 'someone', proposed_at: '2026-11-19T22:00:00',
+      in_force: { value_low: 190, value_base: 208, value_high: 342, unit: 'EUR/t', approved_by: 'JML (instruction in session)' },
+    }
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [row, { ...row, ref_id: 'r2', proposed_by: 'me' }] })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ReferenceApprovalsPanel callerId="me" />)
+    await screen.findByTestId('ref-r1')
+    expect(screen.getAllByText(/approved by JML \(instruction in session\)/).length).toBe(2)
+    expect(within(screen.getByTestId('ref-r1')).getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(within(screen.getByTestId('ref-r2')).getByRole('button', { name: 'Approve' })).toBeDisabled()
+    fireEvent.click(within(screen.getByTestId('ref-r1')).getByRole('button', { name: 'Approve' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]).endsWith('/reference/parameters/r1/approve'))).toBe(true))
+    vi.unstubAllGlobals()
   })
 })

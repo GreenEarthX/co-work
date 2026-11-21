@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     # write). True refuses an unsigned one. Default false: existing confirmations stay
     # valid and read "confirmed in GEX, not signed by the party".
     REQUIRE_PARTY_SIGNATURE: bool = False
+    # The TEA cost base (JML, 20 Nov 2026): every TEA run escalates its costs to this year. A
+    # year after the last published CEPCI (2024) is priced with its APPROVED Gabillon forward
+    # (reference key cepci_forward_<year>); with none approved, the run is refused and names
+    # the row. 2024 prices on the published index alone.
+    TEA_COST_BASE_YEAR: int = 2026
 
     # GreenMesh Phase 2 Step 6 (D6, export only): registry and scheme connectors build a file
     # for the party or its certifier to submit, and send nothing. "none" is the only value;

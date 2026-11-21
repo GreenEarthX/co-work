@@ -87,7 +87,7 @@ _E_METHANOL = ProcessFunction(
     reaction="CO2 + 3 H2 -> CH3OH + H2O",
     yield_frac=0.90,
     equipment=[
-        EquipmentSpec("CO2 feed compressor",   "synthesis", "Compressors & blowers",        "CO2 compressor",            "Carbon steel",        6.0),    # MWe
+        EquipmentSpec("CO2 feed compressor",   "synthesis", "Compressors, fans, & blowers", "CO2 compressor",            "Carbon steel",        6.0),    # MWe
         EquipmentSpec("Makeup gas compressor", "synthesis", "Compressors, fans, & blowers",  "Compressor, centrifugal",   "Carbon steel",        6000.0), # kW
         EquipmentSpec("Recycle compressor",    "synthesis", "Compressors, fans, & blowers",  "Compressor, centrifugal",   "Carbon steel",        3500.0), # kW
         EquipmentSpec("Methanol synthesis reactor", "synthesis", "Reactors",                 "Tubular fixed bed",         "304 stainless steel", 110000.0), # shell mass kg
@@ -117,7 +117,7 @@ _E_SAF = ProcessFunction(
     reaction="CO2 + H2 -(RWGS)-> CO + H2O ; nCO + (2n+1)H2 -(FT)-> CnH(2n+2) + nH2O",
     yield_frac=0.75,   # FT + hydrocracking/fractionation losses; SAF is one cut of the syncrude
     equipment=[
-        EquipmentSpec("CO2 feed compressor",     "synthesis", "Compressors & blowers",        "CO2 compressor",            "Carbon steel",        7.0),     # MWe
+        EquipmentSpec("CO2 feed compressor",     "synthesis", "Compressors, fans, & blowers", "CO2 compressor",            "Carbon steel",        7.0),     # MWe
         EquipmentSpec("Makeup H2 compressor",    "synthesis", "Compressors, fans, & blowers",  "Compressor, centrifugal",   "Carbon steel",        7000.0),  # kW
         EquipmentSpec("RWGS reactor",            "synthesis", "Reactors",                      "Tubular fixed bed",         "304 stainless steel", 85000.0), # shell mass kg (catalytic RWGS; OpenPyTEA furnace correlations are unreliable at scale)
         EquipmentSpec("Fischer-Tropsch reactor", "synthesis", "Reactors",                      "Tubular fixed bed",         "304 stainless steel", 150000.0),# shell mass kg

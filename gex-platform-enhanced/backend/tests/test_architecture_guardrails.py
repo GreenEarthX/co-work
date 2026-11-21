@@ -340,6 +340,17 @@ def test_engines_verify_gex_identity_only():
         )
 
 
+def _registered_worktrees(repo: Path) -> set:
+    """The roots `git worktree list` registers for this repository (empty if git is absent)."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True, timeout=10, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {Path(line[len("worktree "):]).resolve() for line in out.splitlines() if line.startswith("worktree ")}
+
+
 def test_compose_runs_the_tree_that_tests_inspect():
     """
     Copy-tree entropy guard (consolidation, ADR 2026-07-06): the code this
@@ -389,10 +400,17 @@ def test_compose_runs_the_tree_that_tests_inspect():
     # commit. It belongs in the publish step: run sync-to-docker.sh immediately
     # before `docker build`, so the image cannot be built from a stale copy.
     skip_parts = {"node_modules", "_retired", "co-work", "docker", ".git", "venv", ".venv"}
+    # A registered git worktree of THIS repository is a parallel checkout of the same
+    # code on another branch (e.g. gex-platform-enhanced-part-a, branch greenmesh-part-a,
+    # 18 Nov): its compose builds its own tree, and its own copy of this guardrail checks
+    # that. It is not copy-tree entropy. Only `git worktree list` decides it, never a name.
+    worktrees = _registered_worktrees(REPO) - {REPO.resolve()}
     offenders = []
     for depth in ("", "*/", "*/*/"):
         for f in workspace.glob(f"{depth}docker-compose*.yml"):
             if set(f.parts) & skip_parts or f == compose_path:
+                continue
+            if any(f.resolve().is_relative_to(w) for w in worktrees):
                 continue
             try:
                 data = yaml.safe_load(f.read_text()) or {}

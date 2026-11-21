@@ -112,3 +112,11 @@ def test_fuel_defaults_come_through_the_registry_and_change_no_number():
         row.pop("fuel_type")
         assert row == capital_bridge.FUEL_DEFAULTS[capital_bridge.FuelType(fuel)]
         assert {p["source_class"] for p in prov.values()} == {"model_default"}
+
+
+def test_proposals_awaiting_approval_are_listed_to_staff_only():
+    assert _client(TENANT).get("/api/v1/reference/parameters/proposed").status_code == 403
+    r = _client({"user_id": "usr_test_staff", "is_platform_admin": True}).get("/api/v1/reference/parameters/proposed")
+    _skip_without_061(r)
+    assert r.status_code == 200
+    assert all(x["state"] == "proposed" and "in_force" in x for x in r.json())

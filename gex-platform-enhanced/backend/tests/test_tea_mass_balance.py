@@ -91,9 +91,13 @@ def test_energy_streams_take_the_slate_but_not_the_yield():
 
 def test_single_product_pathways_are_unchanged_by_the_one_rule():
     """M = 1 for a pathway with no co-products, so the rule reduces to 1/yield_frac and
-    methanol must still price at exactly what it did before."""
+    methanol must still price at exactly what it did before.
+
+    2.307 on OpenPyTEA 3.0.0; 2.0785 on 3.1.0 (20 Nov 2026), which charges fixed operating
+    cost from the first production year instead of every construction year as well, and
+    no interest on working capital by default. Not a change of this rule."""
     assert pfx.total_product_per_primary(pfx.REGISTRY["E_METHANOL"]) == 1.0
-    assert run_tea(_req()).lcop == 2.307
+    assert run_tea(_req()).lcop == 2.0785
 
 
 def test_the_balance_is_published_so_it_can_be_checked_by_hand():

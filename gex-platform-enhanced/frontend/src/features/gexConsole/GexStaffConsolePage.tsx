@@ -208,6 +208,67 @@ export function LedgerAnchorPanel() {
   )
 }
 
+interface RefRow {
+  ref_id: string; parameter_key: string; pathway: string; region: string
+  value_low: number | null; value_base: number; value_high: number | null; unit: string
+  price_base_date: string | null; source_class: string; source_name: string; source_url: string | null
+  note: string | null; proposed_by: string; proposed_at: string; approved_by?: string | null; in_force: RefRow | null
+}
+
+const range = (r: RefRow) => [r.value_low, r.value_base, r.value_high].map(v => v ?? '—').join(' / ') + ` ${r.unit}`
+
+/** Reference values awaiting a decision (19 Nov 2026). A value is approved by a person here, with
+ * their own account; the server refuses the proposer as approver and records who approved. */
+export function ReferenceApprovalsPanel({ callerId }: { callerId: string }) {
+  const [rows, setRows] = useState<RefRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const load = useCallback(() => {
+    cisoCall<RefRow[]>('/reference/parameters/proposed')
+      .then(r => { setRows(r); setError(null) })
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+  }, [])
+  useEffect(load, [load])
+  const decide = (ref: string, verb: 'approve' | 'reject') => {
+    setBusy(ref)
+    cisoCall(`/reference/parameters/${ref}/${verb}`, undefined, { method: 'POST' })
+      .then(load).catch(e => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(null))
+  }
+  return (
+    <section className={`${card} p-4`} data-testid="reference-approvals">
+      <h2 className="text-sm font-bold text-[var(--text-primary)]">Reference values awaiting approval</h2>
+      <p className="mt-1 text-xs text-[var(--text-secondary)]">
+        Nothing reads a proposed value. Approving it puts it in force and supersedes the value shown beside it; you
+        are recorded as the approver. You cannot approve what you proposed.
+      </p>
+      {error && <p className="mt-2 text-xs text-red-700 dark:text-red-300">{error}</p>}
+      {rows && rows.length === 0 && <p className="mt-2 text-xs text-[var(--text-muted)]">Nothing awaits approval.</p>}
+      {rows && rows.length > 0 && (
+        <table className="mt-3 w-full text-xs">
+          <thead><tr className="border-b border-[var(--border)]">
+            {['Value', 'Proposed', 'In force now', 'Source and note', ''].map(h => <th key={h} className={th}>{h}</th>)}
+          </tr></thead>
+          <tbody>{rows.map(r => (
+            <tr key={r.ref_id} className="border-b border-[var(--border)]" data-testid={`ref-${r.ref_id}`}>
+              <td className={td}><div className="font-semibold">{r.parameter_key}</div><div>{r.pathway} · {r.region}</div></td>
+              <td className={td}><div>{range(r)}</div><div className="text-[var(--text-muted)]">price date {r.price_base_date ?? '—'} · by {r.proposed_by} · {fmt(r.proposed_at)}</div></td>
+              <td className={td}>{r.in_force ? <><div>{range(r.in_force)}</div><div className="text-[var(--text-muted)]">approved by {r.in_force.approved_by ?? '—'}</div></> : 'none'}</td>
+              <td className={`${td} max-w-md`}><div>{r.source_class}: {r.source_name}</div>{r.note && <div className="mt-1 text-[var(--text-muted)]">{r.note}</div>}</td>
+              <td className={td}>
+                <div className="flex gap-1">
+                  <button type="button" className={btn} disabled={busy === r.ref_id || r.proposed_by === callerId}
+                    onClick={() => decide(r.ref_id, 'approve')}>Approve</button>
+                  <button type="button" className={btn} disabled={busy === r.ref_id}
+                    onClick={() => decide(r.ref_id, 'reject')}>Reject</button>
+                </div>
+              </td>
+            </tr>))}</tbody>
+        </table>
+      )}
+    </section>
+  )
+}
+
 export function GexStaffConsolePage() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [queue, setQueue] = useState<Account[]>([])
@@ -401,6 +462,7 @@ export function GexStaffConsolePage() {
         </table>
       </section>
 
+      <ReferenceApprovalsPanel callerId={callerId} />
       <LedgerAnchorPanel />
     </div>
   )

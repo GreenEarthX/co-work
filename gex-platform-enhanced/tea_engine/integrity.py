@@ -373,7 +373,10 @@ def fx_meta(base_currency: str, override: Optional[float] = None,
                        else ProvenanceClass.EXTERNAL_BENCHMARK.value),
         "source": "caller/CFO override" if overridden else FX_SOURCE,
         "conservative_band": FX_CONSERVATIVE_BAND if overridden else None,
-        "base_year": OPENPYTEA_TARGET_CEPCI_YEAR,
+        # The year of the RATE (its default is the 2024 ECB average), not the cost base: since
+        # 20 Nov 2026 the cost base may be a later year (cost_basis.cost_year), and the two are
+        # then stated separately rather than implied equal.
+        "rate_year": OPENPYTEA_TARGET_CEPCI_YEAR,
         # Which benchmark the band was computed against, and whether it was governed.
         "benchmark": fx_benchmark(base, benchmark),
         "benchmark_governed_by": benchmark_ref,
@@ -385,7 +388,8 @@ def fx_meta(base_currency: str, override: Optional[float] = None,
 def cost_basis_block(base_currency: str, cost_year: Optional[int], is_stub: bool,
                      fx: Optional[dict] = None, engine: Optional[str] = None,
                      engine_version: Optional[str] = None,
-                     correlation_set: Optional[dict] = None) -> dict:
+                     correlation_set: Optional[dict] = None,
+                     cepci_forward: Optional[dict] = None) -> dict:
     if is_stub:
         return {"currency": (base_currency or "EUR").upper(), "cost_year": None,
                 "cepci_basis": None, "fx_normalised": False, "fx": None,
@@ -404,6 +408,12 @@ def cost_basis_block(base_currency: str, cost_year: Optional[int], is_stub: bool
         note = (f"OpenPyTEA USD correlations converted to {base} at {fx['rate']} "
                 f"({fx['source']}), escalated to CEPCI {cost_year}. Feedstock/variable "
                 f"OPEX is already {base} (priced by GEX) — not double-converted.")
+    fwd = (cepci_forward or {}).get(cost_year) if cost_year else None
+    if fwd is not None:
+        note += (f" CEPCI {cost_year} is a Gabillon FORWARD ({fwd.value:g}, 90% band {fwd.low}-{fwd.high}; "
+                 f"approved reference row {fwd.ref_id}), not a published index.")
+    if base != "USD" and cost_year and cost_year != fx.get("rate_year"):
+        note += (f" The USD rate is of {fx.get('rate_year')}, the cost base {cost_year}: stated, not reconciled.")
     if engine_version:
         # The priced numbers move with the engine, so the engine is part of the basis
         # (see cost_basis_hash). An upgrade must be visible on the artefact itself.
@@ -411,7 +421,10 @@ def cost_basis_block(base_currency: str, cost_year: Optional[int], is_stub: bool
     return {
         "currency": base,
         "cost_year": cost_year,
-        "cepci_basis": f"CEPCI {cost_year}" if cost_year else None,
+        "cepci_basis": ((f"CEPCI {cost_year} (Gabillon forward, row {fwd.ref_id})" if fwd is not None
+                         else f"CEPCI {cost_year}") if cost_year else None),
+        "cepci_forward": ({"year": cost_year, "value": fwd.value, "low": fwd.low, "high": fwd.high,
+                           "ref_id": fwd.ref_id, "basis": fwd.basis} if fwd is not None else None),
         "fx_normalised": True,
         "fx": fx,
         "engine": engine,

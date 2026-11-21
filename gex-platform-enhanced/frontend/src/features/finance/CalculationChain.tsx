@@ -17,6 +17,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelectedProject } from '@/contexts/ProjectContext'
 import { getAuthHeader } from '@/lib/authToken'
 import { ChainTrace, reviewLabel, type Chain, type ChainCheck } from './ChainTrace'
+import { CostWorkbook, FundingSummary, download, downloadTeaWorkbook } from './CostWorkbook'
+import { InputsChip, TeaRunReport } from './TeaRunReport'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -137,6 +139,7 @@ export function CalculationChain() {
   const [stated, setStated] = useState<Record<string, { value: string; source: string }>>({})
   const [caseName, setCaseName] = useState('Base case (chain)')
   const [formFor, setFormFor] = useState<string | null>(null)
+  const [openRun, setOpenRun] = useState<string | null>(null)
 
   if (!pid || pid === 'all') return <div className="p-6 text-sm">Select a project.</div>
   if (chain.isLoading) return <div className="p-6 text-sm">Loading the calculation chain…</div>
@@ -151,7 +154,9 @@ export function CalculationChain() {
   const P = encodeURIComponent(pid)
   const isReviewer = !!d.viewer?.is_appointed_reviewer
   const reviewed = d.tea_base_cases.filter((b: any) => b.state === 'verified' && b.review_basis === 'INDEPENDENT')
-  const latestFin = d.financing_cases[d.financing_cases.length - 1]
+  const eligibleFins = d.financing_cases.filter((f: any) => (f.status ?? 'ELIGIBLE') === 'ELIGIBLE')
+  const latestFin = eligibleFins[eligibleFins.length - 1]
+  const latestOfCase = (f: any) => d.financing_cases.filter((g: any) => g.case_id === f.case_id).slice(-1)[0]?.version_id === f.version_id
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-6">
@@ -172,12 +177,16 @@ export function CalculationChain() {
             {d.cost_bases.map((c: any) => (
               <tr key={c.version_id} className="border-t border-[var(--border)]">
                 <td className="py-1 font-semibold">v{c.version_number}</td>
-                <td>{c.molecule} · {c.result.product.nameplate_t_per_year.toLocaleString('en-GB')} t/yr nameplate · run time {c.configuration.capacity_factor}</td>
+                <td>{c.molecule} · {c.result.product.nameplate_t_per_year.toLocaleString('en-GB')} t/yr nameplate · run time {c.configuration.capacity_factor}
+                  {c.configuration.workbook && <> · from workbook · {c.configuration.detail_level}</>}</td>
                 <td>CAPEX {eur(c.result.capex.total_capex_eur)} · OPEX {eur(c.result.opex.total_annual_opex_eur)}/yr</td>
                 <td>saved by {c.saved_by}</td>
                 <td className="font-mono">{c.content_sha256.slice(0, 10)}</td>
                 <td>{!isReviewer && <button type="button" className={button} disabled={busy}
-                  onClick={() => setFormFor(formFor === c.version_id ? null : c.version_id)}>Run TEA from v{c.version_number}…</button>}</td>
+                  onClick={() => setFormFor(formFor === c.version_id ? null : c.version_id)}>Run TEA from v{c.version_number}…</button>}
+                  {!isReviewer && c.configuration.workbook?.tea_stated && <button type="button" className={`${button} ml-1`} disabled={busy}
+                    onClick={() => act(() => api(`/api/v1/cost-basis/${P}/${c.version_id}/tea`, { method: 'POST', body: JSON.stringify({ stated_from_workbook: true }) }),
+                      'TEA run with the workbook\'s TEA inputs. It awaits review.')}>Run TEA with the workbook's inputs</button>}</td>
               </tr>
             ))}
           </tbody>
@@ -186,6 +195,7 @@ export function CalculationChain() {
           onRun={stated => act(() => api(`/api/v1/cost-basis/${P}/${formFor}/tea`, { method: 'POST', body: JSON.stringify({ stated }) }),
             'TEA run from the saved cost basis. It awaits review.').then(done => { if (done) setFormFor(null) })} />}
         {!isReviewer && <Link className="text-xs text-[var(--brand)] underline" to="/finance-plant-builder">Open Cost Basis to save a new version</Link>}
+        {!isReviewer && <CostWorkbook projectId={pid} onSaved={m => { setMsg(m); refresh() }} />}
       </Step>
 
       <Step n={2} name="TEA — run from a saved cost basis, then reviewed" why="Why: the TEA prices the same plant with published cost correlations (OpenPyTEA). Its inputs are derived from the saved cost basis, not typed. A run counts only once someone other than who ran it has reviewed it, and the review says whether it was independent.">
@@ -196,8 +206,16 @@ export function CalculationChain() {
             <div key={b.claim_id} className="border-t border-[var(--border)] pt-2 text-xs space-y-1" data-testid="tea-run">
               <div className="font-semibold">{b.claim_id} · from cost basis v{cb?.version_number} · <span className="uppercase">{b.state}</span>
                 {b.review_basis && <> · {reviewLabel(b.review_basis)} by {b.approved_by}</>}</div>
-              <div>{b.engine} {b.engine_version} · {b.result_status} · CAPEX {eur(b.capex_eur)} · OPEX {eur(b.opex_eur_per_year)}/yr · LCOP {b.lcop?.toFixed?.(2)} · run by {b.run_by}</div>
+              <div>{b.engine} {b.engine_version} · {b.result_status} · CAPEX {eur(b.capex_eur)} · OPEX {eur(b.opex_eur_per_year)}/yr · LCOP {b.lcop?.toFixed?.(2)} · run by {b.run_by}
+                {b.report && <> · <span className="font-mono">{b.report.ref}</span></>} <InputsChip status={b.inputs_now} /></div>
+              <button type="button" className={button} aria-expanded={openRun === b.claim_id}
+                onClick={() => setOpenRun(openRun === b.claim_id ? null : b.claim_id)}>{openRun === b.claim_id ? 'Hide results' : 'Results'}</button>
+              {openRun === b.claim_id && <TeaRunReport b={b} />}
               {!!b.review_conditions?.length && <div>Review conditions: {b.review_conditions.join(' · ')}</div>}
+              {b.tea_inputs && <div className="flex gap-2">
+                <button type="button" className={button} onClick={() => downloadTeaWorkbook(pid, b.claim_id).catch(e => setMsg((e as Error).message))}>Download TEA workbook</button>
+                <button type="button" className={button} onClick={() => download(`/api/v1/calculation-chain/${P}/tea/${b.claim_id}/openpytea-config`, `${b.claim_id}_openpytea.json`).catch(e => setMsg((e as Error).message))}>OpenPyTEA config (JSON)</button>
+              </div>}
               <Checks checks={b.reconciliation} />
               {(b.tea_inputs?.defaults_used || []).length > 0 && (
                 <details><summary className="cursor-pointer">OpenPyTEA defaults this run still used ({b.tea_inputs.defaults_used.length}) — listed as assumptions</summary>
@@ -223,10 +241,18 @@ export function CalculationChain() {
       </Step>
 
       {isReviewer ? <div className="rounded border border-[var(--border)] p-3 text-xs text-[var(--text-secondary)]">{d.withheld}</div> : <>
-      <Step n={3} name="Financing case — on one independently reviewed TEA" why="Why: debt is sized against the reviewed CAPEX, not a typed figure. Only a TEA reviewed by an appointed independent engineer qualifies. Each term states its source; none is verified until a lender confirms it.">
+      <Step n={3} name="Financing case — drafts, then promoted on one independently reviewed TEA" why="Why: debt is sized against the reviewed CAPEX, not a typed figure. A draft records indicative terms before that review, with what stops it stated; only a case promoted on a TEA reviewed by an appointed independent engineer can feed returns. Each term states its source; none is verified until a lender confirms it.">
         {d.financing_cases.map((f: any) => (
-          <div key={f.version_id} className="text-xs border-t border-[var(--border)] pt-1">
-            <span className="font-semibold">v{f.version_number}</span> on {f.tea_claim_id} · FCI {eur(f.fci_eur)} · debt {eur(f.debt_eur)} ({(f.debt_eur / f.fci_eur * 100).toFixed(0)}%) · {(f.interest_rate * 100).toFixed(2)}% · {f.debt_tenor_years} yr · grant {eur(f.grant_eur)} · <span className="font-mono">{f.content_sha256.slice(0, 10)}</span>
+          <div key={f.version_id} className="text-xs border-t border-[var(--border)] pt-1 space-y-0.5" data-testid="financing-version">
+            <div><span className="font-semibold">v{f.version_number}</span>{' '}
+              <span className={`rounded px-1 font-semibold ${f.status === 'DRAFT' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>{f.status ?? 'ELIGIBLE'}</span>
+              {' '}case <span className="font-mono">{String(f.case_id).slice(0, 8)}</span> · on {f.tea_claim_id ?? 'no TEA run'} · FCI {eur(f.fci_eur)} · debt {eur(f.debt_eur)}{f.debt_eur != null && f.fci_eur ? ` (${(f.debt_eur / f.fci_eur * 100).toFixed(0)}%)` : ''} · {f.interest_rate != null ? `${(f.interest_rate * 100).toFixed(2)}%` : 'rate —'} · {f.debt_tenor_years ?? '—'} yr · grant {eur(f.grant_eur)} · <span className="font-mono">{f.content_sha256.slice(0, 10)}</span></div>
+            {(f.limitations || []).length > 0 && <ul className="ml-4 list-disc text-amber-900">{f.limitations.map((l: any) => <li key={l.code}>{l.detail}</li>)}</ul>}
+            <FundingSummary f={f.funding} />
+            <div className="text-[var(--text-muted)]">Terms: {Object.entries(f.terms || {}).map(([k, t]: [string, any]) => `${k} ${t.value} (${t.source}${t.standing ? `, ${t.standing}` : ''}${t.as_of ? `, ${t.as_of}` : ''})`).join(' · ')}</div>
+            {f.status === 'DRAFT' && latestOfCase(f) && !isReviewer && <button type="button" className={button} disabled={busy}
+              onClick={() => act(() => api(`/api/v1/calculation-chain/${P}/financing/${f.version_id}/promote`, { method: 'POST' }),
+                'Promoted: a new eligible version of the same case.')}>Promote to eligible</button>}
           </div>
         ))}
         {reviewed.length === 0 ? <div className="text-xs text-[var(--text-muted)]">Needs a TEA base case reviewed by an appointed independent engineer first.</div> : (
@@ -243,7 +269,7 @@ export function CalculationChain() {
       </Step>
 
       <Step n={4} name="Returns — published from the chain" why="Why: FCI and OPEX are the reviewed TEA's, operating life the cost basis's, debt the financing case's. You state only what the chain does not hold, each with a source; the version stores the source versions, every check and every remaining assumption.">
-        {!latestFin ? <div className="text-xs text-[var(--text-muted)]">Needs a financing case first.</div> : (
+        {!latestFin ? <div className="text-xs text-[var(--text-muted)]">Needs an eligible financing case first (a draft does not feed returns).</div> : (
           <div className="space-y-1">
             <div className="text-xs">From financing case v{latestFin.version_number}</div>
             <label className="text-xs">Case name<input className="ml-1 rounded border px-2 py-1" value={caseName} onChange={e => setCaseName(e.target.value)} /></label>

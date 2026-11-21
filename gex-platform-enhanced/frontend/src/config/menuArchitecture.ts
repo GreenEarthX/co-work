@@ -508,6 +508,8 @@ export const CISO_ITEMS: MenuItem[] = [
 // only — navigation, not access: the server refuses anyone not is_platform_admin.
 export const GEX_STAFF_ITEMS: MenuItem[] = [
   { id: 'gex-console', path: '/gex-console', label: 'GEX Staff Console', section: 'GEX STAFF', visible_to: [TP('PLATFORM')] },
+  { id: 'gex-gabillon-parameters', path: '/gex-console/gabillon', label: 'Gabillon parameters', section: 'GEX STAFF', visible_to: [TP('PLATFORM')] },
+  { id: 'gex-tea-parameters', path: '/gex-console/tea-parameters', label: 'TEA parameters', section: 'GEX STAFF', visible_to: [TP('PLATFORM')] },
 ];
 
 export function cisoMenuItems(role: Pick<UserRole, 'service_type'> | null | undefined): MenuItem[] {

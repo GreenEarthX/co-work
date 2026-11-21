@@ -1425,6 +1425,52 @@ def _check_frame_buyers(project_id: str, buyers: list[dict]) -> None:
         raise TermsValidationError(problems)
 
 
+def save_card(project_id: str, card_type: str, clean: dict, who: str, company_id: str | None,
+              also=None) -> bool:
+    """Save one validated card into the contract record; True if it changed. The caller has
+    authorised the owner. Used by PUT /terms and by the workbook (routes_calculation_chain).
+    `also(conn)` writes in the SAME transaction (the workbook's import row): both or neither."""
+    from app.core.contract_tokens import TokenRefusal, card_terms, record_versions
+
+    new_json = json.dumps(clean, sort_keys=True)
+    # The record IS the card store (Phase 3, Q9; commitment_terms retired by alembic
+    # 093): the save writes the changed contracts' versions and nothing else. The
+    # owner has been authorised by the caller; the record's rows are written as
+    # the operator, in ONE transaction: the card is saved whole or not at all, and
+    # until the counterparty (or appointed reviewer) confirms a version its changed
+    # fields do not reach the engine.
+    conn = _get_db()
+    conn.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
+    cards = card_terms(project_id, conn=conn)
+    old_json = json.dumps(cards.get(card_type) or {}, sort_keys=True)   # no card yet reads as empty
+    if old_json != new_json:
+        cards[card_type] = clean
+        try:
+            record_versions(project_id, cards, who, company_id, conn=conn, card_type=card_type)
+        except TokenRefusal as exc:          # a rule of the record (e.g. a locked market sub-leg): nothing saved
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": exc.message})
+        except Exception as exc:  # noqa: BLE001 — nothing saved, and the caller is told
+            conn.rollback()
+            conn.close()
+            logger.warning("card for %s not saved: its contract version could not be recorded: %s",
+                           project_id, exc)
+            raise HTTPException(status_code=503, detail={
+                "code": "CONTRACT_RECORD_UNAVAILABLE",
+                "message": "The card was not saved: its contract version could not be recorded."})
+    if also is not None:
+        try:
+            also(conn)
+        except Exception:
+            conn.rollback()
+            conn.close()
+            raise
+    conn.commit()
+    conn.close()
+    return old_json != new_json
+
+
 @router.put("/terms")
 async def put_commitment_terms(request: TermsWriteRequest,
                                authorization: str | None = Header(default=None)):
@@ -1444,41 +1490,10 @@ async def put_commitment_terms(request: TermsWriteRequest,
             "code": "TERMS_INVALID", "problems": exc.problems,
             "message": "The card was not saved: " + "; ".join(exc.problems)})
 
-    from app.core.contract_tokens import TokenRefusal, card_terms, record_versions
-
     who = actor.get("user_id") or actor.get("email") or "unknown"
-    new_json = json.dumps(clean, sort_keys=True)
-    # The record IS the card store (Phase 3, Q9; commitment_terms retired by alembic
-    # 093): the save writes the changed contracts' versions and nothing else. The
-    # owner has been authorised above (_owner_gate); the record's rows are written as
-    # the operator, in ONE transaction: the card is saved whole or not at all, and
-    # until the counterparty (or appointed reviewer) confirms a version its changed
-    # fields do not reach the engine.
-    conn = _get_db()
-    conn.execute("SET LOCAL app.current_company_id = 'PLATFORM_ADMIN'")
-    cards = card_terms(request.project_id, conn=conn)
-    old_json = json.dumps(cards.get(request.card_type) or {}, sort_keys=True)   # no card yet reads as empty
-    if old_json != new_json:
-        cards[request.card_type] = clean
-        try:
-            record_versions(request.project_id, cards, who, actor.get("company_id"), conn=conn,
-                            card_type=request.card_type)
-        except TokenRefusal as exc:          # a rule of the record (e.g. a locked market sub-leg): nothing saved
-            conn.rollback()
-            conn.close()
-            raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": exc.message})
-        except Exception as exc:  # noqa: BLE001 — nothing saved, and the caller is told
-            conn.rollback()
-            conn.close()
-            logger.warning("card for %s not saved: its contract version could not be recorded: %s",
-                           request.project_id, exc)
-            raise HTTPException(status_code=503, detail={
-                "code": "CONTRACT_RECORD_UNAVAILABLE",
-                "message": "The card was not saved: its contract version could not be recorded."})
-    conn.commit()
-    conn.close()
+    changed = save_card(request.project_id, request.card_type, clean, who, actor.get("company_id"))
     reevaluation = None
-    if old_json != new_json:
+    if changed:
         # A term change can pass or fail a cross-contract check: re-evaluate now.
         # The card is saved either way; an engine outage withdraws the stored
         # state (fail closed) rather than leaving it standing for old terms.
@@ -1488,7 +1503,7 @@ async def put_commitment_terms(request: TermsWriteRequest,
         except HTTPException as exc:
             reevaluation = {"error": exc.detail, "state_withdrawn": True}
     return {"project_id": request.project_id, "card_type": request.card_type, "terms": clean,
-            "changed": old_json != new_json, "updated_by": who, "reevaluation": reevaluation}
+            "changed": changed, "updated_by": who, "reevaluation": reevaluation}
 
 
 @router.get("/terms/events")
