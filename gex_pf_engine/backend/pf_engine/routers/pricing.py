@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, Field
 
 from pf_engine.pricing.gabillon.schemas import (
     CalibrationResponse,
@@ -22,6 +23,32 @@ from pf_engine.pricing.offtake.schemas import (
 from pf_engine.pricing.offtake.service import OfftakeService
 
 router = APIRouter(prefix="/pf", tags=["Gabillon — Project Calibration & Offtake (per project)"])
+
+
+class IndexPoint(BaseModel):
+    year: int
+    value: float = Field(gt=0)
+
+
+class IndexForwardRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    index_name: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    series: list[IndexPoint] = Field(min_length=10)
+    horizon_years: int = Field(default=5, ge=1, le=15)
+
+
+@router.post("/index/forward", summary="P-measure forward of a published index (Gabillon, calibrated to its history)")
+def index_forward(payload: IndexForwardRequest) -> dict[str, Any]:
+    """Calibrate the Gabillon two-factor model to an index's history (Kalman maximum likelihood)
+    and return E_P[index] and a 90% band for each year after the last published one. Built for
+    CEPCI (JML, 20 Nov 2026): a quote dated after the last published year needs its year's index."""
+    from pf_engine.pricing.gabillon.history import history_forward
+    try:
+        return history_forward([p.model_dump() for p in payload.series], payload.horizon_years,
+                               payload.index_name, payload.source)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 curve_service = GabillonService()
 offtake_service = OfftakeService(curve_service)

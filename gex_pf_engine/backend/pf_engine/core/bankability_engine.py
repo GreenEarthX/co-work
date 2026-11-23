@@ -86,6 +86,14 @@ from typing import Optional
 #                      accepted. (6) Every item carries lenses (PRODUCER,
 #                      OFFTAKER, CAPITAL, CERTIFIER); OFFTAKER becomes a persona.
 #                      (7) G1 renamed "Power, Utilities & Technology Basis".
+#   4.9.0 (2026-11-17) STRICTER — can lower a state (handoff v4, task 6, JML). G8 keeps every
+#                      model-quality requirement and gains one: `engine_returns_case` — the
+#                      returns case and debt metrics are computed by the engine on the
+#                      reviewed TEA base case, with calculation provenance, and published
+#                      as a case version. Engine computation is necessary, not sufficient:
+#                      the item is verified by the reviewer of G8 like any other, and no
+#                      gate ever checks whether a figure clears a hurdle. Applies to every
+#                      project (it protects the sponsor's capital too). 93 -> 94 items.
 #   4.8.0 (2026-10-31) JML: REFINANCING_ELIGIBLE becomes reachable. It was a state with no
 #                      requirements ("requires OPERATIONAL + time"), so nothing could ever
 #                      reach it while G11 already made refinancing capital eligible. It
@@ -174,7 +182,7 @@ from typing import Optional
 #                      approval, financial close and drawdown, and conditional
 #                      commitments lapse. The identifier is unchanged.
 
-EVIDENCE_RULES_VERSION = "4.8.0"
+EVIDENCE_RULES_VERSION = "4.9.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -776,6 +784,7 @@ GATES = [
         "accountable_functions": ["FINANCE", "LENDERS"],
         "required_evidence": [
             "base_case_model",
+            "engine_returns_case",
             "model_audit_opinion",
             "downside_cases",
             "covenant_suite_defined",
@@ -975,6 +984,7 @@ _G2_G11_META: list[tuple[str, str, str, str, str, str]] = [
     ("deductibles_accepted", "Deductible Levels Accepted by Lenders", "B", "Lender Terms", "TREASURY", "Uninsured loss retained by the project"),
     ("exclusions_register_reviewed", "Exclusions Register Reviewed", "B", "Lender Terms", "LEGAL", "Risks the programme will not pay for"),
     ("base_case_model", "Locked Base-Case Financial Model", "A", "Model", "FINANCE", "Every DSCR a lender reads"),
+    ("engine_returns_case", "Returns Case & Debt Metrics Engine-Computed on the Reviewed TEA Base Case", "B", "Model", "FINANCE", "Figures a lender reads trace to one published case with its provenance; no hurdle is checked here"),
     ("model_audit_opinion", "Model Audit Opinion — Issued", "A", "Model", "FINANCE", "Credit-committee reliance on the model"),
     ("downside_cases", "Lender Downside Cases", "B", "Cases & Covenants", "FINANCE", "Debt sizing under stress"),
     ("covenant_suite_defined", "Covenant Suite Defined", "B", "Cases & Covenants", "FINANCE", "Lock-up and default triggers"),
@@ -1174,7 +1184,7 @@ EVIDENCE_LENSES: dict[str, list[str]] = {
     "deductibles_accepted": [_C], "exclusions_register_reviewed": [_P, _C],
     "foak_exclusions_warranty_backstop": [_P, _C],
     # G8
-    "base_case_model": [_C], "model_audit_opinion": [_C], "downside_cases": [_C],
+    "base_case_model": [_C], "engine_returns_case": [_C], "model_audit_opinion": [_C], "downside_cases": [_C],
     "covenant_suite_defined": [_C], "dsra_maintenance_reserve_logic": [_C], "hedging_plan": [_C],
     "model_consistency_with_ie": [_C],
     # G9

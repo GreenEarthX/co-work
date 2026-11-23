@@ -9,6 +9,7 @@ from decimal import Decimal
 import json
 
 from pf_engine.core import dscr_guard
+from pf_engine.core.returns import irr
 
 # Event store integration (will connect to shared event store)
 class EventEmitter:
@@ -383,7 +384,11 @@ class ProjectFinanceEngine:
                 "total_cfads": total_cfads,
                 "total_debt_service": annual_debt_service * tenor_years,
                 "total_equity_distributions": total_cfads - (annual_debt_service * tenor_years),
-                "project_irr": "TBD",  # Would need NPV calculation
+                # Unlevered, capex at year 0, operations over the debt tenor only,
+                # no terminal value. core/returns.py has the full set.
+                "project_irr": irr([-total_capex] + [y["cfads"] for y in years]),
+                "project_irr_basis": "unlevered; capex at year 0; operations over the "
+                                     "debt tenor; no terminal value",
                 "bankable": min_dscr >= 1.2  # Conservative threshold
             }
         }

@@ -7,12 +7,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pf_engine.api.validation import FiniteModel
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 from datetime import date
 
 from pf_engine.core.engine import ProjectFinanceEngine
 from pf_engine.core.cfads import CFADSCalculator
 from pf_engine.core.waterfall import CashFlowWaterfall
+from pf_engine.core.returns import compute_returns
 
 router = APIRouter()
 
@@ -81,6 +82,50 @@ class LifetimeModelRequest(FiniteModel):
     interest_rate: float
     tenor_years: int
     operations_start_year: int = 2027
+
+
+class ReturnsRequest(FiniteModel):
+    """Inputs to core/returns.py. FCI is the CAPEX committed at year 0; pre-FID
+    spend is listed oldest year first and falls before year 0."""
+    fci_eur: float
+    operating_years: int
+    revenue_y1_eur: float
+    opex_y1_eur: float
+    tax_rate: float
+    depreciation_years: int
+    revenue_growth: float = 0.0
+    opex_growth: float = 0.0
+    maintenance_capex_eur: float = 0.0
+    residual_value_eur: float = 0.0
+    pre_fid_spend_eur: List[float] = []
+    # CAPEX by year from FID (year 0 first). Must total fci_eur and hold no pre-FID
+    # spend. Empty gives the labelled screening case (FCI in full at year 0).
+    construction_schedule_eur: List[float] = []
+    # Months from FID to COD. Default: the end of the last construction year. Not a
+    # multiple of 12 gives a pro-rated first and last operating year.
+    cod_months_after_fid: Optional[int] = None
+    ramp_up: List[float] = []            # output share, first operating years
+    opex_variable_share: float = 0.0     # share of OPEX that scales with output
+    debt_eur: float = 0.0
+    interest_rate: float = 0.0
+    debt_tenor_years: int = 0
+    grant_eur: float = 0.0
+    # Hurdle rate: state cost_of_equity, or give the three build-up terms.
+    cost_of_equity: Optional[float] = None
+    risk_free_rate: Optional[float] = None
+    equity_beta: Optional[float] = None
+    equity_risk_premium: Optional[float] = None
+    country_risk_premium: float = 0.0
+    technology_risk_premium: float = 0.0
+    project_risk_premium: float = 0.0
+    # Which case this is (handoff v4, task 8). FROM_FID excludes pre-FID spend as
+    # sunk and is never a full-project return. The scenario names the case
+    # (BASE, DOWNSIDE …); the engine computes, the owner publishes.
+    valuation_boundary: Literal["FULL_PROJECT", "FROM_FID"] = "FULL_PROJECT"
+    scenario: str = "BASE"
+    # Sources the caller states: {"tea_case": {...}, "assumptions": [{name, value,
+    # source, verification_status}]}. Echoed in the result's provenance.
+    provenance_inputs: Optional[Dict] = None
 
 
 class CovenantCheckRequest(FiniteModel):
@@ -266,6 +311,21 @@ async def model_lifetime(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/returns/calculate")
+async def calculate_returns(request: ReturnsRequest, project_id: str = "default"):
+    """
+    Unlevered and levered IRR, NPV, payback, ROI, ROE and the hurdle rate test.
+    With a construction schedule the result is the scheduled case and carries
+    the screening case (FCI at year 0) beside it.
+    Definitions and limitations travel with the result.
+    """
+    try:
+        result = compute_returns(**request.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"success": True, "project_id": project_id, "returns": result}
 
 
 @router.post("/covenants/check")
