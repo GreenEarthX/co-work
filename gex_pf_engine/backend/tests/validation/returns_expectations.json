@@ -1,0 +1,145 @@
+{
+  "method": "docs/validation/returns_expectations.md",
+  "tolerances": {
+    "irr": 1e-05,
+    "npv_relative": 1e-06,
+    "ratio": 1e-06,
+    "payback": 0.0001
+  },
+  "cases": {
+    "REFERENCE_BREIZH_SAF": {
+      "source": "Breizh SAF Project Workbook v1.4 (pre-COD), sheets Project Data, Financial Model, Capital Stack. Reference case only. Values not in the workbook are marked ASSUMED.",
+      "inputs": {
+        "fci_eur": 285000000.0,
+        "pre_fid_spend_eur": [
+          18500000.0
+        ],
+        "construction_schedule_eur": [
+          142500000.0,
+          142500000.0
+        ],
+        "cod_months_after_fid": 24,
+        "operating_years": 25,
+        "revenue_y1_eur": 52000000.0,
+        "revenue_growth": 0.02,
+        "opex_y1_eur": 20800000.0,
+        "opex_growth": 0.0,
+        "opex_variable_share": 0.6057692307692307,
+        "tax_rate": 0.25,
+        "depreciation_years": 20,
+        "debt_eur": 195000000.0,
+        "interest_rate": 0.055,
+        "debt_tenor_years": 15,
+        "grant_eur": 20000000.0,
+        "maintenance_capex_eur": 0.0,
+        "residual_value_eur": 0.0,
+        "cost_of_equity": 0.12,
+        "project_risk_premium": 0.02
+      },
+      "expected": {
+        "unlevered_irr": 0.08558494900801536,
+        "levered_irr": 0.12760126410464595,
+        "npv_unlevered_eur": -785275.4638210814,
+        "npv_levered_eur": 9195264.216923418,
+        "payback_years": 11.84263656366873,
+        "equity_payback_years": 9.969714608044368,
+        "roi_avg_annual": 0.08323646645222056,
+        "roi_cumulative": 2.0809116613055143,
+        "roe_avg_annual": 0.21907329052199057,
+        "dscr_min": 1.5378088753138823,
+        "dscr_avg": 1.789437227397282,
+        "llcr": 1.7530318297040153,
+        "wacc_after_tax": 0.06583333333333333,
+        "project_hurdle": 0.08583333333333333,
+        "idc_eur": 13612500.0
+      }
+    },
+    "WEAK_INVENTED": {
+      "source": "Invented: a project that does not cover its costs of capital.",
+      "inputs": {
+        "fci_eur": 100000000.0,
+        "pre_fid_spend_eur": [
+          2000000.0,
+          3000000.0
+        ],
+        "construction_schedule_eur": [],
+        "cod_months_after_fid": null,
+        "operating_years": 20,
+        "revenue_y1_eur": 9000000.0,
+        "revenue_growth": 0.0,
+        "opex_y1_eur": 4000000.0,
+        "opex_growth": 0.0,
+        "opex_variable_share": 0.0,
+        "tax_rate": 0.25,
+        "depreciation_years": 20,
+        "debt_eur": 60000000.0,
+        "interest_rate": 0.07,
+        "debt_tenor_years": 15,
+        "grant_eur": 0.0,
+        "maintenance_capex_eur": 0.0,
+        "residual_value_eur": 0.0,
+        "cost_of_equity": 0.14,
+        "project_risk_premium": 0.03
+      },
+      "expected": {
+        "unlevered_irr": -0.0045739086635031715,
+        "levered_irr": -0.06729114344507318,
+        "npv_unlevered_eur": -68521581.87836204,
+        "npv_levered_eur": -53366168.969188236,
+        "payback_years": null,
+        "equity_payback_years": null,
+        "roi_avg_annual": -0.002380952380952381,
+        "roi_cumulative": -0.047619047619047616,
+        "roe_avg_annual": -0.04868351358989546,
+        "dscr_min": 0.7589928337590958,
+        "dscr_avg": 0.7589928337590959,
+        "llcr": 0.7589928337590953,
+        "wacc_after_tax": 0.09,
+        "project_hurdle": 0.12,
+        "idc_eur": 0.0
+      }
+    },
+    "OPERATING_INVENTED": {
+      "source": "Invented: an operating plant valued with no construction period, with maintenance capex and a residual value.",
+      "inputs": {
+        "fci_eur": 50000000.0,
+        "pre_fid_spend_eur": [],
+        "construction_schedule_eur": [],
+        "cod_months_after_fid": null,
+        "operating_years": 20,
+        "revenue_y1_eur": 14000000.0,
+        "revenue_growth": 0.015,
+        "opex_y1_eur": 5000000.0,
+        "opex_growth": 0.02,
+        "opex_variable_share": 0.0,
+        "tax_rate": 0.3,
+        "depreciation_years": 15,
+        "debt_eur": 30000000.0,
+        "interest_rate": 0.05,
+        "debt_tenor_years": 10,
+        "grant_eur": 0.0,
+        "maintenance_capex_eur": 500000.0,
+        "residual_value_eur": 5000000.0,
+        "cost_of_equity": 0.1,
+        "project_risk_premium": 0.01
+      },
+      "expected": {
+        "unlevered_irr": 0.1329493252500112,
+        "levered_irr": 0.19889789583149645,
+        "npv_unlevered_eur": 27518404.35374855,
+        "npv_levered_eur": 20183707.25720806,
+        "payback_years": 7.102588431749821,
+        "equity_payback_years": 5.779075718841379,
+        "roi_avg_annual": 0.10657114331649103,
+        "roi_cumulative": 2.031422866329821,
+        "roe_avg_annual": 0.2509379564343628,
+        "dscr_min": 1.8660859412196642,
+        "dscr_avg": 1.910307302975457,
+        "llcr": 1.9065276524878785,
+        "wacc_after_tax": 0.061000000000000006,
+        "project_hurdle": 0.07100000000000001,
+        "idc_eur": 0.0
+      }
+    }
+  }
+}

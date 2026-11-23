@@ -1,213 +1,76 @@
-# GreenEarthX Platform — v6.1
+# GreenEarthX (GEX) platform
 
-Production-grade orchestration platform for green fuels (H₂, NH₃, SAF, e-MeOH) — covering production, commercial, finance, compliance, and operations. Architecture as of **March 2026**.
+GEX takes green-fuel projects (hydrogen, ammonia, e-methanol, SAF and biofuels) from
+concept to committed capital and then to traded, delivered product. It keeps one
+evidence record per project. Independent reviewers verify it, the PF engine judges
+it against twelve bankability gates (G0–G11), and the market, contracts and custody
+ledger build on the same record.
 
-Strategic direction: see [docs/OBJECTIVE_LED_PRODUCT_PATHWAY.md](docs/OBJECTIVE_LED_PRODUCT_PATHWAY.md) for the short objective-led product pathway and [docs/MOLECULE_TO_ASSET_KILLER_PROMPT.md](docs/MOLECULE_TO_ASSET_KILLER_PROMPT.md) for the investor-side molecule-to-asset thesis and reusable prompt.
+**State on 22 Nov 2026:**
+
+| | |
+|---|---|
+| Branch | `main` |
+| Migration head | 129 |
+| Evidence rules | 4.9.0 |
+| Database | PostgreSQL only: 178 tables, 171 under forced row-level security |
+| Platform tests | 2124 pass / 15 skip / 0 fail (21 Nov) |
+| Frontend tests | 346 |
+
+Counts move, so re-measure before quoting them.
 
 ---
 
-## Architecture
+## Services
 
 ```text
-Browser (port 3000)
-  │
-  ▼
-Frontend  Vite + React 18 + TypeScript + Tailwind CSS
-  │  /api/* proxied to 8000
-  ▼
-Platform Backend  FastAPI + SQLite                port 8000
-  │
-  ▼
-Finance Engine  gex_pf_engine (microservice)      port 8001
+Browser ──► Frontend :3000  (Vite + React + TypeScript; /api proxied to :8000)
+               │
+               ▼
+          Platform API :8000  (FastAPI) ──► PostgreSQL :55432  (role gex_app, RLS applies)
+               │
+               ├──► PF engine :8001   gates, project finance, Gabillon  (sibling repo gex_pf_engine)
+               └──► TEA engine :8002  techno-economic assessment, OpenPyTEA 3.2.3 (stateless)
 ```
 
----
+## Repository layout
 
-## Navigation Model (v6.1 — Top-Bar Dropdowns)
+| Path | What it is |
+|---|---|
+| `backend/app/` | Platform API. Routes are in `api/v1/`, rules in `core/`, the contract record in `trading_book/`. |
+| `backend/alembic/` | Migrations. Upgrade with `auth_slice@head` (`docs/OPERATIONS.md` §6). |
+| `backend/tests/` | Platform tests. Export both database URLs before running. |
+| `backend/scripts/` | Operational and one-off data scripts. |
+| `frontend/src/` | React app. Navigation is in `config/menuArchitecture.ts`; every API call goes through `lib/fetchAuthBridge` / `api.ts`. |
+| `tea_engine/` | TEA service. |
+| `deal_engine/` | Deal computation. Dormant: no caller. Not a copy of `gex_pf_engine`. |
+| `efuel_truth_stack/` | Event-sourced reference core (in-memory, tests only). |
+| `docs/` | See below. |
 
-Five role-filtered top-bar dropdown menus replace the old workspace sidebar:
+## Start here
 
-| Tab | Who sees it | Key items |
-| --- | --- | --- |
-| **Projects** | All | Task Flow, Status & Blockers, Plant Builder, Telemetry |
-| **Commercial** | Producer/Offtaker/Bank | Market Discovery, Supply Offers, Demand Pipeline, Contracts |
-| **Finance** | Producer FT / Bank / Insurer | Bankability Status, Capital Stack, IC Pack, Deal Room |
-| **Compliance** | All | Cert Readiness, Evidence Hierarchy, Audit Trail |
-| **Operations** | All | Project Timeline, CEO Report, Plant Telemetry, Performance Matrix |
+| To… | Read |
+|---|---|
+| set up a development stack | `docs/SETUP.md` |
+| run, back up, restore, migrate, deploy | `docs/OPERATIONS.md` |
+| answer a security questionnaire, or prepare the public server | `docs/SECURITY.md` |
+| work on the code (agents load this) | `.claude/CLAUDE.md` |
+| know the current state, open defects and decisions | `docs/CLAUDE_HANDOFF.md` (§8 known defects, §10 current task, §12 decisions) |
+| see the commercial gaps | `docs/COMMERCIAL_PLATFORM_GAP_REGISTER.md` |
+| explain the twelve gates to a client | `docs/GEX-12Gates-Multi-Party-Review_Good.docx` |
 
-A password-gated **CISO** gear (⚙) exposes security admin (Information Barriers, OT Gateways, Data Residency, Access Monitor).
+The documentation audit of 22 Nov 2026 (`files/DOCUMENTATION_AUDIT_2026-11-22.md`,
+outside this repository) lists which other documents in `docs/` are current and
+which are dated records.
 
-User role is selected on first visit (`/onboarding`) and persisted to `localStorage`. Items are filtered per `company_type × business_function × service_type`.
+## Rules that are easy to break
 
----
-
-## Quick Start
-
-### Prerequisites
-
-- Node 20+
-- Python 3.11+
-
-### 1. Finance Engine (port 8001)
-
-```bash
-cd ../gex_pf_engine/backend
-source ../micro_service/bin/activate
-uvicorn pf_engine.main:app --host 0.0.0.0 --port 8001 --reload
-```
-
-### 2. Platform Backend (port 8000)
-
-```bash
-cd backend
-source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 3. Frontend (port 3000)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000` — set your role on first visit.
-API docs: `http://localhost:8000/docs`
-
----
-
-## Architectural Reforms (v6.0 → v6.1)
-
-### v6.0 — Architectural Reform (R0–R10)
-
-| Ref | Reform | Key file |
-| --- | --- | --- |
-| R0  | Verification State Engine (UNVERIFIED / SUBMITTED / CONFIRMED / AUDITED) | `backend/app/core/verification.py` |
-| R1  | Deal-Killer System (8 pre-seeded fatal/critical blockers) | `backend/app/core/deal_killers.py` |
-| R2  | Verification-weighted gate scores (effective = raw × mean weight) | `backend/app/core/bankability_engine.py` |
-| R3  | Named Reviewer Gate (REVIEWED/EXPORTED require named human) | `backend/app/core/workflow.py` |
-| R4  | Provenance Banner on exports | `backend/app/core/provenance.py` |
-| R5  | Score Subordination (arc gauge → collapsible Advanced panel) | `frontend/src/features/finance/BankabilityScorePage.tsx` |
-| R6  | Task Router (decision-question entry per actor type) | `frontend/src/components/TaskRouter.tsx` |
-| R7  | Finance Dashboard landing replaced by Task Router | `frontend/src/features/finance/FinanceDashboardPage.tsx` |
-| R8  | 4-Column Supply Table (DELIVERY/CERT/LOGISTICS/COMMITMENT) | `frontend/src/features/trader/OfftakerSupplyTable.tsx` |
-| R9  | Evidence Hierarchy (per-gate AUDITED/CONFIRMED/SUBMITTED/UNVERIFIED) | `frontend/src/features/finance/EvidenceHierarchy.tsx` |
-| R10 | IC Pack Export Gate (5-condition hard gate) | `backend/app/api/v1/routes_deal_killers.py` |
-
-### v6.1 — Menu Architecture Reform
-
-- Replaced 6-workspace sidebar with 5 top-bar role-filtered dropdown menus
-- `UserRoleContext` (localStorage-persisted) drives all item visibility
-- `menuArchitecture.ts` is single source of truth for nav items + visibility rules
-- CISO workspace password-gated (`Enter-123` default, overridable via `gex_ciso_password` localStorage key)
-- Onboarding wizard shows RoleSelector on first visit
-- CEO portfolio reporting sits under `Operations`, not `Finance`, because it is an execution and delivery view first
-
----
-
-## Integrity Status (2026-04-05)
-
-The platform is now a credible orchestration shell, but it is not yet a single operational source of truth.
-
-### What is solid
-
-- Role-filtered top-bar navigation and route structure
-- Guided UX primitives: task router, deal-killers, evidence hierarchy, approvals, data room
-- Project-aware truth aggregation for dashboard and guided decision flows
-
-### Main integrity gaps
-
-- `backend/app` still contains a mirrored React tree (`App.tsx`, `main.tsx`, `components/`, `features/`), which creates frontend drift risk
-- `backend/app/core/project_truth.py` explicitly remains a transitional bridge, not the final database-backed truth service
-- `backend/app/api/v1/routes_structuring.py` and `backend/app/api/v1/routes_instruments.py` still rely on demo contexts for structuring outputs
-- `backend/app/main.py` still mounts many routers with soft-fail `...not found - skipping` startup behavior
-- Direct `CUSTOMER_PROJECTS` usage still exists in multiple frontend screens; see `GEX_DEPENDENCY_MAP.md`
-
-### Next improvement priorities
-
-1. Replace transitional project truth with one database-backed service for projects, gates, owners, blockers, instruments, and access scope.
-2. Remove the mirrored UI tree from `backend/app` and keep React source under `frontend/` only.
-3. Replace structuring demo contexts with project-truth-backed queries.
-4. Convert critical route loading from skip-on-missing to fail-fast or health-gated startup.
-5. Finish retiring direct `CUSTOMER_PROJECTS` imports from frontend screens.
-
----
-
-## Backend API
-
-| Prefix | Module | Description |
-| --- | --- | --- |
-| `/api/v1/capacities` | `capacity_sqlite.py` | Production capacity |
-| `/api/v1/tokens` | `tokens_sqlite.py` | Token minting & allocation |
-| `/api/v1/marketplace` | `marketplace_sqlite.py` | Offer discovery |
-| `/api/v1/matching` | `matching_sqlite.py` | Buyer/seller matching |
-| `/api/v1/contracts` | `contracts_sqlite.py` | Contract lifecycle |
-| `/api/v1/trader/rfqs` | `trader_rfqs.py` | RFQ management |
-| `/api/v1/finance` | `endpoints/finance.py` | Finance & risk |
-| `/api/v1/bankability` | `routes_bankability_proxy.py` | Proxy → gex_pf_engine |
-| `/api/v1/finance-model` | `routes_finance_model.py` | Proxy → gex_pf_engine |
-| `/api/v1/verification` | `routes_verification.py` | R0 verification state engine |
-| `/api/v1/deal-killers` | `routes_deal_killers.py` | R1 deal-killer system |
-| `/api/v1/task-flow` | `routes_task_router.py` | R6 task router flows |
-| `/api/v1/approvals` | `routes_approvals.py` | WAE workflow |
-| `/api/v1/commitments` | `routes_commitments.py` | CSS commitment signing |
-| `/api/v1/ic-pack` | `routes_ic_pack.py` | IC pack assembly |
-| `/api/v1/data-room` | `routes_data_room.py` | Virtual data room |
-| `/api/v1/ciso` | `routes_ciso.py` | CISO security & compliance |
-| `/api/v1/audit` | `audit.py` | Audit trails |
-
----
-
-## Frontend Structure
-
-```text
-frontend/src/
-├── main.tsx                       # Entry — wraps in UserRoleProvider
-├── App.tsx                        # Router + all route definitions
-├── config/
-│   └── menuArchitecture.ts        # Navigation tabs, items, visibility rules
-├── contexts/
-│   ├── UserRoleContext.tsx         # Role state (company/function/service)
-│   └── ProjectContext.tsx          # Selected project state
-├── components/
-│   ├── TopBar.tsx                  # 5 top-bar tabs + CISO gear
-│   ├── TopBarDropdown.tsx          # Role-filtered dropdown (React Router)
-│   ├── CISOGate.tsx                # Password modal
-│   ├── Layout.tsx                  # TopBar + full-width Outlet
-│   ├── RoleSelector.tsx            # Company/function/service picker
-│   ├── TaskRouter.tsx              # R6 decision-question flows
-│   ├── DealKillerBanner.tsx        # R1 non-dismissable fatal/critical banner
-│   ├── VerificationBadge.tsx       # R0 state badge (UNVERIFIED→AUDITED)
-│   └── ProvenanceBanner.tsx        # R4 export provenance header
-└── features/
-    ├── finance/                    # 25+ pages: BankabilityScorePage,
-    │                               #   EvidenceHierarchy, ICPackBuilder,
-    │                               #   BankersSnapshot, DSCRHeatmap, …
-    ├── trader/                     # OfftakerSupplyTable, TraderDashboard
-    ├── ciso/                       # CISODashboard, ABACManagement,
-    │                               #   BarrierManagement, GatewayStatus, …
-    ├── executive/                  # ExecutiveBankabilityDashboard, CFOReport
-    ├── producer/                   # ProducerBankabilityView, PlantDataDashboard
-    ├── regulator/                  # RegulatorDashboardPage
-    └── onboarding/                 # OnboardingWizard (RoleSelector step 0)
-```
-
----
-
-## Reference Documents (`_docs/`)
-
-| File | Description |
-| --- | --- |
-| `ANALYSIS.pages` | Platform analysis document |
-| `GEX-DATABASE_CONFIGURATION.pages` | Database schema design |
-| `Last Prompts March2.pages` | Agent prompt library |
-| `finance engine.pages` | Finance engine specification |
-| `bankability_schema.sql` | Bankability evidence schema |
-| `DATABASE_CONFIGURATION.pdf` | DB configuration reference |
-
----
+- **Never point `DATABASE_URL` at `gex_user`, the superuser.** It switches off tenant isolation.
+- **Migrations:** run them with `ALEMBIC_DATABASE_URL` exported, and upgrade to `auth_slice@head`.
+- **No SQLite path, and no Supabase.** Do not add either back; guard tests fail if you do.
+- **Gate figures come only from the PF engine.** Reference values are approved by a person on the GEX staff console, never by a script.
+- **The `co-work` mirror on GitHub is public.** No client data and no real secret go into this tree.
 
 ## License
 
-Proprietary — GreenEarthX
+Proprietary — GreenEarthX.

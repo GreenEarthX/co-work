@@ -322,3 +322,29 @@ def test_feed_units_are_isbl_and_without_osbl_lines_the_default_applies():
     cb = _cb()                                                 # no categories: no OSBL line recognised
     assert cc.osbl_rule(cb) is None
     assert "osbl_factor" not in cc.tea_request(cb, fuel_id="E_METHANOL", pathway_id="p", stated=STATED_TEA)["quote_plant"]
+
+
+# ── Who reads the chain (JML, 23 Nov 2026: the client's, not GEX staff's) ─────────
+
+@pytest.mark.parametrize("basis,appointed,allowed", [
+    ("owner", False, True),
+    ("platform_admin", False, False),      # GEX staff: R0P opens gates and evidence, not the chain
+    ("shared", False, False),              # a shared reader reads the returns version instead
+    ("none", True, True),                  # the independent engineer appointed on the project
+])
+def test_who_reads_the_chain(basis, appointed, allowed):
+    from app.api.v1.routes_calculation_chain import chain_read_allowed
+    assert chain_read_allowed(basis, appointed) is allowed
+
+
+def test_every_chain_read_route_uses_the_one_check():
+    import ast, inspect
+    from app.api.v1 import routes_calculation_chain as m
+    tree = ast.parse(inspect.getsource(m))
+    gets = [f for f in tree.body if isinstance(f, ast.FunctionDef) and any(
+        isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "get"
+        and getattr(d.func.value, "id", "") == "chain_router" for d in f.decorator_list)]
+    assert gets, "no GET routes found on chain_router"
+    for f in gets:
+        calls = {n.func.id for n in ast.walk(f) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        assert "_chain_reader" in calls, f"{f.name} reads the chain without _chain_reader"

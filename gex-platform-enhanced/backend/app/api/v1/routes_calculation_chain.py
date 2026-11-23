@@ -18,8 +18,10 @@ Three prefixes, because three different functions act (domain_authorization):
      POST   /financing                        save a financing case on a reviewed TEA
      POST   /returns                          publish a returns version built from the chain
 
-Rules: core/calculation_chain.py. Only the owner company writes (and GEX staff
-read). The reviewer is an appointed independent engineer or the owner's finance
+Rules: core/calculation_chain.py. Only the owner company writes. Only the owner and
+the appointed independent engineer read: the chain is the client's, and GEX staff
+do not read it (JML, 23 Nov 2026; R0P opens gates and evidence to them, nothing
+else). The reviewer is an appointed independent engineer or the owner's finance
 or executive function, never the person who saved the cost basis or ran the TEA.
 Every response is no-store. Nothing here is shown to a shared reader: a bank
 reads the returns version, which cites these records by id and hash.
@@ -820,14 +822,8 @@ def _report_status(bases: list[dict], cbs: list[dict]) -> None:
 @chain_router.get("/{project_id}")
 def read_chain(project_id: str, request: Request, response: Response, db: Any = Depends(get_db)):
     _no_store(response)
-    payload = payload_from_request(request) or {}
-    access = pre_fid_access.resolve(request, project_id)
-    reviewer = (access.basis not in ("owner", "platform_admin") and bool(payload.get("user_id"))
-                and _appointed_ie(payload["user_id"], access.project_id))
-    if access.basis not in ("owner", "platform_admin") and not reviewer:
-        raise HTTPException(status_code=403, detail={
-            "code": "OWNER_ONLY", "message": "The calculation chain is the owner's. A shared reader sees the "
-                                             "returns version, which cites it."})
+    access, payload = _chain_reader(request, project_id)
+    reviewer = access.basis != "owner"      # past the check, anyone else is the appointed engineer
     from app.core.plant_builder import EQUIPMENT_CATALOG
     catalogue = {i.id: i for i in EQUIPMENT_CATALOG}
     cbs = _read("cost_basis_version", access.project_id, access.owner_tenant)
@@ -873,14 +869,22 @@ def read_chain(project_id: str, request: Request, response: Response, db: Any = 
 
 # ── The TEA, out of GEX ────────────────────────────────────────────────────────
 
+def chain_read_allowed(basis: str, appointed_ie: bool) -> bool:
+    """Who reads the chain: the owner, or the independent engineer appointed on the project.
+    Not GEX staff (basis "platform_admin") and not a shared reader."""
+    return basis == "owner" or appointed_ie
+
+
 def _chain_reader(request: Request, project_id: str):
+    """The one read check for every chain route (the chain, its workbook, its OpenPyTEA config)."""
     payload = payload_from_request(request) or {}
     access = pre_fid_access.resolve(request, project_id)
-    reviewer = (access.basis not in ("owner", "platform_admin") and bool(payload.get("user_id"))
-                and _appointed_ie(payload["user_id"], access.project_id))
-    if access.basis not in ("owner", "platform_admin") and not reviewer:
-        raise HTTPException(status_code=403, detail={"code": "OWNER_ONLY",
-                                                     "message": "The calculation chain is the owner's."})
+    appointed = (access.basis != "owner" and bool(payload.get("user_id"))
+                 and _appointed_ie(payload["user_id"], access.project_id))
+    if not chain_read_allowed(access.basis, appointed):
+        raise HTTPException(status_code=403, detail={
+            "code": "OWNER_ONLY", "message": "The calculation chain is the owner's. A shared reader sees the "
+                                             "returns version, which cites it."})
     return access, payload
 
 

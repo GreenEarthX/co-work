@@ -94,3 +94,42 @@ def test_offtake_service_reuses_persisted_calibration_without_curve_config(tmp_p
 
     assert result["project_id"] == project_id
     assert "provenance" in result
+
+
+# ── Portfolio rollup (renamed from "GreenMesh rollup" 2026-11-12, platform gap G-12) ──
+
+def test_the_deprecated_rollup_config_key_still_gives_the_same_value(tmp_path):
+    curve = calibrated_curve(tmp_path)
+    contracts = [{"total_value": 1000.0}, {"total_value": 250.0}]
+    current = OfftakeEngine(offtake_config(), curve).portfolio_rollup(contracts)
+
+    legacy_cfg = offtake_config()
+    legacy_cfg["greenmesh_rollup"] = legacy_cfg.pop("portfolio_rollup")
+    legacy = OfftakeEngine(legacy_cfg, curve).portfolio_rollup(contracts)
+
+    assert current["enabled"] and legacy["enabled"]
+    assert current["enterprise_value"] == legacy["enterprise_value"]
+    assert current["contracted_value"] == 1250.0
+
+
+def test_the_new_rollup_key_wins_over_the_deprecated_one(tmp_path):
+    curve = calibrated_curve(tmp_path)
+    cfg = offtake_config()
+    cfg["greenmesh_rollup"] = {"enabled": False}
+    assert OfftakeEngine(cfg, curve).portfolio_rollup([{"total_value": 1.0}])["enabled"] is True
+
+
+def test_portfolio_rollup_route_and_its_deprecated_alias_answer_alike(service_client):
+    project_id = "api_rollup_project"
+    assert service_client.post("/pf/curve/calibrate", json=curve_config(project_id)).status_code == 200
+    payload = offtake_config(project_id)
+    payload["contracts"] = [{"total_value": 500.0}]
+
+    new = service_client.post("/pf/offtake/portfolio-rollup", json=payload)
+    old = service_client.post("/pf/offtake/rollup", json=payload)
+    assert new.status_code == old.status_code == 200
+    assert new.json()["enterprise_value"] == old.json()["enterprise_value"]
+
+    ops = service_client.get("/openapi.json").json()["paths"]
+    assert ops["/pf/offtake/rollup"]["post"].get("deprecated") is True
+    assert not ops["/pf/offtake/portfolio-rollup"]["post"].get("deprecated")

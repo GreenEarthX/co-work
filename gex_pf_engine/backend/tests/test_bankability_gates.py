@@ -171,7 +171,7 @@ def test_no_gate_requires_evidence_before_the_state_at_which_it_can_exist():
 
 def test_every_snapshot_records_the_rules_version_that_judged_it():
     """T15 — a determination must be reproducible under a named rule set."""
-    assert _evaluate([])["rules_version"] == "4.8.0"
+    assert _evaluate([])["rules_version"] == "4.9.0"
 
 
 def test_every_live_item_has_a_label_an_owner_and_a_route():
@@ -339,7 +339,7 @@ def test_T12_balance_sheet_drops_only_items_that_protect_a_lender_and_waives_no_
     g8 = {d["key"] for d in _gate(snap, "G8_AUDIT_GRADE_MODEL")["evidence_detail"] if d["applicable"]}
     assert g6 == {"ie_report_issued", "energy_balance_verified", "capex_opinion_reasonableness",
                   "opex_opinion_reasonableness"}
-    assert g8 == {"base_case_model", "downside_cases", "model_consistency_with_ie"}
+    assert g8 == {"base_case_model", "engine_returns_case", "downside_cases", "model_consistency_with_ie"}
     lender_only = {k for k, v in B.EVIDENCE_SCOPE.items() if v == "PROJECT_FINANCE"}
     assert {"model_audit_opinion", "covenant_suite_defined", "dsra_maintenance_reserve_logic",
             "hedging_plan", "completion_test_definitions"} <= lender_only
@@ -351,7 +351,8 @@ def test_a_balance_sheet_project_does_not_reach_credit_decision_without_the_asse
     CREDIT_APPROVED with no independent validation. Negative-verified 2026-10-30: restoring
     the old scope makes it reach CREDIT_APPROVED here."""
     drop = {"ie_report_issued", "energy_balance_verified", "capex_opinion_reasonableness",
-            "opex_opinion_reasonableness", "base_case_model", "downside_cases", "model_consistency_with_ie"}
+            "opex_opinion_reasonableness", "base_case_model", "engine_returns_case", "downside_cases",
+            "model_consistency_with_ie"}
     snap = _evaluate(_all_evidence(drop=drop), financing_model="BALANCE_SHEET")
     assert snap["current_state"] == "BUILDABLE"
     assert set(snap["gates_blocking_next_state"]) == {"G6_IE_SIGNOFF"}

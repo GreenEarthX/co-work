@@ -515,6 +515,19 @@ The database is **not a file you can copy**. It is a Docker named volume:
     volume      files_postgres_data
     reached at  localhost:55432 -> container gex-pg-forward -> 5432
 
+**The forwarder listens on this Mac only (since 2026-11-22).** It used to publish
+:55432 on every interface (`0.0.0.0`, `[::]`). PostgreSQL takes a password from any
+address, and the `gex_app` / `gex_user` development passwords are on public GitHub, so
+anyone on the same network could have signed in as the superuser. No compose file or
+script creates the forwarder (`start_stack.sh` only starts it). If it is ever missing,
+re-create it exactly like this, never with a bare `-p 55432:5432`:
+
+```bash
+docker run -d --name gex-pg-forward --restart unless-stopped --network files_gex_net \
+  -p 127.0.0.1:55432:5432 -p '[::1]:55432:5432' \
+  alpine/socat TCP-LISTEN:5432,fork,reuseaddr TCP:files-postgres-1:5432
+```
+
 `docker inspect` reports the mount as `/var/lib/docker/volumes/.../_data`, but
 **that path does not exist on macOS** — it is inside the Docker Desktop VM. On
 the host the bytes live in one blob,
@@ -854,6 +867,7 @@ two guardrails in `test_fuel_reference_slice.py`). The same 18 skips, read with 
 
 **2026-11-20 (latest): OpenPyTEA 3.1.0 and a results view per TEA run** (handoff §8 item 104; no migration). 3.1.0 starts fixed cost with production (3.0.0 charged it while building) and charges no working-capital interest: reference e-methanol LCOP 2.307 -> 2.0785. A chain TEA run stores `tea_inputs.analysis` (breakdown, tornado with stated ranges, Gabillon index band from `POST /tea/index-band`); `core/tea_report.py` gives each run a fixed `GEX-TEA-…` reference and the inputs check. The screen is `TeaRunReport.tsx` on Calculation chain step 2. No Monte Carlo on that screen (JML): the band is Gabillon's, and it never covers power. Never put a route helper between `@chain_router.get` and its function (`test_tea_report.py` pins it). North Sea re-run `CLM-MBC-6cdd261cbd` supersedes v2 (351.0 -> 270.0 M EUR: v2 double-counted OSBL). OpenPyTEA 3.2.3 refuses canonical mode until three category names are renamed; quote mode is identical. Platform **2110 pass / 15 skip / 0 fail**, frontend **336**.
 **2026-11-21: head is 129 — OpenPyTEA 3.2.3, Gabillon beside each TEA run, administrator screens** (handoff §8 item 105; branch `tea-323-console`). 3.2 renamed three correlation categories: use "Compressors, fans, & blowers" and "Absorption, adsorption, & membrane separation"; an old name is translated and LISTED in `defaults_used`, never silent (`tea_engine/correlation_set.RENAMED_CATEGORIES`). Each chain run records `analysis.market_reference` (the product's Gabillon price levelised like the LCOP; SEED says so). The exported TEA workbook opens with the report sheets (`core/tea_report_workbook.py`). GEX administrators (token `is_platform_admin`) get top-bar buttons to `/gex-console`, `/gex-console/gabillon`, `/gex-console/tea-parameters` (read only, 403 otherwise). Result tables use `frontend/src/lib/houseStyle.ts`. Platform **2124 pass / 15 skip / 0 fail**, frontend **346**. North Sea's open TEA run is `CLM-MBC-6c2bc77c3e` (3.2.3; supersedes 6cdd261cbd): Foxwell reviews that one.
+**2026-11-23: the calculation chain is the client's, not GEX staff's (JML; branch `chain-owner-only`).** Its server routes let `is_platform_admin` read the chain and its TEA exports, against R0P and the screen (which never opened it to PLATFORM). Now every chain read goes through `routes_calculation_chain._chain_reader` / `chain_read_allowed`: the owner or the appointed independent engineer, nobody else (GEX staff get 403 `OWNER_ONLY`). Live: owner 200, GEX admin 403. `test_calculation_chain.py` +5 (who reads; every GET route uses the one check, by AST), both negative-verified.
 **2026-11-17 (main made current development): 1896 pass, 15 skip, 0 fail** at head **120**, both exported, run alone (23 min). The first run of the day was 1892 / 15 / 3: one database timeout on :55432 (passes on re-run) and two `test_project_records.py` tests still expecting stored gate scores; updated to the 17 Nov structuring rule, +1 test. Same 15 skips (7 auth isolation, 7 plant builder, 1 evidence archive). Frontend **305**, `tsc` and the menu audit clean.
 
 **2026-11-16 (requirements pins): 1782 pass, 15 skip, 0 fail**, both exported, run alone (= the 1797 collected; same 15 skips). `requirements.txt` pins now match `backend/venv` (pydantic 2.5.3 → 2.12.5 and 14 others; `cryptography==46.0.6` pinned, as newer releases have no Intel-macOS wheel and need Rust). A clean Python 3.14 `pip install --dry-run` resolves with no source build EXCEPT `matrix-nio[e2e]` → `python-olm`, which needs `brew install libolm cmake` (imported by nothing; unchanged).

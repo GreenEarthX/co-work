@@ -43,7 +43,7 @@
     "_note": "Volume flex is the buyer's swing option, valued by LSMC on Q-paths. take_levels discretises the per-period control; volume_grid_points discretises the cumulative-take state."
   },
 
-  "greenmesh_rollup": {
+  "portfolio_rollup": {
     "enabled": true,
     "plant_capacity_per_year": 130.0,
     "merchant_margin": 0.10,

@@ -1,134 +1,169 @@
-# GreenEarthX Platform — Setup Guide
+# GEX — development setup
 
-## Prerequisites
+A working development stack from a fresh checkout: PostgreSQL, the platform backend,
+the PF engine, the TEA engine and the frontend.
 
-- **Node.js** 20+
-- **Python** 3.11+
-- **npm** 10+
-
-> Docker/PostgreSQL/Redis are not required for local development. The platform runs on SQLite by default.
+**Checked against the tree on 22 Nov 2026** (migration head 129). Running it day to
+day is covered in `OPERATIONS.md`, and security settings in `SECURITY.md`.
+**PostgreSQL is required:** the backend refuses to start on SQLite.
 
 ---
 
-## Local Development (Recommended)
+## 1. Prerequisites
 
-### Step 1 — Finance Engine (port 8001)
+| Tool | Version in use | Notes |
+|---|---|---|
+| Python | 3.14 | Backend and PF engine. Each has its own virtualenv. |
+| Node.js | 23.9 (20+ works) | Frontend |
+| Docker Desktop | — | PostgreSQL 15 + PostGIS. Leave at least 2 GB free on its VM disk. |
+| `libolm`, `cmake` | — | Only for `matrix-nio[e2e]` (`brew install libolm cmake`). Nothing imports it. |
 
-```bash
-cd gex_pf_engine/backend
+`requirements.txt` pins `cryptography==46.0.6`, because newer releases have no Intel
+macOS wheel and need Rust to build. `lxml` is required: the connector schema checks
+fail without it.
 
-# First time: create venv and install
-python -m venv ../micro_service
-source ../micro_service/bin/activate     # Windows: ..\micro_service\Scripts\activate
-pip install -r requirements.txt
+---
 
-# Start
-uvicorn pf_engine.main:app --host 0.0.0.0 --port 8001 --reload
+## 2. Repositories
+
+The two repositories sit side by side in one folder:
+
+```text
+files/
+├── gex-platform-enhanced/   backend :8000, tea_engine :8002, frontend :3000
+├── gex_pf_engine/           PF engine :8001 (own repo, own venv: micro_service/)
+├── gex-demo-compose.yml     PostgreSQL definition (compose project "files")
+├── backup_postgres.sh, start_stack.sh, start_pf_engine.sh
+└── .env                     database passwords for compose (git-ignored, mode 600)
 ```
 
-Verify: `http://localhost:8001/docs`
+`gex_pf_engine` and `gex-platform-enhanced/deal_engine` are **different services**.
+Neither is a copy of the other.
 
-### Step 2 — Platform Backend (port 8000)
+---
+
+## 3. PostgreSQL
+
+1. **Start the database container** (project `files`, so that the forwarder can find it):
+
+   ```bash
+   cd files
+   docker compose -p files -f gex-demo-compose.yml up -d postgres
+   ```
+
+2. **Start the forwarder on :55432, listening on this machine only:**
+
+   ```bash
+   docker run -d --name gex-pg-forward --restart unless-stopped --network files_gex_net \
+     -p 127.0.0.1:55432:5432 -p '[::1]:55432:5432' \
+     alpine/socat TCP-LISTEN:5432,fork,reuseaddr TCP:files-postgres-1:5432
+   ```
+
+   Never publish it as `-p 55432:5432`: that opens the database to the whole network.
+
+3. **Create the roles once, before anything else:**
+
+   ```bash
+   docker exec -i files-postgres-1 psql -U gex_user -d gex_platform \
+     < gex-platform-enhanced/backend/scripts/setup_postgres_rls.sql
+   ```
+
+   It creates `gex_app`, `gex_admin`, `gex_engine` and `gex_anchor`. Then set each password to the value in your `.env` (`ALTER ROLE … PASSWORD …`). **Do not run it again after migrations.**
+
+4. **Fill the database.** Choose one:
+   - **Restore a dump (preferred).** Restore into a throwaway database, check it, promote it, then re-apply `GRANT CONNECT` and the `app.current_company_id` default. See `OPERATIONS.md` §5.
+   - **Build from migrations.** Run `alembic upgrade auth_slice@head` (`OPERATIONS.md` §6), then the post-rebuild data scripts listed in `.claude/CLAUDE.md`.
+
+---
+
+## 4. Environment files
+
+There is no `.env.example`. **Never commit a real value**: the `co-work` mirror is
+public. The variables are:
+
+- **`gex-platform-enhanced/backend/.env`:**
+  - `DATABASE_URL` (`gex_app` on `localhost:55432`);
+  - `ALEMBIC_DATABASE_URL` (`gex_user`);
+  - `SECRET_KEY`;
+  - the optional settings in `OPERATIONS.md` §4.
+
+  The `Settings` class rejects any variable it does not declare.
+- **`gex_pf_engine/backend/.env`:**
+  - `GEX_ENGINE_DATABASE_URL` (`gex_engine`);
+  - `GEX_PLATFORM_API_URL`;
+  - `GEX_JWT_SECRET`, equal to the backend's `SECRET_KEY`.
+- **Export as real environment variables**, not only in `.env`:
+  - `ALEMBIC_DATABASE_URL` and `DATABASE_URL` for migrations and tests;
+  - `CANONICAL_DATABASE_URL` (the `gex_app` credential) for the backend.
+
+---
+
+## 5. Install and run
 
 ```bash
+# Platform backend (:8000)
 cd gex-platform-enhanced/backend
-
-# First time: create venv and install
-python -m venv venv
-source venv/bin/activate     # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Start
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python3 -m venv venv && venv/bin/pip install -r requirements.txt
+env CANONICAL_DATABASE_URL="$DATABASE_URL" venv/bin/python -m uvicorn app.main:app --port 8000
 ```
-
-Verify: `http://localhost:8000/docs`
-
-### Step 3 — Frontend (port 3000)
 
 ```bash
-cd gex-platform-enhanced/frontend
-npm install
-npm run dev
+# PF engine (:8001): its own venv, package pf_engine (not app)
+cd gex_pf_engine/backend
+python3 -m venv ../micro_service && ../micro_service/bin/pip install -r requirements.txt
+source ../micro_service/bin/activate && uvicorn pf_engine.main:app --reload --port 8001
 ```
-
-Open: `http://localhost:3000`
-
-On first visit, the **RoleSelector** will prompt you to set your company type, service type, and business function. This controls which navigation items are visible.
-
----
-
-## Environment Variables
-
-Create `gex-platform-enhanced/backend/.env`:
 
 ```bash
-ENVIRONMENT=development
-DATABASE_URL=sqlite:///./greenearth.db
-CORS_ORIGINS=["http://localhost:3000"]
-SECRET_KEY=dev-secret-key-change-in-prod
-```
-
-The backend falls back to sensible defaults if `.env` is absent.
-
----
-
-## First-Run Seed Data
-
-Seed bankability evidence for a demo project:
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/bankability/evidence/seed?project_id=default"
-```
-
----
-
-## CISO Administration
-
-The CISO gear icon (⚙) in the top-bar requires a password. Default: `Enter-123`.
-
-To override, set in browser console:
-
-```js
-localStorage.setItem('gex_ciso_password', 'your-password')
-```
-
-Session is maintained via `sessionStorage` — re-authentication required on new tab/window.
-
----
-
-## Key URLs
-
-| URL | Description |
-| --- | --- |
-| `http://localhost:3000` | Frontend |
-| `http://localhost:3000/onboarding` | Role selector + project wizard |
-| `http://localhost:8000/docs` | Platform API (Swagger) |
-| `http://localhost:8001/docs` | Finance Engine API (Swagger) |
-| `http://localhost:8000/health` | Platform health check |
-| `http://localhost:8001/health` | Finance Engine health check |
-
----
-
-## Docker (Optional)
-
-```bash
+# TEA engine (:8002), run from the repo root with the backend venv
 cd gex-platform-enhanced
-docker-compose up -d
+backend/venv/bin/pip install -r tea_engine/requirements.txt
+env GEX_JWT_SECRET="$SECRET_KEY" GEX_JWT_ISSUER=https://api.greenearthx.com \
+    GEX_JWT_AUDIENCE=gex-platform TEA_STUB=0 \
+    backend/venv/bin/python -m uvicorn tea_engine.main:app --port 8002
 ```
 
-Services: `frontend` (3000), `backend` (8000), `redis` (6379).
-The finance engine runs separately — start it manually per Step 1 above.
+```bash
+# Frontend (:3000); /api is proxied to VITE_API_URL or http://localhost:8000
+cd gex-platform-enhanced/frontend
+npm install && npm run dev
+```
+
+In Claude Code, start the frontend, backend and TEA engine from `.claude/launch.json`.
+The PF engine has no entry there, by design (`.claude/CLAUDE.md`, "Starting the
+services").
+
+Then check the health routes in `OPERATIONS.md` §3.
 
 ---
 
-## Troubleshooting
+## 6. First sign-in
 
-**Frontend shows blank page after navigation:**
-Ensure React Router routes match — all finance routes are available under both `/stage-gates` (legacy) and `/finance/stage-gates` (new).
+- **Accounts are vetted.** Registration creates a `PENDING` account, and only GEX staff can activate it.
+- **First platform administrator:**
 
-**Backend import errors on startup:**
-Optional modules (Redis, event bus, Matrix) are wrapped in `try/except`. The warning `⚠️ module not found — skipping` is normal in minimal installs.
+  ```bash
+  venv/bin/python scripts/create_platform_admin.py --email … --name "…" --dry-run
+  ```
 
-**CISO gear doesn't open dropdown:**
-After authenticating, the CISO session is stored in `sessionStorage`. Opening a new tab requires re-authentication.
+  Run it from `backend/`, then again without `--dry-run`.
+- **Demo accounts:** created only when `GEX_SEED_DEMO_USERS` is set. They are never created in production, and their password is published.
+
+---
+
+## 7. Tests
+
+See `OPERATIONS.md` §8. Export both database URLs first. Without them, about 125 PostgreSQL tests skip and the run still reports green.
+
+---
+
+## 8. Common problems
+
+| Symptom | Cause |
+|---|---|
+| Port 55432 accepts connections, but queries fail or hang | PostgreSQL is stopped or Docker Desktop is paused. Run `files/start_stack.sh`. |
+| "password authentication failed" for `gex_app` | The role's password does not match `.env`. Use `ALTER ROLE`. |
+| A migration ran against the wrong database | `ALEMBIC_DATABASE_URL` was not exported. `alembic.ini` holds a sentinel and aborts. |
+| `relation "matrix_rooms" already exists` | You ran `alembic upgrade heads`. Use `auth_slice@head`. |
+| The backend exits at start | A `*_DB_BACKEND` switch is `sqlite`, or a variable is not declared in `Settings`. |
+| Gate screens say "No access to this project's gates" | A 401/403 from the engine. Check `GEX_JWT_SECRET`, or the account's project access. |
